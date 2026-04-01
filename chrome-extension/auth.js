@@ -92,13 +92,13 @@ function showLoginOverlay() {
       '<div style="width:64px;height:64px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;margin:0 auto 16px">' +
         '<svg viewBox="0 0 24 24" width="32" height="32" fill="#111b21"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>' +
       '</div>' +
-      '<h2 style="margin:0;font-size:22px;font-weight:700;color:#e9edef">WhatsApp CRM</h2>' +
+      '<h2 style="margin:0;font-size:22px;font-weight:700;color:#e9edef">E-ZAP</h2>' +
       '<p style="margin:6px 0 0;font-size:13px;color:#8696a0">Insira seu token de acesso para continuar</p>' +
     '</div>' +
     // Token Input
     '<div style="margin-bottom:16px;text-align:left">' +
       '<label style="font-size:11px;color:#8696a0;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Token de Acesso</label>' +
-      '<input id="wcrm-auth-token" type="text" placeholder="WCRM-XXXX-XXXX-XXXX" maxlength="19" autocomplete="off" spellcheck="false" style="width:100%;padding:12px 14px;background:#111b21;border:2px solid #3b4a54;border-radius:10px;color:#e9edef;font-size:16px;font-family:monospace;letter-spacing:2px;outline:none;box-sizing:border-box;text-transform:uppercase;text-align:center;transition:border-color 0.2s">' +
+      '<input id="wcrm-auth-token" type="text" placeholder="Cole seu token aqui" maxlength="30" autocomplete="off" spellcheck="false" style="width:100%;padding:12px 14px;background:#111b21;border:2px solid #3b4a54;border-radius:10px;color:#e9edef;font-size:16px;font-family:monospace;letter-spacing:1px;outline:none;box-sizing:border-box;text-transform:uppercase;text-align:center;transition:border-color 0.2s">' +
     '</div>' +
     // Login Button
     '<button id="wcrm-auth-login" style="width:100%;padding:14px;background:#25d366;color:#111b21;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s;margin-bottom:12px">Entrar</button>' +
@@ -132,15 +132,9 @@ function setupLoginEvents() {
 
   if (!input || !btn) return;
 
-  // Auto-format token as user types: WCRM-XXXX-XXXX-XXXX
+  // Just auto-uppercase (no reformatting to preserve any token format)
   input.addEventListener("input", function() {
-    var raw = input.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    var formatted = "";
-    if (raw.length > 0) formatted += raw.substring(0, 4);
-    if (raw.length > 4) formatted += "-" + raw.substring(4, 8);
-    if (raw.length > 8) formatted += "-" + raw.substring(8, 12);
-    if (raw.length > 12) formatted += "-" + raw.substring(12, 16);
-    input.value = formatted;
+    input.value = input.value.toUpperCase();
   });
 
   // Focus styling
@@ -163,9 +157,9 @@ function setupLoginEvents() {
     status.textContent = "";
     status.style.color = "#ff6b6b";
 
-    // Validate format
-    if (!/^WCRM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(token) && !/^WCRM-ADMIN-[A-Z0-9]+$/i.test(token)) {
-      status.textContent = "Formato inválido. Use: WCRM-XXXX-XXXX-XXXX";
+    // Validate format: must start with WCRM- and have at least 10 chars
+    if (!/^WCRM-.{5,}$/.test(token)) {
+      status.textContent = "Token inválido. Deve começar com WCRM-";
       input.style.borderColor = "#ff6b6b";
       return;
     }
