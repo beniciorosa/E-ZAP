@@ -86,20 +86,28 @@
     <p style="margin:0;font-size:12px;color:#8696a0">Nenhum usuário conectado. Abra o WhatsApp Web e insira seu token.</p>
   </div>
 
-  <h2>E-ZAP Settings</h2>
+  <!-- HubSpot section: only visible for admins -->
+  <div id="hubspot-section" style="display:none">
+    <h2>E-ZAP Settings</h2>
+    <label>HubSpot API Key (Private App Token)</label>
+    <input type="password" id="apiKey" placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    <button id="saveBtn">Salvar</button>
+    <div class="status" id="status"></div>
+    <div class="info">
+      Para criar um Private App Token no HubSpot:<br>
+      1. HubSpot > Settings > Integrations > Private Apps<br>
+      2. Create a Private App<br>
+      3. Scopes: <b>crm.objects.contacts.read</b>, <b>crm.objects.deals.read</b><br>
+      4. Copie o token e cole aqui
+    </div>
+  </div>
 
-  <label>HubSpot API Key (Private App Token)</label>
-  <input type="password" id="apiKey" placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-
-  <button id="saveBtn">Salvar</button>
-  <div class="status" id="status"></div>
-
-  <div class="info">
-    Para criar um Private App Token no HubSpot:<br>
-    1. HubSpot > Settings > Integrations > Private Apps<br>
-    2. Create a Private App<br>
-    3. Scopes: <b>crm.objects.contacts.read</b>, <b>crm.objects.deals.read</b><br>
-    4. Copie o token e cole aqui
+  <!-- Non-admin users see this -->
+  <div id="user-info-section" style="display:none">
+    <div style="text-align:center;padding:12px;background:#202c33;border-radius:8px;border:1px solid #2a3942">
+      <div style="font-size:11px;color:#25d366;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">E-ZAP v1.3.0</div>
+      <div style="font-size:11px;color:#8696a0">Configurado pelo administrador</div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

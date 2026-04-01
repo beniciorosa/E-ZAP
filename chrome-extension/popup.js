@@ -10,6 +10,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const userToken = document.getElementById("user-token");
   const logoutBtn = document.getElementById("logoutBtn");
 
+  const hubspotSection = document.getElementById("hubspot-section");
+  const userInfoSection = document.getElementById("user-info-section");
+
   // ===== Load auth info =====
   chrome.storage.local.get("wcrm_auth", (data) => {
     const auth = data.wcrm_auth;
@@ -20,9 +23,20 @@ document.addEventListener("DOMContentLoaded", () => {
       userRole.textContent = auth.userRole === "admin" ? "Administrador" : "Usuário";
       userAvatar.textContent = (auth.userName || "U").charAt(0).toUpperCase();
       userToken.textContent = auth.token;
+
+      // Only admins see HubSpot API key config
+      if (auth.userRole === "admin") {
+        hubspotSection.style.display = "block";
+        userInfoSection.style.display = "none";
+      } else {
+        hubspotSection.style.display = "none";
+        userInfoSection.style.display = "block";
+      }
     } else {
       userSection.style.display = "none";
       noUserSection.style.display = "block";
+      hubspotSection.style.display = "none";
+      userInfoSection.style.display = "none";
     }
   });
 
