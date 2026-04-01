@@ -1237,8 +1237,12 @@ function init() {
   });
 }
 
-// Start after authentication
+// Start after authentication (only if 'crm' feature is enabled)
 document.addEventListener("wcrm-auth-ready", function() {
-  setTimeout(init, 500);
+  if (window.__ezapHasFeature && window.__ezapHasFeature("crm")) {
+    setTimeout(init, 500);
+  } else {
+    console.log("[WCRM] CRM feature not enabled for this user");
+  }
 });
-if (window.__wcrmAuth) setTimeout(init, 2000);
+if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm")) setTimeout(init, 2000);

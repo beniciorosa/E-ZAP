@@ -53,11 +53,15 @@
     .btn-sm {
       padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
       cursor: pointer; border: 1px solid #3b4a54; background: #2a3942; color: #8696a0;
-      transition: all 0.15s;
+      transition: all 0.15s; text-decoration: none;
     }
     .btn-sm:hover { background: #3b4a54; color: #e9edef; }
     .btn-sm.danger { color: #ff6b6b; border-color: #ff6b6b30; }
     .btn-sm.danger:hover { background: #ff6b6b20; }
+    .btn-sm.primary { color: #25d366; border-color: #25d36630; }
+    .btn-sm.primary:hover { background: #25d36620; }
+    .btn-sm.warn { color: #ff922b; border-color: #ff922b30; }
+    .btn-sm.warn:hover { background: #ff922b20; }
 
     /* ===== TABS ===== */
     .tabs {
@@ -67,17 +71,25 @@
     .tab {
       padding: 12px 20px; font-size: 13px; font-weight: 600; color: #8696a0;
       cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s;
+      position: relative;
     }
     .tab:hover { color: #e9edef; }
     .tab.active { color: #25d366; border-bottom-color: #25d366; }
+    .tab .notif-badge {
+      position: absolute; top: 6px; right: 6px;
+      background: #ff6b6b; color: #fff; font-size: 9px; font-weight: 700;
+      min-width: 16px; height: 16px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 4px;
+    }
 
     /* ===== CONTENT ===== */
-    .content { max-width: 960px; margin: 0 auto; padding: 24px; }
+    .content { max-width: 1100px; margin: 0 auto; padding: 24px; }
     .panel { display: none; }
     .panel.active { display: block; }
 
     /* ===== STATS ROW ===== */
-    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
     .stat-card {
       background: #202c33; border: 1px solid #2a3942; border-radius: 10px; padding: 16px;
     }
@@ -86,6 +98,7 @@
     .stat-card .value.green { color: #25d366; }
     .stat-card .value.blue { color: #4d96ff; }
     .stat-card .value.orange { color: #ff922b; }
+    .stat-card .value.red { color: #ff6b6b; }
 
     /* ===== TABLE ===== */
     .section-header {
@@ -99,23 +112,23 @@
     .btn-primary:hover { background: #1da851; }
 
     .table-wrap {
-      background: #202c33; border: 1px solid #2a3942; border-radius: 10px; overflow: hidden;
+      background: #202c33; border: 1px solid #2a3942; border-radius: 10px; overflow-x: auto;
     }
     table { width: 100%; border-collapse: collapse; }
     th {
-      text-align: left; padding: 12px 16px; font-size: 11px; text-transform: uppercase;
+      text-align: left; padding: 12px 14px; font-size: 11px; text-transform: uppercase;
       letter-spacing: 0.5px; color: #8696a0; font-weight: 600; background: #1a2730;
-      border-bottom: 1px solid #2a3942;
+      border-bottom: 1px solid #2a3942; white-space: nowrap;
     }
     td {
-      padding: 12px 16px; font-size: 13px; border-bottom: 1px solid #2a394240;
+      padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #2a394240;
       vertical-align: middle;
     }
     tr:last-child td { border-bottom: none; }
     tr:hover { background: #2a394220; }
 
     .token-cell {
-      font-family: monospace; font-size: 12px; color: #8696a0;
+      font-family: monospace; font-size: 11px; color: #8696a0;
       background: #111b21; padding: 4px 8px; border-radius: 4px; display: inline-block;
       cursor: pointer; position: relative;
     }
@@ -128,14 +141,32 @@
 
     .badge {
       font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
-      text-transform: uppercase; letter-spacing: 0.5px;
+      text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;
     }
     .badge.admin { background: #cc5de820; color: #cc5de8; }
     .badge.user { background: #4d96ff20; color: #4d96ff; }
     .badge.active { background: #25d36620; color: #25d366; }
     .badge.inactive { background: #ff6b6b20; color: #ff6b6b; }
 
-    .actions { display: flex; gap: 6px; }
+    .feature-tag {
+      display: inline-block; font-size: 9px; font-weight: 600; padding: 2px 6px;
+      border-radius: 3px; margin: 1px 2px; text-transform: uppercase;
+      background: #4d96ff15; color: #4d96ff; border: 1px solid #4d96ff30;
+    }
+
+    .phone-tag {
+      display: inline-block; font-size: 11px; font-family: monospace; padding: 2px 6px;
+      border-radius: 3px; margin: 1px 2px;
+      background: #25d36615; color: #25d366; border: 1px solid #25d36630;
+    }
+
+    .actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    .device-info {
+      font-size: 11px; color: #8696a0; line-height: 1.5;
+    }
+    .device-info .ip { color: #ff922b; font-family: monospace; }
+    .device-info .loc { color: #4d96ff; }
 
     /* ===== MODAL ===== */
     .modal-overlay {
@@ -145,7 +176,7 @@
     }
     .modal {
       background: #202c33; border: 1px solid #2a3942; border-radius: 12px;
-      padding: 28px; width: 420px; max-width: 90%;
+      padding: 28px; width: 520px; max-width: 90%; max-height: 90vh; overflow-y: auto;
     }
     .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 20px; }
     .form-group { margin-bottom: 14px; }
@@ -153,17 +184,30 @@
       display: block; font-size: 11px; color: #8696a0; text-transform: uppercase;
       letter-spacing: 0.5px; margin-bottom: 6px; font-weight: 600;
     }
-    .form-group input, .form-group select {
+    .form-group input, .form-group select, .form-group textarea {
       width: 100%; padding: 10px 12px; background: #111b21; border: 1px solid #3b4a54;
       border-radius: 8px; color: #e9edef; font-size: 13px; outline: none;
+      font-family: inherit;
     }
-    .form-group input:focus, .form-group select:focus { border-color: #25d366; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #25d366; }
+    .form-group .hint { font-size: 11px; color: #3b4a54; margin-top: 4px; }
     .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
     .modal-actions button { flex: 1; padding: 12px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
     .btn-cancel { background: #2a3942; color: #8696a0; border: 1px solid #3b4a54; }
     .btn-cancel:hover { background: #3b4a54; }
     .btn-save { background: #25d366; color: #111b21; border: none; font-weight: 700; }
     .btn-save:hover { background: #1da851; }
+
+    /* ===== Checkbox group ===== */
+    .checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    .checkbox-group label {
+      display: flex; align-items: center; gap: 6px; font-size: 13px; color: #e9edef;
+      text-transform: none; letter-spacing: 0; font-weight: 400; cursor: pointer;
+      background: #111b21; padding: 6px 12px; border-radius: 6px; border: 1px solid #3b4a54;
+      transition: all 0.15s;
+    }
+    .checkbox-group label:hover { border-color: #25d366; }
+    .checkbox-group input[type="checkbox"] { accent-color: #25d366; }
 
     .token-result {
       background: #111b21; border: 2px solid #25d366; border-radius: 10px;
@@ -202,6 +246,21 @@
       margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3942;
     }
     .msg-card-date { font-size: 11px; color: #3b4a54; }
+
+    /* ===== SECURITY LOG ===== */
+    .log-item {
+      display: flex; align-items: center; gap: 12px;
+      background: #202c33; border: 1px solid #2a3942; border-radius: 8px;
+      padding: 12px 16px; margin-bottom: 8px;
+    }
+    .log-item.blocked { border-left: 3px solid #ff6b6b; }
+    .log-item.ok { border-left: 3px solid #25d366; }
+    .log-icon { font-size: 20px; flex-shrink: 0; }
+    .log-details { flex: 1; }
+    .log-details .log-name { font-size: 13px; font-weight: 600; }
+    .log-details .log-meta { font-size: 11px; color: #8696a0; margin-top: 2px; }
+    .log-details .log-reason { font-size: 11px; color: #ff6b6b; margin-top: 2px; }
+    .log-time { font-size: 11px; color: #3b4a54; text-align: right; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -234,6 +293,7 @@
   <div class="tabs">
     <div class="tab active" data-tab="users" onclick="switchTab('users')">Usuarios</div>
     <div class="tab" data-tab="messages" onclick="switchTab('messages')">Mensagens Globais</div>
+    <div class="tab" data-tab="security" onclick="switchTab('security')">Seguranca <span class="notif-badge" id="secBadge" style="display:none">0</span></div>
   </div>
 
   <div class="content">
@@ -255,12 +315,13 @@
               <th>Token</th>
               <th>Perfil</th>
               <th>Status</th>
-              <th>Ultimo acesso</th>
+              <th>Features</th>
+              <th>Dispositivo</th>
               <th>Acoes</th>
             </tr>
           </thead>
           <tbody id="usersTableBody">
-            <tr><td colspan="8" class="empty-state">Carregando...</td></tr>
+            <tr><td colspan="9" class="empty-state">Carregando...</td></tr>
           </tbody>
         </table>
       </div>
@@ -277,6 +338,17 @@
       </div>
     </div>
 
+    <!-- ===== SECURITY PANEL ===== -->
+    <div class="panel" id="panel-security">
+      <div class="section-header">
+        <div class="section-title">Log de acessos e tentativas bloqueadas</div>
+        <button class="btn-sm" onclick="loadSecurityLog()">Atualizar</button>
+      </div>
+      <div id="securityLog">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -288,7 +360,18 @@
 var SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
 var SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
 
+var ALL_FEATURES = [
+  { key: "crm", label: "CRM (Labels + HubSpot)" },
+  { key: "msg", label: "Mensagens (MSG)" },
+  { key: "slice", label: "SLICE (Filtro Mentor)" },
+  { key: "abas", label: "ABAS (Grupos)" },
+  { key: "pin", label: "PIN (Fixar contatos)" },
+];
+
+var DEFAULT_FEATURES = ["crm", "msg", "abas", "pin"]; // slice excluded by default
+
 var currentAdmin = null;
+var allUsers = [];
 
 // ===== SUPABASE FETCH =====
 function supa(path, opts) {
@@ -347,6 +430,7 @@ function showApp() {
   document.getElementById("adminName").textContent = currentAdmin.user_name;
   loadUsers();
   loadMessages();
+  loadSecurityLog();
 }
 
 // Auto-login
@@ -355,7 +439,6 @@ function showApp() {
   if (saved) {
     try {
       currentAdmin = JSON.parse(saved);
-      // Re-validate
       supa("/rest/v1/rpc/validate_token", {
         method: "POST",
         body: { p_token: currentAdmin.token }
@@ -371,7 +454,6 @@ function showApp() {
   }
 })();
 
-// Enter key on login
 document.getElementById("loginToken").addEventListener("keydown", function(e) {
   if (e.key === "Enter") doLogin();
 });
@@ -388,6 +470,7 @@ function switchTab(tab) {
 function loadUsers() {
   supa("/rest/v1/users?select=*&order=created_at.asc").then(function(users) {
     if (!Array.isArray(users)) return;
+    allUsers = users;
     renderStats(users);
     renderUsersTable(users);
   });
@@ -397,18 +480,20 @@ function renderStats(users) {
   var total = users.length;
   var active = users.filter(function(u) { return u.active; }).length;
   var admins = users.filter(function(u) { return u.role === "admin"; }).length;
+  var redeemed = users.filter(function(u) { return u.token_redeemed; }).length;
 
   document.getElementById("statsRow").innerHTML =
     '<div class="stat-card"><div class="label">Total usuarios</div><div class="value blue">' + total + '</div></div>' +
     '<div class="stat-card"><div class="label">Ativos</div><div class="value green">' + active + '</div></div>' +
     '<div class="stat-card"><div class="label">Inativos</div><div class="value orange">' + (total - active) + '</div></div>' +
-    '<div class="stat-card"><div class="label">Administradores</div><div class="value">' + admins + '</div></div>';
+    '<div class="stat-card"><div class="label">Admins</div><div class="value">' + admins + '</div></div>' +
+    '<div class="stat-card"><div class="label">Tokens usados</div><div class="value">' + redeemed + '</div></div>';
 }
 
 function renderUsersTable(users) {
   var tbody = document.getElementById("usersTableBody");
   if (users.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Nenhum usuario cadastrado</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Nenhum usuario cadastrado</td></tr>';
     return;
   }
 
@@ -420,21 +505,49 @@ function renderUsersTable(users) {
     var statusLabel = u.active ? "Ativo" : "Inativo";
     var lastActive = u.last_active ? formatDate(u.last_active) : "Nunca";
 
+    // Features tags
+    var features = u.features || [];
+    var featHtml = "";
+    features.forEach(function(f) { featHtml += '<span class="feature-tag">' + f + '</span>'; });
+    if (!featHtml) featHtml = '<span style="color:#3b4a54;font-size:11px">-</span>';
+
+    // Phones tags
+    var phones = u.allowed_phones || [];
+    var phoneHtml = "";
+    phones.forEach(function(p) { phoneHtml += '<span class="phone-tag">+' + p + '</span>'; });
+
+    // Device info
+    var deviceHtml = "";
+    if (u.token_redeemed) {
+      deviceHtml = '<div class="device-info">';
+      if (u.redeemed_ip) deviceHtml += '<span class="ip">' + esc(u.redeemed_ip) + '</span><br>';
+      if (u.redeemed_location) deviceHtml += '<span class="loc">' + esc(u.redeemed_location) + '</span><br>';
+      if (u.redeemed_at) deviceHtml += '<span>' + formatDate(u.redeemed_at) + '</span>';
+      deviceHtml += '</div>';
+    } else {
+      deviceHtml = '<span style="color:#3b4a54;font-size:11px">Nao resgatado</span>';
+    }
+
     html += '<tr>';
-    html += '<td><strong>' + esc(u.name) + '</strong></td>';
-    html += '<td style="color:#8696a0">' + esc(u.email || '-') + '</td>';
-    html += '<td style="color:#8696a0">' + esc(u.phone || '-') + '</td>';
+    html += '<td><strong>' + esc(u.name) + '</strong>' + (phoneHtml ? '<br>' + phoneHtml : '') + '</td>';
+    html += '<td style="color:#8696a0;font-size:12px">' + esc(u.email || '-') + '</td>';
+    html += '<td style="color:#8696a0;font-size:12px">' + esc(u.phone || '-') + '</td>';
     html += '<td><span class="token-cell" onclick="copyToken(this, \'' + esc(u.token) + '\')">' + esc(u.token) + '</span></td>';
     html += '<td><span class="badge ' + roleClass + '">' + roleLabel + '</span></td>';
     html += '<td><span class="badge ' + statusClass + '">' + statusLabel + '</span></td>';
-    html += '<td style="color:#8696a0;font-size:12px">' + lastActive + '</td>';
+    html += '<td>' + featHtml + '</td>';
+    html += '<td>' + deviceHtml + '</td>';
     html += '<td><div class="actions">';
+    html += '<button class="btn-sm primary" onclick="openEditUser(\'' + u.id + '\')">Editar</button>';
+    if (u.token_redeemed) {
+      html += '<button class="btn-sm warn" onclick="resetDevice(\'' + u.id + '\', \'' + esc(u.name) + '\')">Reset Disp.</button>';
+    }
     if (u.active) {
       html += '<button class="btn-sm danger" onclick="toggleUser(\'' + u.id + '\', false)">Desativar</button>';
     } else {
       html += '<button class="btn-sm" onclick="toggleUser(\'' + u.id + '\', true)">Ativar</button>';
     }
-    html += '<button class="btn-sm" onclick="deleteUser(\'' + u.id + '\', \'' + esc(u.name) + '\')">Excluir</button>';
+    html += '<button class="btn-sm danger" onclick="deleteUser(\'' + u.id + '\', \'' + esc(u.name) + '\')">Excluir</button>';
     html += '</div></td>';
     html += '</tr>';
   });
@@ -463,8 +576,25 @@ function deleteUser(id, name) {
   supa("/rest/v1/users?id=eq." + id, { method: "DELETE" }).then(function() { loadUsers(); });
 }
 
+function resetDevice(id, name) {
+  if (!confirm("Resetar o dispositivo de \"" + name + "\"? O token podera ser usado em uma nova maquina.")) return;
+  supa("/rest/v1/rpc/reset_user_device", {
+    method: "POST",
+    body: { p_user_id: id }
+  }).then(function() {
+    alert("Dispositivo resetado com sucesso!");
+    loadUsers();
+  });
+}
+
 // ===== CREATE USER MODAL =====
 function openCreateUser() {
+  var featChecks = "";
+  ALL_FEATURES.forEach(function(f) {
+    var checked = DEFAULT_FEATURES.indexOf(f.key) !== -1 ? "checked" : "";
+    featChecks += '<label><input type="checkbox" name="feat" value="' + f.key + '" ' + checked + '> ' + f.label + '</label>';
+  });
+
   var container = document.getElementById("modalsContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeModal(event)">' +
@@ -472,8 +602,10 @@ function openCreateUser() {
         '<h3>Novo Usuario</h3>' +
         '<div class="form-group"><label>Nome completo</label><input type="text" id="newUserName" placeholder="Ex: Joao Silva"></div>' +
         '<div class="form-group"><label>Email</label><input type="email" id="newUserEmail" placeholder="joao@empresa.com"></div>' +
-        '<div class="form-group"><label>Telefone (com DDD)</label><input type="text" id="newUserPhone" placeholder="+5541999999999"></div>' +
+        '<div class="form-group"><label>Telefone contato (com DDD)</label><input type="text" id="newUserPhone" placeholder="+5541999999999"></div>' +
+        '<div class="form-group"><label>Numeros WhatsApp permitidos</label><input type="text" id="newUserPhones" placeholder="5519993473149, 5511998887777"><div class="hint">Numeros do WhatsApp Web autorizados (separados por virgula, somente digitos com DDI+DDD)</div></div>' +
         '<div class="form-group"><label>Perfil</label><select id="newUserRole"><option value="user">Usuario</option><option value="admin">Administrador</option></select></div>' +
+        '<div class="form-group"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="createUser()">Criar Usuario</button>' +
@@ -488,17 +620,36 @@ function createUser() {
   var name = document.getElementById("newUserName").value.trim();
   var email = document.getElementById("newUserEmail").value.trim();
   var phone = document.getElementById("newUserPhone").value.trim();
+  var phonesStr = document.getElementById("newUserPhones").value.trim();
   var role = document.getElementById("newUserRole").value;
   var resultEl = document.getElementById("createUserResult");
 
+  // Get selected features
+  var features = [];
+  document.querySelectorAll('input[name="feat"]:checked').forEach(function(cb) {
+    features.push(cb.value);
+  });
+
+  // Parse allowed phones
+  var allowedPhones = [];
+  if (phonesStr) {
+    allowedPhones = phonesStr.split(",").map(function(p) { return p.trim().replace(/\D/g, ""); }).filter(function(p) { return p.length >= 10; });
+  }
+
   if (!name) { resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Preencha o nome</div>'; return; }
 
-  // Generate token
   supa("/rest/v1/rpc/generate_token", { method: "POST", body: {} }).then(function(token) {
-    // Create user
     return supa("/rest/v1/users", {
       method: "POST",
-      body: { name: name, email: email || null, phone: phone || null, token: token, role: role }
+      body: {
+        name: name,
+        email: email || null,
+        phone: phone || null,
+        token: token,
+        role: role,
+        features: features,
+        allowed_phones: allowedPhones,
+      }
     }).then(function(data) {
       if (data && data.code) {
         resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Erro: ' + (data.message || data.code) + '</div>';
@@ -512,6 +663,81 @@ function createUser() {
         '</div>';
       loadUsers();
     });
+  });
+}
+
+// ===== EDIT USER MODAL =====
+function openEditUser(id) {
+  var user = allUsers.find(function(u) { return u.id === id; });
+  if (!user) return;
+
+  var featChecks = "";
+  var userFeats = user.features || [];
+  ALL_FEATURES.forEach(function(f) {
+    var checked = userFeats.indexOf(f.key) !== -1 ? "checked" : "";
+    featChecks += '<label><input type="checkbox" name="editFeat" value="' + f.key + '" ' + checked + '> ' + f.label + '</label>';
+  });
+
+  var phonesVal = (user.allowed_phones || []).join(", ");
+
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Editar Usuario</h3>' +
+        '<div class="form-group"><label>Nome completo</label><input type="text" id="editUserName" value="' + esc(user.name || '') + '"></div>' +
+        '<div class="form-group"><label>Email</label><input type="email" id="editUserEmail" value="' + esc(user.email || '') + '"></div>' +
+        '<div class="form-group"><label>Telefone contato</label><input type="text" id="editUserPhone" value="' + esc(user.phone || '') + '"></div>' +
+        '<div class="form-group"><label>Numeros WhatsApp permitidos</label><input type="text" id="editUserPhones" value="' + esc(phonesVal) + '"><div class="hint">Separados por virgula (somente digitos com DDI+DDD). Ex: 5519993473149, 5511998887777</div></div>' +
+        '<div class="form-group"><label>Perfil</label><select id="editUserRole"><option value="user"' + (user.role === 'user' ? ' selected' : '') + '>Usuario</option><option value="admin"' + (user.role === 'admin' ? ' selected' : '') + '>Administrador</option></select></div>' +
+        '<div class="form-group"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="saveEditUser(\'' + id + '\')">Salvar</button>' +
+        '</div>' +
+        '<div id="editUserResult"></div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById("editUserName").focus();
+}
+
+function saveEditUser(id) {
+  var name = document.getElementById("editUserName").value.trim();
+  var email = document.getElementById("editUserEmail").value.trim();
+  var phone = document.getElementById("editUserPhone").value.trim();
+  var phonesStr = document.getElementById("editUserPhones").value.trim();
+  var role = document.getElementById("editUserRole").value;
+  var resultEl = document.getElementById("editUserResult");
+
+  var features = [];
+  document.querySelectorAll('input[name="editFeat"]:checked').forEach(function(cb) {
+    features.push(cb.value);
+  });
+
+  var allowedPhones = [];
+  if (phonesStr) {
+    allowedPhones = phonesStr.split(",").map(function(p) { return p.trim().replace(/\D/g, ""); }).filter(function(p) { return p.length >= 10; });
+  }
+
+  if (!name) { resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Preencha o nome</div>'; return; }
+
+  supa("/rest/v1/users?id=eq." + id, {
+    method: "PATCH",
+    body: {
+      name: name,
+      email: email || null,
+      phone: phone || null,
+      role: role,
+      features: features,
+      allowed_phones: allowedPhones,
+    }
+  }).then(function(data) {
+    if (data && data.code) {
+      resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Erro: ' + (data.message || data.code) + '</div>';
+      return;
+    }
+    closeModalForce();
+    loadUsers();
   });
 }
 
@@ -571,7 +797,7 @@ function showMessageModal(msg) {
         '<h3>' + (isEdit ? 'Editar Mensagem' : 'Nova Mensagem Global') + '</h3>' +
         '<div class="form-group"><label>Titulo</label><input type="text" id="msgTitle" placeholder="Ex: Boas-vindas" value="' + (isEdit ? esc(msg.title) : '') + '"></div>' +
         '<div class="form-group"><label>Categoria (opcional)</label><input type="text" id="msgCategory" placeholder="Ex: Atendimento, Follow-up" value="' + (isEdit && msg.category ? esc(msg.category) : '') + '"></div>' +
-        '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="6" placeholder="Escreva a mensagem aqui..." style="width:100%;padding:10px 12px;background:#111b21;border:1px solid #3b4a54;border-radius:8px;color:#e9edef;font-size:13px;outline:none;resize:vertical;font-family:inherit">' + (isEdit ? esc(msg.content) : '') + '</textarea></div>' +
+        '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="6" placeholder="Escreva a mensagem aqui...">' + (isEdit ? esc(msg.content) : '') + '</textarea></div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="saveMessage(' + (isEdit ? "'" + msg.id + "'" : 'null') + ')">' + (isEdit ? 'Salvar' : 'Criar') + '</button>' +
@@ -607,6 +833,64 @@ function deleteMessage(id, title) {
     .then(function() { loadMessages(); });
 }
 
+// ===== SECURITY LOG =====
+function loadSecurityLog() {
+  // Load last 100 attempts, most recent first
+  supa("/rest/v1/token_attempts?select=*,users(name,email)&order=attempted_at.desc&limit=100").then(function(logs) {
+    if (!Array.isArray(logs)) {
+      // Fallback if join fails (table might not exist yet before migration)
+      document.getElementById("securityLog").innerHTML = '<div class="empty-state">Nenhum registro encontrado. Execute a migration_003 primeiro.</div>';
+      return;
+    }
+    renderSecurityLog(logs);
+
+    // Count blocked attempts for badge
+    var blocked = logs.filter(function(l) { return l.blocked; }).length;
+    var badge = document.getElementById("secBadge");
+    if (blocked > 0) {
+      badge.textContent = blocked;
+      badge.style.display = "flex";
+    } else {
+      badge.style.display = "none";
+    }
+  });
+}
+
+function renderSecurityLog(logs) {
+  var container = document.getElementById("securityLog");
+  if (logs.length === 0) {
+    container.innerHTML = '<div class="empty-state">Nenhum registro de acesso ainda.</div>';
+    return;
+  }
+
+  var html = "";
+  logs.forEach(function(l) {
+    var isBlocked = l.blocked;
+    var userName = l.users ? l.users.name : "Desconhecido";
+    var icon = isBlocked ? "&#128683;" : "&#9989;";
+    var cls = isBlocked ? "blocked" : "ok";
+
+    var reasonText = "";
+    if (l.reason === "device_mismatch") reasonText = "Dispositivo diferente tentou usar o token";
+    else if (l.reason === "phone_mismatch") reasonText = "Numero WhatsApp nao corresponde ao cadastrado (detectado: +" + esc(l.token_used) + ")";
+    else if (isBlocked) reasonText = "Acesso bloqueado";
+
+    html += '<div class="log-item ' + cls + '">';
+    html += '<div class="log-icon">' + icon + '</div>';
+    html += '<div class="log-details">';
+    html += '<div class="log-name">' + esc(userName) + '</div>';
+    html += '<div class="log-meta">';
+    if (l.ip_address) html += 'IP: <strong>' + esc(l.ip_address) + '</strong>';
+    if (l.location) html += ' &mdash; ' + esc(l.location);
+    html += '</div>';
+    if (reasonText) html += '<div class="log-reason">' + reasonText + '</div>';
+    html += '</div>';
+    html += '<div class="log-time">' + formatDate(l.attempted_at) + '</div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
 // ===== UTILS =====
 function closeModal(e) { if (e.target.classList.contains("modal-overlay")) closeModalForce(); }
 function closeModalForce() { document.getElementById("modalsContainer").innerHTML = ""; }
@@ -624,7 +908,7 @@ function formatDate(d) {
 
 function esc(s) {
   if (!s) return "";
-  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 </script>
 </body>

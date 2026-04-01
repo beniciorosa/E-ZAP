@@ -397,8 +397,12 @@ function initSlice() {
   createSliceSidebar();
 }
 
-// Start after authentication
+// Start after authentication (only if 'slice' feature is enabled)
 document.addEventListener("wcrm-auth-ready", function() {
-  setTimeout(initSlice, 600);
+  if (window.__ezapHasFeature && window.__ezapHasFeature("slice")) {
+    setTimeout(initSlice, 600);
+  } else {
+    console.log("[WCRM SLICE] SLICE feature not enabled for this user");
+  }
 });
-if (window.__wcrmAuth) setTimeout(initSlice, 1000);
+if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("slice")) setTimeout(initSlice, 1000);

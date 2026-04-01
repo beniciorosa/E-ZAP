@@ -47,21 +47,100 @@ function isExtensionValid() {
   try { return !!chrome.runtime && !!chrome.runtime.id; } catch(e) { return false; }
 }
 
-// ===== Load / Save =====
+// ===== Supabase Helper =====
+function supaRest(path, method, body, prefer) {
+  return new Promise(function(resolve) {
+    chrome.runtime.sendMessage({
+      action: "supabase_rest", path: path, method: method || "GET", body: body, prefer: prefer
+    }, function(resp) {
+      if (chrome.runtime.lastError) { resolve(null); return; }
+      resolve(resp);
+    });
+  });
+}
+
+function getUserId() {
+  return window.__wcrmAuth ? window.__wcrmAuth.userId : null;
+}
+
+// ===== Load / Save ABAS (Supabase + chrome.storage cache) =====
 function loadAbasData() {
   return new Promise(function(resolve) {
+    // Fast: load from local cache first
     chrome.storage.local.get("wcrm_abas", function(result) {
-      var data = result.wcrm_abas || { tabs: [] };
-      window._wcrmAbasCache = data;
-      resolve(data);
+      var localData = result.wcrm_abas || { tabs: [] };
+      window._wcrmAbasCache = localData;
+      resolve(localData);
+    });
+
+    // Background: sync from Supabase
+    var uid = getUserId();
+    if (!uid) return;
+
+    supaRest("/rest/v1/abas?user_id=eq." + uid + "&select=id,name,color,created_at").then(function(abas) {
+      if (!abas || !Array.isArray(abas)) return;
+      // Load contacts for each aba
+      var abaIds = abas.map(function(a) { return a.id; });
+      if (abaIds.length === 0) {
+        var data = { tabs: [] };
+        window._wcrmAbasCache = data;
+        chrome.storage.local.set({ wcrm_abas: data });
+        return;
+      }
+
+      supaRest("/rest/v1/aba_contacts?aba_id=in.(" + abaIds.join(",") + ")&select=aba_id,contact_name").then(function(contacts) {
+        contacts = contacts || [];
+        var contactMap = {};
+        contacts.forEach(function(c) {
+          if (!contactMap[c.aba_id]) contactMap[c.aba_id] = [];
+          contactMap[c.aba_id].push(c.contact_name);
+        });
+
+        var data = {
+          tabs: abas.map(function(a) {
+            return { id: a.id, name: a.name, color: a.color, contacts: contactMap[a.id] || [] };
+          })
+        };
+        window._wcrmAbasCache = data;
+        chrome.storage.local.set({ wcrm_abas: data });
+      });
     });
   });
 }
 
 function saveAbasData(data) {
   window._wcrmAbasCache = data;
-  return new Promise(function(resolve) {
-    chrome.storage.local.set({ wcrm_abas: data }, resolve);
+  // Save to local cache immediately (fast)
+  chrome.storage.local.set({ wcrm_abas: data });
+
+  // Sync to Supabase in background
+  var uid = getUserId();
+  if (!uid) return Promise.resolve();
+
+  return syncAbasToSupabase(uid, data);
+}
+
+function syncAbasToSupabase(uid, data) {
+  // Delete all user's abas and re-insert (simple full sync)
+  return supaRest("/rest/v1/abas?user_id=eq." + uid, "DELETE", null, "return=minimal").then(function() {
+    if (!data.tabs || data.tabs.length === 0) return;
+
+    var abasToInsert = data.tabs.map(function(tab) {
+      return { id: tab.id, user_id: uid, name: tab.name, color: tab.color };
+    });
+
+    return supaRest("/rest/v1/abas", "POST", abasToInsert).then(function() {
+      // Insert contacts for each aba
+      var allContacts = [];
+      data.tabs.forEach(function(tab) {
+        (tab.contacts || []).forEach(function(contact) {
+          allContacts.push({ aba_id: tab.id, contact_name: contact });
+        });
+      });
+      if (allContacts.length > 0) {
+        return supaRest("/rest/v1/aba_contacts", "POST", allContacts, "return=minimal");
+      }
+    });
   });
 }
 
@@ -103,12 +182,25 @@ function getAllKnownContacts() {
   });
 }
 
-// ===== Pinned Contacts =====
+// ===== Pinned Contacts (Supabase + chrome.storage cache) =====
 function loadPinnedContacts() {
   return new Promise(function(resolve) {
+    // Fast: load from local cache first
     chrome.storage.local.get("wcrm_pinned", function(result) {
       window._wcrmPinned = result.wcrm_pinned || {};
       resolve(window._wcrmPinned);
+    });
+
+    // Background: sync from Supabase
+    var uid = getUserId();
+    if (!uid) return;
+
+    supaRest("/rest/v1/pinned_contacts?user_id=eq." + uid + "&select=contact_name").then(function(rows) {
+      if (!rows || !Array.isArray(rows)) return;
+      var pinned = {};
+      rows.forEach(function(r) { pinned[r.contact_name] = true; });
+      window._wcrmPinned = pinned;
+      chrome.storage.local.set({ wcrm_pinned: pinned });
     });
   });
 }
@@ -116,6 +208,17 @@ function loadPinnedContacts() {
 function savePinnedContacts(data) {
   window._wcrmPinned = data;
   if (isExtensionValid()) chrome.storage.local.set({ wcrm_pinned: data });
+
+  // Sync to Supabase
+  var uid = getUserId();
+  if (!uid) return;
+
+  supaRest("/rest/v1/pinned_contacts?user_id=eq." + uid, "DELETE", null, "return=minimal").then(function() {
+    var names = Object.keys(data);
+    if (names.length === 0) return;
+    var rows = names.map(function(n) { return { user_id: uid, contact_name: n }; });
+    supaRest("/rest/v1/pinned_contacts", "POST", rows, "return=minimal");
+  });
 }
 
 function togglePinContact(chatName) {
@@ -1011,14 +1114,21 @@ function deleteAba(abaId) {
 
 // ===== Init =====
 function initAbas() {
-  createAbasButton();
-  createAbasSidebar();
-  loadAbasData();
-  loadKnownContacts();
-  loadPinnedContacts().then(function() {
-    // Apply pinned order on startup after a delay for WhatsApp to load
-    setTimeout(function() { applyPinnedOrder(); }, 2000);
-  });
+  var abasEnabled = window.__ezapAbasEnabled !== false;
+  var pinEnabled = window.__ezapPinEnabled !== false;
+
+  if (abasEnabled) {
+    createAbasButton();
+    createAbasSidebar();
+    loadAbasData();
+    loadKnownContacts();
+  }
+
+  if (pinEnabled) {
+    loadPinnedContacts().then(function() {
+      setTimeout(function() { applyPinnedOrder(); }, 2000);
+    });
+  }
 
   var abasInterval = setInterval(function() {
     if (!isExtensionValid()) {
@@ -1026,13 +1136,30 @@ function initAbas() {
       console.log("[WCRM ABAS] Extension context invalidated, stopping interval");
       return;
     }
-    scanAndStoreContacts();
+    if (abasEnabled) scanAndStoreContacts();
     injectSidebarButtons();
   }, 3000);
 }
 
-// Start after authentication
+// Start after authentication (only if 'abas' or 'pin' feature is enabled)
 document.addEventListener("wcrm-auth-ready", function() {
-  setTimeout(initAbas, 700);
+  var hasAbas = window.__ezapHasFeature && window.__ezapHasFeature("abas");
+  var hasPin = window.__ezapHasFeature && window.__ezapHasFeature("pin");
+  if (hasAbas || hasPin) {
+    // Pass feature flags so initAbas knows what to enable
+    window.__ezapAbasEnabled = hasAbas;
+    window.__ezapPinEnabled = hasPin;
+    setTimeout(initAbas, 700);
+  } else {
+    console.log("[WCRM ABAS] ABAS/PIN features not enabled for this user");
+  }
 });
-if (window.__wcrmAuth) setTimeout(initAbas, 1200);
+if (window.__wcrmAuth) {
+  var _hasAbas = window.__ezapHasFeature && window.__ezapHasFeature("abas");
+  var _hasPin = window.__ezapHasFeature && window.__ezapHasFeature("pin");
+  if (_hasAbas || _hasPin) {
+    window.__ezapAbasEnabled = _hasAbas;
+    window.__ezapPinEnabled = _hasPin;
+    setTimeout(initAbas, 1200);
+  }
+}

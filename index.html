@@ -245,9 +245,50 @@
     // When releasing a new version, just add a new entry here.
     var VERSIONS = [
       {
-        version: "1.2.0",
+        version: "1.3.0",
         date: "01/04/2026",
         current: true,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              "Controle de funcionalidades por usuario — admin escolhe quais features cada usuario acessa (CRM, MSG, SLICE, ABAS, PIN)",
+              "Token de uso unico — token fica vinculado a um unico dispositivo na primeira utilizacao",
+              "Validacao de numero WhatsApp — extensao so funciona se o numero do WhatsApp Web bater com o cadastrado",
+              "Admin pode cadastrar multiplos numeros de WhatsApp por usuario",
+              "Rastreamento de IP e localizacao ao resgatar token (cidade, estado, pais)",
+              "Log de tentativas de acesso bloqueadas (dispositivo diferente ou numero incorreto)",
+              "Aba Seguranca no painel admin com historico de acessos e alertas",
+              "Botao Editar usuario no painel admin (nome, email, telefone, features, numeros WhatsApp)",
+              "Botao Reset Dispositivo — admin desvincula o token da maquina para permitir novo acesso",
+              "Coluna Features na tabela de usuarios mostrando funcionalidades ativas",
+              "Coluna Dispositivo mostrando IP, localizacao e data de resgate do token",
+            ]
+          },
+          {
+            type: "fix",
+            title: "Correcoes",
+            items: [
+              "Supabase REST agora usa service role key (corrige operacoes de dados bloqueadas por RLS)",
+            ]
+          },
+          {
+            type: "infra",
+            title: "Infraestrutura",
+            items: [
+              "Migration 003: tabela token_attempts, colunas features/allowed_phones/device em users",
+              "RPCs: reset_user_device, update_user_features, update_user_phones, log_phone_mismatch",
+              "Device fingerprint (UUID unico por instalacao do Chrome) salvo em chrome.storage",
+              "Deteccao automatica de IP via ipapi.co no background service worker",
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.2.0",
+        date: "01/04/2026",
+        current: false,
         changes: [
           {
             type: "feat",

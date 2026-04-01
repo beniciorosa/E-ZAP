@@ -2,17 +2,38 @@
 
 // ===== Auth Supabase (user authentication) =====
 const AUTH_SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
-const AUTH_SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTIyMDMsImV4cCI6MjA3OTA4ODIwM30.TlUt4FQ7cffBKgJYrixFdHbyMESAhRa2auPpKCXMIMM";
+const AUTH_SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTIyMDMsImV4cCI6MjA3OTA4ODIwM30.TlUt4FQ7cffBKgJYrixFdHbyMESAhRa2auPpKCXMIMM";
+const AUTH_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
 
-async function validateToken(token) {
+// ===== IP / Location detection =====
+async function getIpInfo() {
+  try {
+    const resp = await fetch("https://ipapi.co/json/", { signal: AbortSignal.timeout(5000) });
+    if (!resp.ok) return { ip: null, location: null };
+    const data = await resp.json();
+    const loc = [data.city, data.region, data.country_name].filter(Boolean).join(", ");
+    return { ip: data.ip || null, location: loc || null };
+  } catch (e) {
+    console.log("[EZAP BG] IP detection failed:", e.message);
+    return { ip: null, location: null };
+  }
+}
+
+async function validateToken(token, deviceId, ipAddress, locationStr, userAgent) {
+  const body = { p_token: token };
+  if (deviceId) body.p_device_id = deviceId;
+  if (ipAddress) body.p_ip_address = ipAddress;
+  if (locationStr) body.p_location = locationStr;
+  if (userAgent) body.p_user_agent = userAgent;
+
   const resp = await fetch(AUTH_SUPA_URL + "/rest/v1/rpc/validate_token", {
     method: "POST",
     headers: {
-      "apikey": AUTH_SUPA_KEY,
-      "Authorization": "Bearer " + AUTH_SUPA_KEY,
+      "apikey": AUTH_SUPA_ANON,
+      "Authorization": "Bearer " + AUTH_SUPA_ANON,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ p_token: token }),
+    body: JSON.stringify(body),
   });
 
   if (!resp.ok) {
@@ -22,7 +43,11 @@ async function validateToken(token) {
 
   const data = await resp.json();
   if (Array.isArray(data) && data.length > 0) {
-    return { ok: true, data: data[0] };
+    const row = data[0];
+    if (row.token_status === "blocked_device") {
+      return { ok: false, blocked: true, error: "Este token já está em uso em outro dispositivo. Solicite um novo token ao administrador." };
+    }
+    return { ok: true, data: row };
   } else {
     return { ok: false, error: "Token inválido ou desativado." };
   }
@@ -40,7 +65,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // ===== Auth handlers =====
   if (request.action === "validate_token") {
-    handleAsync(() => validateToken(request.token), sendResponse);
+    handleAsync(() => validateToken(request.token, request.deviceId, request.ipAddress, request.location, request.userAgent), sendResponse);
+    return true;
+  }
+  if (request.action === "get_ip_info") {
+    handleAsync(() => getIpInfo(), sendResponse);
+    return true;
+  }
+  if (request.action === "log_phone_mismatch") {
+    handleAsync(() => supabaseRpc("log_phone_mismatch", {
+      p_user_id: request.userId,
+      p_detected_phone: request.detectedPhone,
+      p_ip: request.ip || null,
+      p_location: request.location || null,
+    }), sendResponse);
     return true;
   }
   if (request.action === "wcrm_logout") {
@@ -98,6 +136,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // ===== Generic Supabase REST (for data sync) =====
+  if (request.action === "supabase_rest") {
+    handleAsync(() => supabaseRest(request.path, request.method, request.body, request.prefer), sendResponse);
+    return true;
+  }
+  if (request.action === "supabase_rpc") {
+    handleAsync(() => supabaseRpc(request.fn, request.args), sendResponse);
+    return true;
+  }
+
   return false;
 });
 
@@ -105,6 +153,29 @@ function handleAsync(fn, sendResponse) {
   fn()
     .then((result) => sendResponse(result))
     .catch((err) => sendResponse({ error: err.message || "Unknown error" }));
+}
+
+// ===== Generic Supabase REST for data sync (uses service role key to bypass RLS) =====
+async function supabaseRest(path, method, body, prefer) {
+  const headers = {
+    "apikey": AUTH_SERVICE_KEY,
+    "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+    "Content-Type": "application/json",
+    "Prefer": prefer || "return=representation",
+  };
+  const opts = { method: method || "GET", headers };
+  if (body && method !== "GET") opts.body = JSON.stringify(body);
+  const resp = await fetch(AUTH_SUPA_URL + path, opts);
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(err);
+  }
+  const text = await resp.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function supabaseRpc(fn, args) {
+  return supabaseRest("/rest/v1/rpc/" + fn, "POST", args || {});
 }
 
 async function getApiKey() {

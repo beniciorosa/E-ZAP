@@ -817,8 +817,12 @@ function initMsg() {
   });
 }
 
-// Start after authentication
+// Start after authentication (only if 'msg' feature is enabled)
 document.addEventListener("wcrm-auth-ready", function() {
-  setTimeout(initMsg, 800);
+  if (window.__ezapHasFeature && window.__ezapHasFeature("msg")) {
+    setTimeout(initMsg, 800);
+  } else {
+    console.log("[WCRM MSG] MSG feature not enabled for this user");
+  }
 });
-if (window.__wcrmAuth) setTimeout(initMsg, 2500);
+if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("msg")) setTimeout(initMsg, 2500);
