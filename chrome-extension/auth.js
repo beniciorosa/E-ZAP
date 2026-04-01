@@ -153,9 +153,11 @@ function setAuthGlobal(data) {
 }
 
 // ===== Feature check helper (used by all content scripts) =====
+// Admin always has ALL features regardless of what's in the DB
 window.__ezapHasFeature = function(feature) {
-  return window.__wcrmAuth &&
-         window.__wcrmAuth.features &&
+  if (!window.__wcrmAuth) return false;
+  if (window.__wcrmAuth.userRole === "admin") return true;
+  return window.__wcrmAuth.features &&
          window.__wcrmAuth.features.indexOf(feature) !== -1;
 };
 
@@ -175,9 +177,16 @@ function dispatchAuthReady() {
 function validateWhatsAppPhone() {
   if (!window.__wcrmAuth) return;
 
+  // Admin ALWAYS skips phone validation — free to use any WhatsApp number
+  if (window.__wcrmAuth.userRole === "admin") {
+    window.__ezapPhoneVerified = true;
+    console.log("[EZAP AUTH] Admin user — phone validation skipped");
+    return;
+  }
+
   var allowedPhones = window.__wcrmAuth.allowedPhones || [];
 
-  // Admin with no phones configured — skip validation
+  // No phones configured for this user — skip validation
   if (allowedPhones.length === 0) {
     console.log("[EZAP AUTH] No phone restrictions configured, skipping phone validation");
     return;

@@ -53,6 +53,9 @@ async function validateToken(token, deviceId, ipAddress, locationStr, userAgent)
   }
 }
 
+// Sync HubSpot key from Supabase on startup
+syncHubSpotKey();
+
 // Cache for pipeline stages (maps stageId -> {label, pipelineName})
 let stageCache = {};
 let stageCacheLoaded = false;
@@ -61,6 +64,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "ping") {
     sendResponse({ ok: true });
     return false;
+  }
+  if (request.action === "sync_hubspot_key") {
+    handleAsync(() => syncHubSpotKey(), sendResponse);
+    return true;
   }
 
   // ===== Auth handlers =====
@@ -178,9 +185,30 @@ async function supabaseRpc(fn, args) {
   return supabaseRest("/rest/v1/rpc/" + fn, "POST", args || {});
 }
 
+// HubSpot API key: loaded from chrome.storage (set via popup or synced from Supabase)
 async function getApiKey() {
   const data = await chrome.storage.local.get("hubspot_api_key");
   return data.hubspot_api_key || null;
+}
+
+// Load HubSpot key from Supabase app_settings and cache in chrome.storage
+async function syncHubSpotKey() {
+  try {
+    const resp = await fetch(AUTH_SUPA_URL + "/rest/v1/app_settings?key=eq.hubspot_api_key&select=value", {
+      headers: {
+        "apikey": AUTH_SERVICE_KEY,
+        "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+      },
+    });
+    if (!resp.ok) return;
+    const rows = await resp.json();
+    if (rows && rows.length > 0 && rows[0].value) {
+      await chrome.storage.local.set({ hubspot_api_key: rows[0].value });
+      console.log("[EZAP BG] HubSpot key synced from Supabase");
+    }
+  } catch (e) {
+    console.log("[EZAP BG] Could not sync HubSpot key:", e.message);
+  }
 }
 
 async function hubFetch(path, options) {

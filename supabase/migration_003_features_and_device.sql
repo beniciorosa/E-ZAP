@@ -1,6 +1,17 @@
--- Migration 003: Feature permissions + Device binding + Phone validation
+-- Migration 003: Feature permissions + Device binding + Phone validation + App Settings
 -- Run this in Supabase SQL Editor
 -- E-ZAP v1.3.0
+
+-- =============================================
+-- 0. App Settings (key-value store for shared configs like HubSpot API key)
+-- =============================================
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
 -- =============================================
 -- 1. Feature permissions per user

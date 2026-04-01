@@ -294,6 +294,7 @@
     <div class="tab active" data-tab="users" onclick="switchTab('users')">Usuarios</div>
     <div class="tab" data-tab="messages" onclick="switchTab('messages')">Mensagens Globais</div>
     <div class="tab" data-tab="security" onclick="switchTab('security')">Seguranca <span class="notif-badge" id="secBadge" style="display:none">0</span></div>
+    <div class="tab" data-tab="settings" onclick="switchTab('settings')">Configuracoes</div>
   </div>
 
   <div class="content">
@@ -347,6 +348,34 @@
       <div id="securityLog">
         <div class="empty-state">Carregando...</div>
       </div>
+    </div>
+
+    <!-- ===== SETTINGS PANEL ===== -->
+    <div class="panel" id="panel-settings">
+      <div class="section-title" style="margin-bottom:20px">Configuracoes da aplicacao</div>
+
+      <div style="background:#202c33;border:1px solid #2a3942;border-radius:10px;padding:20px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#ff7a5920;display:flex;align-items:center;justify-content:center">
+            <span style="font-size:18px">&#128279;</span>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:600">HubSpot CRM</div>
+            <div style="font-size:11px;color:#8696a0">Private App Token para integracao com HubSpot</div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>API Key (Private App Token)</label>
+          <input type="password" id="settingsHubspotKey" placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="font-family:monospace">
+          <div class="hint">Crie em HubSpot > Settings > Integrations > Private Apps. Escopos: crm.objects.contacts.read, crm.objects.deals.read, crm.objects.tickets.read</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" onclick="saveHubspotKey()" style="padding:8px 16px;font-size:12px">Salvar</button>
+          <button class="btn-sm" onclick="testHubspotKey()">Testar conexao</button>
+          <span id="hubspotStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -431,6 +460,7 @@ function showApp() {
   loadUsers();
   loadMessages();
   loadSecurityLog();
+  loadSettings();
 }
 
 // Auto-login
@@ -505,10 +535,14 @@ function renderUsersTable(users) {
     var statusLabel = u.active ? "Ativo" : "Inativo";
     var lastActive = u.last_active ? formatDate(u.last_active) : "Nunca";
 
-    // Features tags
-    var features = u.features || [];
+    // Features tags — admin always has ALL features
+    var features = u.role === "admin" ? ALL_FEATURES.map(function(f){return f.key;}) : (u.features || []);
     var featHtml = "";
-    features.forEach(function(f) { featHtml += '<span class="feature-tag">' + f + '</span>'; });
+    if (u.role === "admin") {
+      featHtml = '<span class="feature-tag" style="background:#cc5de815;color:#cc5de8;border-color:#cc5de830">TODAS</span>';
+    } else {
+      features.forEach(function(f) { featHtml += '<span class="feature-tag">' + f + '</span>'; });
+    }
     if (!featHtml) featHtml = '<span style="color:#3b4a54;font-size:11px">-</span>';
 
     // Phones tags
@@ -587,6 +621,25 @@ function resetDevice(id, name) {
   });
 }
 
+// ===== Helper: toggle features/phones visibility based on role =====
+function onRoleChange(selectId, featGroupId, phonesGroupId) {
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.addEventListener("change", function() {
+    var isAdmin = sel.value === "admin";
+    var fg = document.getElementById(featGroupId);
+    var pg = document.getElementById(phonesGroupId);
+    if (fg) fg.style.display = isAdmin ? "none" : "block";
+    if (pg) pg.style.display = isAdmin ? "none" : "block";
+    if (isAdmin && fg) {
+      // Info message
+      fg.innerHTML = '<label>Funcionalidades</label><div style="color:#cc5de8;font-size:12px;padding:8px;background:#cc5de810;border-radius:6px">Administradores tem acesso a <strong>todas</strong> as funcionalidades automaticamente.</div>';
+    }
+  });
+  // Trigger initial state
+  sel.dispatchEvent(new Event("change"));
+}
+
 // ===== CREATE USER MODAL =====
 function openCreateUser() {
   var featChecks = "";
@@ -603,9 +656,9 @@ function openCreateUser() {
         '<div class="form-group"><label>Nome completo</label><input type="text" id="newUserName" placeholder="Ex: Joao Silva"></div>' +
         '<div class="form-group"><label>Email</label><input type="email" id="newUserEmail" placeholder="joao@empresa.com"></div>' +
         '<div class="form-group"><label>Telefone contato (com DDD)</label><input type="text" id="newUserPhone" placeholder="+5541999999999"></div>' +
-        '<div class="form-group"><label>Numeros WhatsApp permitidos</label><input type="text" id="newUserPhones" placeholder="5519993473149, 5511998887777"><div class="hint">Numeros do WhatsApp Web autorizados (separados por virgula, somente digitos com DDI+DDD)</div></div>' +
+        '<div class="form-group" id="newPhonesGroup"><label>Numeros WhatsApp permitidos</label><input type="text" id="newUserPhones" placeholder="5519993473149, 5511998887777"><div class="hint">Numeros do WhatsApp Web autorizados (separados por virgula, somente digitos com DDI+DDD)</div></div>' +
         '<div class="form-group"><label>Perfil</label><select id="newUserRole"><option value="user">Usuario</option><option value="admin">Administrador</option></select></div>' +
-        '<div class="form-group"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
+        '<div class="form-group" id="newFeatGroup"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="createUser()">Criar Usuario</button>' +
@@ -614,25 +667,31 @@ function openCreateUser() {
       '</div>' +
     '</div>';
   document.getElementById("newUserName").focus();
+  onRoleChange("newUserRole", "newFeatGroup", "newPhonesGroup");
 }
 
 function createUser() {
   var name = document.getElementById("newUserName").value.trim();
   var email = document.getElementById("newUserEmail").value.trim();
   var phone = document.getElementById("newUserPhone").value.trim();
-  var phonesStr = document.getElementById("newUserPhones").value.trim();
+  var phonesStr = (document.getElementById("newUserPhones") || {}).value || "";
+  phonesStr = phonesStr.trim();
   var role = document.getElementById("newUserRole").value;
   var resultEl = document.getElementById("createUserResult");
 
-  // Get selected features
+  // Admin gets all features automatically
   var features = [];
-  document.querySelectorAll('input[name="feat"]:checked').forEach(function(cb) {
-    features.push(cb.value);
-  });
+  if (role === "admin") {
+    features = ALL_FEATURES.map(function(f) { return f.key; });
+  } else {
+    document.querySelectorAll('input[name="feat"]:checked').forEach(function(cb) {
+      features.push(cb.value);
+    });
+  }
 
-  // Parse allowed phones
+  // Parse allowed phones (admin doesn't need them)
   var allowedPhones = [];
-  if (phonesStr) {
+  if (phonesStr && role !== "admin") {
     allowedPhones = phonesStr.split(",").map(function(p) { return p.trim().replace(/\D/g, ""); }).filter(function(p) { return p.length >= 10; });
   }
 
@@ -671,6 +730,7 @@ function openEditUser(id) {
   var user = allUsers.find(function(u) { return u.id === id; });
   if (!user) return;
 
+  var isAdmin = user.role === "admin";
   var featChecks = "";
   var userFeats = user.features || [];
   ALL_FEATURES.forEach(function(f) {
@@ -680,6 +740,10 @@ function openEditUser(id) {
 
   var phonesVal = (user.allowed_phones || []).join(", ");
 
+  var featGroupContent = isAdmin
+    ? '<label>Funcionalidades</label><div style="color:#cc5de8;font-size:12px;padding:8px;background:#cc5de810;border-radius:6px">Administradores tem acesso a <strong>todas</strong> as funcionalidades automaticamente.</div>'
+    : '<label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div>';
+
   var container = document.getElementById("modalsContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeModal(event)">' +
@@ -688,9 +752,9 @@ function openEditUser(id) {
         '<div class="form-group"><label>Nome completo</label><input type="text" id="editUserName" value="' + esc(user.name || '') + '"></div>' +
         '<div class="form-group"><label>Email</label><input type="email" id="editUserEmail" value="' + esc(user.email || '') + '"></div>' +
         '<div class="form-group"><label>Telefone contato</label><input type="text" id="editUserPhone" value="' + esc(user.phone || '') + '"></div>' +
-        '<div class="form-group"><label>Numeros WhatsApp permitidos</label><input type="text" id="editUserPhones" value="' + esc(phonesVal) + '"><div class="hint">Separados por virgula (somente digitos com DDI+DDD). Ex: 5519993473149, 5511998887777</div></div>' +
+        '<div class="form-group" id="editPhonesGroup" style="' + (isAdmin ? 'display:none' : '') + '"><label>Numeros WhatsApp permitidos</label><input type="text" id="editUserPhones" value="' + esc(phonesVal) + '"><div class="hint">Separados por virgula (somente digitos com DDI+DDD). Ex: 5519993473149, 5511998887777</div></div>' +
         '<div class="form-group"><label>Perfil</label><select id="editUserRole"><option value="user"' + (user.role === 'user' ? ' selected' : '') + '>Usuario</option><option value="admin"' + (user.role === 'admin' ? ' selected' : '') + '>Administrador</option></select></div>' +
-        '<div class="form-group"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
+        '<div class="form-group" id="editFeatGroup">' + featGroupContent + '</div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="saveEditUser(\'' + id + '\')">Salvar</button>' +
@@ -699,23 +763,31 @@ function openEditUser(id) {
       '</div>' +
     '</div>';
   document.getElementById("editUserName").focus();
+  onRoleChange("editUserRole", "editFeatGroup", "editPhonesGroup");
 }
 
 function saveEditUser(id) {
   var name = document.getElementById("editUserName").value.trim();
   var email = document.getElementById("editUserEmail").value.trim();
   var phone = document.getElementById("editUserPhone").value.trim();
-  var phonesStr = document.getElementById("editUserPhones").value.trim();
+  var phonesEl = document.getElementById("editUserPhones");
+  var phonesStr = phonesEl ? phonesEl.value.trim() : "";
   var role = document.getElementById("editUserRole").value;
   var resultEl = document.getElementById("editUserResult");
 
+  // Admin gets all features automatically
   var features = [];
-  document.querySelectorAll('input[name="editFeat"]:checked').forEach(function(cb) {
-    features.push(cb.value);
-  });
+  if (role === "admin") {
+    features = ALL_FEATURES.map(function(f) { return f.key; });
+  } else {
+    document.querySelectorAll('input[name="editFeat"]:checked').forEach(function(cb) {
+      features.push(cb.value);
+    });
+  }
 
+  // Parse allowed phones (admin doesn't need them)
   var allowedPhones = [];
-  if (phonesStr) {
+  if (phonesStr && role !== "admin") {
     allowedPhones = phonesStr.split(",").map(function(p) { return p.trim().replace(/\D/g, ""); }).filter(function(p) { return p.length >= 10; });
   }
 
@@ -729,7 +801,7 @@ function saveEditUser(id) {
       phone: phone || null,
       role: role,
       features: features,
-      allowed_phones: allowedPhones,
+      allowed_phones: role === "admin" ? [] : allowedPhones,
     }
   }).then(function(data) {
     if (data && data.code) {
@@ -889,6 +961,76 @@ function renderSecurityLog(logs) {
     html += '</div>';
   });
   container.innerHTML = html;
+}
+
+// ===== SETTINGS =====
+function loadSettings() {
+  supa("/rest/v1/app_settings?select=*").then(function(rows) {
+    if (!Array.isArray(rows)) return;
+    rows.forEach(function(r) {
+      if (r.key === "hubspot_api_key" && r.value) {
+        var input = document.getElementById("settingsHubspotKey");
+        if (input) input.value = r.value;
+      }
+    });
+  });
+}
+
+function saveHubspotKey() {
+  var key = document.getElementById("settingsHubspotKey").value.trim();
+  var statusEl = document.getElementById("hubspotStatus");
+  if (!key) { statusEl.style.color = "#ff6b6b"; statusEl.textContent = "Insira a chave"; return; }
+
+  statusEl.style.color = "#8696a0";
+  statusEl.textContent = "Salvando...";
+
+  // Upsert: try update first, if no rows affected then insert
+  supa("/rest/v1/app_settings?key=eq.hubspot_api_key", {
+    method: "PATCH",
+    body: { value: key, updated_at: new Date().toISOString() },
+    prefer: "return=representation"
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      statusEl.style.color = "#25d366";
+      statusEl.textContent = "Salvo!";
+      return;
+    }
+    // No rows updated = key doesn't exist yet, insert it
+    return supa("/rest/v1/app_settings", {
+      method: "POST",
+      body: { key: "hubspot_api_key", value: key }
+    }).then(function() {
+      statusEl.style.color = "#25d366";
+      statusEl.textContent = "Salvo!";
+    });
+  }).catch(function() {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Erro ao salvar";
+  });
+}
+
+function testHubspotKey() {
+  var key = document.getElementById("settingsHubspotKey").value.trim();
+  var statusEl = document.getElementById("hubspotStatus");
+  if (!key) { statusEl.style.color = "#ff6b6b"; statusEl.textContent = "Insira a chave primeiro"; return; }
+
+  statusEl.style.color = "#8696a0";
+  statusEl.textContent = "Testando...";
+
+  fetch("https://api.hubapi.com/crm/v3/objects/contacts?limit=1", {
+    headers: { "Authorization": "Bearer " + key }
+  }).then(function(r) {
+    if (r.ok) {
+      statusEl.style.color = "#25d366";
+      statusEl.textContent = "Conectado ao HubSpot com sucesso!";
+    } else {
+      statusEl.style.color = "#ff6b6b";
+      statusEl.textContent = "Erro: HTTP " + r.status + " — verifique a chave";
+    }
+  }).catch(function() {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Erro de conexao";
+  });
 }
 
 // ===== UTILS =====
