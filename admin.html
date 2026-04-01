@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-ZAP — Painel Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111b21;
+      color: #e9edef;
+      min-height: 100vh;
+    }
+
+    /* ===== LOGIN ===== */
+    .login-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: #111b21; z-index: 99999;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-card {
+      background: #202c33; border-radius: 16px; padding: 40px 36px;
+      width: 380px; max-width: 90%; text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .login-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .login-card p { font-size: 13px; color: #8696a0; margin-bottom: 24px; }
+    .login-card input {
+      width: 100%; padding: 12px 14px; background: #111b21; border: 2px solid #3b4a54;
+      border-radius: 10px; color: #e9edef; font-size: 15px; font-family: monospace;
+      text-align: center; outline: none; margin-bottom: 16px; transition: border-color 0.2s;
+    }
+    .login-card input:focus { border-color: #25d366; }
+    .login-card button {
+      width: 100%; padding: 14px; background: #25d366; color: #111b21; border: none;
+      border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer;
+    }
+    .login-card button:hover { background: #1da851; }
+    .login-error { color: #ff6b6b; font-size: 13px; margin-top: 8px; min-height: 20px; }
+
+    /* ===== TOP BAR ===== */
+    .topbar {
+      background: #202c33; border-bottom: 1px solid #2a3942;
+      padding: 0 24px; display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 16px; }
+    .topbar h1 { font-size: 18px; font-weight: 700; }
+    .topbar h1 span { color: #25d366; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .topbar .user-name { font-size: 13px; color: #8696a0; }
+    .btn-sm {
+      padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+      cursor: pointer; border: 1px solid #3b4a54; background: #2a3942; color: #8696a0;
+      transition: all 0.15s;
+    }
+    .btn-sm:hover { background: #3b4a54; color: #e9edef; }
+    .btn-sm.danger { color: #ff6b6b; border-color: #ff6b6b30; }
+    .btn-sm.danger:hover { background: #ff6b6b20; }
+
+    /* ===== TABS ===== */
+    .tabs {
+      display: flex; gap: 0; background: #202c33; border-bottom: 1px solid #2a3942;
+      padding: 0 24px;
+    }
+    .tab {
+      padding: 12px 20px; font-size: 13px; font-weight: 600; color: #8696a0;
+      cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s;
+    }
+    .tab:hover { color: #e9edef; }
+    .tab.active { color: #25d366; border-bottom-color: #25d366; }
+
+    /* ===== CONTENT ===== */
+    .content { max-width: 960px; margin: 0 auto; padding: 24px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ===== STATS ROW ===== */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 10px; padding: 16px;
+    }
+    .stat-card .label { font-size: 11px; color: #8696a0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .stat-card .value.green { color: #25d366; }
+    .stat-card .value.blue { color: #4d96ff; }
+    .stat-card .value.orange { color: #ff922b; }
+
+    /* ===== TABLE ===== */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+    }
+    .section-title { font-size: 15px; font-weight: 600; }
+    .btn-primary {
+      padding: 10px 20px; background: #25d366; color: #111b21; border: none;
+      border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .btn-primary:hover { background: #1da851; }
+
+    .table-wrap {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 10px; overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left; padding: 12px 16px; font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.5px; color: #8696a0; font-weight: 600; background: #1a2730;
+      border-bottom: 1px solid #2a3942;
+    }
+    td {
+      padding: 12px 16px; font-size: 13px; border-bottom: 1px solid #2a394240;
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: #2a394220; }
+
+    .token-cell {
+      font-family: monospace; font-size: 12px; color: #8696a0;
+      background: #111b21; padding: 4px 8px; border-radius: 4px; display: inline-block;
+      cursor: pointer; position: relative;
+    }
+    .token-cell:hover { color: #e9edef; }
+    .token-cell .copied {
+      position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+      background: #25d366; color: #111b21; font-size: 10px; padding: 2px 8px;
+      border-radius: 4px; font-weight: 600; white-space: nowrap;
+    }
+
+    .badge {
+      font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge.admin { background: #cc5de820; color: #cc5de8; }
+    .badge.user { background: #4d96ff20; color: #4d96ff; }
+    .badge.active { background: #25d36620; color: #25d366; }
+    .badge.inactive { background: #ff6b6b20; color: #ff6b6b; }
+
+    .actions { display: flex; gap: 6px; }
+
+    /* ===== MODAL ===== */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6); z-index: 99999;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 12px;
+      padding: 28px; width: 420px; max-width: 90%;
+    }
+    .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 20px; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label {
+      display: block; font-size: 11px; color: #8696a0; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 6px; font-weight: 600;
+    }
+    .form-group input, .form-group select {
+      width: 100%; padding: 10px 12px; background: #111b21; border: 1px solid #3b4a54;
+      border-radius: 8px; color: #e9edef; font-size: 13px; outline: none;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: #25d366; }
+    .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
+    .modal-actions button { flex: 1; padding: 12px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-cancel { background: #2a3942; color: #8696a0; border: 1px solid #3b4a54; }
+    .btn-cancel:hover { background: #3b4a54; }
+    .btn-save { background: #25d366; color: #111b21; border: none; font-weight: 700; }
+    .btn-save:hover { background: #1da851; }
+
+    .token-result {
+      background: #111b21; border: 2px solid #25d366; border-radius: 10px;
+      padding: 16px; text-align: center; margin-top: 16px;
+    }
+    .token-result .label { font-size: 11px; color: #8696a0; margin-bottom: 6px; }
+    .token-result .token {
+      font-size: 20px; font-family: monospace; font-weight: 700; color: #25d366;
+      letter-spacing: 2px; cursor: pointer;
+    }
+    .token-result .hint { font-size: 11px; color: #8696a0; margin-top: 8px; }
+
+    .empty-state {
+      text-align: center; padding: 40px; color: #8696a0; font-size: 13px; font-style: italic;
+    }
+
+    /* ===== GLOBAL MESSAGES ===== */
+    .msg-card {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 10px;
+      padding: 16px; margin-bottom: 10px;
+    }
+    .msg-card-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
+    .msg-card-title { font-size: 14px; font-weight: 600; }
+    .msg-card-category {
+      font-size: 10px; background: #cc5de820; color: #cc5de8; padding: 2px 8px;
+      border-radius: 4px; font-weight: 600;
+    }
+    .msg-card-content {
+      font-size: 13px; color: #8696a0; line-height: 1.5; white-space: pre-wrap;
+      max-height: 80px; overflow: hidden;
+    }
+    .msg-card-footer {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3942;
+    }
+    .msg-card-date { font-size: 11px; color: #3b4a54; }
+  </style>
+</head>
+<body>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <h2>E-ZAP <span style="color:#25d366">Admin</span></h2>
+    <p>Insira seu token de administrador</p>
+    <input type="text" id="loginToken" placeholder="Token de admin">
+    <button onclick="doLogin()">Entrar</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="mainApp" style="display:none">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>E-ZAP <span>Admin</span></h1>
+    </div>
+    <div class="topbar-right">
+      <span class="user-name" id="adminName"></span>
+      <a href="index.html" class="btn-sm">Changelog</a>
+      <button class="btn-sm danger" onclick="doLogout()">Sair</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="users" onclick="switchTab('users')">Usuarios</div>
+    <div class="tab" data-tab="messages" onclick="switchTab('messages')">Mensagens Globais</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ===== USERS PANEL ===== -->
+    <div class="panel active" id="panel-users">
+      <div class="stats-row" id="statsRow"></div>
+      <div class="section-header">
+        <div class="section-title">Usuarios cadastrados</div>
+        <button class="btn-primary" onclick="openCreateUser()">+ Novo Usuario</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Email</th>
+              <th>Telefone</th>
+              <th>Token</th>
+              <th>Perfil</th>
+              <th>Status</th>
+              <th>Ultimo acesso</th>
+              <th>Acoes</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr><td colspan="8" class="empty-state">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== GLOBAL MESSAGES PANEL ===== -->
+    <div class="panel" id="panel-messages">
+      <div class="section-header">
+        <div class="section-title">Mensagens padrao da empresa</div>
+        <button class="btn-primary" onclick="openCreateMessage()">+ Nova Mensagem</button>
+      </div>
+      <div id="messagesList">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== MODALS CONTAINER ===== -->
+<div id="modalsContainer"></div>
+
+<script>
+// ===== CONFIG =====
+var SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
+var SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
+
+var currentAdmin = null;
+
+// ===== SUPABASE FETCH =====
+function supa(path, opts) {
+  opts = opts || {};
+  var headers = {
+    "apikey": SUPA_KEY,
+    "Authorization": "Bearer " + SUPA_KEY,
+    "Content-Type": "application/json",
+    "Prefer": opts.prefer || "return=representation"
+  };
+  return fetch(SUPA_URL + path, {
+    method: opts.method || "GET",
+    headers: headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  }).then(function(r) { return r.json(); });
+}
+
+// ===== LOGIN =====
+function doLogin() {
+  var token = document.getElementById("loginToken").value.trim();
+  var errEl = document.getElementById("loginError");
+  errEl.textContent = "";
+
+  if (!token) { errEl.textContent = "Insira o token"; return; }
+
+  supa("/rest/v1/rpc/validate_token", {
+    method: "POST",
+    body: { p_token: token }
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0 && data[0].user_role === "admin") {
+      currentAdmin = data[0];
+      currentAdmin.token = token;
+      localStorage.setItem("ezap_admin", JSON.stringify(currentAdmin));
+      showApp();
+    } else if (Array.isArray(data) && data.length > 0) {
+      errEl.textContent = "Este token nao tem permissao de administrador.";
+    } else {
+      errEl.textContent = "Token invalido ou desativado.";
+    }
+  }).catch(function() {
+    errEl.textContent = "Erro de conexao. Tente novamente.";
+  });
+}
+
+function doLogout() {
+  localStorage.removeItem("ezap_admin");
+  currentAdmin = null;
+  document.getElementById("mainApp").style.display = "none";
+  document.getElementById("loginOverlay").style.display = "flex";
+  document.getElementById("loginToken").value = "";
+}
+
+function showApp() {
+  document.getElementById("loginOverlay").style.display = "none";
+  document.getElementById("mainApp").style.display = "block";
+  document.getElementById("adminName").textContent = currentAdmin.user_name;
+  loadUsers();
+  loadMessages();
+}
+
+// Auto-login
+(function() {
+  var saved = localStorage.getItem("ezap_admin");
+  if (saved) {
+    try {
+      currentAdmin = JSON.parse(saved);
+      // Re-validate
+      supa("/rest/v1/rpc/validate_token", {
+        method: "POST",
+        body: { p_token: currentAdmin.token }
+      }).then(function(data) {
+        if (Array.isArray(data) && data.length > 0 && data[0].user_role === "admin") {
+          currentAdmin.user_name = data[0].user_name;
+          showApp();
+        } else {
+          doLogout();
+        }
+      });
+    } catch(e) { doLogout(); }
+  }
+})();
+
+// Enter key on login
+document.getElementById("loginToken").addEventListener("keydown", function(e) {
+  if (e.key === "Enter") doLogin();
+});
+
+// ===== TABS =====
+function switchTab(tab) {
+  document.querySelectorAll(".tab").forEach(function(t) { t.classList.remove("active"); });
+  document.querySelectorAll(".panel").forEach(function(p) { p.classList.remove("active"); });
+  document.querySelector('.tab[data-tab="' + tab + '"]').classList.add("active");
+  document.getElementById("panel-" + tab).classList.add("active");
+}
+
+// ===== USERS =====
+function loadUsers() {
+  supa("/rest/v1/users?select=*&order=created_at.asc").then(function(users) {
+    if (!Array.isArray(users)) return;
+    renderStats(users);
+    renderUsersTable(users);
+  });
+}
+
+function renderStats(users) {
+  var total = users.length;
+  var active = users.filter(function(u) { return u.active; }).length;
+  var admins = users.filter(function(u) { return u.role === "admin"; }).length;
+
+  document.getElementById("statsRow").innerHTML =
+    '<div class="stat-card"><div class="label">Total usuarios</div><div class="value blue">' + total + '</div></div>' +
+    '<div class="stat-card"><div class="label">Ativos</div><div class="value green">' + active + '</div></div>' +
+    '<div class="stat-card"><div class="label">Inativos</div><div class="value orange">' + (total - active) + '</div></div>' +
+    '<div class="stat-card"><div class="label">Administradores</div><div class="value">' + admins + '</div></div>';
+}
+
+function renderUsersTable(users) {
+  var tbody = document.getElementById("usersTableBody");
+  if (users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Nenhum usuario cadastrado</td></tr>';
+    return;
+  }
+
+  var html = "";
+  users.forEach(function(u) {
+    var roleClass = u.role === "admin" ? "admin" : "user";
+    var roleLabel = u.role === "admin" ? "Admin" : "Usuario";
+    var statusClass = u.active ? "active" : "inactive";
+    var statusLabel = u.active ? "Ativo" : "Inativo";
+    var lastActive = u.last_active ? formatDate(u.last_active) : "Nunca";
+
+    html += '<tr>';
+    html += '<td><strong>' + esc(u.name) + '</strong></td>';
+    html += '<td style="color:#8696a0">' + esc(u.email || '-') + '</td>';
+    html += '<td style="color:#8696a0">' + esc(u.phone || '-') + '</td>';
+    html += '<td><span class="token-cell" onclick="copyToken(this, \'' + esc(u.token) + '\')">' + esc(u.token) + '</span></td>';
+    html += '<td><span class="badge ' + roleClass + '">' + roleLabel + '</span></td>';
+    html += '<td><span class="badge ' + statusClass + '">' + statusLabel + '</span></td>';
+    html += '<td style="color:#8696a0;font-size:12px">' + lastActive + '</td>';
+    html += '<td><div class="actions">';
+    if (u.active) {
+      html += '<button class="btn-sm danger" onclick="toggleUser(\'' + u.id + '\', false)">Desativar</button>';
+    } else {
+      html += '<button class="btn-sm" onclick="toggleUser(\'' + u.id + '\', true)">Ativar</button>';
+    }
+    html += '<button class="btn-sm" onclick="deleteUser(\'' + u.id + '\', \'' + esc(u.name) + '\')">Excluir</button>';
+    html += '</div></td>';
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function copyToken(el, token) {
+  navigator.clipboard.writeText(token).then(function() {
+    var tip = document.createElement("span");
+    tip.className = "copied";
+    tip.textContent = "Copiado!";
+    el.appendChild(tip);
+    setTimeout(function() { tip.remove(); }, 1500);
+  });
+}
+
+function toggleUser(id, active) {
+  supa("/rest/v1/users?id=eq." + id, {
+    method: "PATCH",
+    body: { active: active }
+  }).then(function() { loadUsers(); });
+}
+
+function deleteUser(id, name) {
+  if (!confirm("Excluir o usuario \"" + name + "\"? Todos os dados dele serao perdidos.")) return;
+  supa("/rest/v1/users?id=eq." + id, { method: "DELETE" }).then(function() { loadUsers(); });
+}
+
+// ===== CREATE USER MODAL =====
+function openCreateUser() {
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Novo Usuario</h3>' +
+        '<div class="form-group"><label>Nome completo</label><input type="text" id="newUserName" placeholder="Ex: Joao Silva"></div>' +
+        '<div class="form-group"><label>Email</label><input type="email" id="newUserEmail" placeholder="joao@empresa.com"></div>' +
+        '<div class="form-group"><label>Telefone (com DDD)</label><input type="text" id="newUserPhone" placeholder="+5541999999999"></div>' +
+        '<div class="form-group"><label>Perfil</label><select id="newUserRole"><option value="user">Usuario</option><option value="admin">Administrador</option></select></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="createUser()">Criar Usuario</button>' +
+        '</div>' +
+        '<div id="createUserResult"></div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById("newUserName").focus();
+}
+
+function createUser() {
+  var name = document.getElementById("newUserName").value.trim();
+  var email = document.getElementById("newUserEmail").value.trim();
+  var phone = document.getElementById("newUserPhone").value.trim();
+  var role = document.getElementById("newUserRole").value;
+  var resultEl = document.getElementById("createUserResult");
+
+  if (!name) { resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Preencha o nome</div>'; return; }
+
+  // Generate token
+  supa("/rest/v1/rpc/generate_token", { method: "POST", body: {} }).then(function(token) {
+    // Create user
+    return supa("/rest/v1/users", {
+      method: "POST",
+      body: { name: name, email: email || null, phone: phone || null, token: token, role: role }
+    }).then(function(data) {
+      if (data && data.code) {
+        resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Erro: ' + (data.message || data.code) + '</div>';
+        return;
+      }
+      resultEl.innerHTML =
+        '<div class="token-result">' +
+          '<div class="label">Token gerado para ' + esc(name) + '</div>' +
+          '<div class="token" onclick="copyToken(this, \'' + esc(token) + '\')">' + esc(token) + '</div>' +
+          '<div class="hint">Clique para copiar. Envie este token para o usuario.</div>' +
+        '</div>';
+      loadUsers();
+    });
+  });
+}
+
+// ===== GLOBAL MESSAGES =====
+function loadMessages() {
+  supa("/rest/v1/global_messages?select=*&order=created_at.desc").then(function(msgs) {
+    if (!Array.isArray(msgs)) return;
+    renderMessages(msgs);
+  });
+}
+
+function renderMessages(msgs) {
+  var container = document.getElementById("messagesList");
+  if (msgs.length === 0) {
+    container.innerHTML = '<div class="empty-state">Nenhuma mensagem global criada. Crie mensagens que todos os usuarios poderao utilizar.</div>';
+    return;
+  }
+
+  var html = "";
+  msgs.forEach(function(m) {
+    html += '<div class="msg-card">';
+    html += '<div class="msg-card-header">';
+    html += '<div class="msg-card-title">' + esc(m.title) + '</div>';
+    if (m.category) html += '<span class="msg-card-category">' + esc(m.category) + '</span>';
+    html += '</div>';
+    html += '<div class="msg-card-content">' + esc(m.content) + '</div>';
+    html += '<div class="msg-card-footer">';
+    html += '<span class="msg-card-date">Criada em ' + formatDate(m.created_at) + '</span>';
+    html += '<div class="actions">';
+    html += '<button class="btn-sm" onclick="editMessage(\'' + m.id + '\')">Editar</button>';
+    html += '<button class="btn-sm danger" onclick="deleteMessage(\'' + m.id + '\', \'' + esc(m.title) + '\')">Excluir</button>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function openCreateMessage() {
+  showMessageModal(null);
+}
+
+function editMessage(id) {
+  supa("/rest/v1/global_messages?id=eq." + id).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      showMessageModal(data[0]);
+    }
+  });
+}
+
+function showMessageModal(msg) {
+  var isEdit = !!msg;
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>' + (isEdit ? 'Editar Mensagem' : 'Nova Mensagem Global') + '</h3>' +
+        '<div class="form-group"><label>Titulo</label><input type="text" id="msgTitle" placeholder="Ex: Boas-vindas" value="' + (isEdit ? esc(msg.title) : '') + '"></div>' +
+        '<div class="form-group"><label>Categoria (opcional)</label><input type="text" id="msgCategory" placeholder="Ex: Atendimento, Follow-up" value="' + (isEdit && msg.category ? esc(msg.category) : '') + '"></div>' +
+        '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="6" placeholder="Escreva a mensagem aqui..." style="width:100%;padding:10px 12px;background:#111b21;border:1px solid #3b4a54;border-radius:8px;color:#e9edef;font-size:13px;outline:none;resize:vertical;font-family:inherit">' + (isEdit ? esc(msg.content) : '') + '</textarea></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="saveMessage(' + (isEdit ? "'" + msg.id + "'" : 'null') + ')">' + (isEdit ? 'Salvar' : 'Criar') + '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById("msgTitle").focus();
+}
+
+function saveMessage(editId) {
+  var title = document.getElementById("msgTitle").value.trim();
+  var category = document.getElementById("msgCategory").value.trim();
+  var content = document.getElementById("msgContent").value.trim();
+
+  if (!title || !content) { alert("Preencha titulo e conteudo"); return; }
+
+  var body = { title: title, content: content, category: category || null };
+
+  if (editId) {
+    body.updated_at = new Date().toISOString();
+    supa("/rest/v1/global_messages?id=eq." + editId, { method: "PATCH", body: body })
+      .then(function() { closeModalForce(); loadMessages(); });
+  } else {
+    body.created_by = currentAdmin.user_id;
+    supa("/rest/v1/global_messages", { method: "POST", body: body })
+      .then(function() { closeModalForce(); loadMessages(); });
+  }
+}
+
+function deleteMessage(id, title) {
+  if (!confirm('Excluir a mensagem "' + title + '"?')) return;
+  supa("/rest/v1/global_messages?id=eq." + id, { method: "DELETE" })
+    .then(function() { loadMessages(); });
+}
+
+// ===== UTILS =====
+function closeModal(e) { if (e.target.classList.contains("modal-overlay")) closeModalForce(); }
+function closeModalForce() { document.getElementById("modalsContainer").innerHTML = ""; }
+
+function formatDate(d) {
+  if (!d) return "-";
+  var dt = new Date(d);
+  var day = String(dt.getDate()).padStart(2, "0");
+  var mon = String(dt.getMonth() + 1).padStart(2, "0");
+  var yr = dt.getFullYear();
+  var h = String(dt.getHours()).padStart(2, "0");
+  var m = String(dt.getMinutes()).padStart(2, "0");
+  return day + "/" + mon + "/" + yr + " " + h + ":" + m;
+}
+
+function esc(s) {
+  if (!s) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+</script>
+</body>
+</html>

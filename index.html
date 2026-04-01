@@ -245,9 +245,36 @@
     // When releasing a new version, just add a new entry here.
     var VERSIONS = [
       {
-        version: "1.1.0",
+        version: "1.2.0",
         date: "01/04/2026",
         current: true,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              "Painel Admin web para gestao de usuarios e mensagens globais",
+              "Criar, ativar, desativar e excluir usuarios com geracao automatica de token",
+              "Copiar token com um clique para enviar ao usuario",
+              "Mensagens globais — admin cria mensagens padrao visiveis para toda a equipe",
+              "Dashboard com estatisticas: total de usuarios, ativos, inativos, admins",
+              "Login do admin com validacao de perfil (somente role=admin)",
+              "Auto-login com revalidacao silenciosa no painel admin",
+            ]
+          },
+          {
+            type: "fix",
+            title: "Correcoes",
+            items: [
+              "Token de acesso nao e mais convertido para maiusculo (corrige login com tokens case-sensitive)",
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.1.0",
+        date: "01/04/2026",
+        current: false,
         changes: [
           {
             type: "feat",
