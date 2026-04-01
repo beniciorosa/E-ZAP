@@ -98,7 +98,7 @@ function showLoginOverlay() {
     // Token Input
     '<div style="margin-bottom:16px;text-align:left">' +
       '<label style="font-size:11px;color:#8696a0;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Token de Acesso</label>' +
-      '<input id="wcrm-auth-token" type="text" placeholder="Cole seu token aqui" maxlength="30" autocomplete="off" spellcheck="false" style="width:100%;padding:12px 14px;background:#111b21;border:2px solid #3b4a54;border-radius:10px;color:#e9edef;font-size:16px;font-family:monospace;letter-spacing:1px;outline:none;box-sizing:border-box;text-transform:uppercase;text-align:center;transition:border-color 0.2s">' +
+      '<input id="wcrm-auth-token" type="text" placeholder="Cole seu token aqui" maxlength="30" autocomplete="off" spellcheck="false" style="width:100%;padding:12px 14px;background:#111b21;border:2px solid #3b4a54;border-radius:10px;color:#e9edef;font-size:16px;font-family:monospace;letter-spacing:1px;outline:none;box-sizing:border-box;text-align:center;transition:border-color 0.2s">' +
     '</div>' +
     // Login Button
     '<button id="wcrm-auth-login" style="width:100%;padding:14px;background:#25d366;color:#111b21;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s;margin-bottom:12px">Entrar</button>' +
@@ -132,9 +132,9 @@ function setupLoginEvents() {
 
   if (!input || !btn) return;
 
-  // Just auto-uppercase (no reformatting to preserve any token format)
+  // Clean whitespace only — preserve original case for exact DB match
   input.addEventListener("input", function() {
-    input.value = input.value.toUpperCase();
+    input.value = input.value.trim();
   });
 
   // Focus styling
@@ -153,12 +153,12 @@ function setupLoginEvents() {
   setTimeout(function() { input.focus(); }, 200);
 
   function doLogin() {
-    var token = input.value.trim().toUpperCase();
+    var token = input.value.trim();
     status.textContent = "";
     status.style.color = "#ff6b6b";
 
     // Validate format: must start with WCRM- and have at least 10 chars
-    if (!/^WCRM-.{5,}$/.test(token)) {
+    if (!/^WCRM-.{5,}$/i.test(token)) {
       status.textContent = "Token inválido. Deve começar com WCRM-";
       input.style.borderColor = "#ff6b6b";
       return;
