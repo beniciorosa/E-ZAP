@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WhatsApp QR Code</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #111b21;
+      color: white;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    h1 { color: #25d366; margin-bottom: 8px; }
+    p { color: #8696a0; margin-bottom: 24px; font-size: 14px; }
+    #qr-container {
+      background: white;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    }
+    canvas { display: block; }
+    .steps {
+      margin-top: 24px;
+      text-align: left;
+      color: #8696a0;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .steps b { color: #25d366; }
+  </style>
+</head>
+<body>
+  <h1>WhatsApp Web</h1>
+  <p>Escaneie o QR Code abaixo com seu celular</p>
+  <div id="qr-container">
+    <canvas id="qr"></canvas>
+  </div>
+  <div class="steps">
+    <b>1.</b> Abra o WhatsApp no celular<br>
+    <b>2.</b> Toque em <b>Configuracoes</b> > <b>Dispositivos Conectados</b><br>
+    <b>3.</b> Toque em <b>Conectar Dispositivo</b><br>
+    <b>4.</b> Aponte a camera para este QR Code
+  </div>
+  <script>
+    const qrData = "2@B1nMoT66GMyT219kWDnPR75r+8ca1tngfl79WOW1gNIv1l9LE8BzqtmZcaBhpXMSRi08OYo88iQOoS60uk9mO7+j2+JkzSEwFYc=,MKw6o5wy4043T6WF+jsJvwpXyX1g4hQfRlbNoXkdEzU=,oxDliZFYrgP9YK0HI1APsZXiKzDxka5ziFyseFjDbyA=,sEWLgQxAsGkoW51FSSSoGkiDCZu6P8TEQLrmnBd4aws=,1";
+    QRCode.toCanvas(document.getElementById('qr'), qrData, {
+      width: 300,
+      margin: 0,
+      color: { dark: '#111b21', light: '#ffffff' }
+    });
+  </script>
+</body>
+</html>

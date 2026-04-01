@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "WhatsApp CRM - Labels & HubSpot",
+  "version": "1.0.0",
+  "description": "Etiquetas coloridas e integração HubSpot no WhatsApp Web",
+  "permissions": ["storage", "activeTab", "alarms", "tabs"],
+  "host_permissions": ["https://api.hubapi.com/*", "https://eklcsufcwjtxlpxhncnt.supabase.co/*", "https://xsqpqdjffjqxdcmoytfc.supabase.co/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["auth.js", "content.js", "msg.js", "slice.js", "abas.js"],
+      "css": ["sidebar.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WhatsApp CRM Settings"
+  },
+  "icons": {
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
