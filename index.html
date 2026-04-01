@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-ZAP — Changelog</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111b21;
+      color: #e9edef;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: #202c33;
+      border-bottom: 1px solid #2a3942;
+      padding: 32px 24px;
+      text-align: center;
+    }
+
+    .header .logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: #25d366;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+
+    .header .logo svg { width: 32px; height: 32px; fill: #111b21; }
+
+    .header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: #e9edef;
+      letter-spacing: -0.5px;
+    }
+
+    .header p {
+      font-size: 14px;
+      color: #8696a0;
+      margin-top: 6px;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #8696a0;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    /* Version card */
+    .version-card {
+      background: #202c33;
+      border: 1px solid #2a3942;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .version-card:hover { border-color: #3b4a54; }
+
+    .version-header {
+      padding: 16px 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    .version-header:hover { background: #2a394220; }
+
+    .version-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .version-badge {
+      background: #25d366;
+      color: #111b21;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      letter-spacing: 0.5px;
+    }
+
+    .version-badge.current {
+      background: #25d366;
+      box-shadow: 0 0 0 3px #25d36630;
+    }
+
+    .version-badge.old {
+      background: #3b4a54;
+      color: #8696a0;
+    }
+
+    .version-date {
+      font-size: 13px;
+      color: #8696a0;
+    }
+
+    .version-arrow {
+      font-size: 14px;
+      color: #8696a0;
+      transition: transform 0.2s;
+    }
+
+    .version-card.open .version-arrow {
+      transform: rotate(180deg);
+    }
+
+    .version-body {
+      display: none;
+      padding: 0 20px 20px;
+      border-top: 1px solid #2a3942;
+    }
+
+    .version-card.open .version-body {
+      display: block;
+    }
+
+    .change-group {
+      margin-top: 14px;
+    }
+
+    .change-group-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .change-group-title.feat { color: #25d366; }
+    .change-group-title.fix { color: #ff922b; }
+    .change-group-title.infra { color: #4d96ff; }
+    .change-group-title.breaking { color: #ff6b6b; }
+
+    .change-group-title .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .change-group-title.feat .dot { background: #25d366; }
+    .change-group-title.fix .dot { background: #ff922b; }
+    .change-group-title.infra .dot { background: #4d96ff; }
+    .change-group-title.breaking .dot { background: #ff6b6b; }
+
+    .change-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .change-list li {
+      font-size: 13px;
+      color: #e9edef;
+      padding: 5px 0;
+      padding-left: 16px;
+      position: relative;
+      line-height: 1.5;
+    }
+
+    .change-list li::before {
+      content: '';
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #8696a0;
+      position: absolute;
+      left: 0;
+      top: 12px;
+    }
+
+    .current-label {
+      font-size: 10px;
+      background: #25d36625;
+      color: #25d366;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 32px 24px;
+      border-top: 1px solid #2a3942;
+      font-size: 12px;
+      color: #3b4a54;
+    }
+
+    @media (max-width: 600px) {
+      .header h1 { font-size: 22px; }
+      .version-header { padding: 14px 16px; }
+      .version-body { padding: 0 16px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>
+    </div>
+    <h1>E-ZAP</h1>
+    <p>Changelog &mdash; Historico de versoes</p>
+  </div>
+
+  <div class="container">
+    <div class="section-title">Versoes</div>
+
+    <div id="changelog"></div>
+  </div>
+
+  <div class="footer">
+    E-ZAP &copy; 2025 Grupo Escalada. Todos os direitos reservados.
+  </div>
+
+  <script>
+    // ===== CHANGELOG DATA =====
+    // Add new versions at the TOP of this array.
+    // When releasing a new version, just add a new entry here.
+    var VERSIONS = [
+      {
+        version: "1.1.0",
+        date: "01/04/2026",
+        current: true,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              "Sistema de login por token — cada usuario tem seu proprio acesso",
+              "Banco de dados Supabase com 13 tabelas para persistencia de dados",
+              "Funcoes helper: validate_token, generate_token, get_team_overview, get_user_daily_stats",
+              "Pagina de changelog para acompanhar atualizacoes",
+              "Botoes Pin e ABAS movidos para o sidebar esquerdo do WhatsApp (posicao fixa)",
+              "Popup da extensao agora mostra usuario logado com opcao de logout",
+            ]
+          },
+          {
+            type: "fix",
+            title: "Correcoes",
+            items: [
+              "Token de acesso nao e mais forcado para maiusculo (corrige validacao case-sensitive)",
+              "Botoes Pin/ABAS nao mudam mais de posicao ao redimensionar a janela",
+              "Nome da ferramenta alterado para E-ZAP",
+            ]
+          },
+          {
+            type: "infra",
+            title: "Infraestrutura",
+            items: [
+              "Supabase configurado com Row Level Security (RLS) em todas as tabelas",
+              "Background service worker com handler de autenticacao",
+              "Repositorio Git integrado com Vercel para deploy automatico",
+              "Usuario admin Dhiego Rosa criado no banco de dados",
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.0.0",
+        date: "29/03/2026",
+        current: false,
+        changes: [
+          {
+            type: "feat",
+            title: "Lancamento inicial",
+            items: [
+              "Extensao Chrome (Manifest V3) para WhatsApp Web Business",
+              "Etiquetas coloridas personalizadas por contato",
+              "Integracao com HubSpot CRM (contatos, deals, tickets, reunioes)",
+              "Editor de observacoes rich text por contato",
+              "Sistema MSG — sequencias de mensagens automatizadas",
+              "Filtro SLICE — filtragem de conversas por mentor",
+              "ABAS — grupos de contatos personalizados com cores",
+              "Fixar contatos (Pin) no topo da lista de conversas",
+              "Indicador visual de contato fixado na lista",
+              "Deteccao automatica de tema claro/escuro",
+              "Protecao contra Extension Context Invalidated",
+              "Sistema anti-contaminacao de dados entre contatos (loadId)",
+              "Barra de progresso ao carregar dados do CRM",
+            ]
+          }
+        ]
+      }
+    ];
+
+    // ===== RENDER =====
+    function renderChangelog() {
+      var container = document.getElementById("changelog");
+      var html = "";
+
+      VERSIONS.forEach(function(v, idx) {
+        var isOpen = idx === 0 ? " open" : "";
+        var badgeClass = v.current ? "current" : "old";
+        var currentLabel = v.current ? '<span class="current-label">ATUAL</span>' : "";
+
+        html += '<div class="version-card' + isOpen + '" data-idx="' + idx + '">';
+        html += '<div class="version-header" onclick="toggleVersion(' + idx + ')">';
+        html += '<div class="version-left">';
+        html += '<span class="version-badge ' + badgeClass + '">v' + v.version + '</span>';
+        html += '<span class="version-date">' + v.date + currentLabel + '</span>';
+        html += '</div>';
+        html += '<span class="version-arrow">&#9660;</span>';
+        html += '</div>';
+        html += '<div class="version-body">';
+
+        v.changes.forEach(function(group) {
+          html += '<div class="change-group">';
+          html += '<div class="change-group-title ' + group.type + '"><span class="dot"></span> ' + group.title + '</div>';
+          html += '<ul class="change-list">';
+          group.items.forEach(function(item) {
+            html += '<li>' + item + '</li>';
+          });
+          html += '</ul></div>';
+        });
+
+        html += '</div></div>';
+      });
+
+      container.innerHTML = html;
+    }
+
+    function toggleVersion(idx) {
+      var card = document.querySelector('.version-card[data-idx="' + idx + '"]');
+      if (card) card.classList.toggle("open");
+    }
+
+    renderChangelog();
+  </script>
+</body>
+</html>

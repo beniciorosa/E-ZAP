@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "E-ZAP",
-  "version": "1.0.0",
-  "description": "Etiquetas coloridas e integração HubSpot no WhatsApp Web",
+  "version": "1.1.0",
+  "description": "E-ZAP — Gestão inteligente para WhatsApp Business",
   "permissions": ["storage", "activeTab", "alarms", "tabs"],
   "host_permissions": ["https://api.hubapi.com/*", "https://eklcsufcwjtxlpxhncnt.supabase.co/*", "https://xsqpqdjffjqxdcmoytfc.supabase.co/*"],
   "content_scripts": [
