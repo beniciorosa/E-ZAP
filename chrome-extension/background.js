@@ -187,6 +187,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleAsync(() => checkForUpdate().then(() => chrome.storage.local.get("ezap_update").then(r => r.ezap_update || null)), sendResponse);
     return true;
   }
+  if (request.action === "upload_note_image") {
+    handleAsync(() => uploadNoteImage(request.base64, request.fileName, request.contentType), sendResponse);
+    return true;
+  }
   if (request.action === "log_phone_mismatch") {
     handleAsync(() => supabaseRpc("log_phone_mismatch", {
       p_user_id: request.userId,
@@ -997,5 +1001,38 @@ async function getSellerData(sellerId) {
     };
   } catch (e) {
     return { error: e.message };
+  }
+}
+
+// ===== Upload note image to Supabase Storage =====
+async function uploadNoteImage(base64Data, fileName, contentType) {
+  try {
+    // Convert base64 to binary
+    const binaryStr = atob(base64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const resp = await fetch(AUTH_SUPA_URL + "/storage/v1/object/note-images/" + fileName, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+        "Content-Type": contentType || "image/png",
+        "x-upsert": "true",
+      },
+      body: bytes.buffer,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error("Upload failed: " + resp.status + " " + err);
+    }
+
+    // Return public URL
+    const publicUrl = AUTH_SUPA_URL + "/storage/v1/object/public/note-images/" + fileName;
+    return { ok: true, url: publicUrl };
+  } catch (e) {
+    return { ok: false, error: e.message };
   }
 }

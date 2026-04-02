@@ -149,6 +149,35 @@ function createSidebar() {
   editor.addEventListener("focus", function() { this.dataset.focused = "1"; });
   editor.addEventListener("blur", function() { this.dataset.focused = ""; });
 
+  // Intercept image paste — resize, upload to Supabase, insert as URL
+  editor.addEventListener("paste", function(e) {
+    var items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    if (!items) return;
+
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        e.preventDefault();
+        var file = items[i].getAsFile();
+        if (!file) return;
+        handleImageUpload(file, editor);
+        return;
+      }
+    }
+  });
+
+  // Also support drag & drop images
+  editor.addEventListener("drop", function(e) {
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    for (var i = 0; i < files.length; i++) {
+      if (files[i].type.indexOf("image") !== -1) {
+        e.preventDefault();
+        handleImageUpload(files[i], editor);
+        return;
+      }
+    }
+  });
+
   // Save note button
   document.getElementById("wcrm-save-note-btn").addEventListener("click", saveNote);
 
@@ -623,6 +652,8 @@ function renderContactInfo() {
   window._wcrmTicketId = null;
   window._wcrmHubspotNotes = null;
   window._wcrmNotesExpanded = false;
+  window._wcrmFuturasExpanded = false;
+  window._wcrmRealizadasExpanded = false;
   window._wcrmEditingHsId = null;
   window._wcrmContactData = null; // HubSpot contact/ticket data for message variables
   window._wcrmLoadId = Date.now(); // Unique ID to prevent stale async responses
@@ -1068,25 +1099,64 @@ function fetchMeetings(ticketId, contactId) {
       return db.localeCompare(da);
     });
 
+    var MEET_DEFAULT_SHOW = 2;
     var html = '';
 
     // Futuras
     if (futuras.length > 0) {
+      var futurasExpanded = window._wcrmFuturasExpanded || false;
+      var visibleFuturas = futurasExpanded ? futuras : futuras.slice(0, MEET_DEFAULT_SHOW);
+      var hasMoreFuturas = futuras.length > MEET_DEFAULT_SHOW;
+
       html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#ff922b;margin-bottom:6px;font-weight:600">Proximas (' + futuras.length + ')</div>';
-      futuras.forEach(function(m) {
+      visibleFuturas.forEach(function(m) {
         html += renderMeetingItem(m, true);
       });
+      if (hasMoreFuturas) {
+        if (futurasExpanded) {
+          html += '<div id="wcrm-futuras-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#ff922b;font-size:11px;font-weight:600">▲ Ver menos</div>';
+        } else {
+          html += '<div id="wcrm-futuras-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#ff922b;font-size:11px;font-weight:600">▼ Ver mais (' + (futuras.length - MEET_DEFAULT_SHOW) + ')</div>';
+        }
+      }
     }
 
     // Realizadas
     if (realizadas.length > 0) {
+      var realizadasExpanded = window._wcrmRealizadasExpanded || false;
+      var visibleRealizadas = realizadasExpanded ? realizadas : realizadas.slice(0, MEET_DEFAULT_SHOW);
+      var hasMoreRealizadas = realizadas.length > MEET_DEFAULT_SHOW;
+
       html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin:' + (futuras.length > 0 ? '10px' : '0') + ' 0 6px;font-weight:600">Realizadas (' + realizadas.length + ')</div>';
-      realizadas.forEach(function(m) {
+      visibleRealizadas.forEach(function(m) {
         html += renderMeetingItem(m, false);
       });
+      if (hasMoreRealizadas) {
+        if (realizadasExpanded) {
+          html += '<div id="wcrm-realizadas-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#4d96ff;font-size:11px;font-weight:600">▲ Ver menos</div>';
+        } else {
+          html += '<div id="wcrm-realizadas-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#4d96ff;font-size:11px;font-weight:600">▼ Ver mais (' + (realizadas.length - MEET_DEFAULT_SHOW) + ')</div>';
+        }
+      }
     }
 
     container.innerHTML = html;
+
+    // Toggle handlers
+    var futurasToggle = document.getElementById("wcrm-futuras-toggle");
+    if (futurasToggle) {
+      futurasToggle.addEventListener("click", function() {
+        window._wcrmFuturasExpanded = !window._wcrmFuturasExpanded;
+        fetchMeetings(ticketId, contactId);
+      });
+    }
+    var realizadasToggle = document.getElementById("wcrm-realizadas-toggle");
+    if (realizadasToggle) {
+      realizadasToggle.addEventListener("click", function() {
+        window._wcrmRealizadasExpanded = !window._wcrmRealizadasExpanded;
+        fetchMeetings(ticketId, contactId);
+      });
+    }
   });
 }
 
@@ -1113,11 +1183,135 @@ function renderMeetingItem(meeting, isFuture) {
   return html;
 }
 
+// ===== Image Upload for Notes =====
+function handleImageUpload(file, editor) {
+  // Show placeholder while uploading
+  var placeholder = document.createElement("div");
+  placeholder.className = "wcrm-img-uploading";
+  placeholder.style.cssText = "background:#1a2730;border:1px dashed #3b4a54;border-radius:6px;padding:12px;text-align:center;margin:6px 0;color:#8696a0;font-size:11px";
+  placeholder.textContent = "Enviando imagem...";
+  editor.appendChild(placeholder);
+
+  // Resize image before upload (max 500px width, JPEG 0.8 quality)
+  resizeImage(file, 500, 0.8, function(resizedBase64, contentType) {
+    // Generate unique filename
+    var ext = contentType === "image/png" ? "png" : "jpg";
+    var fileName = "note_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8) + "." + ext;
+
+    // Upload via background script
+    sendBgMessage({
+      action: "upload_note_image",
+      base64: resizedBase64,
+      fileName: fileName,
+      contentType: contentType,
+    }).then(function(result) {
+      // Remove placeholder
+      if (placeholder.parentNode) placeholder.remove();
+
+      if (result && result.ok && result.url) {
+        // Show loading spinner while fetching image via blob (CSP bypass)
+        var imgWrap = document.createElement("div");
+        imgWrap.style.cssText = "background:#1a2730;border-radius:6px;padding:16px;text-align:center;margin:6px 0";
+        imgWrap.innerHTML = '<div style="color:#8696a0;font-size:11px"><span style="display:inline-block;animation:ezapSpin 1s linear infinite;font-size:14px">⏳</span> Carregando imagem...</div>';
+        editor.appendChild(imgWrap);
+
+        var img = document.createElement("img");
+        img.setAttribute("data-src", result.url);
+        img.style.cssText = "max-width:100%;border-radius:6px;margin:4px 0;display:block";
+        img.alt = "Imagem anexada";
+
+        // Add spin animation if not present
+        if (!document.getElementById("ezap-spin-style")) {
+          var spinStyle = document.createElement("style");
+          spinStyle.id = "ezap-spin-style";
+          spinStyle.textContent = "@keyframes ezapSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }";
+          document.head.appendChild(spinStyle);
+        }
+
+        // Load via fetch to bypass CSP
+        fetch(result.url).then(function(r) { return r.blob(); }).then(function(blob) {
+          img.src = URL.createObjectURL(blob);
+          if (imgWrap.parentNode) imgWrap.replaceWith(img);
+          // Add a line break after image so user can continue typing
+          if (!img.nextSibling || img.nextSibling.nodeName !== "BR") {
+            img.insertAdjacentElement("afterend", document.createElement("br"));
+          }
+          editor.focus();
+        }).catch(function() {
+          img.src = result.url;
+          if (imgWrap.parentNode) imgWrap.replaceWith(img);
+          editor.focus();
+        });
+      } else {
+        // Upload failed — show error
+        var errDiv = document.createElement("div");
+        errDiv.style.cssText = "color:#ff6b6b;font-size:11px;padding:4px;margin:4px 0";
+        errDiv.textContent = "Erro ao enviar imagem: " + (result && result.error || "erro desconhecido");
+        editor.appendChild(errDiv);
+        setTimeout(function() { if (errDiv.parentNode) errDiv.remove(); }, 5000);
+      }
+    });
+  });
+}
+
+function resizeImage(file, maxWidth, quality, callback) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width;
+      var h = img.height;
+
+      // Only resize if wider than maxWidth
+      if (w > maxWidth) {
+        h = Math.round(h * (maxWidth / w));
+        w = maxWidth;
+      }
+
+      var canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      var ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // Use JPEG for photos (smaller), PNG for screenshots with transparency
+      var isPng = file.type === "image/png";
+      var outputType = isPng ? "image/png" : "image/jpeg";
+      var dataUrl = canvas.toDataURL(outputType, quality);
+
+      // If PNG is too large, fall back to JPEG
+      if (isPng && dataUrl.length > 500000) {
+        outputType = "image/jpeg";
+        dataUrl = canvas.toDataURL("image/jpeg", quality);
+      }
+
+      // Extract base64 part (remove "data:image/...;base64,")
+      var base64 = dataUrl.split(",")[1];
+      callback(base64, outputType);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 // ===== Notes =====
+// Replace blob: URLs with Supabase URLs before saving (for HubSpot compatibility)
+function prepareNoteHtml(editorEl) {
+  var clone = editorEl.cloneNode(true);
+  clone.querySelectorAll("img[data-src]").forEach(function(img) {
+    img.src = img.getAttribute("data-src");
+    img.removeAttribute("data-src");
+    img.style.cssText = "max-width:100%";
+  });
+  // Remove any uploading placeholders
+  clone.querySelectorAll(".wcrm-img-uploading").forEach(function(el) { el.remove(); });
+  return clone.innerHTML.trim();
+}
+
 function saveNote() {
   var editor = document.getElementById("wcrm-notes-editor");
   var statusEl = document.getElementById("wcrm-save-status");
-  var noteHtml = editor.innerHTML.trim();
+  var noteHtml = prepareNoteHtml(editor);
 
   if (!noteHtml || noteHtml === "<br>" || noteHtml === '<div><br></div>') {
     statusEl.innerHTML = '<span style="color:#ff6b6b">Escreva algo antes de salvar</span>';
@@ -1191,6 +1385,7 @@ function saveNote() {
       btn.textContent = "Salvar Observação"; window._wcrmEditingIdx = null;
       if (result && result.ok) {
         noteEntry.synced = true;
+        noteEntry.hsId = result.noteId; // Store HubSpot note ID for future delete/edit
         setContactData(key, data);
         statusEl.innerHTML = '<span style="color:#25d366">Salvo no HubSpot ✓</span>';
       } else {
@@ -1310,6 +1505,32 @@ function renderNotesHistory(hubspotNotes) {
 
   container.innerHTML = html;
 
+  // Load Supabase images via fetch to bypass WhatsApp CSP
+  container.querySelectorAll(".wcrm-note-content img").forEach(function(img) {
+    var src = img.src || "";
+    if (src.indexOf("supabase.co") !== -1 && src.indexOf("blob:") === -1) {
+      // Replace with loading placeholder
+      var origSrc = src;
+      img.src = "";
+      img.alt = "";
+      img.style.cssText = "display:none";
+      var loader = document.createElement("div");
+      loader.style.cssText = "background:#111b21;border-radius:6px;padding:10px;text-align:center;margin:4px 0;font-size:10px;color:#8696a0";
+      loader.textContent = "Carregando imagem...";
+      img.parentNode.insertBefore(loader, img);
+
+      fetch(origSrc).then(function(r) { return r.blob(); }).then(function(blob) {
+        img.src = URL.createObjectURL(blob);
+        img.style.cssText = "max-width:100%;border-radius:6px;margin:4px 0;display:block";
+        if (loader.parentNode) loader.remove();
+      }).catch(function() {
+        img.src = origSrc;
+        img.style.cssText = "max-width:100%;border-radius:6px;margin:4px 0;display:block";
+        if (loader.parentNode) loader.remove();
+      });
+    }
+  });
+
   // Toggle expand/collapse
   var toggleEl = document.getElementById("wcrm-notes-toggle");
   if (toggleEl) {
@@ -1383,9 +1604,26 @@ function renderNotesHistory(hubspotNotes) {
         var key = contactKey(currentPhone);
         var data = getContactData(key);
         if (data.notesHistory && data.notesHistory[idx] !== undefined) {
+          var deletedNote = data.notesHistory[idx];
+          var localHsId = deletedNote.hsId; // Check if synced to HubSpot
           data.notesHistory.splice(idx, 1);
           setContactData(key, data);
           renderNotesHistory();
+          // Also delete from HubSpot if it was synced
+          if (localHsId) {
+            sendBgMessage({ action: "hubspot_delete_note", noteId: localHsId }).then(function(result) {
+              var statusEl = document.getElementById("wcrm-save-status");
+              if (result && result.ok) {
+                if (window._wcrmHubspotNotes) {
+                  window._wcrmHubspotNotes = window._wcrmHubspotNotes.filter(function(n) { return n.id !== localHsId; });
+                }
+                if (statusEl) statusEl.innerHTML = '<span style="color:#25d366">Excluido do HubSpot ✓</span>';
+                renderNotesHistory();
+              } else {
+                if (statusEl) statusEl.innerHTML = '<span style="color:#ff922b">Removido local, erro no HubSpot</span>';
+              }
+            });
+          }
         }
       } else {
         // Delete HubSpot note via API
