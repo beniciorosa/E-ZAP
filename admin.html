@@ -1110,32 +1110,81 @@ function testHubspotKey() {
 
 // ===== VERSION RELEASE =====
 var RELEASE_JSON_URL = SUPA_URL + "/storage/v1/object/public/releases/release.json";
+var BUILD_INFO_URL = SUPA_URL + "/storage/v1/object/public/releases/build-info.json";
 var RELEASE_UPLOAD_URL = SUPA_URL + "/storage/v1/object/releases/release.json";
 var RELEASE_DOWNLOAD_URL = SUPA_URL + "/storage/v1/object/public/releases/ezap-latest.zip";
 
 function loadCurrentRelease() {
   var infoEl = document.getElementById("currentReleaseInfo");
-  fetch(RELEASE_JSON_URL + "?t=" + Date.now()).then(function(r) {
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  }).then(function(data) {
-    var dateStr = data.published_at ? formatDate(data.published_at) : "-";
-    infoEl.innerHTML =
-      '<div style="display:flex;align-items:center;gap:12px">' +
-        '<div style="width:8px;height:8px;border-radius:50%;background:#25d366;flex-shrink:0"></div>' +
-        '<div>' +
-          '<div style="color:#e9edef;font-weight:600">Versao publicada: <span style="color:#25d366">' + esc(data.version) + '</span></div>' +
-          '<div style="font-size:11px;color:#8696a0;margin-top:2px">' + dateStr +
-            (data.message ? ' &mdash; ' + esc(data.message) : '') +
+
+  // Fetch both release.json (published) and build-info.json (latest build) in parallel
+  Promise.all([
+    fetch(RELEASE_JSON_URL + "?t=" + Date.now()).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+    fetch(BUILD_INFO_URL + "?t=" + Date.now()).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+  ]).then(function(results) {
+    var published = results[0];
+    var build = results[1];
+    var html = "";
+
+    // Show published version
+    if (published && published.version) {
+      var dateStr = published.published_at ? formatDate(published.published_at) : "-";
+      html +=
+        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">' +
+          '<div style="width:8px;height:8px;border-radius:50%;background:#25d366;flex-shrink:0"></div>' +
+          '<div>' +
+            '<div style="color:#e9edef;font-weight:600">Versao publicada: <span style="color:#25d366">' + esc(published.version) + '</span></div>' +
+            '<div style="font-size:11px;color:#8696a0;margin-top:2px">' + dateStr +
+              (published.message ? ' &mdash; ' + esc(published.message) : '') +
+            '</div>' +
           '</div>' +
-        '</div>' +
-      '</div>';
-    // Pre-fill version input with current published version
-    var vInput = document.getElementById("releaseVersion");
-    if (vInput && !vInput.value) vInput.value = data.version;
-  }).catch(function() {
-    infoEl.innerHTML = '<span style="color:#ff922b">Nenhuma versao publicada ainda.</span>';
+        '</div>';
+    } else {
+      html += '<div style="color:#ff922b;margin-bottom:8px">Nenhuma versao publicada ainda.</div>';
+    }
+
+    // Compare with latest build and show alert if there's a newer build
+    if (build && build.version) {
+      var publishedVersion = published ? published.version : "0.0.0";
+      var isNewer = isNewerSemver(build.version, publishedVersion);
+
+      if (isNewer) {
+        var buildDate = build.built_at ? formatDate(build.built_at) : "";
+        html +=
+          '<div style="display:flex;align-items:center;gap:12px;background:#ff922b15;border:1px solid #ff922b30;border-radius:6px;padding:10px 12px">' +
+            '<div style="font-size:18px;flex-shrink:0">&#9888;&#65039;</div>' +
+            '<div>' +
+              '<div style="color:#ff922b;font-weight:600;font-size:12px">Nova versao no Supabase: <span style="color:#e9edef">' + esc(build.version) + '</span> — ainda nao publicada!</div>' +
+              (buildDate ? '<div style="font-size:11px;color:#8696a0;margin-top:2px">Build: ' + buildDate + '</div>' : '') +
+            '</div>' +
+          '</div>';
+
+        // Auto-fill version input with the new build version
+        var vInput = document.getElementById("releaseVersion");
+        if (vInput) vInput.value = build.version;
+      } else {
+        // Published version is up to date
+        var vInput2 = document.getElementById("releaseVersion");
+        if (vInput2 && !vInput2.value && published) vInput2.value = published.version;
+      }
+    } else if (published) {
+      var vInput3 = document.getElementById("releaseVersion");
+      if (vInput3 && !vInput3.value) vInput3.value = published.version;
+    }
+
+    infoEl.innerHTML = html || '<span style="color:#8696a0">Nenhuma informacao disponivel.</span>';
   });
+}
+
+// Compare semver: returns true if vA > vB
+function isNewerSemver(vA, vB) {
+  var a = vA.split(".").map(Number);
+  var b = vB.split(".").map(Number);
+  for (var i = 0; i < 3; i++) {
+    if ((a[i] || 0) > (b[i] || 0)) return true;
+    if ((a[i] || 0) < (b[i] || 0)) return false;
+  }
+  return false;
 }
 
 function publishRelease() {

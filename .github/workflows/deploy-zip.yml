@@ -49,7 +49,17 @@ jobs:
             --data-binary @"ezap-v${{ steps.version.outputs.version }}.zip" \
             --fail --silent --show-error
 
+      - name: Upload build-info.json
+        run: |
+          echo '{"version":"${{ steps.version.outputs.version }}","built_at":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","commit":"'${{ github.sha }}'"}' > build-info.json
+          curl -X POST "${{ secrets.SUPABASE_URL }}/storage/v1/object/releases/build-info.json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "x-upsert: true" \
+            --data-binary @build-info.json \
+            --fail --silent --show-error
+
       - name: Verify upload
         run: |
-          echo "Uploaded ezap-latest.zip and ezap-v${{ steps.version.outputs.version }}.zip"
+          echo "Uploaded ezap-latest.zip, ezap-v${{ steps.version.outputs.version }}.zip and build-info.json"
           echo "Public URL: ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/releases/ezap-latest.zip"
