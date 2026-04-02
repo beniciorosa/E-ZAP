@@ -211,7 +211,7 @@ function validateWhatsAppPhone() {
     };
     window.addEventListener("message", phoneListener);
 
-    // Final attempt after delay — try localStorage again
+    // Retry: wait for WhatsApp to be logged in, then validate
     setTimeout(function() {
       if (window.__ezapPhoneVerified) return;
       var retryPhone = detectWhatsAppPhone();
@@ -220,16 +220,13 @@ function validateWhatsAppPhone() {
         checkPhoneMatch(retryPhone, allowedPhones);
       } else {
         console.log("[EZAP AUTH] Could not detect WhatsApp phone number, retrying...");
-        // Keep retrying every 10 seconds for 2 minutes
+        // Keep retrying every 10 seconds — no hard limit
+        // If WhatsApp is not logged in (QR code screen), wait patiently
         var retryCount = 0;
         var retryInterval = setInterval(function() {
           retryCount++;
-          if (retryCount > 12 || window.__ezapPhoneVerified) {
+          if (window.__ezapPhoneVerified) {
             clearInterval(retryInterval);
-            if (!window.__ezapPhoneVerified) {
-              console.log("[EZAP AUTH] Phone detection failed after retries, blocking access");
-              showPhoneBlockOverlay("Nao foi possivel verificar o numero do WhatsApp. Abra o perfil do WhatsApp e tente novamente.");
-            }
             return;
           }
           var p = detectWhatsAppPhone();
@@ -237,6 +234,22 @@ function validateWhatsAppPhone() {
             clearInterval(retryInterval);
             window.removeEventListener("message", phoneListener);
             checkPhoneMatch(p, allowedPhones);
+            return;
+          }
+          // Check if WhatsApp is logged in (chat list visible = logged in)
+          var isLoggedIn = !!document.querySelector('[data-icon="new-chat-outline"]') ||
+                           !!document.querySelector('[aria-label="Lista de conversas"]') ||
+                           !!document.querySelector('[data-icon="menu"]');
+          if (!isLoggedIn) {
+            // Still on QR code screen — keep waiting without blocking
+            console.log("[EZAP AUTH] WhatsApp not logged in yet, waiting...");
+            return;
+          }
+          // WhatsApp IS logged in but we still can't detect phone — give more retries
+          if (retryCount > 18) { // ~3 minutes after WhatsApp login
+            clearInterval(retryInterval);
+            console.log("[EZAP AUTH] Phone detection failed after retries, blocking access");
+            showPhoneBlockOverlay("Nao foi possivel verificar o numero do WhatsApp. Abra o perfil do WhatsApp e tente novamente.");
           }
         }, 10000);
       }

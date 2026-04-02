@@ -42,9 +42,7 @@ function buildEmailHtml(nome, token) {
 
     // Header
     '<div style="background:#111b21;border-radius:16px 16px 0 0;padding:32px 24px;text-align:center">' +
-      '<div style="width:64px;height:64px;border-radius:50%;background:#25d366;margin:0 auto 16px;display:flex;align-items:center;justify-content:center">' +
-        '<span style="font-size:28px;color:#fff">&#9889;</span>' +
-      '</div>' +
+      '<img src="https://xsqpqdjffjqxdcmoytfc.supabase.co/storage/v1/object/public/releases/ezap-logo.png" alt="E-ZAP" width="64" height="64" style="border-radius:50%;margin:0 auto 16px;display:block" />' +
       '<h1 style="margin:0;font-size:28px;font-weight:700;color:#e9edef;letter-spacing:-0.5px">E-ZAP</h1>' +
       '<p style="margin:6px 0 0;font-size:14px;color:#8696a0">Gestao inteligente para WhatsApp</p>' +
     '</div>' +
