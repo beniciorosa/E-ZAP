@@ -844,9 +844,14 @@ function findSidebarInfo() {
   // Find the gap between top icons and bottom icons (settings/profile).
   // Top icons are clustered together; bottom icons have a big Y gap.
   var lastTopIcon = leftIcons[0];
+  var firstBottomIconTop = sidebarRect.bottom; // default: bottom of sidebar
   for (var k = 1; k < leftIcons.length; k++) {
     var gap = leftIcons[k].rect.top - leftIcons[k - 1].rect.bottom;
-    if (gap > 80) break; // big gap = separator between top section and bottom section
+    if (gap > 80) {
+      // big gap = separator between top section and bottom section
+      firstBottomIconTop = leftIcons[k].rect.top;
+      break;
+    }
     lastTopIcon = leftIcons[k];
   }
 
@@ -854,20 +859,67 @@ function findSidebarInfo() {
     sidebarEl: (sidebarEl && sidebarEl !== document.body) ? sidebarEl : null,
     sidebarRect: sidebarRect,
     lastTopIconBottom: lastTopIcon.rect.bottom,
+    firstBottomIconTop: firstBottomIconTop,
     centerX: sidebarRect.left + sidebarRect.width / 2,
   };
+}
+
+function calcButtonSizes(availableHeight) {
+  // Full size: label(12) + gap(4) + 3 buttons(40 each) + gaps(4*2) + padding(8) = ~132px
+  // Compact: label(10) + gap(2) + 3 buttons(34 each) + gaps(2*2) + padding(4) = ~120px
+  // Mini: label(10) + gap(1) + 3 buttons(28 each) + gaps(1*2) + padding(2) = ~99px
+  // Tight: no label + 3 buttons(26 each) + gaps(1*2) + padding(2) = ~82px
+
+  if (availableHeight >= 132) {
+    return { btnSize: 40, iconSize: 20, gap: 4, padding: 8, labelSize: 8, labelMargin: 4, showLabel: true };
+  } else if (availableHeight >= 110) {
+    return { btnSize: 34, iconSize: 18, gap: 2, padding: 4, labelSize: 7, labelMargin: 2, showLabel: true };
+  } else if (availableHeight >= 90) {
+    return { btnSize: 28, iconSize: 16, gap: 1, padding: 2, labelSize: 7, labelMargin: 1, showLabel: true };
+  } else {
+    return { btnSize: 26, iconSize: 14, gap: 1, padding: 2, labelSize: 0, labelMargin: 0, showLabel: false };
+  }
 }
 
 function injectSidebarButtons() {
   var info = findSidebarInfo();
   if (!info) return;
 
+  // Calculate available space between top icons and bottom icons
+  var topY = info.lastTopIconBottom + 8;
+  var bottomY = info.firstBottomIconTop - 4;
+  var availableHeight = bottomY - topY;
+  var sizes = calcButtonSizes(availableHeight);
+
   var existing = document.getElementById('wcrm-sidebar-buttons');
   if (existing) {
-    // Reposition and update state (layout may have shifted)
+    // Reposition and resize (layout may have shifted)
     existing.style.left = info.sidebarRect.left + 'px';
-    existing.style.top = (info.lastTopIconBottom + 12) + 'px';
+    existing.style.top = topY + 'px';
     existing.style.width = info.sidebarRect.width + 'px';
+    existing.style.gap = sizes.gap + 'px';
+    existing.style.paddingTop = sizes.padding + 'px';
+
+    // Resize label
+    var label = document.getElementById('wcrm-sidebar-hub-label');
+    if (label) {
+      label.style.display = sizes.showLabel ? 'block' : 'none';
+      label.style.fontSize = sizes.labelSize + 'px';
+      label.style.marginBottom = sizes.labelMargin + 'px';
+    }
+
+    // Resize buttons
+    var btns = existing.querySelectorAll('[role="button"]');
+    for (var b = 0; b < btns.length; b++) {
+      btns[b].style.width = sizes.btnSize + 'px';
+      btns[b].style.height = sizes.btnSize + 'px';
+      var svg = btns[b].querySelector('svg');
+      if (svg) {
+        svg.setAttribute('width', sizes.iconSize);
+        svg.setAttribute('height', sizes.iconSize);
+      }
+    }
+
     updateSidebarButtonStates();
     return;
   }
@@ -880,29 +932,30 @@ function injectSidebarButtons() {
   Object.assign(wrapper.style, {
     position: 'fixed',
     left: info.sidebarRect.left + 'px',
-    top: (info.lastTopIconBottom + 12) + 'px',
+    top: topY + 'px',
     width: info.sidebarRect.width + 'px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '4px',
-    paddingTop: '8px',
+    gap: sizes.gap + 'px',
+    paddingTop: sizes.padding + 'px',
     borderTop: '1px solid ' + t.border,
     zIndex: '99998',
   });
 
-  // E-HUB label
+  // E-ZAP label
   var hubLabel = document.createElement('div');
   hubLabel.id = 'wcrm-sidebar-hub-label';
   Object.assign(hubLabel.style, {
-    fontSize: '8px',
+    fontSize: sizes.labelSize + 'px',
     fontWeight: '700',
     color: '#25d366',
     textAlign: 'center',
     letterSpacing: '1px',
-    marginBottom: '4px',
+    marginBottom: sizes.labelMargin + 'px',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     userSelect: 'none',
+    display: sizes.showLabel ? 'block' : 'none',
   });
   hubLabel.textContent = 'E-ZAP';
 
@@ -911,8 +964,8 @@ function injectSidebarButtons() {
   pinBtn.id = 'wcrm-sidebar-pin';
   pinBtn.setAttribute('role', 'button');
   Object.assign(pinBtn.style, {
-    width: '40px',
-    height: '40px',
+    width: sizes.btnSize + 'px',
+    height: sizes.btnSize + 'px',
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
@@ -921,7 +974,7 @@ function injectSidebarButtons() {
     transition: 'background 0.15s',
   });
   var chatName = typeof currentName !== 'undefined' ? currentName : null;
-  updatePinButtonState(pinBtn, chatName, t);
+  updatePinButtonState(pinBtn, chatName, t, sizes.iconSize);
   pinBtn.addEventListener('mouseenter', function() { pinBtn.style.background = getTheme().bgHover; });
   pinBtn.addEventListener('mouseleave', function() {
     var cn = typeof currentName !== 'undefined' ? currentName : null;
@@ -939,8 +992,8 @@ function injectSidebarButtons() {
   abasBtn.id = 'wcrm-sidebar-abas';
   abasBtn.setAttribute('role', 'button');
   Object.assign(abasBtn.style, {
-    width: '40px',
-    height: '40px',
+    width: sizes.btnSize + 'px',
+    height: sizes.btnSize + 'px',
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
@@ -949,7 +1002,7 @@ function injectSidebarButtons() {
     transition: 'background 0.15s',
     position: 'relative',
   });
-  abasBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="' + t.iconColor + '"><path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z" opacity="0.85"/></svg>';
+  abasBtn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sizes.iconSize + '" height="' + sizes.iconSize + '" fill="' + t.iconColor + '"><path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z" opacity="0.85"/></svg>';
   abasBtn.title = 'Abas';
   // Purple dot indicator (hidden by default)
   var abasDot = document.createElement('span');
@@ -979,8 +1032,8 @@ function injectSidebarButtons() {
   tagBtn.id = 'wcrm-sidebar-tag';
   tagBtn.setAttribute('role', 'button');
   Object.assign(tagBtn.style, {
-    width: '40px',
-    height: '40px',
+    width: sizes.btnSize + 'px',
+    height: sizes.btnSize + 'px',
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
@@ -988,7 +1041,7 @@ function injectSidebarButtons() {
     cursor: 'pointer',
     transition: 'background 0.15s',
   });
-  tagBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="' + t.iconColor + '"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z" opacity="0.85"/></svg>';
+  tagBtn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sizes.iconSize + '" height="' + sizes.iconSize + '" fill="' + t.iconColor + '"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z" opacity="0.85"/></svg>';
   tagBtn.title = 'Etiquetas';
   tagBtn.addEventListener('mouseenter', function() { tagBtn.style.background = getTheme().bgHover; });
   tagBtn.addEventListener('mouseleave', function() { tagBtn.style.background = 'transparent'; });
@@ -1036,17 +1089,18 @@ function updateAbasDotIndicator() {
   dot.style.display = isContactInAnyAba(chatName) ? 'block' : 'none';
 }
 
-function updatePinButtonState(btn, chatName, theme) {
+function updatePinButtonState(btn, chatName, theme, iconSz) {
   var t = theme || getTheme();
+  var sz = iconSz || 20;
   var pinned = window._wcrmPinned || {};
   var isPinned = !!pinned[chatName];
 
   if (isPinned) {
-    btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="#25d366"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="#25d366"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>';
     btn.style.background = isDarkMode() ? '#25d36615' : '#25d36610';
     btn.title = 'Desafixar contato';
   } else {
-    btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="' + t.iconColor + '"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2zM9 4v7.75L7.5 14h9L15 11.75V4H9z"/></svg>';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="' + t.iconColor + '"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2zM9 4v7.75L7.5 14h9L15 11.75V4H9z"/></svg>';
     btn.style.background = 'transparent';
     btn.title = 'Fixar contato';
   }

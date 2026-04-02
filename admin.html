@@ -376,6 +376,35 @@
         </div>
       </div>
 
+      <div style="background:#202c33;border:1px solid #2a3942;border-radius:10px;padding:20px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#4d96ff20;display:flex;align-items:center;justify-content:center">
+            <span style="font-size:18px">&#128640;</span>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:600">Publicar Versao</div>
+            <div style="font-size:11px;color:#8696a0">Notifique os usuarios sobre uma nova versao da extensao</div>
+          </div>
+        </div>
+        <div id="currentReleaseInfo" style="background:#111b21;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#8696a0">
+          Carregando versao publicada...
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Versao</label>
+            <input type="text" id="releaseVersion" placeholder="1.4.0">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Mensagem (opcional)</label>
+            <input type="text" id="releaseMessage" placeholder="Ex: Correcoes de seguranca e melhorias">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" onclick="publishRelease()" style="padding:8px 16px;font-size:12px">Publicar e Notificar</button>
+          <span id="releaseStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -1078,6 +1107,98 @@ function testHubspotKey() {
     statusEl.textContent = "Erro de conexao";
   });
 }
+
+// ===== VERSION RELEASE =====
+var RELEASE_JSON_URL = SUPA_URL + "/storage/v1/object/public/releases/release.json";
+var RELEASE_UPLOAD_URL = SUPA_URL + "/storage/v1/object/releases/release.json";
+var RELEASE_DOWNLOAD_URL = SUPA_URL + "/storage/v1/object/public/releases/ezap-latest.zip";
+
+function loadCurrentRelease() {
+  var infoEl = document.getElementById("currentReleaseInfo");
+  fetch(RELEASE_JSON_URL + "?t=" + Date.now()).then(function(r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function(data) {
+    var dateStr = data.published_at ? formatDate(data.published_at) : "-";
+    infoEl.innerHTML =
+      '<div style="display:flex;align-items:center;gap:12px">' +
+        '<div style="width:8px;height:8px;border-radius:50%;background:#25d366;flex-shrink:0"></div>' +
+        '<div>' +
+          '<div style="color:#e9edef;font-weight:600">Versao publicada: <span style="color:#25d366">' + esc(data.version) + '</span></div>' +
+          '<div style="font-size:11px;color:#8696a0;margin-top:2px">' + dateStr +
+            (data.message ? ' &mdash; ' + esc(data.message) : '') +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    // Pre-fill version input with current published version
+    var vInput = document.getElementById("releaseVersion");
+    if (vInput && !vInput.value) vInput.value = data.version;
+  }).catch(function() {
+    infoEl.innerHTML = '<span style="color:#ff922b">Nenhuma versao publicada ainda.</span>';
+  });
+}
+
+function publishRelease() {
+  var version = document.getElementById("releaseVersion").value.trim();
+  var message = document.getElementById("releaseMessage").value.trim();
+  var statusEl = document.getElementById("releaseStatus");
+
+  if (!version) {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Informe a versao";
+    return;
+  }
+
+  // Validate version format (semver-like)
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Formato invalido. Use X.Y.Z (ex: 1.4.0)";
+    return;
+  }
+
+  if (!confirm("Publicar versao " + version + " e notificar todos os usuarios?")) return;
+
+  statusEl.style.color = "#8696a0";
+  statusEl.textContent = "Publicando...";
+
+  var releaseData = {
+    version: version,
+    message: message || "",
+    download_url: RELEASE_DOWNLOAD_URL,
+    published_at: new Date().toISOString(),
+    published_by: currentAdmin.user_name || "admin"
+  };
+
+  // Upload release.json to Supabase Storage (upsert)
+  fetch(RELEASE_UPLOAD_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + SUPA_KEY,
+      "Content-Type": "application/json",
+      "x-upsert": "true"
+    },
+    body: JSON.stringify(releaseData)
+  }).then(function(r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    statusEl.style.color = "#25d366";
+    statusEl.textContent = "Versao " + version + " publicada com sucesso!";
+    document.getElementById("releaseMessage").value = "";
+    loadCurrentRelease();
+    setTimeout(function() { statusEl.textContent = ""; }, 5000);
+  }).catch(function(err) {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Erro ao publicar: " + err.message;
+  });
+}
+
+// Load release info on settings load
+(function() {
+  var origLoadSettings = loadSettings;
+  loadSettings = function() {
+    origLoadSettings();
+    loadCurrentRelease();
+  };
+})();
 
 // ===== UTILS =====
 function closeModal(e) { if (e.target.classList.contains("modal-overlay")) closeModalForce(); }

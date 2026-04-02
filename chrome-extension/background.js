@@ -53,12 +53,82 @@ async function validateToken(token, deviceId, ipAddress, locationStr, userAgent)
   }
 }
 
+// ===== Version Check (periodic alarm) =====
+const RELEASE_JSON_URL = AUTH_SUPA_URL + "/storage/v1/object/public/releases/release.json";
+
+// Create alarm for periodic version check (every 60 minutes)
+chrome.alarms.create("ezap_version_check", { delayInMinutes: 1, periodInMinutes: 60 });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "ezap_version_check") {
+    checkForUpdate();
+  }
+});
+
+async function checkForUpdate() {
+  try {
+    const resp = await fetch(RELEASE_JSON_URL + "?t=" + Date.now(), { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return;
+    const release = await resp.json();
+    if (!release || !release.version) return;
+
+    const manifest = chrome.runtime.getManifest();
+    const currentVersion = manifest.version;
+
+    if (isNewerVersion(release.version, currentVersion)) {
+      console.log("[EZAP BG] New version available:", release.version, "(current:", currentVersion + ")");
+      // Store update info so content scripts can show the banner
+      await chrome.storage.local.set({
+        ezap_update: {
+          version: release.version,
+          message: release.message || "",
+          download_url: release.download_url || "",
+          published_at: release.published_at || "",
+          checked_at: new Date().toISOString(),
+        }
+      });
+      // Notify all WhatsApp tabs
+      chrome.tabs.query({ url: "https://web.whatsapp.com/*" }, (tabs) => {
+        tabs.forEach((tab) => {
+          chrome.tabs.sendMessage(tab.id, {
+            action: "ezap_update_available",
+            version: release.version,
+            message: release.message || "",
+            download_url: release.download_url || "",
+          }).catch(() => {});
+        });
+      });
+    } else {
+      // No update — clear any stored update info
+      await chrome.storage.local.remove("ezap_update");
+    }
+  } catch (e) {
+    console.log("[EZAP BG] Version check failed:", e.message);
+  }
+}
+
+// Compare semver: returns true if remoteVer > localVer
+function isNewerVersion(remoteVer, localVer) {
+  const r = remoteVer.split(".").map(Number);
+  const l = localVer.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const rv = r[i] || 0;
+    const lv = l[i] || 0;
+    if (rv > lv) return true;
+    if (rv < lv) return false;
+  }
+  return false; // equal
+}
+
 // Sync HubSpot key from Supabase on startup, then pre-load pipeline stages
 syncHubSpotKey().then(function() {
   loadStageCache().catch(function() {
     console.log("[EZAP BG] Pre-load stages deferred (key not ready yet)");
   });
 });
+
+// Also check for updates on startup
+checkForUpdate();
 
 // ===== HubSpot Results Cache (5-minute TTL) =====
 const _hsCache = {};
@@ -101,6 +171,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.action === "get_ip_info") {
     handleAsync(() => getIpInfo(), sendResponse);
+    return true;
+  }
+  if (request.action === "check_update") {
+    handleAsync(() => checkForUpdate().then(() => chrome.storage.local.get("ezap_update").then(r => r.ezap_update || null)), sendResponse);
     return true;
   }
   if (request.action === "log_phone_mismatch") {

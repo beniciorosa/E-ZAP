@@ -517,4 +517,91 @@ chrome.runtime.onMessage.addListener(function(request) {
   if (request.action === "wcrm_logout") {
     window.__wcrmLogout();
   }
+  if (request.action === "ezap_update_available") {
+    showUpdateBanner(request.version, request.message, request.download_url);
+  }
+});
+
+// ===== Version Update Notification Banner =====
+function showUpdateBanner(version, message, downloadUrl) {
+  // Don't show if already showing
+  if (document.getElementById("ezap-update-banner")) return;
+
+  var banner = document.createElement("div");
+  banner.id = "ezap-update-banner";
+  Object.assign(banner.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "100%",
+    zIndex: "99999998",
+    background: "linear-gradient(135deg, #111b21 0%, #1a2b34 100%)",
+    borderBottom: "2px solid #25d366",
+    padding: "12px 20px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "16px",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+    animation: "ezapSlideDown 0.4s ease-out",
+  });
+
+  // Add animation keyframes
+  if (!document.getElementById("ezap-update-style")) {
+    var style = document.createElement("style");
+    style.id = "ezap-update-style";
+    style.textContent =
+      "@keyframes ezapSlideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }" +
+      "@keyframes ezapPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }";
+    document.head.appendChild(style);
+  }
+
+  var msgText = message ? " — " + message : "";
+
+  banner.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px">' +
+      '<div style="width:32px;height:32px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;flex-shrink:0;animation:ezapPulse 2s infinite">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="#111b21"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>' +
+      '</div>' +
+      '<div>' +
+        '<div style="font-size:13px;font-weight:600;color:#e9edef">Nova versao disponivel: <span style="color:#25d366">v' + version + '</span>' + msgText + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
+      '<a href="' + (downloadUrl || "#") + '" target="_blank" style="padding:8px 18px;background:#25d366;color:#111b21;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap">Baixar Atualizacao</a>' +
+      '<button id="ezap-update-dismiss" style="padding:6px;background:transparent;border:none;cursor:pointer;color:#8696a0;font-size:18px;line-height:1" title="Fechar">&times;</button>' +
+    '</div>';
+
+  document.body.appendChild(banner);
+
+  // Dismiss button
+  document.getElementById("ezap-update-dismiss").addEventListener("click", function() {
+    banner.style.transition = "transform 0.3s ease-in, opacity 0.3s";
+    banner.style.transform = "translateY(-100%)";
+    banner.style.opacity = "0";
+    setTimeout(function() { banner.remove(); }, 300);
+    // Store dismissal for this version so it doesn't keep showing
+    chrome.storage.local.set({ ezap_update_dismissed: version });
+  });
+}
+
+// Check for stored update info on load (after auth is ready)
+function checkStoredUpdate() {
+  chrome.storage.local.get(["ezap_update", "ezap_update_dismissed"], function(result) {
+    if (result.ezap_update && result.ezap_update.version) {
+      // Don't show if user already dismissed this version
+      if (result.ezap_update_dismissed === result.ezap_update.version) return;
+      showUpdateBanner(
+        result.ezap_update.version,
+        result.ezap_update.message,
+        result.ezap_update.download_url
+      );
+    }
+  });
+}
+
+// Trigger update check after auth is ready
+document.addEventListener("wcrm-auth-ready", function() {
+  setTimeout(checkStoredUpdate, 3000);
 });
