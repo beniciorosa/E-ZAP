@@ -84,7 +84,7 @@
     }
 
     /* ===== CONTENT ===== */
-    .content { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .content { max-width: 1200px; margin: 0 auto; padding: 24px; }
     .panel { display: none; }
     .panel.active { display: block; }
 
@@ -100,7 +100,7 @@
     .stat-card .value.orange { color: #ff922b; }
     .stat-card .value.red { color: #ff6b6b; }
 
-    /* ===== TABLE ===== */
+    /* ===== LAYOUT ===== */
     .section-header {
       display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
     }
@@ -111,21 +111,40 @@
     }
     .btn-primary:hover { background: #1da851; }
 
-    .table-wrap {
-      background: #202c33; border: 1px solid #2a3942; border-radius: 10px; overflow-x: auto;
+    /* ===== USER CARDS ===== */
+    .user-cards { display: flex; flex-direction: column; gap: 10px; }
+    .user-card {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 12px;
+      padding: 16px 20px; transition: border-color 0.15s;
     }
-    table { width: 100%; border-collapse: collapse; }
-    th {
-      text-align: left; padding: 12px 14px; font-size: 11px; text-transform: uppercase;
-      letter-spacing: 0.5px; color: #8696a0; font-weight: 600; background: #1a2730;
-      border-bottom: 1px solid #2a3942; white-space: nowrap;
+    .user-card:hover { border-color: #3b4a54; }
+    .user-card-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 12px;
     }
-    td {
-      padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #2a394240;
-      vertical-align: middle;
+    .user-card-identity { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+    .user-card-avatar {
+      width: 40px; height: 40px; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; font-size: 16px;
+      font-weight: 700; color: #fff; flex-shrink: 0;
     }
-    tr:last-child td { border-bottom: none; }
-    tr:hover { background: #2a394220; }
+    .user-card-name-wrap { min-width: 0; }
+    .user-card-name { font-size: 15px; font-weight: 600; color: #e9edef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-card-email { font-size: 12px; color: #8696a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-card-badges { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .user-card-body {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+      padding-top: 12px; border-top: 1px solid #2a3942;
+    }
+    .user-card-field {}
+    .user-card-field .uc-label {
+      font-size: 10px; color: #8696a0; text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 4px; font-weight: 600;
+    }
+    .user-card-field .uc-value { font-size: 12px; color: #e9edef; }
+    .user-card-actions {
+      display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: flex-start;
+    }
 
     .token-cell {
       font-family: monospace; font-size: 11px; color: #8696a0;
@@ -159,8 +178,6 @@
       border-radius: 3px; margin: 1px 2px;
       background: #25d36615; color: #25d366; border: 1px solid #25d36630;
     }
-
-    .actions { display: flex; gap: 4px; flex-wrap: wrap; }
 
     .device-info {
       font-size: 11px; color: #8696a0; line-height: 1.5;
@@ -306,25 +323,8 @@
         <div class="section-title">Usuarios cadastrados</div>
         <button class="btn-primary" onclick="openCreateUser()">+ Novo Usuario</button>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Email</th>
-              <th>Telefone</th>
-              <th>Token</th>
-              <th>Perfil</th>
-              <th>Status</th>
-              <th>Features</th>
-              <th>Dispositivo</th>
-              <th>Acoes</th>
-            </tr>
-          </thead>
-          <tbody id="usersTableBody">
-            <tr><td colspan="9" class="empty-state">Carregando...</td></tr>
-          </tbody>
-        </table>
+      <div id="usersContainer" class="user-cards">
+        <div class="empty-state">Carregando...</div>
       </div>
     </div>
 
@@ -521,7 +521,7 @@ function renderStats(users) {
 }
 
 function renderUsersTable(users) {
-  var tbody = document.getElementById("usersTableBody");
+  var container = document.getElementById("usersContainer");
   if (users.length === 0) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Nenhum usuario cadastrado</td></tr>';
     return;
@@ -533,59 +533,75 @@ function renderUsersTable(users) {
     var roleLabel = u.role === "admin" ? "Admin" : "Usuario";
     var statusClass = u.active ? "active" : "inactive";
     var statusLabel = u.active ? "Ativo" : "Inativo";
-    var lastActive = u.last_active ? formatDate(u.last_active) : "Nunca";
 
-    // Features tags — admin always has ALL features
-    var features = u.role === "admin" ? ALL_FEATURES.map(function(f){return f.key;}) : (u.features || []);
+    // Features tags
     var featHtml = "";
     if (u.role === "admin") {
       featHtml = '<span class="feature-tag" style="background:#cc5de815;color:#cc5de8;border-color:#cc5de830">TODAS</span>';
     } else {
-      features.forEach(function(f) { featHtml += '<span class="feature-tag">' + f + '</span>'; });
+      (u.features || []).forEach(function(f) { featHtml += '<span class="feature-tag">' + f + '</span>'; });
     }
-    if (!featHtml) featHtml = '<span style="color:#3b4a54;font-size:11px">-</span>';
+    if (!featHtml) featHtml = '<span style="color:#3b4a54;font-size:11px">Nenhuma</span>';
 
     // Phones tags
-    var phones = u.allowed_phones || [];
     var phoneHtml = "";
-    phones.forEach(function(p) { phoneHtml += '<span class="phone-tag">+' + p + '</span>'; });
+    (u.allowed_phones || []).forEach(function(p) { phoneHtml += '<span class="phone-tag">+' + p + '</span>'; });
+    if (!phoneHtml) phoneHtml = '<span style="color:#ff6b6b;font-size:11px">Nao configurado</span>';
 
     // Device info
     var deviceHtml = "";
     if (u.token_redeemed) {
       deviceHtml = '<div class="device-info">';
-      if (u.redeemed_ip) deviceHtml += '<span class="ip">' + esc(u.redeemed_ip) + '</span><br>';
-      if (u.redeemed_location) deviceHtml += '<span class="loc">' + esc(u.redeemed_location) + '</span><br>';
-      if (u.redeemed_at) deviceHtml += '<span>' + formatDate(u.redeemed_at) + '</span>';
+      if (u.redeemed_location) deviceHtml += '<span class="loc">' + esc(u.redeemed_location) + '</span> ';
+      if (u.redeemed_ip) deviceHtml += '<span class="ip">' + esc(u.redeemed_ip) + '</span>';
+      if (u.redeemed_at) deviceHtml += '<br><span>' + formatDate(u.redeemed_at) + '</span>';
       deviceHtml += '</div>';
     } else {
       deviceHtml = '<span style="color:#3b4a54;font-size:11px">Nao resgatado</span>';
     }
 
-    html += '<tr>';
-    html += '<td><strong>' + esc(u.name) + '</strong>' + (phoneHtml ? '<br>' + phoneHtml : '') + '</td>';
-    html += '<td style="color:#8696a0;font-size:12px">' + esc(u.email || '-') + '</td>';
-    html += '<td style="color:#8696a0;font-size:12px">' + esc(u.phone || '-') + '</td>';
-    html += '<td><span class="token-cell" onclick="copyToken(this, \'' + esc(u.token) + '\')">' + esc(u.token) + '</span></td>';
-    html += '<td><span class="badge ' + roleClass + '">' + roleLabel + '</span></td>';
-    html += '<td><span class="badge ' + statusClass + '">' + statusLabel + '</span></td>';
-    html += '<td>' + featHtml + '</td>';
-    html += '<td>' + deviceHtml + '</td>';
-    html += '<td><div class="actions">';
-    html += '<button class="btn-sm primary" onclick="openEditUser(\'' + u.id + '\')">Editar</button>';
+    // Avatar color based on role
+    var avatarBg = u.role === "admin" ? "#cc5de8" : "#4d96ff";
+    var initials = esc(u.name).split(" ").map(function(w) { return w[0]; }).slice(0, 2).join("").toUpperCase();
+
+    // Actions
+    var actHtml = '<button class="btn-sm primary" onclick="openEditUser(\'' + u.id + '\')">Editar</button>';
     if (u.token_redeemed) {
-      html += '<button class="btn-sm warn" onclick="resetDevice(\'' + u.id + '\', \'' + esc(u.name) + '\')">Reset Disp.</button>';
+      actHtml += '<button class="btn-sm warn" onclick="resetDevice(\'' + u.id + '\', \'' + esc(u.name) + '\')">Reset Disp.</button>';
     }
     if (u.active) {
-      html += '<button class="btn-sm danger" onclick="toggleUser(\'' + u.id + '\', false)">Desativar</button>';
+      actHtml += '<button class="btn-sm danger" onclick="toggleUser(\'' + u.id + '\', false)">Desativar</button>';
     } else {
-      html += '<button class="btn-sm" onclick="toggleUser(\'' + u.id + '\', true)">Ativar</button>';
+      actHtml += '<button class="btn-sm" onclick="toggleUser(\'' + u.id + '\', true)">Ativar</button>';
     }
-    html += '<button class="btn-sm danger" onclick="deleteUser(\'' + u.id + '\', \'' + esc(u.name) + '\')">Excluir</button>';
-    html += '</div></td>';
-    html += '</tr>';
+    actHtml += '<button class="btn-sm danger" onclick="deleteUser(\'' + u.id + '\', \'' + esc(u.name) + '\')">Excluir</button>';
+
+    html += '<div class="user-card">';
+    // Top row: avatar + name + badges + actions
+    html += '<div class="user-card-top">';
+    html +=   '<div class="user-card-identity">';
+    html +=     '<div class="user-card-avatar" style="background:' + avatarBg + '">' + initials + '</div>';
+    html +=     '<div class="user-card-name-wrap">';
+    html +=       '<div class="user-card-name">' + esc(u.name) + '</div>';
+    html +=       '<div class="user-card-email">' + esc(u.email || 'Sem email') + '</div>';
+    html +=     '</div>';
+    html +=   '</div>';
+    html +=   '<div class="user-card-badges">';
+    html +=     '<span class="badge ' + roleClass + '">' + roleLabel + '</span>';
+    html +=     '<span class="badge ' + statusClass + '">' + statusLabel + '</span>';
+    html +=   '</div>';
+    html +=   '<div class="user-card-actions">' + actHtml + '</div>';
+    html += '</div>';
+    // Body: 3 columns
+    html += '<div class="user-card-body">';
+    html +=   '<div class="user-card-field"><div class="uc-label">Token</div><div class="uc-value"><span class="token-cell" onclick="copyToken(this, \'' + esc(u.token) + '\')">' + esc(u.token) + '</span></div></div>';
+    html +=   '<div class="user-card-field"><div class="uc-label">Telefones</div><div class="uc-value">' + phoneHtml + '</div></div>';
+    html +=   '<div class="user-card-field"><div class="uc-label">Features</div><div class="uc-value">' + featHtml + '</div></div>';
+    html +=   '<div class="user-card-field"><div class="uc-label">Dispositivo</div><div class="uc-value">' + deviceHtml + '</div></div>';
+    html += '</div>';
+    html += '</div>';
   });
-  tbody.innerHTML = html;
+  container.innerHTML = html;
 }
 
 function copyToken(el, token) {
