@@ -5,6 +5,16 @@ const AUTH_SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
 const AUTH_SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTIyMDMsImV4cCI6MjA3OTA4ODIwM30.TlUt4FQ7cffBKgJYrixFdHbyMESAhRa2auPpKCXMIMM";
 const AUTH_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
 
+// ===== Auto-reload WhatsApp tabs on extension update =====
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "update") {
+    console.log("[EZAP BG] Extension updated, reloading WhatsApp tabs...");
+    chrome.tabs.query({ url: "https://web.whatsapp.com/*" }, (tabs) => {
+      tabs.forEach((tab) => chrome.tabs.reload(tab.id));
+    });
+  }
+});
+
 // ===== IP / Location detection =====
 async function getIpInfo() {
   try {
