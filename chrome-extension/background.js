@@ -53,8 +53,32 @@ async function validateToken(token, deviceId, ipAddress, locationStr, userAgent)
   }
 }
 
-// Sync HubSpot key from Supabase on startup
-syncHubSpotKey();
+// Sync HubSpot key from Supabase on startup, then pre-load pipeline stages
+syncHubSpotKey().then(function() {
+  loadStageCache().catch(function() {
+    console.log("[EZAP BG] Pre-load stages deferred (key not ready yet)");
+  });
+});
+
+// ===== HubSpot Results Cache (5-minute TTL) =====
+const _hsCache = {};
+const HS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function hsCacheGet(key) {
+  const entry = _hsCache[key];
+  if (!entry) return null;
+  if (Date.now() - entry.ts > HS_CACHE_TTL) { delete _hsCache[key]; return null; }
+  return entry.data;
+}
+
+function hsCacheSet(key, data) {
+  _hsCache[key] = { data: data, ts: Date.now() };
+}
+
+function hsCacheClear(prefix) {
+  if (!prefix) { Object.keys(_hsCache).forEach(function(k) { delete _hsCache[k]; }); return; }
+  Object.keys(_hsCache).forEach(function(k) { if (k.startsWith(prefix)) delete _hsCache[k]; });
+}
 
 // Cache for pipeline stages (maps stageId -> {label, pipelineName})
 let stageCache = {};
@@ -222,7 +246,12 @@ async function hubFetch(path, options) {
       ...(options && options.headers),
     },
   });
-  if (!res.ok) throw new Error("HubSpot HTTP " + res.status);
+  if (!res.ok) {
+    let errDetail = "";
+    try { errDetail = await res.text(); } catch (e) { /* ignore */ }
+    console.error("[EZAP BG] HubSpot " + res.status + " on " + path + ":", errDetail);
+    throw new Error("HubSpot HTTP " + res.status);
+  }
   return res.json();
 }
 
@@ -230,29 +259,35 @@ async function hubFetch(path, options) {
 async function loadStageCache() {
   if (stageCacheLoaded) return;
   try {
-    // Load deal pipelines
-    const dealPipelines = await hubFetch("/crm/v3/pipelines/deals");
-    dealPipelines.results.forEach((p) => {
-      p.stages.forEach((s) => {
-        stageCache["deal_" + s.id] = { label: s.label, pipeline: p.label };
-      });
-    });
+    // Load deal and ticket pipelines in parallel
+    const [dealResult, ticketResult] = await Promise.allSettled([
+      hubFetch("/crm/v3/pipelines/deals"),
+      hubFetch("/crm/v3/pipelines/tickets"),
+    ]);
 
-    // Try ticket pipelines
-    try {
-      const ticketPipelines = await hubFetch("/crm/v3/pipelines/tickets");
-      ticketPipelines.results.forEach((p) => {
-        p.stages.forEach((s) => {
+    if (dealResult.status === "fulfilled") {
+      dealResult.value.results.forEach(function(p) {
+        p.stages.forEach(function(s) {
+          stageCache["deal_" + s.id] = { label: s.label, pipeline: p.label };
+        });
+      });
+    } else {
+      console.log("[EZAP BG] Deal pipelines error:", dealResult.reason && dealResult.reason.message);
+    }
+
+    if (ticketResult.status === "fulfilled") {
+      ticketResult.value.results.forEach(function(p) {
+        p.stages.forEach(function(s) {
           stageCache["ticket_" + s.id] = { label: s.label, pipeline: p.label };
         });
       });
-    } catch (e) {
-      console.log("[WCRM BG] No ticket pipeline access:", e.message);
+    } else {
+      console.log("[EZAP BG] Ticket pipelines not available:", ticketResult.reason && ticketResult.reason.message);
     }
 
     stageCacheLoaded = true;
   } catch (e) {
-    console.error("[WCRM BG] Failed to load stages:", e);
+    console.error("[EZAP BG] Failed to load stages:", e);
   }
 }
 
@@ -277,6 +312,11 @@ const CONTACT_PROPS = [
 ];
 
 async function searchHubSpotContact(phone, chatName) {
+  // Check cache first
+  const cacheKey = "contact_" + (phone || "") + "_" + (chatName || "");
+  const cached = hsCacheGet(cacheKey);
+  if (cached) return cached;
+
   await loadStageCache();
 
   const apiKey = await getApiKey();
@@ -300,12 +340,18 @@ async function searchHubSpotContact(phone, chatName) {
         limit: 1,
       }),
     });
-    if (data.total > 0) return { contact: data.results[0] };
+    if (data.total > 0) {
+      const result = { contact: data.results[0] };
+      hsCacheSet(cacheKey, result);
+      return result;
+    }
   }
 
   // Fallback: search by name (firstname + lastname)
   if (clientName) {
-    return searchByName(clientName);
+    const result = await searchByName(clientName);
+    hsCacheSet(cacheKey, result);
+    return result;
   }
 
   return { contact: null };
@@ -381,30 +427,41 @@ async function searchByName(name) {
   }
 }
 
-// ===== Deals =====
+// ===== Deals (Batch API) =====
 async function getHubSpotDeals(contactId) {
   try {
+    // Check cache
+    const cacheKey = "deals_" + contactId;
+    const cached = hsCacheGet(cacheKey);
+    if (cached) return cached;
+
     await loadStageCache();
 
     const assocData = await hubFetch("/crm/v4/objects/contacts/" + contactId + "/associations/deals");
     if (!assocData.results || assocData.results.length === 0) return { deals: [] };
 
-    const dealIds = assocData.results.map((a) => a.toObjectId).slice(0, 5);
-    const deals = [];
+    const dealIds = assocData.results.map(function(a) { return a.toObjectId; }).slice(0, 5);
 
-    for (const dealId of dealIds) {
-      try {
-        const deal = await hubFetch("/crm/v3/objects/deals/" + dealId + "?properties=dealname,amount,dealstage,pipeline,closedate");
-        // Translate stage and pipeline IDs to names
-        const stageInfo = getStageName("deal", deal.properties.dealstage);
-        deal.properties._stageName = stageInfo.label;
-        deal.properties._pipelineName = stageInfo.pipeline;
-        deals.push(deal);
-      } catch (e) { /* skip failed deals */ }
-    }
+    // Batch read all deals in a single API call
+    const batchResult = await hubFetch("/crm/v3/objects/deals/batch/read", {
+      method: "POST",
+      body: JSON.stringify({
+        inputs: dealIds.map(function(id) { return { id: id }; }),
+        properties: ["dealname", "amount", "dealstage", "pipeline", "closedate"],
+      }),
+    });
 
-    return { deals };
-  } catch {
+    const deals = (batchResult.results || []).map(function(deal) {
+      const stageInfo = getStageName("deal", deal.properties.dealstage);
+      deal.properties._stageName = stageInfo.label;
+      deal.properties._pipelineName = stageInfo.pipeline;
+      return deal;
+    });
+
+    const result = { deals: deals };
+    hsCacheSet(cacheKey, result);
+    return result;
+  } catch (e) {
     return { deals: [] };
   }
 }
@@ -427,6 +484,8 @@ async function createHubSpotNote(ticketId, noteBody) {
         ],
       }),
     });
+    // Invalidate notes cache for this ticket
+    hsCacheClear("notes_" + ticketId);
     return { ok: true, noteId: result.id };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -442,6 +501,8 @@ async function deleteHubSpotNote(noteId) {
       headers: { "Authorization": "Bearer " + apiKey },
     });
     if (!res.ok && res.status !== 204) throw new Error("HubSpot HTTP " + res.status);
+    // Invalidate all notes caches (we don't know which ticket this note belongs to)
+    hsCacheClear("notes_");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -458,27 +519,37 @@ async function updateHubSpotNote(noteId, noteBody) {
         },
       }),
     });
+    // Invalidate all notes caches
+    hsCacheClear("notes_");
     return { ok: true, noteId: result.id };
   } catch (e) {
     return { ok: false, error: e.message };
   }
 }
 
-// ===== Get Notes from Ticket =====
+// ===== Get Notes from Ticket (Batch API) =====
 async function getHubSpotNotes(ticketId) {
   try {
+    // Check cache
+    const cacheKey = "notes_" + ticketId;
+    const cached = hsCacheGet(cacheKey);
+    if (cached) return cached;
+
     const assoc = await hubFetch("/crm/v4/objects/tickets/" + ticketId + "/associations/notes");
     if (!assoc.results || assoc.results.length === 0) return { notes: [] };
 
-    const noteIds = assoc.results.map(a => a.toObjectId).slice(0, 20);
-    const notes = [];
+    const noteIds = assoc.results.map(function(a) { return a.toObjectId; }).slice(0, 20);
 
-    for (const nid of noteIds) {
-      try {
-        const n = await hubFetch("/crm/v3/objects/notes/" + nid + "?properties=hs_note_body,hs_timestamp,hs_lastmodifieddate");
-        notes.push(n);
-      } catch (e) { /* skip */ }
-    }
+    // Batch read all notes in a single API call
+    const batchResult = await hubFetch("/crm/v3/objects/notes/batch/read", {
+      method: "POST",
+      body: JSON.stringify({
+        inputs: noteIds.map(function(id) { return { id: id }; }),
+        properties: ["hs_note_body", "hs_timestamp", "hs_lastmodifieddate"],
+      }),
+    });
+
+    var notes = batchResult.results || [];
 
     // Sort by timestamp descending
     notes.sort(function(a, b) {
@@ -487,58 +558,62 @@ async function getHubSpotNotes(ticketId) {
       return db.localeCompare(da);
     });
 
-    return { notes: notes };
+    const result = { notes: notes };
+    hsCacheSet(cacheKey, result);
+    return result;
   } catch (e) {
     return { notes: [], error: e.message };
   }
 }
 
-// ===== Meetings =====
+// ===== Meetings (Parallel associations + Batch API) =====
 const MEETING_PROPS = ["hs_meeting_title", "hs_timestamp", "hs_meeting_start_time", "hs_meeting_end_time", "hs_meeting_outcome"];
 
 async function getHubSpotMeetings(ticketId, contactId) {
   try {
-    let meetingIds = [];
+    // Check cache
+    const cacheKey = "meetings_" + (ticketId || "") + "_" + (contactId || "");
+    const cached = hsCacheGet(cacheKey);
+    if (cached) return cached;
+
+    // Fetch ticket and contact associations in parallel
+    const assocPromises = [];
+    if (ticketId) assocPromises.push(
+      hubFetch("/crm/v4/objects/tickets/" + ticketId + "/associations/meetings").catch(function(e) {
+        console.log("[EZAP BG] Ticket->meetings assoc error:", e.message);
+        return { results: [] };
+      })
+    );
+    if (contactId) assocPromises.push(
+      hubFetch("/crm/v4/objects/contacts/" + contactId + "/associations/meetings").catch(function(e) {
+        console.log("[EZAP BG] Contact->meetings assoc error:", e.message);
+        return { results: [] };
+      })
+    );
+
+    const assocResults = await Promise.all(assocPromises);
+
+    // Deduplicate meeting IDs
     const seen = {};
-
-    // Try getting meetings from ticket association first
-    if (ticketId) {
-      try {
-        const assoc = await hubFetch("/crm/v4/objects/tickets/" + ticketId + "/associations/meetings");
-        if (assoc.results) {
-          assoc.results.forEach(function(a) {
-            if (!seen[a.toObjectId]) { seen[a.toObjectId] = true; meetingIds.push(a.toObjectId); }
-          });
-        }
-      } catch (e) {
-        console.log("[WCRM BG] Ticket->meetings assoc error:", e.message);
-      }
-    }
-
-    // Also try from contact association
-    if (contactId) {
-      try {
-        const assoc = await hubFetch("/crm/v4/objects/contacts/" + contactId + "/associations/meetings");
-        if (assoc.results) {
-          assoc.results.forEach(function(a) {
-            if (!seen[a.toObjectId]) { seen[a.toObjectId] = true; meetingIds.push(a.toObjectId); }
-          });
-        }
-      } catch (e) {
-        console.log("[WCRM BG] Contact->meetings assoc error:", e.message);
-      }
-    }
+    const meetingIds = [];
+    assocResults.forEach(function(assoc) {
+      (assoc.results || []).forEach(function(a) {
+        if (!seen[a.toObjectId]) { seen[a.toObjectId] = true; meetingIds.push(a.toObjectId); }
+      });
+    });
 
     if (meetingIds.length === 0) return { meetings: [] };
 
-    // Fetch meeting details (max 20)
-    const meetings = [];
-    for (const mid of meetingIds.slice(0, 20)) {
-      try {
-        const m = await hubFetch("/crm/v3/objects/meetings/" + mid + "?properties=" + MEETING_PROPS.join(","));
-        meetings.push(m);
-      } catch (e) { /* skip */ }
-    }
+    // Batch read all meetings in a single API call (max 20)
+    const batchResult = await hubFetch("/crm/v3/objects/meetings/batch/read", {
+      method: "POST",
+      body: JSON.stringify({
+        inputs: meetingIds.slice(0, 20).map(function(id) { return { id: id }; }),
+        properties: MEETING_PROPS,
+      }),
+    });
+
+    var meetings = batchResult.results || [];
 
     // Sort by start time descending (most recent first)
     meetings.sort(function(a, b) {
@@ -547,7 +622,9 @@ async function getHubSpotMeetings(ticketId, contactId) {
       return db.localeCompare(da);
     });
 
-    return { meetings: meetings };
+    const result = { meetings: meetings };
+    hsCacheSet(cacheKey, result);
+    return result;
   } catch (e) {
     return { meetings: [], error: e.message };
   }
@@ -558,7 +635,7 @@ const TICKET_PROPS = "subject,hs_pipeline,hs_pipeline_stage,hs_ticket_priority,c
   "nm__total_de_calls_adquiridas__starter__pro__business_,nm__calls_restantes," +
   "nova_mentoria__calls_meli_realizadas,nova_mentoria__total_de_calls_especificas_realizadas," +
   "data_de_inicio_dos_blocos,data_de_termino_do_2o_bloco,data_de_termino_do_1o_bloco," +
-  "modelo_de_mentoria,cust_id_unico,nickname";
+  "modelo_de_mentoria,cust_id_unico,nickname,contrato__e_mail";
 
 // ===== Filter: only tickets from mentoria pipeline =====
 // Mentoria tickets always have "Cliente | Consultor" format in the subject
@@ -577,6 +654,11 @@ function removeAccents(str) {
 // ===== Search Tickets by Name (subject) =====
 async function searchTicketsByName(chatName) {
   try {
+    // Check cache
+    const cacheKey = "ticketSearch_" + chatName;
+    const cached = hsCacheGet(cacheKey);
+    if (cached) return cached;
+
     await loadStageCache();
 
     // Split "Bruno Siviero Franqui| Thiago Rocha" -> ["Bruno Siviero Franqui", "Thiago Rocha"]
@@ -701,38 +783,49 @@ async function searchTicketsByName(chatName) {
     });
 
     // Only keep mentoria pipeline tickets
-    return { tickets: matched.filter(isMentoriaPipeline).slice(0, 5) };
+    const result = { tickets: matched.filter(isMentoriaPipeline).slice(0, 5) };
+    hsCacheSet(cacheKey, result);
+    return result;
   } catch (e) {
     return { tickets: [], error: e.message };
   }
 }
 
-// ===== Tickets by Contact =====
+// ===== Tickets by Contact (Batch API) =====
 async function getHubSpotTickets(contactId) {
   try {
+    // Check cache
+    const cacheKey = "tickets_" + contactId;
+    const cached = hsCacheGet(cacheKey);
+    if (cached) return cached;
+
     await loadStageCache();
 
     const assocData = await hubFetch("/crm/v4/objects/contacts/" + contactId + "/associations/tickets");
     if (!assocData.results || assocData.results.length === 0) return { tickets: [] };
 
-    const ticketIds = assocData.results.map((a) => a.toObjectId).slice(0, 5);
-    const tickets = [];
+    const ticketIds = assocData.results.map(function(a) { return a.toObjectId; }).slice(0, 5);
 
-    for (const ticketId of ticketIds) {
-      try {
-        const ticket = await hubFetch("/crm/v3/objects/tickets/" + ticketId +
-          "?properties=" + TICKET_PROPS);
+    // Batch read all tickets in a single API call
+    const batchResult = await hubFetch("/crm/v3/objects/tickets/batch/read", {
+      method: "POST",
+      body: JSON.stringify({
+        inputs: ticketIds.map(function(id) { return { id: id }; }),
+        properties: TICKET_PROPS.split(","),
+      }),
+    });
 
-        // Translate stage
-        const stageInfo = getStageName("ticket", ticket.properties.hs_pipeline_stage);
-        ticket.properties._stageName = stageInfo.label;
-        ticket.properties._pipelineName = stageInfo.pipeline;
-        tickets.push(ticket);
-      } catch (e) { /* skip */ }
-    }
+    var tickets = (batchResult.results || []).map(function(ticket) {
+      const stageInfo = getStageName("ticket", ticket.properties.hs_pipeline_stage);
+      ticket.properties._stageName = stageInfo.label;
+      ticket.properties._pipelineName = stageInfo.pipeline;
+      return ticket;
+    });
 
     // Only keep mentoria pipeline tickets
-    return { tickets: tickets.filter(isMentoriaPipeline) };
+    const result = { tickets: tickets.filter(isMentoriaPipeline) };
+    hsCacheSet(cacheKey, result);
+    return result;
   } catch (e) {
     return { tickets: [], error: e.message };
   }

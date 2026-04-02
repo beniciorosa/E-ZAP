@@ -7,15 +7,111 @@ let msgSidebarOpen = false;
 let msgEditing = null;
 let msgTempItems = [];
 
-// ===== Storage =====
+// ===== Supabase Helper =====
+function getMsgUserId() {
+  return window.__wcrmAuth ? window.__wcrmAuth.userId : null;
+}
+
+function msgSupaRest(path, method, body, prefer) {
+  return new Promise(function(resolve) {
+    try {
+      if (!chrome.runtime || !chrome.runtime.id) { resolve(null); return; }
+      chrome.runtime.sendMessage({
+        action: "supabase_rest", path: path, method: method || "GET", body: body, prefer: prefer
+      }, function(resp) {
+        if (chrome.runtime.lastError) { resolve(null); return; }
+        resolve(resp);
+      });
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+function isValidUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+// ===== Storage (Supabase + chrome.storage cache) =====
 function loadMsgData() {
   return new Promise(function(resolve) {
+    // Fast: load from local cache first
     chrome.storage.local.get("wcrm_msg_sequences", function(data) {
       msgSequences = (data && data.wcrm_msg_sequences) || {};
-      console.log("[WCRM MSG] Loaded", Object.keys(msgSequences).length, "sequences");
+      console.log("[WCRM MSG] Loaded", Object.keys(msgSequences).length, "sequences from cache");
       resolve();
     });
+
+    // Background: sync from Supabase
+    var uid = getMsgUserId();
+    if (!uid) return;
+
+    msgSupaRest("/rest/v1/msg_sequences?user_id=eq." + uid + "&select=*&order=updated_at.desc").then(function(rows) {
+      if (!rows || !Array.isArray(rows)) return;
+
+      if (rows.length > 0) {
+        // Supabase has data — use it
+        var newSeqs = {};
+        rows.forEach(function(r) {
+          newSeqs[r.id] = {
+            id: r.id,
+            name: r.name || "",
+            messages: r.messages || [],
+            schedule: r.schedule || null,
+            sent: r.sent || false,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+          };
+        });
+        msgSequences = newSeqs;
+        chrome.storage.local.set({ wcrm_msg_sequences: msgSequences });
+        console.log("[WCRM MSG] Synced", rows.length, "sequences from Supabase");
+        if (msgSidebarOpen) renderSavedSequences();
+      } else if (Object.keys(msgSequences).length > 0) {
+        // First time: migrate local sequences to Supabase
+        console.log("[WCRM MSG] Migrating local sequences to Supabase...");
+        migrateLocalMsgToSupabase(uid);
+      }
+    });
   });
+}
+
+function migrateLocalMsgToSupabase(uid) {
+  var newSeqs = {};
+  var rows = [];
+
+  Object.keys(msgSequences).forEach(function(oldId) {
+    var seq = msgSequences[oldId];
+    var newId = isValidUUID(oldId) ? oldId : crypto.randomUUID();
+    rows.push({
+      id: newId,
+      user_id: uid,
+      name: seq.name || "Sem nome",
+      messages: seq.messages || [],
+      schedule: seq.schedule || null,
+      sent: seq.sent || false,
+      contact_phone: "",
+      status: seq.sent ? "completed" : "active",
+    });
+    newSeqs[newId] = {
+      id: newId,
+      name: seq.name || "Sem nome",
+      messages: seq.messages || [],
+      schedule: seq.schedule || null,
+      sent: seq.sent || false,
+      createdAt: seq.createdAt,
+      updatedAt: seq.updatedAt,
+    };
+  });
+
+  if (rows.length > 0) {
+    msgSupaRest("/rest/v1/msg_sequences", "POST", rows, "return=minimal").then(function() {
+      msgSequences = newSeqs;
+      chrome.storage.local.set({ wcrm_msg_sequences: msgSequences });
+      console.log("[WCRM MSG] Migrated", rows.length, "sequences to Supabase");
+      if (msgSidebarOpen) renderSavedSequences();
+    });
+  }
 }
 
 function saveMsgData() {
@@ -163,6 +259,18 @@ function createMsgModal() {
         <div style="margin-bottom:12px">
           <input id="wcrm-msg-seq-name" type="text" placeholder="Nome da sequencia (ex: Boas Vindas Mentoria)" maxlength="50"
             style="width:100%;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:10px 12px;color:#e9edef;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+
+        <div style="margin-bottom:12px;background:#1a2730;border-radius:8px;padding:10px;border:1px solid #2a3942">
+          <div style="font-size:11px;font-weight:600;color:#4d96ff;margin-bottom:6px">Variaveis disponiveis (dados do HubSpot):</div>
+          <div style="font-size:11px;color:#8696a0;line-height:1.7">
+            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@nome</code> Primeiro nome &nbsp;
+            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@nomeCompleto</code> Nome completo<br>
+            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@email</code> E-mail &nbsp;
+            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@telefone</code> Telefone<br>
+            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@consultor</code> Consultor &nbsp;
+            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@reunioes</code> Reunioes adquiridas
+          </div>
         </div>
 
         <div id="wcrm-msg-items" style="margin-bottom:12px">
@@ -372,7 +480,7 @@ function saveMsgSequence() {
 
   syncEditorValues();
 
-  var id = msgEditing || ("seq_" + Date.now());
+  var id = msgEditing || crypto.randomUUID();
   var scheduleCheck = document.getElementById("wcrm-msg-schedule-check").checked;
   var scheduleTime = document.getElementById("wcrm-msg-schedule-time").value;
 
@@ -395,6 +503,24 @@ function saveMsgSequence() {
   };
 
   saveMsgData();
+
+  // Sync to Supabase: upsert (delete + insert)
+  var uid = getMsgUserId();
+  if (uid && isValidUUID(id)) {
+    msgSupaRest("/rest/v1/msg_sequences?id=eq." + id, "DELETE", null, "return=minimal").then(function() {
+      msgSupaRest("/rest/v1/msg_sequences", "POST", {
+        id: id,
+        user_id: uid,
+        name: msgSequences[id].name,
+        messages: msgSequences[id].messages,
+        schedule: msgSequences[id].schedule || null,
+        sent: false,
+        contact_phone: "",
+        status: "active",
+      }, "return=minimal");
+    });
+  }
+
   statusEl.innerHTML = '<span style="color:#25d366">Sequencia salva!</span>';
   setTimeout(function() {
     closeMsgModal();
@@ -503,9 +629,49 @@ function editMsgSequence(id) {
 }
 
 function deleteMsgSequence(id) {
+  var seq = msgSequences[id];
+  var seqName = seq ? seq.name : "esta sequência";
+  if (!confirm('Excluir "' + seqName + '"?')) return;
+
   delete msgSequences[id];
   saveMsgData();
   renderSavedSequences();
+
+  // Sync to Supabase: delete
+  var uid = getMsgUserId();
+  if (uid && isValidUUID(id)) {
+    msgSupaRest("/rest/v1/msg_sequences?id=eq." + id + "&user_id=eq." + uid, "DELETE", null, "return=minimal");
+  }
+}
+
+// ===== Message Variable Replacement =====
+// Ordered longest-first to prevent @nome matching inside @nomeCompleto
+function getMsgVarList() {
+  var data = window._wcrmContactData;
+  if (!data) return [];
+  return [
+    ["@nomeCompleto", data.nomeCompleto || ""],
+    ["@consultor", data.consultor || ""],
+    ["@reunioes", data.reunioes || ""],
+    ["@lifecycle", data.lifecycle || ""],
+    ["@telefone", data.telefone || ""],
+    ["@empresa", data.empresa || ""],
+    ["@ticket", data.ticket || ""],
+    ["@email", data.email || ""],
+    ["@nome", data.nome || ""],
+  ];
+}
+
+// Replace all @variables in text (used by MSG sequences on send)
+function replaceMsgVariables(text) {
+  if (!text || !window._wcrmContactData) return text;
+  var vars = getMsgVarList();
+  var result = text;
+  vars.forEach(function(pair) {
+    var regex = new RegExp(pair[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    result = result.replace(regex, pair[1]);
+  });
+  return result;
 }
 
 // ===== Execute Sequence =====
@@ -600,7 +766,7 @@ function executeMsgSequence(id) {
 
       var sendPromise;
       if (msg.type === 'text') {
-        sendPromise = typeInWhatsApp(msg.content);
+        sendPromise = typeInWhatsApp(replaceMsgVariables(msg.content));
       } else if (msg.type === 'file') {
         sendPromise = sendFileInWhatsApp(msg.content, msg.fileName, msg.mimeType);
       } else {
@@ -800,6 +966,9 @@ function checkSchedules() {
 
   if (changed) saveMsgData();
 }
+
+// Variable replacement is only used in MSG sequences (automatic messages)
+// No live chat interception — WhatsApp's mention system conflicts with it
 
 // ===== Init =====
 function initMsg() {

@@ -50,12 +50,17 @@ function isExtensionValid() {
 // ===== Supabase Helper =====
 function supaRest(path, method, body, prefer) {
   return new Promise(function(resolve) {
-    chrome.runtime.sendMessage({
-      action: "supabase_rest", path: path, method: method || "GET", body: body, prefer: prefer
-    }, function(resp) {
-      if (chrome.runtime.lastError) { resolve(null); return; }
-      resolve(resp);
-    });
+    if (!isExtensionValid()) { resolve(null); return; }
+    try {
+      chrome.runtime.sendMessage({
+        action: "supabase_rest", path: path, method: method || "GET", body: body, prefer: prefer
+      }, function(resp) {
+        if (chrome.runtime.lastError) { resolve(null); return; }
+        resolve(resp);
+      });
+    } catch (e) {
+      resolve(null);
+    }
   });
 }
 
@@ -64,6 +69,8 @@ function getUserId() {
 }
 
 // ===== Load / Save ABAS (Supabase + chrome.storage cache) =====
+var _wcrmAbasSaveGen = 0; // Prevents background sync from overwriting recent saves
+
 function loadAbasData() {
   return new Promise(function(resolve) {
     // Fast: load from local cache first
@@ -77,18 +84,25 @@ function loadAbasData() {
     var uid = getUserId();
     if (!uid) return;
 
+    var gen = _wcrmAbasSaveGen; // Capture generation at start
+
     supaRest("/rest/v1/abas?user_id=eq." + uid + "&select=id,name,color,created_at").then(function(abas) {
+      if (_wcrmAbasSaveGen !== gen) return; // A save happened — don't overwrite with stale data
       if (!abas || !Array.isArray(abas)) return;
       // Load contacts for each aba
       var abaIds = abas.map(function(a) { return a.id; });
       if (abaIds.length === 0) {
-        var data = { tabs: [] };
-        window._wcrmAbasCache = data;
-        chrome.storage.local.set({ wcrm_abas: data });
+        // Only clear cache if no local save happened
+        if (_wcrmAbasSaveGen === gen) {
+          var data = { tabs: [] };
+          window._wcrmAbasCache = data;
+          chrome.storage.local.set({ wcrm_abas: data });
+        }
         return;
       }
 
       supaRest("/rest/v1/aba_contacts?aba_id=in.(" + abaIds.join(",") + ")&select=aba_id,contact_name").then(function(contacts) {
+        if (_wcrmAbasSaveGen !== gen) return; // A save happened — don't overwrite
         contacts = contacts || [];
         var contactMap = {};
         contacts.forEach(function(c) {
@@ -103,12 +117,18 @@ function loadAbasData() {
         };
         window._wcrmAbasCache = data;
         chrome.storage.local.set({ wcrm_abas: data });
+        // Re-render sidebar if open (with fresh Supabase data)
+        if (abasSidebarOpen) {
+          renderAbasList(data);
+          updateAbasIndicator();
+        }
       });
     });
   });
 }
 
 function saveAbasData(data) {
+  _wcrmAbasSaveGen++; // Invalidate any in-flight background syncs
   window._wcrmAbasCache = data;
   // Save to local cache immediately (fast)
   chrome.storage.local.set({ wcrm_abas: data });
@@ -120,16 +140,40 @@ function saveAbasData(data) {
   return syncAbasToSupabase(uid, data);
 }
 
+function isAbaUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 function syncAbasToSupabase(uid, data) {
+  if (!data.tabs || data.tabs.length === 0) {
+    // Just delete all
+    return supaRest("/rest/v1/abas?user_id=eq." + uid, "DELETE", null, "return=minimal");
+  }
+
+  // Ensure all tab IDs are valid UUIDs (migrate old "aba_" IDs)
+  var needsUpdate = false;
+  data.tabs.forEach(function(tab) {
+    if (!isAbaUUID(tab.id)) {
+      tab.id = crypto.randomUUID();
+      needsUpdate = true;
+    }
+  });
+  if (needsUpdate) {
+    window._wcrmAbasCache = data;
+    chrome.storage.local.set({ wcrm_abas: data });
+  }
+
   // Delete all user's abas and re-insert (simple full sync)
   return supaRest("/rest/v1/abas?user_id=eq." + uid, "DELETE", null, "return=minimal").then(function() {
-    if (!data.tabs || data.tabs.length === 0) return;
-
     var abasToInsert = data.tabs.map(function(tab) {
       return { id: tab.id, user_id: uid, name: tab.name, color: tab.color };
     });
 
-    return supaRest("/rest/v1/abas", "POST", abasToInsert).then(function() {
+    return supaRest("/rest/v1/abas", "POST", abasToInsert).then(function(result) {
+      if (result && result.error) {
+        console.log("[WCRM ABAS] Supabase insert error:", result.error);
+        return;
+      }
       // Insert contacts for each aba
       var allContacts = [];
       data.tabs.forEach(function(tab) {
@@ -408,7 +452,11 @@ function toggleAbasSidebar() {
   if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
 
   if (abasSidebarOpen) {
-    renderAbasSidebar();
+    // Load fresh data from Supabase when opening sidebar
+    loadAbasData().then(function(data) {
+      renderAbasList(data);
+      updateAbasIndicator();
+    });
   }
 }
 
@@ -422,10 +470,10 @@ function closeAbasSidebar() {
 
 // ===== Render Sidebar =====
 function renderAbasSidebar() {
-  loadAbasData().then(function(data) {
-    renderAbasList(data);
-    updateAbasIndicator();
-  });
+  // Render from local cache (instant) — no Supabase round-trip
+  var data = window._wcrmAbasCache || { tabs: [] };
+  renderAbasList(data);
+  updateAbasIndicator();
 }
 
 function renderAbasList(data) {
@@ -574,6 +622,7 @@ function toggleContactInAba(abaId, chatName) {
       if (abasSidebarOpen) renderAbasSidebar();
       applyConversationFilters();
       updateHeaderButtons();
+      updateAbasDotIndicator();
     });
   });
 }
@@ -810,15 +859,18 @@ function findSidebarInfo() {
 }
 
 function injectSidebarButtons() {
+  var info = findSidebarInfo();
+  if (!info) return;
+
   var existing = document.getElementById('wcrm-sidebar-buttons');
   if (existing) {
-    // Buttons already injected — just update state for current chat
+    // Reposition and update state (layout may have shifted)
+    existing.style.left = info.sidebarRect.left + 'px';
+    existing.style.top = (info.lastTopIconBottom + 12) + 'px';
+    existing.style.width = info.sidebarRect.width + 'px';
     updateSidebarButtonStates();
     return;
   }
-
-  var info = findSidebarInfo();
-  if (!info) return;
 
   var t = getTheme();
 
@@ -838,6 +890,21 @@ function injectSidebarButtons() {
     borderTop: '1px solid ' + t.border,
     zIndex: '99998',
   });
+
+  // E-HUB label
+  var hubLabel = document.createElement('div');
+  hubLabel.id = 'wcrm-sidebar-hub-label';
+  Object.assign(hubLabel.style, {
+    fontSize: '8px',
+    fontWeight: '700',
+    color: '#25d366',
+    textAlign: 'center',
+    letterSpacing: '1px',
+    marginBottom: '4px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    userSelect: 'none',
+  });
+  hubLabel.textContent = 'E-ZAP';
 
   // Pin button
   var pinBtn = document.createElement('div');
@@ -867,7 +934,7 @@ function injectSidebarButtons() {
     if (cn) togglePinContact(cn);
   });
 
-  // ABAS button
+  // ABAS button (with purple dot indicator)
   var abasBtn = document.createElement('div');
   abasBtn.id = 'wcrm-sidebar-abas';
   abasBtn.setAttribute('role', 'button');
@@ -880,9 +947,25 @@ function injectSidebarButtons() {
     justifyContent: 'center',
     cursor: 'pointer',
     transition: 'background 0.15s',
+    position: 'relative',
   });
   abasBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="' + t.iconColor + '"><path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z" opacity="0.85"/></svg>';
   abasBtn.title = 'Abas';
+  // Purple dot indicator (hidden by default)
+  var abasDot = document.createElement('span');
+  abasDot.id = 'wcrm-sidebar-abas-dot';
+  Object.assign(abasDot.style, {
+    position: 'absolute',
+    top: '4px',
+    right: '4px',
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    background: '#cc5de8',
+    display: 'none',
+    border: '2px solid ' + t.bg,
+  });
+  abasBtn.appendChild(abasDot);
   abasBtn.addEventListener('mouseenter', function() { abasBtn.style.background = getTheme().bgHover; });
   abasBtn.addEventListener('mouseleave', function() { abasBtn.style.background = 'transparent'; });
   abasBtn.addEventListener('click', function(e) {
@@ -891,9 +974,37 @@ function injectSidebarButtons() {
     if (cn) showHeaderAbasDropdown(abasBtn, cn);
   });
 
+  // TAG button (label selector)
+  var tagBtn = document.createElement('div');
+  tagBtn.id = 'wcrm-sidebar-tag';
+  tagBtn.setAttribute('role', 'button');
+  Object.assign(tagBtn.style, {
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: 'background 0.15s',
+  });
+  tagBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="' + t.iconColor + '"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z" opacity="0.85"/></svg>';
+  tagBtn.title = 'Etiquetas';
+  tagBtn.addEventListener('mouseenter', function() { tagBtn.style.background = getTheme().bgHover; });
+  tagBtn.addEventListener('mouseleave', function() { tagBtn.style.background = 'transparent'; });
+  tagBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (typeof toggleTagSidebar === 'function') toggleTagSidebar();
+  });
+
+  wrapper.appendChild(hubLabel);
   wrapper.appendChild(pinBtn);
   wrapper.appendChild(abasBtn);
+  wrapper.appendChild(tagBtn);
   document.body.appendChild(wrapper);
+
+  // Set initial abas dot state
+  updateAbasDotIndicator();
 }
 
 function updateSidebarButtonStates() {
@@ -902,6 +1013,27 @@ function updateSidebarButtonStates() {
   if (pinBtn) {
     updatePinButtonState(pinBtn, chatName);
   }
+  updateAbasDotIndicator();
+}
+
+function isContactInAnyAba(chatName) {
+  if (!chatName) return false;
+  var data = window._wcrmAbasCache || { tabs: [] };
+  var nameLower = chatName.toLowerCase().trim();
+  for (var i = 0; i < data.tabs.length; i++) {
+    var contacts = data.tabs[i].contacts || [];
+    for (var j = 0; j < contacts.length; j++) {
+      if (contacts[j].toLowerCase().trim() === nameLower) return true;
+    }
+  }
+  return false;
+}
+
+function updateAbasDotIndicator() {
+  var dot = document.getElementById('wcrm-sidebar-abas-dot');
+  if (!dot) return;
+  var chatName = typeof currentName !== 'undefined' ? currentName : null;
+  dot.style.display = isContactInAnyAba(chatName) ? 'block' : 'none';
 }
 
 function updatePinButtonState(btn, chatName, theme) {
@@ -1092,7 +1224,7 @@ function showAbaModal(editId) {
         var tab = data.tabs.find(function(t) { return t.id === editId; });
         if (tab) { tab.name = name; tab.color = selectedColor; }
       } else {
-        data.tabs.push({ id: "aba_" + Date.now(), name: name, color: selectedColor, contacts: [] });
+        data.tabs.push({ id: crypto.randomUUID(), name: name, color: selectedColor, contacts: [] });
       }
       saveAbasData(data).then(function() { overlay.remove(); renderAbasSidebar(); });
     });
@@ -1102,6 +1234,11 @@ function showAbaModal(editId) {
 }
 
 function deleteAba(abaId) {
+  var cached = window._wcrmAbasCache || { tabs: [] };
+  var tab = cached.tabs.find(function(t) { return t.id === abaId; });
+  var tabName = tab ? tab.name : "esta aba";
+  if (!confirm('Excluir a aba "' + tabName + '" e todos os contatos dela?')) return;
+
   loadAbasData().then(function(data) {
     data.tabs = data.tabs.filter(function(t) { return t.id !== abaId; });
     if (selectedAbaId === abaId) {

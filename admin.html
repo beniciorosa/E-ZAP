@@ -718,10 +718,40 @@ function createUser() {
         '<div class="token-result">' +
           '<div class="label">Token gerado para ' + esc(name) + '</div>' +
           '<div class="token" onclick="copyToken(this, \'' + esc(token) + '\')">' + esc(token) + '</div>' +
-          '<div class="hint">Clique para copiar. Envie este token para o usuario.</div>' +
+          '<div class="hint">Clique para copiar.</div>' +
         '</div>';
       loadUsers();
+
+      // Send welcome email with token
+      if (email) {
+        sendWelcomeEmail(name, email, token).then(function(ok) {
+          if (ok) {
+            resultEl.innerHTML += '<div style="color:#25d366;font-size:12px;margin-top:8px">✓ Email enviado para ' + esc(email) + '</div>';
+          } else {
+            resultEl.innerHTML += '<div style="color:#ff922b;font-size:12px;margin-top:8px">⚠ Nao foi possivel enviar o email. Envie o token manualmente.</div>';
+          }
+        });
+      }
     });
+  });
+}
+
+// ===== SEND WELCOME EMAIL =====
+var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_ZQ2372L2lmvBX22oOLYrJ07xbGfsnDAptfml7JVKIAg3IEijVg9k-nGFGTqPtv9uHA/exec";
+
+function sendWelcomeEmail(nome, email, token) {
+  return fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ nome: nome, email: email, token: token }),
+  }).then(function(res) {
+    return res.json();
+  }).then(function(data) {
+    console.log("[ADMIN] Email result:", data);
+    return data && data.ok;
+  }).catch(function(err) {
+    console.error("[ADMIN] Email error:", err);
+    return false;
   });
 }
 

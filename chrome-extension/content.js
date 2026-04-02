@@ -10,6 +10,8 @@ let currentPhone = null;
 let currentName = null;
 let labelsData = {};
 let sidebarOpen = false;
+let tagSidebarOpen = false;
+let labelTemplates = [];
 
 // ===== Create button IMMEDIATELY =====
 function createToggleButton() {
@@ -78,7 +80,7 @@ function createSidebar() {
       .wcrm-note-item li { display:list-item !important; list-style:inherit !important; }
     </style>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">
-      <h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">WhatsApp CRM</h3>
+      <h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Escalada CRM</h3>
       <button id="wcrm-close-btn" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>
     </div>
     <div id="wcrm-content" style="flex:1;overflow-y:auto;padding:16px">
@@ -86,19 +88,18 @@ function createSidebar() {
         Abra uma conversa para ver as informacoes do contato
       </div>
       <div id="wcrm-chat-info" style="display:none">
-        <div id="wcrm-name" style="font-size:17px;font-weight:600;color:#e9edef;margin-bottom:4px"></div>
-        <div id="wcrm-phone" style="font-size:13px;color:#8696a0;margin-bottom:16px"></div>
+        <div id="wcrm-name" style="font-size:17px;font-weight:600;color:#e9edef;margin-bottom:12px"></div>
+        <div id="wcrm-phone" style="display:none"></div>
+
+        <div style="margin-bottom:16px">
+          <div id="wcrm-hubspot-container">
+            <div style="color:#8696a0;font-size:12px;text-align:center;padding:8px">Buscando no HubSpot...</div>
+          </div>
+        </div>
 
         <div style="margin-bottom:20px">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">ETIQUETAS</div>
           <div id="wcrm-labels-container" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <input type="text" id="wcrm-label-input" placeholder="Nova etiqueta..." maxlength="30"
-              style="flex:1;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:6px 10px;color:#e9edef;font-size:12px;outline:none">
-            <button id="wcrm-add-label-btn"
-              style="background:#25d366;color:#111b21;border:none;border-radius:8px;padding:6px 12px;font-size:14px;font-weight:600;cursor:pointer">+</button>
-          </div>
-          <div id="wcrm-color-picker" style="display:flex;gap:4px;margin-top:6px"></div>
         </div>
 
         <div style="margin-bottom:20px">
@@ -120,15 +121,6 @@ function createSidebar() {
         <div style="height:1px;background:#2a3942;margin:16px 0"></div>
 
         <div>
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">HUBSPOT CRM</div>
-          <div id="wcrm-hubspot-container">
-            <div style="color:#8696a0;font-size:12px;text-align:center;padding:8px">Buscando no HubSpot...</div>
-          </div>
-        </div>
-
-        <div style="height:1px;background:#2a3942;margin:16px 0"></div>
-
-        <div>
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">REUNIOES</div>
           <div id="wcrm-meetings-container">
             <div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Aguardando dados do HubSpot...</div>
@@ -142,10 +134,6 @@ function createSidebar() {
 
   // Events
   document.getElementById("wcrm-close-btn").addEventListener("click", toggleSidebar);
-  document.getElementById("wcrm-add-label-btn").addEventListener("click", addLabel);
-  document.getElementById("wcrm-label-input").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") addLabel();
-  });
 
   // Rich text toolbar buttons
   document.querySelectorAll("#wcrm-editor-toolbar button").forEach(function(btn) {
@@ -164,13 +152,13 @@ function createSidebar() {
   // Save note button
   document.getElementById("wcrm-save-note-btn").addEventListener("click", saveNote);
 
-  renderColorPicker();
   console.log("[WCRM] Sidebar created");
 }
 
 // ===== Toggle =====
 function toggleSidebar() {
   // Close other sidebars if open
+  if (tagSidebarOpen) toggleTagSidebar();
   if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
   if (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) closeSliceSidebar();
   if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
@@ -206,7 +194,7 @@ function updateFloatingButtons() {
   var msgBtn = document.getElementById("wcrm-msg-toggle");
   var sliceBtn = document.getElementById("wcrm-slice-toggle");
   var abasBtn = document.getElementById("wcrm-abas-toggle");
-  var anySidebarOpen = sidebarOpen ||
+  var anySidebarOpen = sidebarOpen || tagSidebarOpen ||
     (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) ||
     (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) ||
     (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen);
@@ -216,47 +204,335 @@ function updateFloatingButtons() {
   if (abasBtn) abasBtn.style.display = anySidebarOpen ? "none" : "flex";
 }
 
-// ===== Color Picker =====
-function renderColorPicker() {
-  var picker = document.getElementById("wcrm-color-picker");
+// ===== TAG Sidebar (Label Management) =====
+function createTagSidebar() {
+  if (document.getElementById("wcrm-tag-sidebar")) return;
+  var sidebar = document.createElement("div");
+  sidebar.id = "wcrm-tag-sidebar";
+  Object.assign(sidebar.style, {
+    position: "fixed", top: "0", right: "0",
+    width: "320px", height: "100vh",
+    background: "#111b21", borderLeft: "1px solid #2a3942",
+    zIndex: "99999", display: "none", flexDirection: "column",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    color: "#e9edef", fontSize: "13px", overflow: "hidden",
+  });
+  sidebar.innerHTML = [
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">',
+    '  <h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Gerenciar Etiquetas</h3>',
+    '  <button id="wcrm-tag-close" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>',
+    '</div>',
+    '<div style="flex:1;overflow-y:auto;padding:16px">',
+    '  <div style="margin-bottom:16px">',
+    '    <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">NOVA ETIQUETA</div>',
+    '    <div style="display:flex;gap:6px">',
+    '      <input type="text" id="wcrm-tag-input" placeholder="Nome da etiqueta..." maxlength="30"',
+    '        style="flex:1;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:8px 10px;color:#e9edef;font-size:12px;outline:none">',
+    '      <button id="wcrm-tag-add-btn" style="background:#20c997;color:#111b21;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Criar</button>',
+    '    </div>',
+    '    <div id="wcrm-tag-color-picker" style="display:flex;gap:4px;margin-top:8px"></div>',
+    '  </div>',
+    '  <div style="height:1px;background:#2a3942;margin:12px 0"></div>',
+    '  <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">ETIQUETAS CRIADAS</div>',
+    '  <div id="wcrm-tag-list"></div>',
+    '  <div style="height:1px;background:#2a3942;margin:16px 0"></div>',
+    '  <div id="wcrm-tag-contact-section"></div>',
+    '</div>',
+  ].join("\n");
+  document.body.appendChild(sidebar);
+
+  document.getElementById("wcrm-tag-close").addEventListener("click", toggleTagSidebar);
+  document.getElementById("wcrm-tag-add-btn").addEventListener("click", addLabelTemplate);
+  document.getElementById("wcrm-tag-input").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") addLabelTemplate();
+  });
+  renderTagColorPicker();
+}
+
+function toggleTagSidebar() {
+  // Close other sidebars
+  if (sidebarOpen) toggleSidebar();
+  if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
+  if (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) closeSliceSidebar();
+  if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
+
+  createTagSidebar();
+  var sidebar = document.getElementById("wcrm-tag-sidebar");
+  tagSidebarOpen = !tagSidebarOpen;
+  sidebar.style.display = tagSidebarOpen ? "flex" : "none";
+
+  var appEl = document.getElementById("app");
+  if (appEl) {
+    if (tagSidebarOpen) {
+      appEl.style.width = "calc(100% - 320px)";
+      appEl.style.maxWidth = "calc(100% - 320px)";
+      appEl.style.marginRight = "0";
+    } else {
+      appEl.style.width = "";
+      appEl.style.maxWidth = "";
+      appEl.style.marginRight = "";
+    }
+  }
+  updateFloatingButtons();
+  if (tagSidebarOpen) {
+    renderTagList();
+    renderTagContactSection();
+  }
+}
+
+function renderTagColorPicker() {
+  var picker = document.getElementById("wcrm-tag-color-picker");
   if (!picker) return;
   picker.innerHTML = "";
   LABEL_COLORS.forEach(function(color, i) {
     var dot = document.createElement("div");
-    dot.style.cssText = "width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent;background:" + color;
+    dot.style.cssText = "width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;background:" + color;
     dot.dataset.color = color;
-    if (i === 0) dot.dataset.selected = "1";
+    if (i === 0) { dot.dataset.selected = "1"; dot.style.borderColor = "#e9edef"; }
     dot.addEventListener("click", function() {
-      picker.querySelectorAll("div").forEach(function(d) {
-        d.dataset.selected = "";
-        d.style.borderColor = "transparent";
-      });
+      picker.querySelectorAll("div").forEach(function(d) { d.dataset.selected = ""; d.style.borderColor = "transparent"; });
       dot.dataset.selected = "1";
       dot.style.borderColor = "#e9edef";
     });
-    if (i === 0) dot.style.borderColor = "#e9edef";
     picker.appendChild(dot);
   });
 }
 
-function getSelectedColor() {
-  var picker = document.getElementById("wcrm-color-picker");
+function getTagSelectedColor() {
+  var picker = document.getElementById("wcrm-tag-color-picker");
   if (!picker) return LABEL_COLORS[0];
   var selected = picker.querySelector('div[data-selected="1"]');
   return selected ? selected.dataset.color : LABEL_COLORS[0];
 }
 
-// ===== Storage =====
+// ===== Label Templates (global library) =====
+function loadLabelTemplates() {
+  chrome.storage.local.get("wcrm_label_templates", function(data) {
+    labelTemplates = (data && data.wcrm_label_templates) || [];
+    // Auto-populate from existing contact labels if library is empty
+    if (labelTemplates.length === 0 && Object.keys(labelsData).length > 0) {
+      var seen = {};
+      Object.keys(labelsData).forEach(function(key) {
+        var d = labelsData[key];
+        if (d.labels) d.labels.forEach(function(l) {
+          var k = l.name.toLowerCase();
+          if (!seen[k]) { seen[k] = true; labelTemplates.push({ name: l.name, color: l.color }); }
+        });
+      });
+      if (labelTemplates.length > 0) saveLabelTemplates();
+    }
+  });
+}
+
+function saveLabelTemplates() {
+  chrome.storage.local.set({ wcrm_label_templates: labelTemplates });
+}
+
+function addLabelTemplate() {
+  var input = document.getElementById("wcrm-tag-input");
+  var name = input.value.trim();
+  if (!name) return;
+  var exists = labelTemplates.some(function(t) { return t.name.toLowerCase() === name.toLowerCase(); });
+  if (exists) return;
+  var color = getTagSelectedColor();
+  labelTemplates.push({ name: name, color: color });
+  saveLabelTemplates();
+  input.value = "";
+  renderTagList();
+  renderTagContactSection();
+}
+
+function removeLabelTemplate(index) {
+  var tmpl = labelTemplates[index];
+  if (!tmpl) return;
+  if (!confirm('Remover a etiqueta "' + tmpl.name + '" da biblioteca?')) return;
+  labelTemplates.splice(index, 1);
+  saveLabelTemplates();
+  renderTagList();
+  renderTagContactSection();
+}
+
+function renderTagList() {
+  var container = document.getElementById("wcrm-tag-list");
+  if (!container) return;
+  if (labelTemplates.length === 0) {
+    container.innerHTML = '<div style="color:#8696a0;font-size:12px;font-style:italic;text-align:center;padding:12px">Nenhuma etiqueta criada</div>';
+    return;
+  }
+  container.innerHTML = "";
+  labelTemplates.forEach(function(tmpl, i) {
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:#202c33";
+    row.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:14px;height:14px;border-radius:50%;background:' + tmpl.color + ';flex-shrink:0"></span><span style="font-size:13px;color:#e9edef">' + tmpl.name + '</span></span>' +
+      '<span class="wcrm-tag-del" data-idx="' + i + '" style="cursor:pointer;color:#8696a0;font-size:16px;padding:0 4px" title="Remover">&times;</span>';
+    row.querySelector(".wcrm-tag-del").addEventListener("click", function() { removeLabelTemplate(i); });
+    container.appendChild(row);
+  });
+}
+
+// ===== Tag Contact Section (in TAG sidebar) =====
+function renderTagContactSection() {
+  var container = document.getElementById("wcrm-tag-contact-section");
+  if (!container) return;
+
+  if (!currentPhone) {
+    container.innerHTML = '<div style="color:#8696a0;font-size:12px;font-style:italic;text-align:center;padding:12px">Selecione um contato para atribuir etiquetas</div>';
+    return;
+  }
+
+  var displayName = currentName || currentPhone;
+  var pipeIdx = displayName.indexOf("|");
+  if (pipeIdx > 0) displayName = displayName.substring(0, pipeIdx).trim();
+
+  var html = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">CONTATO SELECIONADO</div>';
+  html += '<div style="background:#202c33;border-radius:8px;padding:10px 12px;margin-bottom:10px">';
+  html += '<div style="font-size:14px;font-weight:600;color:#e9edef">' + displayName + '</div>';
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  if (labelTemplates.length === 0) {
+    container.innerHTML += '<div style="color:#8696a0;font-size:12px;font-style:italic;text-align:center;padding:8px">Crie etiquetas acima para atribuir</div>';
+    return;
+  }
+
+  var data = getContactData(currentPhone);
+  var assigned = (data.labels || []).map(function(l) { return l.name.toLowerCase(); });
+
+  var listDiv = document.createElement("div");
+  labelTemplates.forEach(function(tmpl) {
+    var isAssigned = assigned.indexOf(tmpl.name.toLowerCase()) >= 0;
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:4px;cursor:pointer;transition:background 0.1s;background:" + (isAssigned ? tmpl.color + "20" : "transparent");
+    row.innerHTML = '<span style="width:14px;height:14px;border-radius:50%;background:' + tmpl.color + ';flex-shrink:0"></span>' +
+      '<span style="font-size:13px;color:#e9edef;flex:1">' + tmpl.name + '</span>' +
+      '<span style="color:' + (isAssigned ? tmpl.color : '#8696a0') + ';font-size:14px;font-weight:bold">' + (isAssigned ? '&#10003;' : '&plus;') + '</span>';
+    row.addEventListener("mouseenter", function() { row.style.background = isAssigned ? tmpl.color + "30" : "#202c33"; });
+    row.addEventListener("mouseleave", function() { row.style.background = isAssigned ? tmpl.color + "20" : "transparent"; });
+    row.addEventListener("click", function() {
+      if (isAssigned) {
+        // Remove
+        var d = getContactData(currentPhone);
+        var idx = -1;
+        (d.labels || []).forEach(function(l, i) { if (l.name.toLowerCase() === tmpl.name.toLowerCase()) idx = i; });
+        if (idx >= 0) {
+          var removed = d.labels[idx];
+          d.labels.splice(idx, 1);
+          setContactData(currentPhone, d);
+          renderLabels();
+          renderTagContactSection();
+          var uid = getLabelUserId();
+          if (uid && removed) {
+            var key = contactKey(currentPhone);
+            sendBgMessage({ action: "supabase_rest", path: "/rest/v1/labels?user_id=eq." + uid + "&contact_phone=eq." + encodeURIComponent(key) + "&text=eq." + encodeURIComponent(removed.name), method: "DELETE", prefer: "return=minimal" });
+          }
+        }
+      } else {
+        assignLabel(tmpl.name, tmpl.color);
+      }
+    });
+    listDiv.appendChild(row);
+  });
+  container.appendChild(listDiv);
+}
+
+function assignLabel(name, color) {
+  if (!currentPhone) return;
+  var data = getContactData(currentPhone);
+  if (!data.labels) data.labels = [];
+  var exists = data.labels.some(function(l) { return l.name.toLowerCase() === name.toLowerCase(); });
+  if (exists) return;
+  data.labels.push({ name: name, color: color });
+  setContactData(currentPhone, data);
+  renderLabels();
+  renderTagContactSection();
+
+  // Sync to Supabase
+  var uid = getLabelUserId();
+  if (uid) {
+    sendBgMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/labels",
+      method: "POST",
+      body: { user_id: uid, contact_phone: contactKey(currentPhone), contact_name: currentName || "", text: name, color: color },
+      prefer: "return=minimal"
+    });
+  }
+}
+
+// ===== Storage (Supabase + chrome.storage cache) =====
+function getLabelUserId() {
+  return window.__wcrmAuth ? window.__wcrmAuth.userId : null;
+}
+
 function loadLabelsData() {
   return new Promise(function(resolve) {
+    // Fast: load from local cache first
     chrome.storage.local.get("wcrm_labels", function(data) {
       labelsData = (data && data.wcrm_labels) || {};
-      // Clean up buggy empty key
-      if (labelsData[""]) { delete labelsData[""]; saveLabelsData(); }
-      console.log("[WCRM] Labels loaded:", Object.keys(labelsData).length, "contacts");
+      if (labelsData[""]) { delete labelsData[""]; }
+      console.log("[WCRM] Labels loaded from cache:", Object.keys(labelsData).length, "contacts");
       resolve();
     });
+
+    // Background: sync from Supabase
+    var uid = getLabelUserId();
+    if (!uid) return;
+
+    sendBgMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/labels?user_id=eq." + uid + "&select=contact_phone,text,color",
+      method: "GET"
+    }).then(function(rows) {
+      if (!rows || !Array.isArray(rows)) return;
+
+      if (rows.length > 0) {
+        // Supabase has data — use it
+        var newData = {};
+        rows.forEach(function(r) {
+          var key = r.contact_phone || "";
+          if (!key) return;
+          if (!newData[key]) newData[key] = { labels: [], notes: "" };
+          newData[key].labels.push({ name: r.text || "", color: r.color || "#25d366" });
+        });
+        labelsData = newData;
+        chrome.storage.local.set({ wcrm_labels: labelsData });
+        console.log("[WCRM] Labels synced from Supabase:", Object.keys(labelsData).length, "contacts");
+        if (sidebarOpen && currentPhone) renderLabels();
+      } else if (Object.keys(labelsData).length > 0) {
+        // First time: migrate local labels to Supabase
+        migrateLocalLabelsToSupabase(uid);
+      }
+    });
   });
+}
+
+function migrateLocalLabelsToSupabase(uid) {
+  var allLabels = [];
+  Object.keys(labelsData).forEach(function(key) {
+    var data = labelsData[key];
+    if (data.labels && data.labels.length > 0) {
+      data.labels.forEach(function(label) {
+        allLabels.push({
+          user_id: uid,
+          contact_phone: key,
+          text: label.name,
+          color: label.color
+        });
+      });
+    }
+  });
+  if (allLabels.length > 0) {
+    sendBgMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/labels",
+      method: "POST",
+      body: allLabels,
+      prefer: "return=minimal"
+    }).then(function() {
+      console.log("[WCRM] Migrated", allLabels.length, "labels to Supabase");
+    });
+  }
 }
 
 function saveLabelsData() {
@@ -285,27 +561,28 @@ function setContactData(phone, data) {
 }
 
 // ===== Labels =====
-function addLabel() {
-  var input = document.getElementById("wcrm-label-input");
-  var name = input.value.trim();
-  if (!name || !currentPhone) return;
-
-  var data = getContactData(currentPhone);
-  if (!data.labels) data.labels = [];
-  var exists = data.labels.some(function(l) { return l.name.toLowerCase() === name.toLowerCase(); });
-  if (exists) return;
-
-  data.labels.push({ name: name, color: getSelectedColor() });
-  setContactData(currentPhone, data);
-  input.value = "";
-  renderLabels();
-}
-
 function removeLabel(index) {
   var data = getContactData(currentPhone);
+  var label = data.labels[index];
+  if (!label) return;
+  if (!confirm('Remover a etiqueta "' + label.name + '"?')) return;
+
   data.labels.splice(index, 1);
   setContactData(currentPhone, data);
   renderLabels();
+  renderTagContactSection();
+
+  // Sync to Supabase: delete by matching fields
+  var uid = getLabelUserId();
+  if (uid && label) {
+    var key = contactKey(currentPhone);
+    sendBgMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/labels?user_id=eq." + uid + "&contact_phone=eq." + encodeURIComponent(key) + "&text=eq." + encodeURIComponent(label.name),
+      method: "DELETE",
+      prefer: "return=minimal"
+    });
+  }
 }
 
 function renderLabels() {
@@ -347,15 +624,24 @@ function renderContactInfo() {
   window._wcrmHubspotNotes = null;
   window._wcrmNotesExpanded = false;
   window._wcrmEditingHsId = null;
+  window._wcrmContactData = null; // HubSpot contact/ticket data for message variables
   window._wcrmLoadId = Date.now(); // Unique ID to prevent stale async responses
 
-  document.getElementById("wcrm-name").textContent = currentName || "Desconhecido";
-  document.getElementById("wcrm-phone").textContent = currentPhone;
+  // Show only the client name (before "|"), not the mentor name
+  var displayName = currentName || "Desconhecido";
+  var pipeIdx = displayName.indexOf("|");
+  if (pipeIdx > 0) displayName = displayName.substring(0, pipeIdx).trim();
+  document.getElementById("wcrm-name").textContent = displayName;
 
   renderLabels();
+  renderTagContactSection();
 
   var data = getContactData(currentPhone);
   document.getElementById("wcrm-notes-editor").innerHTML = "";
+
+  // Clear save status from previous contact
+  var saveStatus = document.getElementById("wcrm-save-status");
+  if (saveStatus) saveStatus.innerHTML = "";
 
   // Clear all sections and show loading state
   var notesHist = document.getElementById("wcrm-notes-history");
@@ -465,6 +751,82 @@ function removeAccentsJS(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+// Pre-load HubSpot data in background (without rendering UI)
+// Populates window._wcrmContactData for @variable replacement
+function preloadHubSpotData() {
+  if (!currentPhone) return;
+  window._wcrmContactData = null;
+  var chatName = currentName || currentPhone || "";
+  var preloadId = Date.now();
+  window._wcrmPreloadId = preloadId;
+
+  sendBgMessage({ action: "ping" }).then(function() {
+    if (window._wcrmPreloadId !== preloadId) return;
+    return Promise.all([
+      sendBgMessage({ action: "hubspot_search_contact", phone: currentPhone, chatName: chatName }),
+      sendBgMessage({ action: "hubspot_search_tickets_by_name", name: chatName }),
+    ]);
+  }).then(function(results) {
+    if (!results || window._wcrmPreloadId !== preloadId) return;
+
+    var contactResult = results[0];
+    var ticketResult = results[1];
+    var contactProps = (contactResult && contactResult.contact && contactResult.contact.properties) || {};
+    var contactId = contactResult && contactResult.contact ? contactResult.contact.id : null;
+    var nameTickets = (ticketResult && ticketResult.tickets) || [];
+
+    var contactTicketPromise = contactId
+      ? sendBgMessage({ action: "hubspot_get_tickets", contactId: contactId })
+      : Promise.resolve({ tickets: [] });
+
+    contactTicketPromise.then(function(ctResult) {
+      if (window._wcrmPreloadId !== preloadId) return;
+      var contactTickets = (ctResult && ctResult.tickets) || [];
+      var seen = {};
+      var allTickets = [];
+      contactTickets.concat(nameTickets).forEach(function(t) {
+        if (!seen[t.id]) { seen[t.id] = true; allTickets.push(t); }
+      });
+      var ticket = allTickets.length > 0 ? allTickets[0] : null;
+      var contactMatches = validateContactMatch(contactProps, chatName);
+
+      // Build _wcrmContactData
+      var ticketSubject = ticket ? (ticket.properties.subject || "") : "";
+      var subjectParts = ticketSubject.split(/\s*\|\s*/);
+      var clientNameFull = subjectParts[0] ? subjectParts[0].trim() : "";
+      var consultorName = subjectParts[1] ? subjectParts[1].trim() : "";
+
+      var firstName = "";
+      var fullName = "";
+      if (contactMatches && contactProps.firstname) {
+        firstName = contactProps.firstname;
+        fullName = [contactProps.firstname, contactProps.lastname].filter(Boolean).join(" ");
+      } else if (clientNameFull) {
+        firstName = clientNameFull.split(/\s+/)[0];
+        fullName = clientNameFull;
+      } else {
+        var chatParts = (currentName || "").split(/\s*\|\s*/);
+        firstName = (chatParts[0] || "").split(/\s+/)[0];
+        fullName = (chatParts[0] || "").trim();
+      }
+
+      window._wcrmContactData = {
+        nome: firstName,
+        nomeCompleto: fullName,
+        consultor: consultorName,
+        empresa: consultorName,
+        email: (ticket && ticket.properties.contrato__e_mail) ? ticket.properties.contrato__e_mail : (contactMatches && contactProps.email ? contactProps.email : ""),
+        telefone: contactMatches && contactProps.phone ? contactProps.phone : (currentPhone || ""),
+        lifecycle: contactMatches && contactProps.lifecyclestage ? contactProps.lifecyclestage : "",
+        reunioes: ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ ? ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ : "",
+        ticket: ticketSubject,
+      };
+      if (ticket) window._wcrmTicketId = ticket.id;
+      console.log("[WCRM] Pre-loaded contact data:", window._wcrmContactData);
+    });
+  }).catch(function() { /* ignore preload errors */ });
+}
+
 function fetchHubSpotData() {
   var container = document.getElementById("wcrm-hubspot-container");
   if (!container || !currentPhone) return;
@@ -551,72 +913,109 @@ function fetchHubSpotData() {
         return;
       }
 
-      // Build the card
-      var ticketUrl = ticket ? "https://app.hubspot.com/contacts/49377285/record/0-5/" + ticket.id : "";
+      // Store contact data globally for message variable replacement (@nome, @email, etc.)
+      var ticketSubject = ticket ? (ticket.properties.subject || "") : "";
+      var subjectParts = ticketSubject.split(/\s*\|\s*/);
+      var clientNameFull = subjectParts[0] ? subjectParts[0].trim() : "";
+      var consultorName = subjectParts[1] ? subjectParts[1].trim() : "";
 
-      var html = '<div style="background:#202c33;border-radius:8px;padding:12px">';
-      html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-      html += '<span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#25d36620;color:#25d366">Encontrado no HubSpot</span>';
-      if (ticket) {
-        html += '<a href="' + ticketUrl + '" target="_blank" style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#cc5de820;color:#cc5de8;text-decoration:none;cursor:pointer" title="Abrir ticket no HubSpot">Ver Ticket ↗</a>';
-        html += '<span class="wcrm-copy-btn" data-copy="' + ticketUrl + '" style="cursor:pointer;font-size:11px;color:#8696a0;padding:2px 4px;border-radius:3px" title="Copiar link do ticket">📋</span>';
-        window._wcrmTicketId = ticket.id;
+      // Determine first name: prefer contact firstname, fallback to ticket subject first word, then chat name
+      var firstName = "";
+      var fullName = "";
+      if (contactMatches && contactProps.firstname) {
+        firstName = contactProps.firstname;
+        fullName = [contactProps.firstname, contactProps.lastname].filter(Boolean).join(" ");
+      } else if (clientNameFull) {
+        firstName = clientNameFull.split(/\s+/)[0];
+        fullName = clientNameFull;
+      } else {
+        var chatParts = (currentName || "").split(/\s*\|\s*/);
+        firstName = (chatParts[0] || "").split(/\s+/)[0];
+        fullName = (chatParts[0] || "").trim();
       }
-      html += '</div>';
-      html += '<div style="margin-top:10px">';
-      html += rowCopy("Nome", displayName, displayName);
-      // Ticket creation date
-      if (ticket && ticket.properties.createdate) {
-        var ticketDate = new Date(ticket.properties.createdate);
-        var dd = String(ticketDate.getDate()).padStart(2, "0");
-        var mm = String(ticketDate.getMonth() + 1).padStart(2, "0");
-        var yyyy = ticketDate.getFullYear();
-        html += row("Criado em", dd + "/" + mm + "/" + yyyy);
-      }
-      // Calls adquiridas from ticket
-      if (ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_) {
-        html += row("Reunioes Adquiridas", ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_);
-      }
-      // Only show contact details if the contact actually matches
-      if (contactMatches) {
-        if (contactProps.email) html += row("Email", contactProps.email);
-        if (contactProps.phone) html += row("Telefone", contactProps.phone);
-        if (contactProps.lifecyclestage) html += row("Lifecycle", contactProps.lifecyclestage);
-      }
-      html += '</div></div>';
-      container.innerHTML = html;
 
-      // Wire up all copy buttons
-      container.querySelectorAll(".wcrm-copy-btn").forEach(function(btn) {
-        btn.addEventListener("click", function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          var text = btn.dataset.copy;
-          navigator.clipboard.writeText(text).then(function() {
-            var orig = btn.textContent;
-            btn.textContent = "✓";
-            btn.style.color = "#25d366";
-            setTimeout(function() { btn.textContent = orig; btn.style.color = "#8696a0"; }, 1500);
+      window._wcrmContactData = {
+        nome: firstName,
+        nomeCompleto: fullName,
+        consultor: consultorName,
+        empresa: consultorName,
+        email: (ticket && ticket.properties.contrato__e_mail) ? ticket.properties.contrato__e_mail : (contactMatches && contactProps.email ? contactProps.email : ""),
+        telefone: contactMatches && contactProps.phone ? contactProps.phone : (currentPhone || ""),
+        lifecycle: contactMatches && contactProps.lifecyclestage ? contactProps.lifecyclestage : "",
+        reunioes: ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ ? ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ : "",
+        ticket: ticketSubject,
+      };
+
+      // Mentor name: extract from ticket subject (part after "|")
+      var mentorName = consultorName || "";
+
+      {
+        // Build the card
+        var ticketUrl = ticket ? "https://app.hubspot.com/contacts/49377285/record/0-5/" + ticket.id : "";
+        var ticketEmail = (ticket && ticket.properties.contrato__e_mail) ? ticket.properties.contrato__e_mail : "";
+
+        var html = '<div style="background:#202c33;border-radius:8px;padding:12px">';
+        html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+        html += '<span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#25d36620;color:#25d366">Encontrado no HubSpot</span>';
+        if (ticket) {
+          html += '<a href="' + ticketUrl + '" target="_blank" style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#cc5de820;color:#cc5de8;text-decoration:none;cursor:pointer" title="Abrir ticket no HubSpot">Ver Ticket ↗</a>';
+          html += '<span class="wcrm-copy-btn" data-copy="' + ticketUrl + '" style="cursor:pointer;font-size:11px;color:#8696a0;padding:2px 4px;border-radius:3px" title="Copiar link do ticket">📋</span>';
+          window._wcrmTicketId = ticket.id;
+        }
+        html += '</div>';
+        html += '<div style="margin-top:10px">';
+        html += rowCopy("Nome", displayName, displayName);
+        // Ticket creation date
+        if (ticket && ticket.properties.createdate) {
+          var ticketDate = new Date(ticket.properties.createdate);
+          var dd = String(ticketDate.getDate()).padStart(2, "0");
+          var mm = String(ticketDate.getMonth() + 1).padStart(2, "0");
+          var yyyy = ticketDate.getFullYear();
+          html += row("Criado em", dd + "/" + mm + "/" + yyyy);
+        }
+        // Mentor (from ticket subject after "|")
+        if (mentorName) html += row("Mentor", mentorName);
+        // E-mail from ticket [CONTRATO] E-mail
+        if (ticketEmail) html += row("E-mail", ticketEmail);
+        // Calls adquiridas from ticket
+        if (ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_) {
+          html += row("Reunioes Adquiridas", ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_);
+        }
+        html += '</div></div>';
+        container.innerHTML = html;
+
+        // Wire up all copy buttons
+        container.querySelectorAll(".wcrm-copy-btn").forEach(function(btn) {
+          btn.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var text = btn.dataset.copy;
+            navigator.clipboard.writeText(text).then(function() {
+              var orig = btn.textContent;
+              btn.textContent = "✓";
+              btn.style.color = "#25d366";
+              setTimeout(function() { btn.textContent = orig; btn.style.color = "#8696a0"; }, 1500);
+            });
           });
         });
-      });
 
-      // Fetch meetings after card is built
-      fetchMeetings(ticket ? ticket.id : null, contactId);
+        // Fetch meetings after card is built
+        fetchMeetings(ticket ? ticket.id : null, contactId);
 
-      // Fetch HubSpot notes for the ticket and merge with local notes
-      if (ticket) {
-        sendBgMessage({ action: "hubspot_get_notes", ticketId: ticket.id }).then(function(notesResult) {
-          if (window._wcrmLoadId !== loadId) return; // Contact changed, abort
-          console.log("[WCRM] HubSpot notes result:", notesResult);
-          if (notesResult && notesResult.notes) {
-            renderNotesHistory(notesResult.notes);
-          }
+        // Fetch HubSpot notes for the ticket and merge with local notes
+        if (ticket) {
+          sendBgMessage({ action: "hubspot_get_notes", ticketId: ticket.id }).then(function(notesResult) {
+            if (window._wcrmLoadId !== loadId) return; // Contact changed, abort
+            console.log("[WCRM] HubSpot notes result:", notesResult);
+            if (notesResult && notesResult.notes) {
+              renderNotesHistory(notesResult.notes);
+            }
+            showLoadingBar(false);
+          });
+        } else {
           showLoadingBar(false);
-        });
-      } else {
-        showLoadingBar(false);
-      }
+        }
+      } // end card build block
     });
   });
 }
@@ -976,6 +1375,8 @@ function renderNotesHistory(hubspotNotes) {
       var noteType = btn.dataset.noteType;
       var noteRef = btn.dataset.noteRef;
 
+      if (!confirm("Deseja excluir esta observação?")) return;
+
       if (noteType === "local") {
         // Delete local note
         var idx = parseInt(noteRef);
@@ -1219,6 +1620,10 @@ function detectCurrentChat() {
 
     if (sidebarOpen) {
       renderContactInfo();
+    } else {
+      // Pre-load HubSpot data in background even with sidebar closed
+      // This populates window._wcrmContactData for @variable replacement
+      preloadHubSpotData();
     }
   } catch (e) {
     console.error("[WCRM] Error detecting chat:", e);
@@ -1232,6 +1637,7 @@ function init() {
   createSidebar();
 
   loadLabelsData().then(function() {
+    loadLabelTemplates();
     observeChatChanges();
     console.log("[WCRM] Ready!");
   });

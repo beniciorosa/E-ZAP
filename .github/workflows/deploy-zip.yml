@@ -1,0 +1,55 @@
+name: Deploy Extension ZIP to Supabase Storage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'chrome-extension/**'
+
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from manifest
+        id: version
+        run: |
+          VERSION=$(grep '"version"' chrome-extension/manifest.json | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Extension version: $VERSION"
+
+      - name: Create ZIP
+        run: |
+          cd chrome-extension
+          zip -r ../ezap-latest.zip . -x "*.DS_Store"
+          cd ..
+          cp ezap-latest.zip "ezap-v${{ steps.version.outputs.version }}.zip"
+          ls -la ezap-*.zip
+
+      - name: Upload to Supabase Storage (latest)
+        run: |
+          curl -X POST "${{ secrets.SUPABASE_URL }}/storage/v1/object/releases/ezap-latest.zip" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -H "Content-Type: application/zip" \
+            -H "x-upsert: true" \
+            --data-binary @ezap-latest.zip \
+            --fail --silent --show-error
+
+      - name: Upload to Supabase Storage (versioned)
+        run: |
+          curl -X POST "${{ secrets.SUPABASE_URL }}/storage/v1/object/releases/ezap-v${{ steps.version.outputs.version }}.zip" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -H "Content-Type: application/zip" \
+            -H "x-upsert: true" \
+            --data-binary @"ezap-v${{ steps.version.outputs.version }}.zip" \
+            --fail --silent --show-error
+
+      - name: Verify upload
+        run: |
+          echo "Uploaded ezap-latest.zip and ezap-v${{ steps.version.outputs.version }}.zip"
+          echo "Public URL: ${{ secrets.SUPABASE_URL }}/storage/v1/object/public/releases/ezap-latest.zip"

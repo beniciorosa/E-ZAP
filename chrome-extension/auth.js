@@ -186,9 +186,10 @@ function validateWhatsAppPhone() {
 
   var allowedPhones = window.__wcrmAuth.allowedPhones || [];
 
-  // No phones configured for this user — skip validation
+  // No phones configured — block access (admin must register phone numbers)
   if (allowedPhones.length === 0) {
-    console.log("[EZAP AUTH] No phone restrictions configured, skipping phone validation");
+    console.log("[EZAP AUTH] No phone configured for user, blocking access");
+    showPhoneBlockOverlay("Nenhum numero de telefone cadastrado para este usuario. Solicite ao administrador que configure seu numero.");
     return;
   }
 
