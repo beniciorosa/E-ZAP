@@ -952,6 +952,15 @@ function renderMessages(msgs, readsMap) {
       var nType = m.notification_type || 'info';
       var nLabel = nType === 'warning' ? 'Aviso' : nType === 'success' ? 'Sucesso' : 'Info';
       html += '<span class="msg-card-notif-badge ' + nType + '">Notificacao: ' + nLabel + '</span>';
+      if (m.target_users && Array.isArray(m.target_users)) {
+        var names = m.target_users.map(function(uid) {
+          var u = allUsers ? allUsers.find(function(x) { return x.id === uid; }) : null;
+          return u ? u.name.split(' ')[0] : '?';
+        });
+        html += '<span style="font-size:10px;color:#8696a0;padding:2px 6px;background:#2a3942;border-radius:4px">' + names.join(', ') + '</span>';
+      } else {
+        html += '<span style="font-size:10px;color:#8696a0;padding:2px 6px;background:#2a3942;border-radius:4px">Todos</span>';
+      }
     }
     if (m.category) html += '<span class="msg-card-category">' + esc(m.category) + '</span>';
     html += '</div>';
@@ -993,27 +1002,53 @@ function showMessageModal(msg) {
   var isEdit = !!msg;
   var isNotif = isEdit && msg.is_notification;
   var nType = (isEdit && msg.notification_type) ? msg.notification_type : 'info';
+  var targetUsers = (isEdit && msg.target_users) ? msg.target_users : null;
+  var isAllUsers = !targetUsers; // null = all users
+
+  // Build user checkboxes from allUsers
+  var userCheckboxes = '';
+  if (allUsers && allUsers.length > 0) {
+    allUsers.filter(function(u) { return u.active; }).forEach(function(u) {
+      var checked = isAllUsers || (targetUsers && targetUsers.indexOf(u.id) !== -1) ? ' checked' : '';
+      userCheckboxes += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0;font-size:13px">' +
+        '<input type="checkbox" class="msg-user-check" value="' + u.id + '"' + checked + '>' +
+        esc(u.name) + ' <span style="color:#8696a0;font-size:11px">(' + esc(u.email || '') + ')</span>' +
+      '</label>';
+    });
+  }
+
   var container = document.getElementById("modalsContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeModal(event)">' +
-      '<div class="modal">' +
+      '<div class="modal" style="max-width:520px">' +
         '<h3>' + (isEdit ? 'Editar Mensagem' : 'Nova Mensagem Global') + '</h3>' +
         '<div class="form-group"><label>Titulo</label><input type="text" id="msgTitle" placeholder="Ex: Boas-vindas" value="' + (isEdit ? esc(msg.title) : '') + '"></div>' +
         '<div class="form-group"><label>Categoria (opcional)</label><input type="text" id="msgCategory" placeholder="Ex: Atendimento, Follow-up" value="' + (isEdit && msg.category ? esc(msg.category) : '') + '"></div>' +
         '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="6" placeholder="Escreva a mensagem aqui...">' + (isEdit ? esc(msg.content) : '') + '</textarea></div>' +
         '<div class="form-group" style="display:flex;align-items:center;gap:10px">' +
           '<label style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">' +
-            '<input type="checkbox" id="msgIsNotification" ' + (isNotif ? 'checked' : '') + ' onchange="document.getElementById(\'notifTypeGroup\').style.display=this.checked?\'flex\':\'none\'">' +
-            'Enviar como notificacao para todos os usuarios' +
+            '<input type="checkbox" id="msgIsNotification" ' + (isNotif ? 'checked' : '') + ' onchange="toggleNotifOptions(this.checked)">' +
+            'Enviar como notificacao' +
           '</label>' +
         '</div>' +
-        '<div id="notifTypeGroup" class="form-group" style="display:' + (isNotif ? 'flex' : 'none') + ';gap:8px;align-items:center">' +
-          '<label style="margin:0">Tipo:</label>' +
-          '<select id="msgNotifType" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:13px">' +
-            '<option value="info"' + (nType === 'info' ? ' selected' : '') + '>Info</option>' +
-            '<option value="warning"' + (nType === 'warning' ? ' selected' : '') + '>Aviso</option>' +
-            '<option value="success"' + (nType === 'success' ? ' selected' : '') + '>Sucesso</option>' +
-          '</select>' +
+        '<div id="notifTypeGroup" class="form-group" style="display:' + (isNotif ? 'block' : 'none') + '">' +
+          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
+            '<label style="margin:0">Tipo:</label>' +
+            '<select id="msgNotifType" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:13px">' +
+              '<option value="info"' + (nType === 'info' ? ' selected' : '') + '>Info</option>' +
+              '<option value="warning"' + (nType === 'warning' ? ' selected' : '') + '>Aviso</option>' +
+              '<option value="success"' + (nType === 'success' ? ' selected' : '') + '>Sucesso</option>' +
+            '</select>' +
+          '</div>' +
+          '<div style="margin-bottom:8px">' +
+            '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">' +
+              '<input type="checkbox" id="msgAllUsers" ' + (isAllUsers ? 'checked' : '') + ' onchange="toggleAllUsers(this.checked)">' +
+              'Todos os usuarios' +
+            '</label>' +
+          '</div>' +
+          '<div id="msgUsersList" style="display:' + (isAllUsers ? 'none' : 'block') + ';max-height:150px;overflow-y:auto;border:1px solid #2a3942;border-radius:8px;padding:8px 12px;background:#111b21">' +
+            userCheckboxes +
+          '</div>' +
         '</div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
@@ -1024,21 +1059,44 @@ function showMessageModal(msg) {
   document.getElementById("msgTitle").focus();
 }
 
+function toggleNotifOptions(checked) {
+  document.getElementById('notifTypeGroup').style.display = checked ? 'block' : 'none';
+}
+
+function toggleAllUsers(checked) {
+  document.getElementById('msgUsersList').style.display = checked ? 'none' : 'block';
+  if (checked) {
+    document.querySelectorAll('.msg-user-check').forEach(function(cb) { cb.checked = true; });
+  }
+}
+
 function saveMessage(editId) {
   var title = document.getElementById("msgTitle").value.trim();
   var category = document.getElementById("msgCategory").value.trim();
   var content = document.getElementById("msgContent").value.trim();
   var isNotification = document.getElementById("msgIsNotification").checked;
   var notifType = document.getElementById("msgNotifType").value;
+  var allUsersChecked = document.getElementById("msgAllUsers") ? document.getElementById("msgAllUsers").checked : true;
 
   if (!title || !content) { alert("Preencha titulo e conteudo"); return; }
+
+  // Build target_users: null = all, array of IDs = specific
+  var targetUsers = null;
+  if (isNotification && !allUsersChecked) {
+    targetUsers = [];
+    document.querySelectorAll('.msg-user-check:checked').forEach(function(cb) {
+      targetUsers.push(cb.value);
+    });
+    if (targetUsers.length === 0) { alert("Selecione pelo menos um usuario"); return; }
+  }
 
   var body = {
     title: title,
     content: content,
     category: category || null,
     is_notification: isNotification,
-    notification_type: isNotification ? notifType : 'info'
+    notification_type: isNotification ? notifType : 'info',
+    target_users: targetUsers
   };
 
   if (editId) {
