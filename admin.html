@@ -263,6 +263,22 @@
       margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3942;
     }
     .msg-card-date { font-size: 11px; color: #3b4a54; }
+    .msg-card-notif-badge {
+      font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600;
+    }
+    .msg-card-notif-badge.info { background: #228be620; color: #228be6; }
+    .msg-card-notif-badge.warning { background: #fab00520; color: #fab005; }
+    .msg-card-notif-badge.success { background: #25d36620; color: #25d366; }
+    .msg-card-reads {
+      font-size: 11px; color: #8696a0; display: flex; align-items: center; gap: 4px; cursor: pointer;
+    }
+    .msg-card-reads:hover { color: #e9edef; }
+    .reads-modal-list { max-height: 300px; overflow-y: auto; }
+    .reads-modal-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid #2a3942; font-size: 13px;
+    }
+    .reads-modal-item:last-child { border-bottom: none; }
 
     /* ===== SECURITY LOG ===== */
     .log-item {
@@ -890,29 +906,67 @@ function saveEditUser(id) {
 
 // ===== GLOBAL MESSAGES =====
 function loadMessages() {
-  supa("/rest/v1/global_messages?select=*&order=created_at.desc").then(function(msgs) {
+  // Load messages with read counts
+  Promise.all([
+    supa("/rest/v1/global_messages?select=*&order=created_at.desc"),
+    supa("/rest/v1/notification_reads?select=message_id,user_id,read_at,users(name)")
+  ]).then(function(results) {
+    var msgs = results[0];
+    var reads = results[1];
     if (!Array.isArray(msgs)) return;
-    renderMessages(msgs);
+    // Build reads map: message_id -> [{user_id, name, read_at}]
+    var readsMap = {};
+    if (Array.isArray(reads)) {
+      reads.forEach(function(r) {
+        if (!readsMap[r.message_id]) readsMap[r.message_id] = [];
+        readsMap[r.message_id].push({
+          user_id: r.user_id,
+          name: r.users ? r.users.name : "Desconhecido",
+          read_at: r.read_at
+        });
+      });
+    }
+    renderMessages(msgs, readsMap);
   });
 }
 
-function renderMessages(msgs) {
+function renderMessages(msgs, readsMap) {
   var container = document.getElementById("messagesList");
   if (msgs.length === 0) {
     container.innerHTML = '<div class="empty-state">Nenhuma mensagem global criada. Crie mensagens que todos os usuarios poderao utilizar.</div>';
     return;
   }
 
+  var totalActiveUsers = allUsers ? allUsers.filter(function(u) { return u.active; }).length : 0;
+
   var html = "";
   msgs.forEach(function(m) {
+    var readList = (readsMap && readsMap[m.id]) ? readsMap[m.id] : [];
+    var readCount = readList.length;
+
     html += '<div class="msg-card">';
     html += '<div class="msg-card-header">';
     html += '<div class="msg-card-title">' + esc(m.title) + '</div>';
+    html += '<div style="display:flex;gap:6px;align-items:center">';
+    if (m.is_notification) {
+      var nType = m.notification_type || 'info';
+      var nLabel = nType === 'warning' ? 'Aviso' : nType === 'success' ? 'Sucesso' : 'Info';
+      html += '<span class="msg-card-notif-badge ' + nType + '">Notificacao: ' + nLabel + '</span>';
+    }
     if (m.category) html += '<span class="msg-card-category">' + esc(m.category) + '</span>';
+    html += '</div>';
     html += '</div>';
     html += '<div class="msg-card-content">' + esc(m.content) + '</div>';
     html += '<div class="msg-card-footer">';
+    html += '<div style="display:flex;align-items:center;gap:12px">';
     html += '<span class="msg-card-date">Criada em ' + formatDate(m.created_at) + '</span>';
+    if (m.is_notification) {
+      html += '<span class="msg-card-reads" onclick="showReadsModal(\'' + m.id + '\', \'' + esc(m.title) + '\')" title="Ver quem visualizou">';
+      html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>';
+      html += readCount + '/' + totalActiveUsers + ' leram';
+      html += '</span>';
+    }
+    html += '</div>';
     html += '<div class="actions">';
     html += '<button class="btn-sm" onclick="editMessage(\'' + m.id + '\')">Editar</button>';
     html += '<button class="btn-sm danger" onclick="deleteMessage(\'' + m.id + '\', \'' + esc(m.title) + '\')">Excluir</button>';
@@ -937,6 +991,8 @@ function editMessage(id) {
 
 function showMessageModal(msg) {
   var isEdit = !!msg;
+  var isNotif = isEdit && msg.is_notification;
+  var nType = (isEdit && msg.notification_type) ? msg.notification_type : 'info';
   var container = document.getElementById("modalsContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeModal(event)">' +
@@ -945,6 +1001,20 @@ function showMessageModal(msg) {
         '<div class="form-group"><label>Titulo</label><input type="text" id="msgTitle" placeholder="Ex: Boas-vindas" value="' + (isEdit ? esc(msg.title) : '') + '"></div>' +
         '<div class="form-group"><label>Categoria (opcional)</label><input type="text" id="msgCategory" placeholder="Ex: Atendimento, Follow-up" value="' + (isEdit && msg.category ? esc(msg.category) : '') + '"></div>' +
         '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="6" placeholder="Escreva a mensagem aqui...">' + (isEdit ? esc(msg.content) : '') + '</textarea></div>' +
+        '<div class="form-group" style="display:flex;align-items:center;gap:10px">' +
+          '<label style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">' +
+            '<input type="checkbox" id="msgIsNotification" ' + (isNotif ? 'checked' : '') + ' onchange="document.getElementById(\'notifTypeGroup\').style.display=this.checked?\'flex\':\'none\'">' +
+            'Enviar como notificacao para todos os usuarios' +
+          '</label>' +
+        '</div>' +
+        '<div id="notifTypeGroup" class="form-group" style="display:' + (isNotif ? 'flex' : 'none') + ';gap:8px;align-items:center">' +
+          '<label style="margin:0">Tipo:</label>' +
+          '<select id="msgNotifType" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:13px">' +
+            '<option value="info"' + (nType === 'info' ? ' selected' : '') + '>Info</option>' +
+            '<option value="warning"' + (nType === 'warning' ? ' selected' : '') + '>Aviso</option>' +
+            '<option value="success"' + (nType === 'success' ? ' selected' : '') + '>Sucesso</option>' +
+          '</select>' +
+        '</div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="saveMessage(' + (isEdit ? "'" + msg.id + "'" : 'null') + ')">' + (isEdit ? 'Salvar' : 'Criar') + '</button>' +
@@ -958,10 +1028,18 @@ function saveMessage(editId) {
   var title = document.getElementById("msgTitle").value.trim();
   var category = document.getElementById("msgCategory").value.trim();
   var content = document.getElementById("msgContent").value.trim();
+  var isNotification = document.getElementById("msgIsNotification").checked;
+  var notifType = document.getElementById("msgNotifType").value;
 
   if (!title || !content) { alert("Preencha titulo e conteudo"); return; }
 
-  var body = { title: title, content: content, category: category || null };
+  var body = {
+    title: title,
+    content: content,
+    category: category || null,
+    is_notification: isNotification,
+    notification_type: isNotification ? notifType : 'info'
+  };
 
   if (editId) {
     body.updated_at = new Date().toISOString();
@@ -978,6 +1056,38 @@ function deleteMessage(id, title) {
   if (!confirm('Excluir a mensagem "' + title + '"?')) return;
   supa("/rest/v1/global_messages?id=eq." + id, { method: "DELETE" })
     .then(function() { loadMessages(); });
+}
+
+function showReadsModal(msgId, msgTitle) {
+  supa("/rest/v1/notification_reads?message_id=eq." + msgId + "&select=read_at,users(name,email)&order=read_at.desc").then(function(reads) {
+    if (!Array.isArray(reads)) reads = [];
+    var container = document.getElementById("modalsContainer");
+    var html = '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Visualizacoes: ' + esc(msgTitle) + '</h3>';
+
+    if (reads.length === 0) {
+      html += '<div class="empty-state">Nenhum usuario visualizou esta notificacao ainda.</div>';
+    } else {
+      html += '<div style="font-size:12px;color:#8696a0;margin-bottom:10px">' + reads.length + ' visualizacao(oes)</div>';
+      html += '<div class="reads-modal-list">';
+      reads.forEach(function(r) {
+        var userName = r.users ? r.users.name : 'Desconhecido';
+        var userEmail = r.users ? r.users.email : '';
+        html += '<div class="reads-modal-item">';
+        html += '<div><strong style="color:#e9edef">' + esc(userName) + '</strong>';
+        if (userEmail) html += ' <span style="color:#8696a0;font-size:11px">' + esc(userEmail) + '</span>';
+        html += '</div>';
+        html += '<span style="color:#3b4a54;font-size:11px">' + formatDate(r.read_at) + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div class="modal-actions"><button class="btn-cancel" onclick="closeModalForce()">Fechar</button></div>';
+    html += '</div></div>';
+    container.innerHTML = html;
+  });
 }
 
 // ===== SECURITY LOG =====
