@@ -966,6 +966,21 @@ function renderMessages(msgs, readsMap) {
     html += '</div>';
     html += '</div>';
     html += '<div class="msg-card-content">' + esc(m.content) + '</div>';
+    // Status badges (scheduled, pinned, dismissed)
+    if (m.is_notification) {
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">';
+      if (m.dismissed_at) {
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#ff6b6b20;color:#ff6b6b;font-weight:600">Dispensada em ' + formatDate(m.dismissed_at) + '</span>';
+      } else if (m.scheduled_at && new Date(m.scheduled_at) > new Date()) {
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#228be620;color:#228be6;font-weight:600">Agendada: ' + formatDate(m.scheduled_at) + '</span>';
+      }
+      if (m.is_pinned && m.pin_start && m.pin_end) {
+        var now = new Date();
+        var pinActive = now >= new Date(m.pin_start) && now <= new Date(m.pin_end) && !m.dismissed_at;
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + (pinActive ? '#fab00520;color:#fab005' : '#3b4a5420;color:#8696a0') + ';font-weight:600">Fixada: ' + formatDate(m.pin_start) + ' - ' + formatDate(m.pin_end) + '</span>';
+      }
+      html += '</div>';
+    }
     html += '<div class="msg-card-footer">';
     html += '<div style="display:flex;align-items:center;gap:12px">';
     html += '<span class="msg-card-date">Criada em ' + formatDate(m.created_at) + '</span>';
@@ -977,6 +992,12 @@ function renderMessages(msgs, readsMap) {
     }
     html += '</div>';
     html += '<div class="actions">';
+    if (m.is_notification && m.active && !m.dismissed_at) {
+      html += '<button class="btn-sm" style="background:#fab00520;color:#fab005;border:1px solid #fab00540" onclick="dismissMessage(\'' + m.id + '\')">Dispensar</button>';
+    }
+    if (m.is_notification) {
+      html += '<button class="btn-sm" style="background:#228be620;color:#228be6;border:1px solid #228be640" onclick="resendMessage(\'' + m.id + '\')">Reenviar</button>';
+    }
     html += '<button class="btn-sm" onclick="editMessage(\'' + m.id + '\')">Editar</button>';
     html += '<button class="btn-sm danger" onclick="deleteMessage(\'' + m.id + '\', \'' + esc(m.title) + '\')">Excluir</button>';
     html += '</div>';
@@ -998,14 +1019,28 @@ function editMessage(id) {
   });
 }
 
-function showMessageModal(msg) {
-  var isEdit = !!msg;
-  var isNotif = isEdit && msg.is_notification;
-  var nType = (isEdit && msg.notification_type) ? msg.notification_type : 'info';
-  var targetUsers = (isEdit && msg.target_users) ? msg.target_users : null;
-  var isAllUsers = !targetUsers; // null = all users
+function showMessageModal(msg, resendMode) {
+  var isEdit = !!msg && !resendMode;
+  var isNotif = msg ? msg.is_notification : false;
+  var nType = (msg && msg.notification_type) ? msg.notification_type : 'info';
+  var targetUsers = (msg && msg.target_users) ? msg.target_users : null;
+  var isAllUsers = !targetUsers;
+  var isPinned = msg ? msg.is_pinned : false;
+  var scheduledAt = msg ? msg.scheduled_at : null;
+  var pinStart = msg ? msg.pin_start : null;
+  var pinEnd = msg ? msg.pin_end : null;
 
-  // Build user checkboxes from allUsers
+  // For resend mode, default to notification ON and schedule to now
+  if (resendMode) {
+    isNotif = true;
+    scheduledAt = null;
+    isPinned = false;
+  }
+
+  // Determine send mode: now, scheduled
+  var sendMode = scheduledAt ? 'scheduled' : 'now';
+
+  // Build user checkboxes
   var userCheckboxes = '';
   if (allUsers && allUsers.length > 0) {
     allUsers.filter(function(u) { return u.active; }).forEach(function(u) {
@@ -1017,22 +1052,32 @@ function showMessageModal(msg) {
     });
   }
 
+  // Format datetime for input
+  function fmtDt(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + 'T' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+
+  var modalTitle = resendMode ? 'Reenviar Mensagem' : (isEdit ? 'Editar Mensagem' : 'Nova Mensagem Global');
+
   var container = document.getElementById("modalsContainer");
   container.innerHTML =
     '<div class="modal-overlay" onclick="closeModal(event)">' +
-      '<div class="modal" style="max-width:520px">' +
-        '<h3>' + (isEdit ? 'Editar Mensagem' : 'Nova Mensagem Global') + '</h3>' +
-        '<div class="form-group"><label>Titulo</label><input type="text" id="msgTitle" placeholder="Ex: Boas-vindas" value="' + (isEdit ? esc(msg.title) : '') + '"></div>' +
-        '<div class="form-group"><label>Categoria (opcional)</label><input type="text" id="msgCategory" placeholder="Ex: Atendimento, Follow-up" value="' + (isEdit && msg.category ? esc(msg.category) : '') + '"></div>' +
-        '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="6" placeholder="Escreva a mensagem aqui...">' + (isEdit ? esc(msg.content) : '') + '</textarea></div>' +
+      '<div class="modal" style="max-width:520px;max-height:85vh;overflow-y:auto">' +
+        '<h3>' + modalTitle + '</h3>' +
+        '<div class="form-group"><label>Titulo</label><input type="text" id="msgTitle" placeholder="Ex: Boas-vindas" value="' + (msg ? esc(msg.title) : '') + '"' + (resendMode ? ' readonly style="opacity:0.7;background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:8px;padding:10px;width:100%;box-sizing:border-box"' : '') + '></div>' +
+        '<div class="form-group"><label>Categoria (opcional)</label><input type="text" id="msgCategory" placeholder="Ex: Atendimento, Follow-up" value="' + (msg && msg.category ? esc(msg.category) : '') + '"></div>' +
+        '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="4" placeholder="Escreva a mensagem aqui..."' + (resendMode ? ' readonly style="opacity:0.7;background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:8px;padding:10px;width:100%;box-sizing:border-box"' : '') + '>' + (msg ? esc(msg.content) : '') + '</textarea></div>' +
         '<div class="form-group" style="display:flex;align-items:center;gap:10px">' +
           '<label style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">' +
             '<input type="checkbox" id="msgIsNotification" ' + (isNotif ? 'checked' : '') + ' onchange="toggleNotifOptions(this.checked)">' +
             'Enviar como notificacao' +
           '</label>' +
         '</div>' +
-        '<div id="notifTypeGroup" class="form-group" style="display:' + (isNotif ? 'block' : 'none') + '">' +
-          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
+        '<div id="notifTypeGroup" style="display:' + (isNotif ? 'block' : 'none') + '">' +
+          // Type + Users
+          '<div class="form-group" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
             '<label style="margin:0">Tipo:</label>' +
             '<select id="msgNotifType" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:13px">' +
               '<option value="info"' + (nType === 'info' ? ' selected' : '') + '>Info</option>' +
@@ -1040,19 +1085,43 @@ function showMessageModal(msg) {
               '<option value="success"' + (nType === 'success' ? ' selected' : '') + '>Sucesso</option>' +
             '</select>' +
           '</div>' +
-          '<div style="margin-bottom:8px">' +
+          '<div class="form-group" style="margin-bottom:8px">' +
             '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">' +
               '<input type="checkbox" id="msgAllUsers" ' + (isAllUsers ? 'checked' : '') + ' onchange="toggleAllUsers(this.checked)">' +
               'Todos os usuarios' +
             '</label>' +
           '</div>' +
-          '<div id="msgUsersList" style="display:' + (isAllUsers ? 'none' : 'block') + ';max-height:150px;overflow-y:auto;border:1px solid #2a3942;border-radius:8px;padding:8px 12px;background:#111b21">' +
+          '<div id="msgUsersList" class="form-group" style="display:' + (isAllUsers ? 'none' : 'block') + ';max-height:120px;overflow-y:auto;border:1px solid #2a3942;border-radius:8px;padding:8px 12px;background:#111b21">' +
             userCheckboxes +
+          '</div>' +
+          // Send mode
+          '<div class="form-group" style="margin-top:12px;border-top:1px solid #2a3942;padding-top:12px">' +
+            '<label style="font-weight:600;margin-bottom:8px;display:block">Quando enviar</label>' +
+            '<div style="display:flex;gap:12px;margin-bottom:8px">' +
+              '<label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="radio" name="msgSendMode" value="now"' + (sendMode === 'now' ? ' checked' : '') + ' onchange="toggleSendMode()"> Agora</label>' +
+              '<label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="radio" name="msgSendMode" value="scheduled"' + (sendMode === 'scheduled' ? ' checked' : '') + ' onchange="toggleSendMode()"> Agendar</label>' +
+            '</div>' +
+            '<div id="msgScheduleGroup" style="display:' + (sendMode === 'scheduled' ? 'block' : 'none') + '">' +
+              '<input type="datetime-local" id="msgScheduledAt" value="' + fmtDt(scheduledAt) + '" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:8px;font-size:13px;width:100%;box-sizing:border-box">' +
+            '</div>' +
+          '</div>' +
+          // Pin mode
+          '<div class="form-group" style="border-top:1px solid #2a3942;padding-top:12px">' +
+            '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">' +
+              '<input type="checkbox" id="msgIsPinned" ' + (isPinned ? 'checked' : '') + ' onchange="togglePinOptions(this.checked)">' +
+              'Fixar mensagem (sem botao de fechar)' +
+            '</label>' +
+          '</div>' +
+          '<div id="msgPinGroup" style="display:' + (isPinned ? 'block' : 'none') + '">' +
+            '<div style="display:flex;gap:8px;margin-bottom:6px">' +
+              '<div style="flex:1"><label style="font-size:11px;color:#8696a0">Inicio</label><input type="datetime-local" id="msgPinStart" value="' + fmtDt(pinStart) + '" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px;font-size:12px;width:100%;box-sizing:border-box"></div>' +
+              '<div style="flex:1"><label style="font-size:11px;color:#8696a0">Termino</label><input type="datetime-local" id="msgPinEnd" value="' + fmtDt(pinEnd) + '" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px;font-size:12px;width:100%;box-sizing:border-box"></div>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
-          '<button class="btn-save" onclick="saveMessage(' + (isEdit ? "'" + msg.id + "'" : 'null') + ')">' + (isEdit ? 'Salvar' : 'Criar') + '</button>' +
+          '<button class="btn-save" onclick="saveMessage(' + (isEdit ? "'" + msg.id + "'" : 'null') + (resendMode ? ", true" : "") + ')">' + (resendMode ? 'Reenviar' : isEdit ? 'Salvar' : 'Criar') + '</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1070,17 +1139,26 @@ function toggleAllUsers(checked) {
   }
 }
 
-function saveMessage(editId) {
+function toggleSendMode() {
+  var mode = document.querySelector('input[name="msgSendMode"]:checked').value;
+  document.getElementById('msgScheduleGroup').style.display = mode === 'scheduled' ? 'block' : 'none';
+}
+
+function togglePinOptions(checked) {
+  document.getElementById('msgPinGroup').style.display = checked ? 'block' : 'none';
+}
+
+function saveMessage(editId, isResend) {
   var title = document.getElementById("msgTitle").value.trim();
   var category = document.getElementById("msgCategory").value.trim();
   var content = document.getElementById("msgContent").value.trim();
   var isNotification = document.getElementById("msgIsNotification").checked;
-  var notifType = document.getElementById("msgNotifType").value;
+  var notifType = document.getElementById("msgNotifType") ? document.getElementById("msgNotifType").value : 'info';
   var allUsersChecked = document.getElementById("msgAllUsers") ? document.getElementById("msgAllUsers").checked : true;
 
   if (!title || !content) { alert("Preencha titulo e conteudo"); return; }
 
-  // Build target_users: null = all, array of IDs = specific
+  // Build target_users
   var targetUsers = null;
   if (isNotification && !allUsersChecked) {
     targetUsers = [];
@@ -1090,16 +1168,50 @@ function saveMessage(editId) {
     if (targetUsers.length === 0) { alert("Selecione pelo menos um usuario"); return; }
   }
 
+  // Send mode
+  var sendMode = document.querySelector('input[name="msgSendMode"]:checked');
+  var scheduledAt = null;
+  if (sendMode && sendMode.value === 'scheduled') {
+    var dt = document.getElementById("msgScheduledAt").value;
+    if (!dt) { alert("Selecione a data e horario para agendar"); return; }
+    scheduledAt = new Date(dt).toISOString();
+  }
+
+  // Pin mode
+  var isPinned = document.getElementById("msgIsPinned") ? document.getElementById("msgIsPinned").checked : false;
+  var pinStart = null, pinEnd = null;
+  if (isPinned) {
+    var ps = document.getElementById("msgPinStart").value;
+    var pe = document.getElementById("msgPinEnd").value;
+    if (!ps || !pe) { alert("Preencha inicio e termino para fixar"); return; }
+    pinStart = new Date(ps).toISOString();
+    pinEnd = new Date(pe).toISOString();
+  }
+
   var body = {
     title: title,
     content: content,
     category: category || null,
     is_notification: isNotification,
     notification_type: isNotification ? notifType : 'info',
-    target_users: targetUsers
+    target_users: targetUsers,
+    scheduled_at: scheduledAt,
+    is_pinned: isPinned,
+    pin_start: pinStart,
+    pin_end: pinEnd,
+    dismissed_at: null,
+    active: true
   };
 
-  if (editId) {
+  if (isResend) {
+    // Create a new copy of the message
+    body.created_by = currentAdmin.user_id;
+    supa("/rest/v1/global_messages", { method: "POST", body: body })
+      .then(function() {
+        closeModalForce();
+        loadMessages();
+      });
+  } else if (editId) {
     body.updated_at = new Date().toISOString();
     supa("/rest/v1/global_messages?id=eq." + editId, { method: "PATCH", body: body })
       .then(function() { closeModalForce(); loadMessages(); });
@@ -1108,6 +1220,22 @@ function saveMessage(editId) {
     supa("/rest/v1/global_messages", { method: "POST", body: body })
       .then(function() { closeModalForce(); loadMessages(); });
   }
+}
+
+function resendMessage(id) {
+  supa("/rest/v1/global_messages?id=eq." + id).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      showMessageModal(data[0], true);
+    }
+  });
+}
+
+function dismissMessage(id) {
+  if (!confirm('Dispensar esta notificacao? Ela sera removida de todos os usuarios imediatamente.')) return;
+  supa("/rest/v1/global_messages?id=eq." + id, {
+    method: "PATCH",
+    body: { dismissed_at: new Date().toISOString(), active: false, updated_at: new Date().toISOString() }
+  }).then(function() { loadMessages(); });
 }
 
 function deleteMessage(id, title) {
