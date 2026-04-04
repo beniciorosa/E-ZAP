@@ -2320,6 +2320,16 @@ function saveEditProfile(idx) {
   }
 
   saveProfiles(function() {
+    // Propagate features to all users with this profile role
+    var affectedUsers = allUsers.filter(function(u) { return u.role === p.key; });
+    if (affectedUsers.length > 0) {
+      supa("/rest/v1/users?role=eq." + p.key, {
+        method: "PATCH",
+        body: { features: p.features }
+      }).then(function() {
+        loadUsers();
+      });
+    }
     closeModalForce();
     renderProfiles();
   });
