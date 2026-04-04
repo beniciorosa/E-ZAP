@@ -186,11 +186,14 @@ function toggleGeiaSidebar() {
     sidebar = document.getElementById("geia-sidebar");
   }
   geiaSidebarOpen = !geiaSidebarOpen;
+  var floatContainer = document.getElementById("ezap-float-container");
   if (geiaSidebarOpen) {
     sidebar.classList.add("open");
+    if (floatContainer) floatContainer.style.display = "none";
     updateGeiaContent();
   } else {
     sidebar.classList.remove("open");
+    if (floatContainer) floatContainer.style.display = "flex";
   }
 }
 
@@ -208,7 +211,7 @@ function createGeiaSidebar() {
     height: "100vh",
     background: "#111b21",
     borderLeft: "1px solid #2a3942",
-    zIndex: "10000",
+    zIndex: "100000",
     flexDirection: "column",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     color: "#e9edef",
@@ -216,17 +219,29 @@ function createGeiaSidebar() {
     overflow: "hidden",
   });
 
-  sidebar.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">' +
-      '<div style="display:flex;align-items:center;gap:10px">' +
-        '<div style="width:32px;height:32px;border-radius:50%;background:#cc5de8;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">G</div>' +
-        '<h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">GEIA</h3>' +
-      '</div>' +
-      '<button onclick="toggleGeiaSidebar()" style="background:none;border:none;color:#8696a0;font-size:20px;cursor:pointer;padding:4px 8px;border-radius:4px">&times;</button>' +
-    '</div>' +
-    '<div id="geia-content" style="flex:1;overflow-y:auto;padding:16px"></div>';
+  // Build header
+  var header = document.createElement("div");
+  Object.assign(header.style, {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "12px 16px", background: "#202c33", borderBottom: "1px solid #2a3942", minHeight: "48px",
+  });
+  header.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px">' +
+      '<div style="width:32px;height:32px;border-radius:50%;background:#cc5de8;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">G</div>' +
+      '<h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">GEIA</h3>' +
+    '</div>';
+  var closeBtn = document.createElement("button");
+  Object.assign(closeBtn.style, { background: "none", border: "none", color: "#8696a0", fontSize: "20px", cursor: "pointer", padding: "4px 8px", borderRadius: "4px" });
+  closeBtn.innerHTML = "&times;";
+  closeBtn.addEventListener("click", toggleGeiaSidebar);
+  header.appendChild(closeBtn);
+  sidebar.appendChild(header);
 
-  sidebar.classList.add("geia-sidebar-panel");
+  var contentDiv = document.createElement("div");
+  contentDiv.id = "geia-content";
+  Object.assign(contentDiv.style, { flex: "1", overflowY: "auto", padding: "16px" });
+  sidebar.appendChild(contentDiv);
+
   document.body.appendChild(sidebar);
 }
 
@@ -239,37 +254,52 @@ function updateGeiaContent() {
   var hasResumo = window.__ezapHasFeature && window.__ezapHasFeature("geia_resumo");
   var hasSugestao = window.__ezapHasFeature && window.__ezapHasFeature("geia_sugestao");
 
-  var html = '';
-  html += '<div style="margin-bottom:16px">';
-  html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">Conversa atual</div>';
-  html += '<div style="font-size:15px;font-weight:600;color:#e9edef">' + escGeia(contactName) + '</div>';
-  html += '</div>';
+  // Clear and rebuild with DOM elements
+  content.innerHTML = '';
+
+  // Contact name section
+  var contactSection = document.createElement("div");
+  contactSection.style.marginBottom = "16px";
+  contactSection.innerHTML =
+    '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">Conversa atual</div>' +
+    '<div style="font-size:15px;font-weight:600;color:#e9edef">' + escGeia(contactName) + '</div>';
+  content.appendChild(contactSection);
 
   if (hasResumo) {
-    html += '<div style="margin-bottom:16px">';
-    html += '<button id="geia-btn-resumo" onclick="geiaGenerateSummary()" style="width:100%;padding:12px;background:#202c33;border:1px solid #2a3942;border-radius:8px;color:#e9edef;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:10px;text-align:left">';
-    html += '<span style="font-size:18px">&#128203;</span>';
-    html += '<div><div style="font-weight:600">Resumo da Conversa</div><div style="font-size:11px;color:#8696a0;margin-top:2px">Gera um resumo inteligente das mensagens</div></div>';
-    html += '</button>';
-    html += '<div id="geia-resumo-result" style="margin-top:10px"></div>';
-    html += '</div>';
+    var resumoDiv = document.createElement("div");
+    resumoDiv.style.marginBottom = "16px";
+    var resumoBtn = document.createElement("button");
+    resumoBtn.id = "geia-btn-resumo";
+    Object.assign(resumoBtn.style, { width: "100%", padding: "12px", background: "#202c33", border: "1px solid #2a3942", borderRadius: "8px", color: "#e9edef", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", textAlign: "left" });
+    resumoBtn.innerHTML = '<span style="font-size:18px">&#128203;</span><div><div style="font-weight:600">Resumo da Conversa</div><div style="font-size:11px;color:#8696a0;margin-top:2px">Gera um resumo inteligente das mensagens</div></div>';
+    resumoBtn.addEventListener("click", geiaGenerateSummary);
+    resumoDiv.appendChild(resumoBtn);
+    var resumoResult = document.createElement("div");
+    resumoResult.id = "geia-resumo-result";
+    resumoResult.style.marginTop = "10px";
+    resumoDiv.appendChild(resumoResult);
+    content.appendChild(resumoDiv);
   }
 
   if (hasSugestao) {
-    html += '<div style="margin-bottom:16px">';
-    html += '<button id="geia-btn-sugestao" onclick="geiaSuggestReply()" style="width:100%;padding:12px;background:#202c33;border:1px solid #2a3942;border-radius:8px;color:#e9edef;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:10px;text-align:left">';
-    html += '<span style="font-size:18px">&#128172;</span>';
-    html += '<div><div style="font-weight:600">Sugestão de Resposta</div><div style="font-size:11px;color:#8696a0;margin-top:2px">Sugere uma resposta baseada no contexto</div></div>';
-    html += '</button>';
-    html += '<div id="geia-sugestao-result" style="margin-top:10px"></div>';
-    html += '</div>';
+    var sugestaoDiv = document.createElement("div");
+    sugestaoDiv.style.marginBottom = "16px";
+    var sugestaoBtn = document.createElement("button");
+    sugestaoBtn.id = "geia-btn-sugestao";
+    Object.assign(sugestaoBtn.style, { width: "100%", padding: "12px", background: "#202c33", border: "1px solid #2a3942", borderRadius: "8px", color: "#e9edef", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", textAlign: "left" });
+    sugestaoBtn.innerHTML = '<span style="font-size:18px">&#128172;</span><div><div style="font-weight:600">Sugestão de Resposta</div><div style="font-size:11px;color:#8696a0;margin-top:2px">Sugere uma resposta baseada no contexto</div></div>';
+    sugestaoBtn.addEventListener("click", geiaSuggestReply);
+    sugestaoDiv.appendChild(sugestaoBtn);
+    var sugestaoResult = document.createElement("div");
+    sugestaoResult.id = "geia-sugestao-result";
+    sugestaoResult.style.marginTop = "10px";
+    sugestaoDiv.appendChild(sugestaoResult);
+    content.appendChild(sugestaoDiv);
   }
 
   if (!hasResumo && !hasSugestao) {
-    html += '<div style="text-align:center;padding:30px;color:#8696a0;font-style:italic">Nenhuma funcao GEIA habilitada para seu perfil.</div>';
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:#8696a0;font-style:italic">Nenhuma funcao GEIA habilitada para seu perfil.</div>';
   }
-
-  content.innerHTML = html;
 }
 
 // ===== Generate Summary =====
@@ -306,14 +336,7 @@ async function geiaGenerateSummary() {
   if (resp.error) {
     resultEl.innerHTML = '<div style="padding:10px;background:#1a2730;border-radius:8px;color:#ff6b6b;font-size:12px">' + escGeia(resp.error) + '</div>';
   } else {
-    resultEl.innerHTML =
-      '<div style="padding:12px;background:#1a2730;border-radius:8px;border-left:3px solid #cc5de8">' +
-        '<div style="font-size:11px;color:#cc5de8;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Resumo</div>' +
-        '<div style="white-space:pre-wrap;line-height:1.6;font-size:13px;color:#e9edef">' + escGeia(resp.text) + '</div>' +
-        '<div style="display:flex;gap:12px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(134,150,160,0.2)">' +
-          '<span class="ezap-tr-action" onclick="geiaCopyText(this, \'' + escAttr(resp.text) + '\')">Copiar</span>' +
-        '</div>' +
-      '</div>';
+    renderResultBox(resultEl, "Resumo", "#cc5de8", resp.text, { showCopy: true });
   }
   if (btnEl) btnEl.style.pointerEvents = "";
 }
@@ -352,37 +375,69 @@ async function geiaSuggestReply() {
   if (resp.error) {
     resultEl.innerHTML = '<div style="padding:10px;background:#1a2730;border-radius:8px;color:#ff6b6b;font-size:12px">' + escGeia(resp.error) + '</div>';
   } else {
-    resultEl.innerHTML =
-      '<div style="padding:12px;background:#1a2730;border-radius:8px;border-left:3px solid #25d366">' +
-        '<div style="font-size:11px;color:#25d366;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Sugestao de Resposta</div>' +
-        '<div id="geia-suggested-text" style="white-space:pre-wrap;line-height:1.6;font-size:13px;color:#e9edef">' + escGeia(resp.text) + '</div>' +
-        '<div style="display:flex;gap:12px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(134,150,160,0.2)">' +
-          '<span class="ezap-tr-action" onclick="geiaUseReply()" style="color:#25d366;font-weight:600">Usar resposta</span>' +
-          '<span class="ezap-tr-action" onclick="geiaCopyText(this)">Copiar</span>' +
-          '<span class="ezap-tr-action" onclick="geiaSuggestReply()">Gerar outra</span>' +
-        '</div>' +
-      '</div>';
+    renderResultBox(resultEl, "Sugestao de Resposta", "#25d366", resp.text, { showUse: true, showCopy: true, showRegenerate: true });
   }
   if (btnEl) btnEl.style.pointerEvents = "";
 }
 
-// ===== Use suggested reply — paste into input box =====
-function geiaUseReply() {
-  var textEl = document.getElementById("geia-suggested-text");
-  if (!textEl) return;
-  var text = textEl.textContent || "";
-  if (!text.trim()) return;
+// ===== Shared result renderer (uses addEventListener for actions) =====
+function renderResultBox(container, title, color, text, opts) {
+  opts = opts || {};
+  container.innerHTML = '';
 
-  var ok = writeToInputBox(text.trim());
-  if (ok) {
-    // Visual feedback
-    var btn = textEl.closest("div").querySelector('[onclick*="geiaUseReply"]');
-    if (btn) {
-      btn.textContent = "Colado!";
-      btn.style.color = "#25d366";
-      setTimeout(function() { btn.textContent = "Usar resposta"; }, 2000);
-    }
+  var box = document.createElement("div");
+  Object.assign(box.style, { padding: "12px", background: "#1a2730", borderRadius: "8px", borderLeft: "3px solid " + color });
+
+  var titleEl = document.createElement("div");
+  Object.assign(titleEl.style, { fontSize: "11px", color: color, fontWeight: "600", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" });
+  titleEl.textContent = title;
+  box.appendChild(titleEl);
+
+  var textEl = document.createElement("div");
+  Object.assign(textEl.style, { whiteSpace: "pre-wrap", lineHeight: "1.6", fontSize: "13px", color: "#e9edef" });
+  textEl.textContent = text;
+  box.appendChild(textEl);
+
+  var actions = document.createElement("div");
+  Object.assign(actions.style, { display: "flex", gap: "12px", marginTop: "10px", paddingTop: "8px", borderTop: "1px solid rgba(134,150,160,0.2)" });
+
+  if (opts.showUse) {
+    var useBtn = document.createElement("span");
+    useBtn.className = "ezap-tr-action";
+    useBtn.textContent = "Usar resposta";
+    Object.assign(useBtn.style, { color: "#25d366", fontWeight: "600" });
+    useBtn.addEventListener("click", function() {
+      if (writeToInputBox(text.trim())) {
+        useBtn.textContent = "Colado!";
+        setTimeout(function() { useBtn.textContent = "Usar resposta"; }, 2000);
+      }
+    });
+    actions.appendChild(useBtn);
   }
+
+  if (opts.showCopy) {
+    var copyBtn = document.createElement("span");
+    copyBtn.className = "ezap-tr-action";
+    copyBtn.textContent = "Copiar";
+    copyBtn.addEventListener("click", function() {
+      navigator.clipboard.writeText(text).then(function() {
+        copyBtn.textContent = "Copiado!";
+        setTimeout(function() { copyBtn.textContent = "Copiar"; }, 2000);
+      });
+    });
+    actions.appendChild(copyBtn);
+  }
+
+  if (opts.showRegenerate) {
+    var regenBtn = document.createElement("span");
+    regenBtn.className = "ezap-tr-action";
+    regenBtn.textContent = "Gerar outra";
+    regenBtn.addEventListener("click", geiaSuggestReply);
+    actions.appendChild(regenBtn);
+  }
+
+  box.appendChild(actions);
+  container.appendChild(box);
 }
 
 // ===== Inline reply suggestion button (next to received messages) =====
@@ -506,23 +561,6 @@ function escGeia(str) {
   var div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
-}
-
-function escAttr(str) {
-  return (str || "").replace(/'/g, "\\'").replace(/\n/g, "\\n");
-}
-
-// ===== Copy helper =====
-function geiaCopyText(el) {
-  var container = el.closest("[style]");
-  var textEl = container ? container.querySelector("div[style*='white-space']") : null;
-  var text = textEl ? textEl.textContent : "";
-  if (text) {
-    navigator.clipboard.writeText(text).then(function() {
-      el.textContent = "Copiado!";
-      setTimeout(function() { el.textContent = "Copiar"; }, 2000);
-    });
-  }
 }
 
 // ===== Observer for inline suggestion buttons =====
