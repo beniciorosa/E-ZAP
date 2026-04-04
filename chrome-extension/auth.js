@@ -131,6 +131,8 @@ function phonesMatch(detected, allowedList) {
       setAuthGlobal(saved);
       dispatchAuthReady();
       silentRevalidate(saved.token);
+      // Re-validate every 2 minutes to pick up feature changes from admin
+      setInterval(function() { silentRevalidate(saved.token); }, 2 * 60 * 1000);
     } else {
       // No auth — show login overlay
       showLoginOverlay();
