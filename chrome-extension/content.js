@@ -78,6 +78,9 @@ function createSidebar() {
       #wcrm-notes-editor li { display:list-item !important; list-style:inherit !important; margin-bottom:2px; }
       .wcrm-note-item ul { list-style-type:disc !important; padding-left:16px; margin:2px 0; }
       .wcrm-note-item li { display:list-item !important; list-style:inherit !important; }
+      #wcrm-notes-editor b, #wcrm-notes-editor strong, .wcrm-note-content b, .wcrm-note-content strong { font-weight:bold !important; }
+      #wcrm-notes-editor i, #wcrm-notes-editor em, .wcrm-note-content i, .wcrm-note-content em { font-style:italic !important; }
+      #wcrm-notes-editor u, .wcrm-note-content u { text-decoration:underline !important; }
     </style>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">
       <h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Escalada CRM</h3>
@@ -1318,6 +1321,10 @@ function saveNote() {
     return;
   }
 
+  // Append author signature
+  var authorName = (window.__wcrmAuth && window.__wcrmAuth.userName) || "Desconhecido";
+  noteHtml += '<br><span class="wcrm-note-author" style="color:#8696a0;font-size:11px;font-style:italic">Observação criada por: ' + authorName + '</span>';
+
   var btn = document.getElementById("wcrm-save-note-btn");
   btn.disabled = true;
   btn.textContent = "Salvando...";
@@ -1481,16 +1488,38 @@ function renderNotesHistory(hubspotNotes) {
     var noteType = note.hsId ? "hs" : "local";
     var noteRef = note.hsId ? note.hsId : note.localIdx;
 
-    html += '<div class="wcrm-note-item" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="background:#1a2730;border-radius:6px;padding:8px;margin-bottom:4px;border-left:2px solid #3b4a54;transition:background 0.15s" onmouseover="this.style.background=\'#243340\'" onmouseout="this.style.background=\'#1a2730\'">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+    // Extract author signature from note HTML to display separately
+    var noteBody = note.html || "";
+    var authorSig = "";
+    var sigMatch = noteBody.match(/<(?:br\s*\/?>)*\s*<span[^>]*class="wcrm-note-author"[^>]*>(.*?)<\/span>\s*$/i);
+    if (!sigMatch) {
+      sigMatch = noteBody.match(/<(?:br\s*\/?>)*\s*<span[^>]*>(Observação criada por:[^<]*)<\/span>\s*$/i);
+    }
+    if (sigMatch) {
+      authorSig = sigMatch[1];
+      noteBody = noteBody.substring(0, noteBody.indexOf(sigMatch[0]));
+    }
+
+    html += '<div class="wcrm-note-item" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="background:#1a2730;border-radius:6px;padding:6px 8px;margin-bottom:4px;border-left:2px solid #3b4a54;transition:background 0.15s" onmouseover="this.style.background=\'#243340\'" onmouseout="this.style.background=\'#1a2730\'">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
     html += '<span style="color:#8696a0;font-size:10px">' + dateStr + '</span>';
     html += '<div style="display:flex;align-items:center;gap:6px">';
     html += sourceTag;
-    html += '<span class="wcrm-note-edit" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="color:#4d96ff;font-size:12px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:3px;transition:background 0.15s" title="Editar" onmouseover="this.style.background=\'#2a3942\'" onmouseout="this.style.background=\'none\'">✏️</span>';
-    html += '<span class="wcrm-note-delete" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="color:#ff6b6b;font-size:12px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:3px;transition:background 0.15s" title="Excluir" onmouseover="this.style.background=\'#2a3942\'" onmouseout="this.style.background=\'none\'">🗑️</span>';
+    // Only show edit/delete if user is admin OR the note was created by them
+    var isAdmin = window.__wcrmAuth && window.__wcrmAuth.userRole === "admin";
+    var currentUser = (window.__wcrmAuth && window.__wcrmAuth.userName) || "";
+    var isOwner = currentUser && note.html && note.html.indexOf("Observação criada por: " + currentUser) !== -1;
+    if (isAdmin || isOwner) {
+      html += '<span class="wcrm-note-edit" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="color:#4d96ff;font-size:12px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:3px;transition:background 0.15s" title="Editar" onmouseover="this.style.background=\'#2a3942\'" onmouseout="this.style.background=\'none\'">✏️</span>';
+      html += '<span class="wcrm-note-delete" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="color:#ff6b6b;font-size:12px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:3px;transition:background 0.15s" title="Excluir" onmouseover="this.style.background=\'#2a3942\'" onmouseout="this.style.background=\'none\'">🗑️</span>';
+    }
     html += '</div></div>';
     // Content with max-height and click-to-expand
-    html += '<div class="wcrm-note-content" style="color:#e9edef;font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative">' + note.html + '</div>';
+    html += '<div class="wcrm-note-content" style="color:#e9edef;font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative">' + noteBody + '</div>';
+    // Author signature - always visible below content
+    if (authorSig) {
+      html += '<div style="color:#8696a0;font-size:10px;font-style:italic;margin-top:3px;border-top:1px solid #2a3942;padding-top:2px">' + authorSig + '</div>';
+    }
     html += '</div>';
   });
 

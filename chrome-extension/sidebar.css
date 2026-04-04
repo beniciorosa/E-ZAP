@@ -357,3 +357,85 @@
   margin-left: 4px;
   vertical-align: middle;
 }
+
+/* ===== Audio Transcription ===== */
+.ezap-tr-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1a2e23;
+  color: #25d366;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: Georgia, serif;
+  cursor: pointer;
+  position: absolute;
+  right: -34px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  transition: background 0.2s, transform 0.15s;
+  user-select: none;
+  border: none;
+  line-height: 1;
+}
+.ezap-tr-btn:hover {
+  background: #25503a;
+  transform: translateY(-50%) scale(1.12);
+}
+.ezap-tr-done {
+  color: #00a884;
+  background: #1a2a28;
+}
+
+/* Spinner */
+.ezap-tr-spin {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(37, 211, 102, 0.25);
+  border-top-color: #25d366;
+  border-radius: 50%;
+  animation: ezapTrSpin 0.7s linear infinite;
+}
+@keyframes ezapTrSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Transcript box - inside the audio bubble */
+.ezap-tr-box {
+  padding: 8px 12px 6px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(134, 150, 160, 0.2);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: inherit;
+}
+.ezap-tr-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ezap-tr-actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  padding-top: 4px;
+}
+.ezap-tr-action {
+  color: #25d366;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.ezap-tr-action:hover {
+  text-decoration: underline;
+}
+.ezap-tr-err {
+  color: #ff6b6b;
+  font-size: 12px;
+  border-top: none;
+}

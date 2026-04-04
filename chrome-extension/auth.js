@@ -601,7 +601,287 @@ function checkStoredUpdate() {
   });
 }
 
-// Trigger update check after auth is ready
+// Trigger update check + notification check after auth is ready
 document.addEventListener("wcrm-auth-ready", function() {
   setTimeout(checkStoredUpdate, 3000);
+  setTimeout(checkAdminNotifications, 4000);
+  // Re-check notifications every 10 seconds for near-instant delivery
+  setInterval(checkAdminNotifications, 10 * 1000);
 });
+
+// ===== Admin Notifications System =====
+function authSupaRest(path, method, body) {
+  return new Promise(function(resolve) {
+    try {
+      if (!chrome.runtime || !chrome.runtime.id) { resolve(null); return; }
+      chrome.runtime.sendMessage({
+        action: "supabase_rest", path: path, method: method || "GET", body: body
+      }, function(resp) {
+        if (chrome.runtime.lastError) { resolve(null); return; }
+        resolve(resp);
+      });
+    } catch (e) { resolve(null); }
+  });
+}
+
+function checkAdminNotifications() {
+  if (!window.__wcrmAuth || !window.__wcrmAuth.userId) return;
+  var userId = window.__wcrmAuth.userId;
+  var now = new Date();
+
+  // Fetch active notifications (for all users OR targeting this user) + dismissed_at is null
+  var notifQuery = "/rest/v1/global_messages?is_notification=eq.true&active=eq.true&dismissed_at=is.null" +
+    "&or=(target_users.is.null,target_users.cs.[\"" + userId + "\"])" +
+    "&select=id,title,content,notification_type,created_at,scheduled_at,is_pinned,pin_start,pin_end&order=created_at.desc";
+  Promise.all([
+    authSupaRest(notifQuery),
+    authSupaRest("/rest/v1/notification_reads?user_id=eq." + userId + "&select=message_id")
+  ]).then(function(results) {
+    var notifications = results[0];
+    var reads = results[1];
+    if (!Array.isArray(notifications) || notifications.length === 0) {
+      // If no active notifications, remove any existing pinned banner
+      var existing = document.getElementById("ezap-notif-banner");
+      if (existing && existing.dataset.dismissed === "true") {
+        existing.remove();
+      }
+      return;
+    }
+
+    // Build set of already-read message IDs
+    var readSet = {};
+    if (Array.isArray(reads)) {
+      reads.forEach(function(r) { readSet[r.message_id] = true; });
+    }
+
+    // Filter: only show if scheduled_at is null or in the past
+    var ready = notifications.filter(function(n) {
+      if (n.scheduled_at && new Date(n.scheduled_at) > now) return false;
+      return true;
+    });
+
+    // Separate pinned (active right now) vs regular
+    var pinnedNotif = null;
+    var regularNotif = null;
+
+    for (var i = 0; i < ready.length; i++) {
+      var n = ready[i];
+      if (n.is_pinned && n.pin_start && n.pin_end) {
+        var start = new Date(n.pin_start);
+        var end = new Date(n.pin_end);
+        if (now >= start && now <= end) {
+          pinnedNotif = n;
+          break; // Pinned takes priority
+        }
+        continue; // Pinned but not in range, skip
+      }
+    }
+
+    // If no active pin, find first unread regular notification
+    if (!pinnedNotif) {
+      chrome.storage.local.get("ezap_notif_dismissed", function(stored) {
+        var localDismissed = (stored && stored.ezap_notif_dismissed) || {};
+        for (var i = 0; i < ready.length; i++) {
+          var n = ready[i];
+          if (n.is_pinned) continue; // skip pins that aren't active
+          if (!readSet[n.id] && !localDismissed[n.id]) {
+            regularNotif = n;
+            break;
+          }
+        }
+        if (regularNotif) {
+          showNotificationBanner(regularNotif, userId, false);
+        }
+      });
+    } else {
+      showNotificationBanner(pinnedNotif, userId, true);
+    }
+  });
+
+  // Also check if current pinned banner has expired
+  var existingBanner = document.getElementById("ezap-notif-banner");
+  if (existingBanner && existingBanner.dataset.pinEnd) {
+    var endTime = new Date(existingBanner.dataset.pinEnd);
+    if (now > endTime) {
+      existingBanner.remove();
+    }
+  }
+}
+
+function showNotificationBanner(notif, userId, isPinned) {
+  // Don't stack on top of update banner — wait
+  if (document.getElementById("ezap-update-banner")) {
+    setTimeout(function() { showNotificationBanner(notif, userId, isPinned); }, 5000);
+    return;
+  }
+
+  // If same notification already showing, skip
+  var existing = document.getElementById("ezap-notif-banner");
+  if (existing) {
+    if (existing.dataset.notifId === notif.id) return;
+    existing.remove(); // Replace with new one
+  }
+
+  var typeColors = {
+    info: { bg: "#228be6", icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" },
+    warning: { bg: "#fab005", icon: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" },
+    success: { bg: "#25d366", icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" }
+  };
+  var tc = typeColors[notif.notification_type] || typeColors.info;
+
+  var banner = document.createElement("div");
+  banner.id = "ezap-notif-banner";
+  banner.dataset.notifId = notif.id;
+  if (isPinned && notif.pin_end) banner.dataset.pinEnd = notif.pin_end;
+
+  Object.assign(banner.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "100%",
+    zIndex: "99999997",
+    background: "linear-gradient(135deg, #111b21 0%, #1a2b34 100%)",
+    borderBottom: "2px solid " + tc.bg,
+    padding: "12px 20px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "16px",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+    animation: "ezapSlideDown 0.4s ease-out",
+  });
+
+  // Ensure animation keyframes exist
+  if (!document.getElementById("ezap-update-style")) {
+    var style = document.createElement("style");
+    style.id = "ezap-update-style";
+    style.textContent =
+      "@keyframes ezapSlideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }" +
+      "@keyframes ezapPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }";
+    document.head.appendChild(style);
+  }
+
+  // Truncate content for banner display
+  var shortContent = notif.content.length > 80 ? notif.content.substring(0, 80) + "..." : notif.content;
+
+  // Build buttons: pinned = only "Ver mais" (no close), regular = "Ver mais" + X
+  var buttonsHtml = '<button id="ezap-notif-expand" style="padding:8px 18px;background:' + tc.bg + ';color:#111b21;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Ver mais</button>';
+  if (!isPinned) {
+    buttonsHtml += '<button id="ezap-notif-dismiss" style="padding:6px;background:transparent;border:none;cursor:pointer;color:#8696a0;font-size:18px;line-height:1" title="Fechar">&times;</button>';
+  }
+
+  var pinLabel = isPinned ? '<span style="font-size:10px;background:' + tc.bg + '30;color:' + tc.bg + ';padding:2px 6px;border-radius:4px;margin-left:6px">FIXADA</span>' : '';
+
+  banner.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px">' +
+      '<div style="width:32px;height:32px;border-radius:50%;background:' + tc.bg + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;animation:ezapPulse 2s infinite">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="#111b21"><path d="' + tc.icon + '"/></svg>' +
+      '</div>' +
+      '<div>' +
+        '<div style="font-size:14px;font-weight:600;color:#e9edef"><span style="color:' + tc.bg + '">' + escHtml(notif.title) + '</span>' + pinLabel + ' — ' + escHtml(shortContent) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
+      buttonsHtml +
+    '</div>';
+
+  document.body.appendChild(banner);
+
+  function dismissBanner() {
+    markNotificationRead(notif.id, userId);
+    banner.style.transition = "transform 0.3s ease-in, opacity 0.3s";
+    banner.style.transform = "translateY(-100%)";
+    banner.style.opacity = "0";
+    setTimeout(function() {
+      banner.remove();
+      // Check for next unread notification
+      setTimeout(checkAdminNotifications, 500);
+    }, 300);
+  }
+
+  // "Ver mais" — show full notification (pinned: no dismiss on close)
+  document.getElementById("ezap-notif-expand").addEventListener("click", function() {
+    if (isPinned) {
+      showNotificationDetail(notif, tc, null); // No dismiss callback for pinned
+    } else {
+      showNotificationDetail(notif, tc, dismissBanner);
+    }
+  });
+
+  // Dismiss button (only exists for non-pinned)
+  var dismissBtn = document.getElementById("ezap-notif-dismiss");
+  if (dismissBtn) {
+    dismissBtn.addEventListener("click", dismissBanner);
+  }
+}
+
+function showNotificationDetail(notif, tc, onDismiss) {
+  if (document.getElementById("ezap-notif-detail")) return;
+
+  var overlay = document.createElement("div");
+  overlay.id = "ezap-notif-detail";
+  Object.assign(overlay.style, {
+    position: "fixed",
+    top: "0", left: "0", width: "100%", height: "100%",
+    background: "rgba(0,0,0,0.6)",
+    zIndex: "99999999",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  });
+
+  var dateStr = new Date(notif.created_at).toLocaleDateString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+  });
+
+  overlay.innerHTML =
+    '<div style="background:#202c33;border:1px solid #2a3942;border-radius:14px;padding:24px;max-width:480px;width:90%;max-height:70vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.4)">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">' +
+        '<div style="width:36px;height:36px;border-radius:50%;background:' + tc.bg + ';display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+          '<svg viewBox="0 0 24 24" width="20" height="20" fill="#111b21"><path d="' + tc.icon + '"/></svg>' +
+        '</div>' +
+        '<div style="flex:1">' +
+          '<div style="font-size:16px;font-weight:700;color:#e9edef">' + escHtml(notif.title) + '</div>' +
+          '<div style="font-size:11px;color:#8696a0">' + dateStr + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:14px;color:#d1d7db;line-height:1.6;white-space:pre-wrap">' + escHtml(notif.content) + '</div>' +
+      '<div style="margin-top:20px;text-align:right">' +
+        '<button id="ezap-notif-detail-close" style="padding:8px 20px;background:' + tc.bg + ';color:#111b21;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Entendi</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  function closeAndDismiss() {
+    overlay.remove();
+    if (onDismiss) onDismiss();
+  }
+
+  overlay.addEventListener("click", function(e) {
+    if (e.target === overlay) closeAndDismiss();
+  });
+  document.getElementById("ezap-notif-detail-close").addEventListener("click", closeAndDismiss);
+}
+
+function markNotificationRead(messageId, userId) {
+  // Save to Supabase
+  authSupaRest("/rest/v1/notification_reads", "POST", {
+    message_id: messageId,
+    user_id: userId
+  });
+  // Also save locally to avoid re-showing before Supabase syncs
+  chrome.storage.local.get("ezap_notif_dismissed", function(stored) {
+    var dismissed = (stored && stored.ezap_notif_dismissed) || {};
+    dismissed[messageId] = true;
+    chrome.storage.local.set({ ezap_notif_dismissed: dismissed });
+  });
+}
+
+function escHtml(s) {
+  var d = document.createElement("div");
+  d.textContent = s || "";
+  return d.innerHTML;
+}

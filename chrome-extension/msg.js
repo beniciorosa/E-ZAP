@@ -304,6 +304,20 @@ function createMsgModal() {
     </div>
   `;
 
+  // Add editor styles
+  if (!document.getElementById("wcrm-msg-editor-style")) {
+    var style = document.createElement("style");
+    style.id = "wcrm-msg-editor-style";
+    style.textContent =
+      '.wcrm-msg-editor[data-empty="true"]:before { content: attr(data-placeholder); color: #8696a0; font-style: italic; pointer-events: none; }' +
+      '.wcrm-msg-editor b, .wcrm-msg-editor strong { font-weight: bold !important; }' +
+      '.wcrm-msg-editor i, .wcrm-msg-editor em { font-style: italic !important; }' +
+      '.wcrm-msg-editor u { text-decoration: underline !important; }' +
+      '.wcrm-msg-editor ul, .wcrm-msg-editor ol { margin: 2px 0; padding-left: 20px; list-style: disc !important; }' +
+      '.wcrm-msg-editor li { margin: 1px 0; display: list-item !important; list-style-type: disc !important; }';
+    document.head.appendChild(style);
+  }
+
   document.body.appendChild(overlay);
 
   document.getElementById("wcrm-msg-modal-close").addEventListener("click", closeMsgModal);
@@ -351,6 +365,7 @@ function resetMsgEditor() {
 }
 
 function addMsgItem(type, content, fileName) {
+  syncEditorValues(); // Preserve existing editor content before re-render
   msgTempItems.push({
     type: type,
     content: content || "",
@@ -369,28 +384,96 @@ function handleFileSelect(e) {
   var file = e.target.files[0];
   if (!file) return;
 
-  if (file.size > 5 * 1024 * 1024) {
-    var statusEl = document.getElementById("wcrm-msg-save-status");
-    if (statusEl) statusEl.innerHTML = '<span style="color:#ff6b6b">Arquivo muito grande (max 5MB)</span>';
+  var statusEl = document.getElementById("wcrm-msg-save-status");
+
+  if (file.size > 50 * 1024 * 1024) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:#ff6b6b">Arquivo muito grande (max 50MB)</span>';
     e.target.value = "";
     return;
   }
 
+  var originalName = file.name;
+  var mimeType = file.type || "application/octet-stream";
+  var fileSize = file.size;
+
+  // Show upload progress bar
+  var progressId = "wcrm-msg-upload-progress";
+  var container = document.getElementById("wcrm-msg-items");
+  var progressDiv = document.createElement("div");
+  progressDiv.id = progressId;
+  progressDiv.style.cssText = "background:#1a2730;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #ff922b";
+  progressDiv.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+      '<span style="color:#ff922b;font-size:11px;font-weight:600">\uD83D\uDCCE ' + escapeHtml(originalName) + '</span>' +
+    '</div>' +
+    '<div style="background:#2a3942;border-radius:4px;height:6px;overflow:hidden">' +
+      '<div id="wcrm-msg-upload-fill" style="background:#ff922b;height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>' +
+    '</div>' +
+    '<div id="wcrm-msg-upload-text" style="font-size:10px;color:#8696a0;margin-top:4px">Lendo arquivo...</div>';
+  if (container) container.appendChild(progressDiv);
+
+  function updateUploadProgress(pct, text) {
+    var fill = document.getElementById("wcrm-msg-upload-fill");
+    var txt = document.getElementById("wcrm-msg-upload-text");
+    if (fill) fill.style.width = pct + "%";
+    if (txt) txt.textContent = text;
+  }
+
   var reader = new FileReader();
+  reader.onprogress = function(ev) {
+    if (ev.lengthComputable) {
+      var pct = Math.round((ev.loaded / ev.total) * 40);
+      updateUploadProgress(pct, "Lendo arquivo... " + pct + "%");
+    }
+  };
   reader.onload = function(ev) {
+    updateUploadProgress(45, "Enviando para nuvem...");
     var base64 = ev.target.result.split(",")[1];
-    var mimeType = ev.target.result.split(";")[0].split(":")[1];
-    addMsgItem("file", base64, file.name);
-    msgTempItems[msgTempItems.length - 1].mimeType = mimeType;
+    var uid = getMsgUserId() || "anon";
+    var safeFileName = uid + "/" + Date.now() + "_" + originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    // Simulate progress during upload
+    var uploadPct = 45;
+    var uploadTimer = setInterval(function() {
+      if (uploadPct < 90) {
+        uploadPct += 5;
+        updateUploadProgress(uploadPct, "Enviando para nuvem... " + uploadPct + "%");
+      }
+    }, 500);
+
+    chrome.runtime.sendMessage({
+      action: "upload_msg_file",
+      base64: base64,
+      fileName: safeFileName,
+      contentType: mimeType,
+    }, function(resp) {
+      clearInterval(uploadTimer);
+      var pg = document.getElementById(progressId);
+      if (resp && resp.ok) {
+        updateUploadProgress(100, "Concluido!");
+        setTimeout(function() {
+          if (pg) pg.remove();
+          addMsgItem("file", resp.url, originalName);
+          msgTempItems[msgTempItems.length - 1].mimeType = mimeType;
+          msgTempItems[msgTempItems.length - 1].fileSize = fileSize;
+        }, 600);
+      } else {
+        if (pg) {
+          pg.style.borderLeftColor = "#ff6b6b";
+          updateUploadProgress(0, "Erro: " + (resp ? resp.error : "desconhecido"));
+          setTimeout(function() { if (pg) pg.remove(); }, 4000);
+        }
+      }
+    });
   };
   reader.readAsDataURL(file);
   e.target.value = "";
 }
 
 function syncEditorValues() {
-  document.querySelectorAll(".wcrm-msg-textarea").forEach(function(ta) {
-    var idx = parseInt(ta.dataset.idx);
-    if (msgTempItems[idx]) msgTempItems[idx].content = ta.value;
+  document.querySelectorAll(".wcrm-msg-editor").forEach(function(ed) {
+    var idx = parseInt(ed.dataset.idx);
+    if (msgTempItems[idx]) msgTempItems[idx].content = ed.innerHTML;
   });
   document.querySelectorAll(".wcrm-msg-interval").forEach(function(inp) {
     var idx = parseInt(inp.dataset.idx);
@@ -424,15 +507,32 @@ function renderMsgItems() {
 
     // Content
     if (isText) {
-      html += '<textarea class="wcrm-msg-textarea" data-idx="' + idx + '" style="width:100%;min-height:60px;background:#2a3942;border:1px solid #3b4a54;border-radius:6px;padding:8px;color:#e9edef;font-size:12px;font-family:inherit;resize:vertical;outline:none;box-sizing:border-box" placeholder="Digite a mensagem...">' + escapeHtml(item.content || '') + '</textarea>';
+      // Formatting toolbar
+      html += '<div class="wcrm-msg-toolbar" data-idx="' + idx + '" style="display:flex;gap:2px;margin-bottom:4px">';
+      html += '<button data-cmd="bold" style="background:#2a3942;border:1px solid #3b4a54;border-radius:4px;color:#e9edef;font-size:12px;font-weight:bold;cursor:pointer;padding:3px 8px;min-width:28px" title="Negrito">B</button>';
+      html += '<button data-cmd="italic" style="background:#2a3942;border:1px solid #3b4a54;border-radius:4px;color:#e9edef;font-size:12px;font-style:italic;cursor:pointer;padding:3px 8px;min-width:28px" title="Italico">I</button>';
+      html += '<button data-cmd="insertUnorderedList" style="background:#2a3942;border:1px solid #3b4a54;border-radius:4px;color:#e9edef;font-size:12px;cursor:pointer;padding:3px 8px;min-width:28px" title="Lista">\u2022</button>';
+      html += '</div>';
+      // Rich text editor
+      var contentHtml = item.content || '';
+      html += '<div class="wcrm-msg-editor" contenteditable="true" data-idx="' + idx + '" style="width:100%;min-height:60px;max-height:150px;overflow-y:auto;background:#2a3942;border:1px solid #3b4a54;border-radius:6px;padding:8px;color:#e9edef;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;white-space:pre-wrap;word-wrap:break-word" data-placeholder="Digite a mensagem...">' + contentHtml + '</div>';
     } else {
-      var sizeInfo = item.content ? ' (' + Math.round(atob(item.content).length / 1024) + ' KB)' : '';
+      // File info - show from URL or legacy base64
+      var sizeInfo = '';
+      if (item.fileSize) {
+        sizeInfo = ' (' + Math.round(item.fileSize / 1024) + ' KB)';
+      } else if (item.content && item.content.indexOf('http') !== 0) {
+        try { sizeInfo = ' (' + Math.round(atob(item.content).length / 1024) + ' KB)'; } catch(e) {}
+      }
       html += '<div style="font-size:11px;color:#8696a0;padding:4px 0;display:flex;align-items:center;gap:4px">';
       html += '<span style="color:#ff922b">\uD83D\uDCC4</span> ' + escapeHtml(item.fileName || 'Arquivo') + '<span style="color:#3b4a54">' + sizeInfo + '</span>';
+      if (item.content && item.content.indexOf('http') === 0) {
+        html += ' <span style="color:#25d366;font-size:10px">☁ Na nuvem</span>';
+      }
       html += '</div>';
     }
 
-    // Interval - ALL messages have it (including the first)
+    // Interval
     var intervalLabel = idx === 0 ? 'Aguardar antes de iniciar' : 'Aguardar antes de enviar';
     html += '<div style="display:flex;align-items:center;gap:6px;margin-top:8px">';
     html += '<span style="font-size:11px;color:#8696a0">' + intervalLabel + '</span>';
@@ -445,12 +545,40 @@ function renderMsgItems() {
 
   container.innerHTML = html;
 
-  // Wire events
+  // Wire remove buttons
   container.querySelectorAll(".wcrm-msg-remove").forEach(function(btn) {
     btn.addEventListener("click", function() {
       syncEditorValues();
       removeMsgItem(parseInt(btn.dataset.idx));
     });
+  });
+
+  // Wire toolbar buttons
+  container.querySelectorAll(".wcrm-msg-toolbar button").forEach(function(btn) {
+    btn.addEventListener("mousedown", function(e) {
+      e.preventDefault(); // Keep focus on editor
+      var idx = parseInt(btn.parentElement.dataset.idx);
+      var editor = container.querySelector('.wcrm-msg-editor[data-idx="' + idx + '"]');
+      if (editor) {
+        editor.focus();
+        document.execCommand(btn.dataset.cmd, false, null);
+      }
+    });
+  });
+
+  // Placeholder behavior for editors
+  container.querySelectorAll(".wcrm-msg-editor").forEach(function(ed) {
+    function updatePlaceholder() {
+      if (!ed.textContent.trim() && !ed.querySelector("img")) {
+        ed.setAttribute("data-empty", "true");
+      } else {
+        ed.removeAttribute("data-empty");
+      }
+    }
+    ed.addEventListener("input", updatePlaceholder);
+    ed.addEventListener("focus", updatePlaceholder);
+    ed.addEventListener("blur", updatePlaceholder);
+    updatePlaceholder();
   });
 }
 
@@ -488,13 +616,15 @@ function saveMsgSequence() {
     id: id,
     name: name,
     messages: msgTempItems.map(function(m) {
-      return {
+      var item = {
         type: m.type,
         content: m.content,
         fileName: m.fileName || "",
         mimeType: m.mimeType || "",
         interval: m.interval,
       };
+      if (m.fileSize) item.fileSize = m.fileSize;
+      return item;
     }),
     schedule: scheduleCheck && scheduleTime ? scheduleTime : null,
     sent: false,
@@ -571,11 +701,14 @@ function renderSavedSequences() {
     // Description
     html += '<div style="font-size:11px;color:#8696a0;margin-bottom:6px">' + desc + '</div>';
 
-    // Preview
+    // Preview - extract plain text from HTML content
     var firstText = seq.messages.find(function(m) { return m.type === 'text' && m.content; });
     if (firstText) {
-      var preview = firstText.content.substring(0, 50) + (firstText.content.length > 50 ? '...' : '');
-      html += '<div style="font-size:10px;color:#8696a0;margin-bottom:8px;padding:3px 6px;background:#111b21;border-radius:4px;border-left:2px solid #3b4a54;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(preview) + '</div>';
+      var tmpDiv = document.createElement("div");
+      tmpDiv.innerHTML = firstText.content;
+      var plainPreview = (tmpDiv.textContent || tmpDiv.innerText || "").substring(0, 50);
+      if (plainPreview.length >= 50) plainPreview += '...';
+      html += '<div style="font-size:10px;color:#8696a0;margin-bottom:8px;padding:3px 6px;background:#111b21;border-radius:4px;border-left:2px solid #3b4a54;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(plainPreview) + '</div>';
     }
 
     // Buttons
@@ -674,6 +807,59 @@ function replaceMsgVariables(text) {
   return result;
 }
 
+// Convert HTML from rich editor to WhatsApp-compatible plain text with formatting
+function htmlToWhatsAppText(html) {
+  if (!html) return "";
+  var div = document.createElement("div");
+  div.innerHTML = html;
+
+  function processNode(node) {
+    var result = "";
+    for (var i = 0; i < node.childNodes.length; i++) {
+      var child = node.childNodes[i];
+      if (child.nodeType === 3) {
+        result += child.textContent;
+      } else if (child.nodeType === 1) {
+        var tag = child.tagName.toLowerCase();
+        var inner = processNode(child);
+        if (tag === "br") {
+          result += "\n";
+        } else if (tag === "div" || tag === "p") {
+          // Each div/p = new line in contenteditable
+          if (result && !result.endsWith("\n")) result += "\n";
+          result += inner;
+        } else if (tag === "b" || tag === "strong") {
+          var t = inner.trim();
+          if (t) {
+            var lead = inner.match(/^\s*/)[0];
+            var trail = inner.match(/\s*$/)[0];
+            result += lead + "*" + t + "*" + trail;
+          }
+        } else if (tag === "i" || tag === "em") {
+          var t = inner.trim();
+          if (t) {
+            var lead = inner.match(/^\s*/)[0];
+            var trail = inner.match(/\s*$/)[0];
+            result += lead + "_" + t + "_" + trail;
+          }
+        } else if (tag === "u") {
+          result += inner;
+        } else if (tag === "ul" || tag === "ol") {
+          if (result && !result.endsWith("\n")) result += "\n";
+          result += inner;
+        } else if (tag === "li") {
+          result += "- " + inner.trim() + "\n";
+        } else {
+          result += inner;
+        }
+      }
+    }
+    return result;
+  }
+
+  return processNode(div).replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // ===== Execute Sequence =====
 function executeMsgSequence(id) {
   var seq = msgSequences[id];
@@ -766,9 +952,17 @@ function executeMsgSequence(id) {
 
       var sendPromise;
       if (msg.type === 'text') {
-        sendPromise = typeInWhatsApp(replaceMsgVariables(msg.content));
+        // Convert HTML to WhatsApp text format, then replace variables
+        var plainText = htmlToWhatsAppText(msg.content);
+        sendPromise = typeInWhatsApp(replaceMsgVariables(plainText));
       } else if (msg.type === 'file') {
-        sendPromise = sendFileInWhatsApp(msg.content, msg.fileName, msg.mimeType);
+        // Check if content is a URL (Supabase) or legacy base64
+        if (msg.content && msg.content.indexOf('http') === 0) {
+          // Download from Supabase first, then send
+          sendPromise = downloadAndSendFile(msg.content, msg.fileName, msg.mimeType);
+        } else {
+          sendPromise = sendFileInWhatsApp(msg.content, msg.fileName, msg.mimeType);
+        }
       } else {
         sendPromise = Promise.resolve(true);
       }
@@ -824,125 +1018,263 @@ function typeInWhatsApp(text) {
     document.execCommand('selectAll', false, null);
     document.execCommand('delete', false, null);
 
-    // Handle multiline: use Shift+Enter for line breaks in WhatsApp
-    var lines = text.split('\n');
-    lines.forEach(function(line, i) {
-      document.execCommand('insertText', false, line);
-      if (i < lines.length - 1) {
-        document.execCommand('insertLineBreak');
-      }
+    // Use clipboard paste to preserve line breaks
+    // WhatsApp Web's paste handler properly converts \n to line breaks
+    var clipData = new DataTransfer();
+    clipData.setData('text/plain', text);
+    var pasteEvent = new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipData
     });
+    input.dispatchEvent(pasteEvent);
 
-    // Trigger React change detection
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-
-    // Retry loop to find and click the send button
-    var attempts = 0;
-    var maxAttempts = 15;
-
-    function tryClickSend() {
-      attempts++;
-      var sendBtn = findSendButton();
-
-      if (sendBtn) {
-        var button = sendBtn.closest('button') || sendBtn;
-        button.click();
-        setTimeout(function() { resolve(true); }, 800);
-        return;
+    // Fallback: if paste didn't work (input still empty), use line-by-line approach
+    setTimeout(function() {
+      var currentText = input.textContent || input.innerText || "";
+      if (currentText.trim().length === 0) {
+        console.log("[WCRM MSG] Paste failed, using Shift+Enter fallback");
+        input.focus();
+        var lines = text.split('\n');
+        lines.forEach(function(line, i) {
+          if (line) {
+            document.execCommand('insertText', false, line);
+          }
+          if (i < lines.length - 1) {
+            // Simulate Shift+Enter for line break
+            var shiftEnter = new KeyboardEvent('keydown', {
+              key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+              shiftKey: true, bubbles: true, cancelable: true
+            });
+            input.dispatchEvent(shiftEnter);
+            // Also insert via InputEvent for React
+            input.dispatchEvent(new InputEvent('beforeinput', {
+              bubbles: true, cancelable: true, inputType: 'insertLineBreak',
+            }));
+            // Manual DOM insertion
+            var sel = window.getSelection();
+            if (sel.rangeCount) {
+              var range = sel.getRangeAt(0);
+              range.deleteContents();
+              var br = document.createElement('br');
+              range.insertNode(br);
+              range.setStartAfter(br);
+              range.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+            input.dispatchEvent(new InputEvent('input', {
+              bubbles: true, cancelable: false, inputType: 'insertLineBreak',
+            }));
+          }
+        });
+        // Trigger React change detection
+        input.dispatchEvent(new Event('input', { bubbles: true }));
       }
 
-      if (attempts < maxAttempts) {
-        setTimeout(tryClickSend, 300);
-      } else {
-        // Last resort: simulate Enter key
-        console.log("[WCRM MSG] Send button not found, trying Enter key");
-        input.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true
-        }));
-        setTimeout(function() { resolve(true); }, 800);
-      }
-    }
+      // Retry loop to find and click the send button
+      var attempts = 0;
+      var maxAttempts = 15;
 
-    setTimeout(tryClickSend, 400);
+      function tryClickSend() {
+        attempts++;
+        var sendBtn = findSendButton();
+
+        if (sendBtn) {
+          var button = sendBtn.closest('button') || sendBtn;
+          button.click();
+          setTimeout(function() { resolve(true); }, 800);
+          return;
+        }
+
+        if (attempts < maxAttempts) {
+          setTimeout(tryClickSend, 300);
+        } else {
+          // Last resort: simulate Enter key
+          console.log("[WCRM MSG] Send button not found, trying Enter key");
+          input.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true
+          }));
+          setTimeout(function() { resolve(true); }, 800);
+        }
+      }
+
+      setTimeout(tryClickSend, 400);
+    }, 200);
   });
 }
 
-// ===== WhatsApp Web DOM - Send File =====
+// ===== WhatsApp Web DOM - Send File (attach button + smart input detection) =====
 function sendFileInWhatsApp(fileBase64, fileName, mimeType) {
   return new Promise(function(resolve, reject) {
-    // WhatsApp Business: button[aria-label="Anexar"]
-    var attachBtn = document.querySelector('button[aria-label="Anexar"]') ||
-                    document.querySelector('span[data-icon="plus-rounded"]') ||
-                    document.querySelector('span[data-icon="plus"]') ||
-                    document.querySelector('[data-testid="clip"]');
+    try {
+      // Convert base64 to File object
+      var byteString = atob(fileBase64);
+      var ab = new ArrayBuffer(byteString.length);
+      var ia = new Uint8Array(ab);
+      for (var i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      var blob = new Blob([ab], { type: mimeType || 'application/octet-stream' });
+      var file = new File([blob], fileName, { type: mimeType || 'application/octet-stream' });
 
-    if (!attachBtn) {
-      reject("Botao de anexo nao encontrado");
-      return;
-    }
+      // STEP 1: Snapshot existing file inputs BEFORE opening attach menu
+      var existingInputs = new Set();
+      document.querySelectorAll('input[type="file"]').forEach(function(fi) {
+        existingInputs.add(fi);
+      });
+      console.log("[WCRM MSG] Existing file inputs before attach:", existingInputs.size);
 
-    (attachBtn.closest('button') || attachBtn).click();
+      // STEP 2: Find and click the attach button
+      var attachBtn = document.querySelector('button[aria-label="Anexar"]') ||
+                      document.querySelector('span[data-icon="plus-rounded"]') ||
+                      document.querySelector('span[data-icon="plus"]') ||
+                      document.querySelector('[data-testid="clip"]') ||
+                      document.querySelector('span[data-icon="attach-menu-plus"]');
 
-    setTimeout(function() {
-      // Click "Documento" option
-      var docOption = document.querySelector('button[aria-label="Documento"]') ||
-                      document.querySelector('[data-testid="mi-attach-document"]') ||
-                      document.querySelector('span[data-icon="attach-document"]');
-
-      if (docOption) {
-        (docOption.closest('button') || docOption.closest('li') || docOption).click();
+      if (!attachBtn) {
+        reject("Botao de anexo nao encontrado");
+        return;
       }
 
-      setTimeout(function() {
-        // Find the document file input (accept="*", not our custom input)
-        var docInput = null;
-        document.querySelectorAll('input[type="file"]').forEach(function(fi) {
-          if (fi.id !== 'wcrm-msg-file-input' && (fi.accept === '*' || fi.accept === '')) {
-            docInput = fi;
-          }
-        });
+      (attachBtn.closest('button') || attachBtn).click();
+      console.log("[WCRM MSG] Attach button clicked");
 
-        if (!docInput) {
-          reject("Input de arquivo nao encontrado");
-          return;
+      // STEP 3: Wait for menu, then click "Documento"
+      setTimeout(function() {
+        var docOption = document.querySelector('button[aria-label="Documento"]') ||
+                        document.querySelector('[data-testid="mi-attach-document"]') ||
+                        document.querySelector('span[data-icon="attach-document"]');
+
+        if (docOption) {
+          (docOption.closest('button') || docOption.closest('li') || docOption).click();
+          console.log("[WCRM MSG] Documento option clicked");
+        } else {
+          console.log("[WCRM MSG] Documento option NOT found, trying direct input");
         }
 
-        try {
-          var byteString = atob(fileBase64);
-          var ab = new ArrayBuffer(byteString.length);
-          var ia = new Uint8Array(ab);
-          for (var i = 0; i < byteString.length; i++) {
-            ia[i] = byteString.charCodeAt(i);
-          }
-          var blob = new Blob([ab], { type: mimeType || 'application/octet-stream' });
-          var file = new File([blob], fileName, { type: mimeType || 'application/octet-stream' });
+        // STEP 4: Poll for a NEW file input that didn't exist before
+        var inputAttempts = 0;
+        var maxInputAttempts = 20;
 
+        function findNewInput() {
+          inputAttempts++;
+          var newInput = null;
+
+          // Strategy A: Find a file input that didn't exist before (the one WhatsApp just created)
+          document.querySelectorAll('input[type="file"]').forEach(function(fi) {
+            if (existingInputs.has(fi)) return; // skip pre-existing
+            if (fi.id && fi.id.indexOf('wcrm') !== -1) return; // skip ours
+            newInput = fi;
+          });
+
+          if (newInput) {
+            console.log("[WCRM MSG] Found NEW file input, accept:", newInput.accept);
+            setFileAndSend(newInput);
+            return;
+          }
+
+          // Strategy B: If no new input appeared, look for document input by accept attribute
+          if (inputAttempts > 5) {
+            document.querySelectorAll('input[type="file"]').forEach(function(fi) {
+              if (fi.id && fi.id.indexOf('wcrm') !== -1) return;
+              var acc = (fi.accept || '').trim();
+              if (acc === '*' || acc === '*/*' || acc === '' || !fi.hasAttribute('accept')) {
+                if (!newInput) newInput = fi;
+              }
+            });
+            if (newInput) {
+              console.log("[WCRM MSG] Found document input by accept attr:", newInput.accept);
+              setFileAndSend(newInput);
+              return;
+            }
+          }
+
+          // Strategy C: Last resort — use any non-wcrm file input
+          if (inputAttempts >= maxInputAttempts) {
+            document.querySelectorAll('input[type="file"]').forEach(function(fi) {
+              if (fi.id && fi.id.indexOf('wcrm') !== -1) return;
+              if (!newInput) newInput = fi;
+            });
+            if (newInput) {
+              console.log("[WCRM MSG] Using fallback file input, accept:", newInput.accept);
+              setFileAndSend(newInput);
+            } else {
+              reject("Input de arquivo nao encontrado");
+            }
+            return;
+          }
+
+          setTimeout(findNewInput, 300);
+        }
+
+        function setFileAndSend(fileInput) {
+          // Set file via DataTransfer
           var dt = new DataTransfer();
           dt.items.add(file);
-          docInput.files = dt.files;
-          docInput.dispatchEvent(new Event('change', { bubbles: true }));
-        } catch (e) {
-          reject("Erro ao processar arquivo: " + e.message);
-          return;
+          fileInput.files = dt.files;
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          console.log("[WCRM MSG] File set on input, waiting for preview...");
+
+          // Wait for preview screen, then click send
+          var sendAttempts = 0;
+          var maxSendAttempts = 30;
+
+          function trySendFile() {
+            sendAttempts++;
+
+            // WhatsApp's send button in the file preview screen
+            var sendBtn = document.querySelector('span[data-icon="send"]') ||
+                          document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
+                          document.querySelector('[data-testid="send"]') ||
+                          document.querySelector('button[aria-label="Enviar"]') ||
+                          document.querySelector('button[aria-label="Send"]');
+
+            if (sendBtn) {
+              var button = sendBtn.closest('button') || sendBtn;
+              button.click();
+              console.log("[WCRM MSG] File send button clicked on attempt", sendAttempts);
+              setTimeout(function() { resolve(true); }, 1500);
+              return;
+            }
+
+            if (sendAttempts < maxSendAttempts) {
+              setTimeout(trySendFile, 500);
+            } else {
+              reject("Botao enviar nao encontrado apos anexo");
+            }
+          }
+
+          setTimeout(trySendFile, 2000);
         }
 
-        // Wait for preview, then find send button with retry
-        var attempts = 0;
-        function trySendFile() {
-          attempts++;
-          var sendBtn = findSendButton();
-          if (sendBtn) {
-            (sendBtn.closest('button') || sendBtn).click();
-            setTimeout(function() { resolve(true); }, 1500);
-          } else if (attempts < 15) {
-            setTimeout(trySendFile, 400);
-          } else {
-            reject("Botao enviar nao encontrado apos anexo");
-          }
-        }
-        setTimeout(trySendFile, 2000);
-      }, 600);
-    }, 500);
+        // Start polling for new input after a short delay
+        setTimeout(findNewInput, 500);
+      }, 700);
+
+    } catch (e) {
+      reject("Erro ao processar arquivo: " + e.message);
+    }
+  });
+}
+
+// ===== Download file from Supabase and send =====
+function downloadAndSendFile(fileUrl, fileName, mimeType) {
+  return new Promise(function(resolve, reject) {
+    chrome.runtime.sendMessage({
+      action: "download_msg_file",
+      url: fileUrl,
+    }, function(resp) {
+      if (chrome.runtime.lastError) {
+        reject("Erro ao baixar arquivo: " + chrome.runtime.lastError.message);
+        return;
+      }
+      if (resp && resp.ok) {
+        sendFileInWhatsApp(resp.base64, fileName, resp.mimeType || mimeType).then(resolve).catch(reject);
+      } else {
+        reject("Erro ao baixar arquivo: " + (resp ? resp.error : "desconhecido"));
+      }
+    });
   });
 }
 

@@ -5,6 +5,9 @@ const AUTH_SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
 const AUTH_SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTIyMDMsImV4cCI6MjA3OTA4ODIwM30.TlUt4FQ7cffBKgJYrixFdHbyMESAhRa2auPpKCXMIMM";
 const AUTH_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
 
+// ===== OpenAI (Whisper transcription) =====
+const OPENAI_API_KEY = "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";
+
 // ===== Auto-reload WhatsApp tabs on extension update =====
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "update") {
@@ -55,11 +58,109 @@ async function validateToken(token, deviceId, ipAddress, locationStr, userAgent)
   if (Array.isArray(data) && data.length > 0) {
     const row = data[0];
     if (row.token_status === "blocked_device") {
+      // Check if this is a version upgrade — if so, allow device change
+      const allowed = await tryVersionUpgradeBypass(token, deviceId);
+      if (allowed) {
+        // Retry validation with updated device
+        return validateToken(token, deviceId, ipAddress, locationStr, userAgent);
+      }
       return { ok: false, blocked: true, error: "Este token já está em uso em outro dispositivo. Solicite um novo token ao administrador." };
     }
+    // Save current version for this user on successful login
+    saveExtVersion(row.user_id);
     return { ok: true, data: row };
   } else {
     return { ok: false, error: "Token inválido ou desativado." };
+  }
+}
+
+// Compare semver: returns true if vA > vB
+function isNewerSemver(vA, vB) {
+  if (!vA || !vB) return false;
+  const a = vA.split(".").map(Number);
+  const b = vB.split(".").map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) > (b[i] || 0)) return true;
+    if ((a[i] || 0) < (b[i] || 0)) return false;
+  }
+  return false;
+}
+
+// When blocked_device, check if current version is newer than stored version.
+// If yes, re-bind device_fingerprint and allow login.
+async function tryVersionUpgradeBypass(token, newDeviceId) {
+  try {
+    const currentVersion = chrome.runtime.getManifest().version;
+
+    // Read the user's stored ext_version from database
+    const resp = await fetch(
+      AUTH_SUPA_URL + "/rest/v1/users?token=ilike." + encodeURIComponent(token) + "&select=id,ext_version,device_fingerprint",
+      {
+        headers: {
+          "apikey": AUTH_SERVICE_KEY,
+          "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+        },
+      }
+    );
+    if (!resp.ok) return false;
+    const rows = await resp.json();
+    if (!rows.length) return false;
+
+    const user = rows[0];
+    const storedVersion = user.ext_version || "0.0.0";
+
+    // Only allow if current version is strictly newer
+    if (!isNewerSemver(currentVersion, storedVersion)) {
+      console.log("[EZAP BG] Same or older version, device change blocked. Current:", currentVersion, "Stored:", storedVersion);
+      return false;
+    }
+
+    console.log("[EZAP BG] Version upgrade detected:", storedVersion, "→", currentVersion, "— re-binding device");
+
+    // Update device_fingerprint + ext_version for this user
+    const patchResp = await fetch(
+      AUTH_SUPA_URL + "/rest/v1/users?id=eq." + user.id,
+      {
+        method: "PATCH",
+        headers: {
+          "apikey": AUTH_SERVICE_KEY,
+          "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal",
+        },
+        body: JSON.stringify({
+          device_fingerprint: newDeviceId,
+          ext_version: currentVersion,
+          redeemed_at: new Date().toISOString(),
+        }),
+      }
+    );
+    return patchResp.ok;
+  } catch (e) {
+    console.log("[EZAP BG] Version upgrade bypass error:", e.message);
+    return false;
+  }
+}
+
+// Save current extension version to user record after successful login
+async function saveExtVersion(userId) {
+  try {
+    const version = chrome.runtime.getManifest().version;
+    await fetch(
+      AUTH_SUPA_URL + "/rest/v1/users?id=eq." + userId,
+      {
+        method: "PATCH",
+        headers: {
+          "apikey": AUTH_SERVICE_KEY,
+          "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal",
+        },
+        body: JSON.stringify({ ext_version: version }),
+      }
+    );
+  } catch (e) {
+    // Silent — not critical
   }
 }
 
@@ -191,6 +292,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleAsync(() => uploadNoteImage(request.base64, request.fileName, request.contentType), sendResponse);
     return true;
   }
+  if (request.action === "upload_msg_file") {
+    handleAsync(() => uploadMsgFile(request.base64, request.fileName, request.contentType), sendResponse);
+    return true;
+  }
+  if (request.action === "download_msg_file") {
+    handleAsync(() => downloadMsgFile(request.url), sendResponse);
+    return true;
+  }
   if (request.action === "log_phone_mismatch") {
     handleAsync(() => supabaseRpc("log_phone_mismatch", {
       p_user_id: request.userId,
@@ -252,6 +361,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.action === "hubspot_update_note") {
     handleAsync(() => updateHubSpotNote(request.noteId, request.noteBody), sendResponse);
+    return true;
+  }
+
+  // ===== Audio Transcription (OpenAI Whisper) =====
+  if (request.action === "transcribe_audio") {
+    handleAsync(() => transcribeAudio(request.base64, request.contentType), sendResponse);
     return true;
   }
 
@@ -1034,5 +1149,102 @@ async function uploadNoteImage(base64Data, fileName, contentType) {
     return { ok: true, url: publicUrl };
   } catch (e) {
     return { ok: false, error: e.message };
+  }
+}
+
+// ===== Upload msg file to Supabase Storage =====
+async function uploadMsgFile(base64Data, fileName, contentType) {
+  try {
+    const binaryStr = atob(base64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const resp = await fetch(AUTH_SUPA_URL + "/storage/v1/object/msg-files/" + fileName, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+        "Content-Type": contentType || "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: bytes.buffer,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error("Upload failed: " + resp.status + " " + err);
+    }
+
+    const publicUrl = AUTH_SUPA_URL + "/storage/v1/object/public/msg-files/" + fileName;
+    return { ok: true, url: publicUrl };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ===== Download msg file from Supabase (returns base64) =====
+async function downloadMsgFile(url) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("Download failed: " + resp.status);
+    const blob = await resp.blob();
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return { ok: true, base64: btoa(binary), mimeType: blob.type };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ===== Audio Transcription via OpenAI Whisper =====
+async function transcribeAudio(base64, contentType) {
+  try {
+    // Convert base64 to binary
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    // Determine file extension
+    let ext = "ogg";
+    if (contentType && contentType.includes("mp4")) ext = "mp4";
+    else if (contentType && contentType.includes("webm")) ext = "webm";
+    else if (contentType && contentType.includes("mpeg")) ext = "mp3";
+    else if (contentType && contentType.includes("wav")) ext = "wav";
+
+    const blob = new Blob([bytes], { type: contentType || "audio/ogg" });
+    const file = new File([blob], "audio." + ext, { type: contentType || "audio/ogg" });
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("model", "whisper-1");
+    formData.append("language", "pt");
+
+    console.log("[EZAP BG] Transcribing audio:", Math.round(blob.size / 1024) + "KB", contentType);
+
+    const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + OPENAI_API_KEY },
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error("[EZAP BG] Whisper API error:", resp.status, errText);
+      throw new Error("Whisper API " + resp.status);
+    }
+
+    const data = await resp.json();
+    console.log("[EZAP BG] Transcription done:", (data.text || "").substring(0, 80) + "...");
+    return { text: data.text || "" };
+  } catch (err) {
+    console.error("[EZAP BG] Transcription error:", err);
+    return { error: err.message || "Erro desconhecido" };
   }
 }

@@ -1,0 +1,1569 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-ZAP — Painel Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111b21;
+      color: #e9edef;
+      min-height: 100vh;
+    }
+
+    /* ===== LOGIN ===== */
+    .login-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: #111b21; z-index: 99999;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-card {
+      background: #202c33; border-radius: 16px; padding: 40px 36px;
+      width: 380px; max-width: 90%; text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .login-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .login-card p { font-size: 13px; color: #8696a0; margin-bottom: 24px; }
+    .login-card input {
+      width: 100%; padding: 12px 14px; background: #111b21; border: 2px solid #3b4a54;
+      border-radius: 10px; color: #e9edef; font-size: 15px; font-family: monospace;
+      text-align: center; outline: none; margin-bottom: 16px; transition: border-color 0.2s;
+    }
+    .login-card input:focus { border-color: #25d366; }
+    .login-card button {
+      width: 100%; padding: 14px; background: #25d366; color: #111b21; border: none;
+      border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer;
+    }
+    .login-card button:hover { background: #1da851; }
+    .login-error { color: #ff6b6b; font-size: 13px; margin-top: 8px; min-height: 20px; }
+
+    /* ===== TOP BAR ===== */
+    .topbar {
+      background: #202c33; border-bottom: 1px solid #2a3942;
+      padding: 0 24px; display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 16px; }
+    .topbar h1 { font-size: 18px; font-weight: 700; }
+    .topbar h1 span { color: #25d366; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .topbar .user-name { font-size: 13px; color: #8696a0; }
+    .btn-sm {
+      padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+      cursor: pointer; border: 1px solid #3b4a54; background: #2a3942; color: #8696a0;
+      transition: all 0.15s; text-decoration: none;
+    }
+    .btn-sm:hover { background: #3b4a54; color: #e9edef; }
+    .btn-sm.danger { color: #ff6b6b; border-color: #ff6b6b30; }
+    .btn-sm.danger:hover { background: #ff6b6b20; }
+    .btn-sm.primary { color: #25d366; border-color: #25d36630; }
+    .btn-sm.primary:hover { background: #25d36620; }
+    .btn-sm.warn { color: #ff922b; border-color: #ff922b30; }
+    .btn-sm.warn:hover { background: #ff922b20; }
+
+    /* ===== TABS ===== */
+    .tabs {
+      display: flex; gap: 0; background: #202c33; border-bottom: 1px solid #2a3942;
+      padding: 0 24px;
+    }
+    .tab {
+      padding: 12px 20px; font-size: 13px; font-weight: 600; color: #8696a0;
+      cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s;
+      position: relative;
+    }
+    .tab:hover { color: #e9edef; }
+    .tab.active { color: #25d366; border-bottom-color: #25d366; }
+    .tab .notif-badge {
+      position: absolute; top: 6px; right: 6px;
+      background: #ff6b6b; color: #fff; font-size: 9px; font-weight: 700;
+      min-width: 16px; height: 16px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 4px;
+    }
+
+    /* ===== CONTENT ===== */
+    .content { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ===== STATS ROW ===== */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 10px; padding: 16px;
+    }
+    .stat-card .label { font-size: 11px; color: #8696a0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .stat-card .value.green { color: #25d366; }
+    .stat-card .value.blue { color: #4d96ff; }
+    .stat-card .value.orange { color: #ff922b; }
+    .stat-card .value.red { color: #ff6b6b; }
+
+    /* ===== LAYOUT ===== */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+    }
+    .section-title { font-size: 15px; font-weight: 600; }
+    .btn-primary {
+      padding: 10px 20px; background: #25d366; color: #111b21; border: none;
+      border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .btn-primary:hover { background: #1da851; }
+
+    /* ===== USER CARDS ===== */
+    .user-cards { display: flex; flex-direction: column; gap: 10px; }
+    .user-card {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 12px;
+      padding: 16px 20px; transition: border-color 0.15s;
+    }
+    .user-card:hover { border-color: #3b4a54; }
+    .user-card-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 12px;
+    }
+    .user-card-identity { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+    .user-card-avatar {
+      width: 40px; height: 40px; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; font-size: 16px;
+      font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .user-card-name-wrap { min-width: 0; }
+    .user-card-name { font-size: 15px; font-weight: 600; color: #e9edef; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-card-email { font-size: 12px; color: #8696a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-card-badges { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .user-card-body {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+      padding-top: 12px; border-top: 1px solid #2a3942;
+    }
+    .user-card-field {}
+    .user-card-field .uc-label {
+      font-size: 10px; color: #8696a0; text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 4px; font-weight: 600;
+    }
+    .user-card-field .uc-value { font-size: 12px; color: #e9edef; }
+    .user-card-actions {
+      display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: flex-start;
+    }
+
+    .token-cell {
+      font-family: monospace; font-size: 11px; color: #8696a0;
+      background: #111b21; padding: 4px 8px; border-radius: 4px; display: inline-block;
+      cursor: pointer; position: relative;
+    }
+    .token-cell:hover { color: #e9edef; }
+    .token-cell .copied {
+      position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+      background: #25d366; color: #111b21; font-size: 10px; padding: 2px 8px;
+      border-radius: 4px; font-weight: 600; white-space: nowrap;
+    }
+
+    .badge {
+      font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
+      text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;
+    }
+    .badge.admin { background: #cc5de820; color: #cc5de8; }
+    .badge.user { background: #4d96ff20; color: #4d96ff; }
+    .badge.active { background: #25d36620; color: #25d366; }
+    .badge.inactive { background: #ff6b6b20; color: #ff6b6b; }
+
+    .feature-tag {
+      display: inline-block; font-size: 9px; font-weight: 600; padding: 2px 6px;
+      border-radius: 3px; margin: 1px 2px; text-transform: uppercase;
+      background: #4d96ff15; color: #4d96ff; border: 1px solid #4d96ff30;
+    }
+
+    .phone-tag {
+      display: inline-block; font-size: 11px; font-family: monospace; padding: 2px 6px;
+      border-radius: 3px; margin: 1px 2px;
+      background: #25d36615; color: #25d366; border: 1px solid #25d36630;
+    }
+
+    .device-info {
+      font-size: 11px; color: #8696a0; line-height: 1.5;
+    }
+    .device-info .ip { color: #ff922b; font-family: monospace; }
+    .device-info .loc { color: #4d96ff; }
+
+    /* ===== MODAL ===== */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6); z-index: 99999;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 12px;
+      padding: 28px; width: 520px; max-width: 90%; max-height: 90vh; overflow-y: auto;
+    }
+    .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 20px; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label {
+      display: block; font-size: 11px; color: #8696a0; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 6px; font-weight: 600;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 10px 12px; background: #111b21; border: 1px solid #3b4a54;
+      border-radius: 8px; color: #e9edef; font-size: 13px; outline: none;
+      font-family: inherit;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #25d366; }
+    .form-group .hint { font-size: 11px; color: #3b4a54; margin-top: 4px; }
+    .modal-actions { display: flex; gap: 8px; margin-top: 20px; }
+    .modal-actions button { flex: 1; padding: 12px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-cancel { background: #2a3942; color: #8696a0; border: 1px solid #3b4a54; }
+    .btn-cancel:hover { background: #3b4a54; }
+    .btn-save { background: #25d366; color: #111b21; border: none; font-weight: 700; }
+    .btn-save:hover { background: #1da851; }
+
+    /* ===== Checkbox group ===== */
+    .checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    .checkbox-group label {
+      display: flex; align-items: center; gap: 6px; font-size: 13px; color: #e9edef;
+      text-transform: none; letter-spacing: 0; font-weight: 400; cursor: pointer;
+      background: #111b21; padding: 6px 12px; border-radius: 6px; border: 1px solid #3b4a54;
+      transition: all 0.15s;
+    }
+    .checkbox-group label:hover { border-color: #25d366; }
+    .checkbox-group input[type="checkbox"] { accent-color: #25d366; }
+
+    .token-result {
+      background: #111b21; border: 2px solid #25d366; border-radius: 10px;
+      padding: 16px; text-align: center; margin-top: 16px;
+    }
+    .token-result .label { font-size: 11px; color: #8696a0; margin-bottom: 6px; }
+    .token-result .token {
+      font-size: 20px; font-family: monospace; font-weight: 700; color: #25d366;
+      letter-spacing: 2px; cursor: pointer;
+    }
+    .token-result .hint { font-size: 11px; color: #8696a0; margin-top: 8px; }
+
+    .empty-state {
+      text-align: center; padding: 40px; color: #8696a0; font-size: 13px; font-style: italic;
+    }
+
+    /* ===== GLOBAL MESSAGES ===== */
+    .msg-card {
+      background: #202c33; border: 1px solid #2a3942; border-radius: 10px;
+      padding: 16px; margin-bottom: 10px;
+    }
+    .msg-card-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+    }
+    .msg-card-title { font-size: 14px; font-weight: 600; }
+    .msg-card-category {
+      font-size: 10px; background: #cc5de820; color: #cc5de8; padding: 2px 8px;
+      border-radius: 4px; font-weight: 600;
+    }
+    .msg-card-content {
+      font-size: 13px; color: #8696a0; line-height: 1.5; white-space: pre-wrap;
+      max-height: 80px; overflow: hidden;
+    }
+    .msg-card-footer {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a3942;
+    }
+    .msg-card-date { font-size: 11px; color: #3b4a54; }
+    .msg-card-notif-badge {
+      font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600;
+    }
+    .msg-card-notif-badge.info { background: #228be620; color: #228be6; }
+    .msg-card-notif-badge.warning { background: #fab00520; color: #fab005; }
+    .msg-card-notif-badge.success { background: #25d36620; color: #25d366; }
+    .msg-card-reads {
+      font-size: 11px; color: #8696a0; display: flex; align-items: center; gap: 4px; cursor: pointer;
+    }
+    .msg-card-reads:hover { color: #e9edef; }
+    .reads-modal-list { max-height: 300px; overflow-y: auto; }
+    .reads-modal-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid #2a3942; font-size: 13px;
+    }
+    .reads-modal-item:last-child { border-bottom: none; }
+
+    /* ===== SECURITY LOG ===== */
+    .log-item {
+      display: flex; align-items: center; gap: 12px;
+      background: #202c33; border: 1px solid #2a3942; border-radius: 8px;
+      padding: 12px 16px; margin-bottom: 8px;
+    }
+    .log-item.blocked { border-left: 3px solid #ff6b6b; }
+    .log-item.ok { border-left: 3px solid #25d366; }
+    .log-icon { font-size: 20px; flex-shrink: 0; }
+    .log-details { flex: 1; }
+    .log-details .log-name { font-size: 13px; font-weight: 600; }
+    .log-details .log-meta { font-size: 11px; color: #8696a0; margin-top: 2px; }
+    .log-details .log-reason { font-size: 11px; color: #ff6b6b; margin-top: 2px; }
+    .log-time { font-size: 11px; color: #3b4a54; text-align: right; white-space: nowrap; }
+  </style>
+</head>
+<body>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <h2>E-ZAP <span style="color:#25d366">Admin</span></h2>
+    <p>Insira seu token de administrador</p>
+    <input type="text" id="loginToken" placeholder="Token de admin">
+    <button onclick="doLogin()">Entrar</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="mainApp" style="display:none">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>E-ZAP <span>Admin</span></h1>
+    </div>
+    <div class="topbar-right">
+      <span class="user-name" id="adminName"></span>
+      <a href="index.html" class="btn-sm">Changelog</a>
+      <button class="btn-sm danger" onclick="doLogout()">Sair</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="users" onclick="switchTab('users')">Usuarios</div>
+    <div class="tab" data-tab="messages" onclick="switchTab('messages')">Mensagens Globais</div>
+    <div class="tab" data-tab="security" onclick="switchTab('security')">Seguranca <span class="notif-badge" id="secBadge" style="display:none">0</span></div>
+    <div class="tab" data-tab="settings" onclick="switchTab('settings')">Configuracoes</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ===== USERS PANEL ===== -->
+    <div class="panel active" id="panel-users">
+      <div class="stats-row" id="statsRow"></div>
+      <div class="section-header">
+        <div class="section-title">Usuarios cadastrados</div>
+        <button class="btn-primary" onclick="openCreateUser()">+ Novo Usuario</button>
+      </div>
+      <div id="usersContainer" class="user-cards">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
+    <!-- ===== GLOBAL MESSAGES PANEL ===== -->
+    <div class="panel" id="panel-messages">
+      <div class="section-header">
+        <div class="section-title">Mensagens padrao da empresa</div>
+        <button class="btn-primary" onclick="openCreateMessage()">+ Nova Mensagem</button>
+      </div>
+      <div id="messagesList">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
+    <!-- ===== SECURITY PANEL ===== -->
+    <div class="panel" id="panel-security">
+      <div class="section-header">
+        <div class="section-title">Log de acessos e tentativas bloqueadas</div>
+        <button class="btn-sm" onclick="loadSecurityLog()">Atualizar</button>
+      </div>
+      <div id="securityLog">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
+    <!-- ===== SETTINGS PANEL ===== -->
+    <div class="panel" id="panel-settings">
+      <div class="section-title" style="margin-bottom:20px">Configuracoes da aplicacao</div>
+
+      <div style="background:#202c33;border:1px solid #2a3942;border-radius:10px;padding:20px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#ff7a5920;display:flex;align-items:center;justify-content:center">
+            <span style="font-size:18px">&#128279;</span>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:600">HubSpot CRM</div>
+            <div style="font-size:11px;color:#8696a0">Private App Token para integracao com HubSpot</div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>API Key (Private App Token)</label>
+          <input type="password" id="settingsHubspotKey" placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="font-family:monospace">
+          <div class="hint">Crie em HubSpot > Settings > Integrations > Private Apps. Escopos: crm.objects.contacts.read, crm.objects.deals.read, crm.objects.tickets.read</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" onclick="saveHubspotKey()" style="padding:8px 16px;font-size:12px">Salvar</button>
+          <button class="btn-sm" onclick="testHubspotKey()">Testar conexao</button>
+          <span id="hubspotStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+
+      <div style="background:#202c33;border:1px solid #2a3942;border-radius:10px;padding:20px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#4d96ff20;display:flex;align-items:center;justify-content:center">
+            <span style="font-size:18px">&#128640;</span>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:600">Publicar Versao</div>
+            <div style="font-size:11px;color:#8696a0">Notifique os usuarios sobre uma nova versao da extensao</div>
+          </div>
+        </div>
+        <div id="currentReleaseInfo" style="background:#111b21;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#8696a0">
+          Carregando versao publicada...
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:12px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Versao</label>
+            <input type="text" id="releaseVersion" placeholder="1.4.0">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Mensagem (opcional)</label>
+            <input type="text" id="releaseMessage" placeholder="Ex: Correcoes de seguranca e melhorias">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" onclick="publishRelease()" style="padding:8px 16px;font-size:12px">Publicar e Notificar</button>
+          <span id="releaseStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== MODALS CONTAINER ===== -->
+<div id="modalsContainer"></div>
+
+<script>
+// ===== CONFIG =====
+var SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
+var SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
+
+var ALL_FEATURES = [
+  { key: "crm", label: "CRM (Labels + HubSpot)" },
+  { key: "msg", label: "Mensagens (MSG)" },
+  { key: "slice", label: "SLICE (Filtro Mentor)" },
+  { key: "abas", label: "ABAS (Grupos)" },
+  { key: "pin", label: "PIN (Fixar contatos)" },
+];
+
+var DEFAULT_FEATURES = ["crm", "msg", "abas", "pin"]; // slice excluded by default
+
+var currentAdmin = null;
+var allUsers = [];
+
+// ===== SUPABASE FETCH =====
+function supa(path, opts) {
+  opts = opts || {};
+  var headers = {
+    "apikey": SUPA_KEY,
+    "Authorization": "Bearer " + SUPA_KEY,
+    "Content-Type": "application/json",
+    "Prefer": opts.prefer || "return=representation"
+  };
+  return fetch(SUPA_URL + path, {
+    method: opts.method || "GET",
+    headers: headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  }).then(function(r) { return r.json(); });
+}
+
+// ===== LOGIN =====
+function doLogin() {
+  var token = document.getElementById("loginToken").value.trim();
+  var errEl = document.getElementById("loginError");
+  errEl.textContent = "";
+
+  if (!token) { errEl.textContent = "Insira o token"; return; }
+
+  supa("/rest/v1/rpc/validate_token", {
+    method: "POST",
+    body: { p_token: token }
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0 && data[0].user_role === "admin") {
+      currentAdmin = data[0];
+      currentAdmin.token = token;
+      localStorage.setItem("ezap_admin", JSON.stringify(currentAdmin));
+      showApp();
+    } else if (Array.isArray(data) && data.length > 0) {
+      errEl.textContent = "Este token nao tem permissao de administrador.";
+    } else {
+      errEl.textContent = "Token invalido ou desativado.";
+    }
+  }).catch(function() {
+    errEl.textContent = "Erro de conexao. Tente novamente.";
+  });
+}
+
+function doLogout() {
+  localStorage.removeItem("ezap_admin");
+  currentAdmin = null;
+  document.getElementById("mainApp").style.display = "none";
+  document.getElementById("loginOverlay").style.display = "flex";
+  document.getElementById("loginToken").value = "";
+}
+
+function showApp() {
+  document.getElementById("loginOverlay").style.display = "none";
+  document.getElementById("mainApp").style.display = "block";
+  document.getElementById("adminName").textContent = currentAdmin.user_name;
+  loadUsers();
+  loadMessages();
+  loadSecurityLog();
+  loadSettings();
+}
+
+// Auto-login
+(function() {
+  var saved = localStorage.getItem("ezap_admin");
+  if (saved) {
+    try {
+      currentAdmin = JSON.parse(saved);
+      supa("/rest/v1/rpc/validate_token", {
+        method: "POST",
+        body: { p_token: currentAdmin.token }
+      }).then(function(data) {
+        if (Array.isArray(data) && data.length > 0 && data[0].user_role === "admin") {
+          currentAdmin.user_name = data[0].user_name;
+          showApp();
+        } else {
+          doLogout();
+        }
+      });
+    } catch(e) { doLogout(); }
+  }
+})();
+
+document.getElementById("loginToken").addEventListener("keydown", function(e) {
+  if (e.key === "Enter") doLogin();
+});
+
+// ===== TABS =====
+function switchTab(tab) {
+  document.querySelectorAll(".tab").forEach(function(t) { t.classList.remove("active"); });
+  document.querySelectorAll(".panel").forEach(function(p) { p.classList.remove("active"); });
+  document.querySelector('.tab[data-tab="' + tab + '"]').classList.add("active");
+  document.getElementById("panel-" + tab).classList.add("active");
+}
+
+// ===== USERS =====
+function loadUsers() {
+  supa("/rest/v1/users?select=*&order=created_at.asc").then(function(users) {
+    if (!Array.isArray(users)) return;
+    allUsers = users;
+    renderStats(users);
+    renderUsersTable(users);
+  });
+}
+
+function renderStats(users) {
+  var total = users.length;
+  var active = users.filter(function(u) { return u.active; }).length;
+  var admins = users.filter(function(u) { return u.role === "admin"; }).length;
+  var redeemed = users.filter(function(u) { return u.token_redeemed; }).length;
+
+  document.getElementById("statsRow").innerHTML =
+    '<div class="stat-card"><div class="label">Total usuarios</div><div class="value blue">' + total + '</div></div>' +
+    '<div class="stat-card"><div class="label">Ativos</div><div class="value green">' + active + '</div></div>' +
+    '<div class="stat-card"><div class="label">Inativos</div><div class="value orange">' + (total - active) + '</div></div>' +
+    '<div class="stat-card"><div class="label">Admins</div><div class="value">' + admins + '</div></div>' +
+    '<div class="stat-card"><div class="label">Tokens usados</div><div class="value">' + redeemed + '</div></div>';
+}
+
+function renderUsersTable(users) {
+  var container = document.getElementById("usersContainer");
+  if (users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">Nenhum usuario cadastrado</td></tr>';
+    return;
+  }
+
+  var html = "";
+  users.forEach(function(u) {
+    var roleClass = u.role === "admin" ? "admin" : "user";
+    var roleLabel = u.role === "admin" ? "Admin" : "Usuario";
+    var statusClass = u.active ? "active" : "inactive";
+    var statusLabel = u.active ? "Ativo" : "Inativo";
+
+    // Features tags
+    var featHtml = "";
+    if (u.role === "admin") {
+      featHtml = '<span class="feature-tag" style="background:#cc5de815;color:#cc5de8;border-color:#cc5de830">TODAS</span>';
+    } else {
+      (u.features || []).forEach(function(f) { featHtml += '<span class="feature-tag">' + f + '</span>'; });
+    }
+    if (!featHtml) featHtml = '<span style="color:#3b4a54;font-size:11px">Nenhuma</span>';
+
+    // Phones tags
+    var phoneHtml = "";
+    (u.allowed_phones || []).forEach(function(p) { phoneHtml += '<span class="phone-tag">+' + p + '</span>'; });
+    if (!phoneHtml) phoneHtml = '<span style="color:#ff6b6b;font-size:11px">Nao configurado</span>';
+
+    // Device info
+    var deviceHtml = "";
+    if (u.token_redeemed) {
+      deviceHtml = '<div class="device-info">';
+      if (u.redeemed_location) deviceHtml += '<span class="loc">' + esc(u.redeemed_location) + '</span> ';
+      if (u.redeemed_ip) deviceHtml += '<span class="ip">' + esc(u.redeemed_ip) + '</span>';
+      if (u.redeemed_at) deviceHtml += '<br><span>' + formatDate(u.redeemed_at) + '</span>';
+      deviceHtml += '</div>';
+    } else {
+      deviceHtml = '<span style="color:#3b4a54;font-size:11px">Nao resgatado</span>';
+    }
+
+    // Avatar color based on role
+    var avatarBg = u.role === "admin" ? "#cc5de8" : "#4d96ff";
+    var initials = esc(u.name).split(" ").map(function(w) { return w[0]; }).slice(0, 2).join("").toUpperCase();
+
+    // Actions
+    var actHtml = '<button class="btn-sm primary" onclick="openEditUser(\'' + u.id + '\')">Editar</button>';
+    if (u.token_redeemed) {
+      actHtml += '<button class="btn-sm warn" onclick="resetDevice(\'' + u.id + '\', \'' + esc(u.name) + '\')">Reset Disp.</button>';
+    }
+    if (u.active) {
+      actHtml += '<button class="btn-sm danger" onclick="toggleUser(\'' + u.id + '\', false)">Desativar</button>';
+    } else {
+      actHtml += '<button class="btn-sm" onclick="toggleUser(\'' + u.id + '\', true)">Ativar</button>';
+    }
+    actHtml += '<button class="btn-sm danger" onclick="deleteUser(\'' + u.id + '\', \'' + esc(u.name) + '\')">Excluir</button>';
+
+    html += '<div class="user-card">';
+    // Top row: avatar + name + badges + actions
+    html += '<div class="user-card-top">';
+    html +=   '<div class="user-card-identity">';
+    html +=     '<div class="user-card-avatar" style="background:' + avatarBg + '">' + initials + '</div>';
+    html +=     '<div class="user-card-name-wrap">';
+    html +=       '<div class="user-card-name">' + esc(u.name) + '</div>';
+    html +=       '<div class="user-card-email">' + esc(u.email || 'Sem email') + '</div>';
+    html +=     '</div>';
+    html +=   '</div>';
+    html +=   '<div class="user-card-badges">';
+    html +=     '<span class="badge ' + roleClass + '">' + roleLabel + '</span>';
+    html +=     '<span class="badge ' + statusClass + '">' + statusLabel + '</span>';
+    html +=   '</div>';
+    html +=   '<div class="user-card-actions">' + actHtml + '</div>';
+    html += '</div>';
+    // Body: 3 columns
+    html += '<div class="user-card-body">';
+    html +=   '<div class="user-card-field"><div class="uc-label">Token</div><div class="uc-value"><span class="token-cell" onclick="copyToken(this, \'' + esc(u.token) + '\')">' + esc(u.token) + '</span></div></div>';
+    html +=   '<div class="user-card-field"><div class="uc-label">Telefones</div><div class="uc-value">' + phoneHtml + '</div></div>';
+    html +=   '<div class="user-card-field"><div class="uc-label">Features</div><div class="uc-value">' + featHtml + '</div></div>';
+    html +=   '<div class="user-card-field"><div class="uc-label">Dispositivo</div><div class="uc-value">' + deviceHtml + '</div></div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function copyToken(el, token) {
+  navigator.clipboard.writeText(token).then(function() {
+    var tip = document.createElement("span");
+    tip.className = "copied";
+    tip.textContent = "Copiado!";
+    el.appendChild(tip);
+    setTimeout(function() { tip.remove(); }, 1500);
+  });
+}
+
+function toggleUser(id, active) {
+  supa("/rest/v1/users?id=eq." + id, {
+    method: "PATCH",
+    body: { active: active }
+  }).then(function() { loadUsers(); });
+}
+
+function deleteUser(id, name) {
+  if (!confirm("Excluir o usuario \"" + name + "\"? Todos os dados dele serao perdidos.")) return;
+  supa("/rest/v1/users?id=eq." + id, { method: "DELETE" }).then(function() { loadUsers(); });
+}
+
+function resetDevice(id, name) {
+  if (!confirm("Resetar o dispositivo de \"" + name + "\"? O token podera ser usado em uma nova maquina.")) return;
+  supa("/rest/v1/rpc/reset_user_device", {
+    method: "POST",
+    body: { p_user_id: id }
+  }).then(function() {
+    alert("Dispositivo resetado com sucesso!");
+    loadUsers();
+  });
+}
+
+// ===== Helper: toggle features/phones visibility based on role =====
+function onRoleChange(selectId, featGroupId, phonesGroupId) {
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.addEventListener("change", function() {
+    var isAdmin = sel.value === "admin";
+    var fg = document.getElementById(featGroupId);
+    var pg = document.getElementById(phonesGroupId);
+    if (fg) fg.style.display = isAdmin ? "none" : "block";
+    if (pg) pg.style.display = isAdmin ? "none" : "block";
+    if (isAdmin && fg) {
+      // Info message
+      fg.innerHTML = '<label>Funcionalidades</label><div style="color:#cc5de8;font-size:12px;padding:8px;background:#cc5de810;border-radius:6px">Administradores tem acesso a <strong>todas</strong> as funcionalidades automaticamente.</div>';
+    }
+  });
+  // Trigger initial state
+  sel.dispatchEvent(new Event("change"));
+}
+
+// ===== CREATE USER MODAL =====
+function openCreateUser() {
+  var featChecks = "";
+  ALL_FEATURES.forEach(function(f) {
+    var checked = DEFAULT_FEATURES.indexOf(f.key) !== -1 ? "checked" : "";
+    featChecks += '<label><input type="checkbox" name="feat" value="' + f.key + '" ' + checked + '> ' + f.label + '</label>';
+  });
+
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Novo Usuario</h3>' +
+        '<div class="form-group"><label>Nome completo</label><input type="text" id="newUserName" placeholder="Ex: Joao Silva"></div>' +
+        '<div class="form-group"><label>Email</label><input type="email" id="newUserEmail" placeholder="joao@empresa.com"></div>' +
+        '<div class="form-group"><label>Telefone contato (com DDD)</label><input type="text" id="newUserPhone" placeholder="+5541999999999"></div>' +
+        '<div class="form-group" id="newPhonesGroup"><label>Numeros WhatsApp permitidos</label><input type="text" id="newUserPhones" placeholder="5519993473149, 5511998887777"><div class="hint">Numeros do WhatsApp Web autorizados (separados por virgula, somente digitos com DDI+DDD)</div></div>' +
+        '<div class="form-group"><label>Perfil</label><select id="newUserRole"><option value="user">Usuario</option><option value="admin">Administrador</option></select></div>' +
+        '<div class="form-group" id="newFeatGroup"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="createUser()">Criar Usuario</button>' +
+        '</div>' +
+        '<div id="createUserResult"></div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById("newUserName").focus();
+  onRoleChange("newUserRole", "newFeatGroup", "newPhonesGroup");
+}
+
+function createUser() {
+  var name = document.getElementById("newUserName").value.trim();
+  var email = document.getElementById("newUserEmail").value.trim();
+  var phone = document.getElementById("newUserPhone").value.trim();
+  var phonesStr = (document.getElementById("newUserPhones") || {}).value || "";
+  phonesStr = phonesStr.trim();
+  var role = document.getElementById("newUserRole").value;
+  var resultEl = document.getElementById("createUserResult");
+
+  // Admin gets all features automatically
+  var features = [];
+  if (role === "admin") {
+    features = ALL_FEATURES.map(function(f) { return f.key; });
+  } else {
+    document.querySelectorAll('input[name="feat"]:checked').forEach(function(cb) {
+      features.push(cb.value);
+    });
+  }
+
+  // Parse allowed phones (admin doesn't need them)
+  var allowedPhones = [];
+  if (phonesStr && role !== "admin") {
+    allowedPhones = phonesStr.split(",").map(function(p) { return p.trim().replace(/\D/g, ""); }).filter(function(p) { return p.length >= 10; });
+  }
+
+  if (!name) { resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Preencha o nome</div>'; return; }
+
+  supa("/rest/v1/rpc/generate_token", { method: "POST", body: {} }).then(function(token) {
+    return supa("/rest/v1/users", {
+      method: "POST",
+      body: {
+        name: name,
+        email: email || null,
+        phone: phone || null,
+        token: token,
+        role: role,
+        features: features,
+        allowed_phones: allowedPhones,
+      }
+    }).then(function(data) {
+      if (data && data.code) {
+        resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Erro: ' + (data.message || data.code) + '</div>';
+        return;
+      }
+      resultEl.innerHTML =
+        '<div class="token-result">' +
+          '<div class="label">Token gerado para ' + esc(name) + '</div>' +
+          '<div class="token" onclick="copyToken(this, \'' + esc(token) + '\')">' + esc(token) + '</div>' +
+          '<div class="hint">Clique para copiar.</div>' +
+        '</div>';
+      loadUsers();
+
+      // Send welcome email with token
+      if (email) {
+        sendWelcomeEmail(name, email, token).then(function(ok) {
+          if (ok) {
+            resultEl.innerHTML += '<div style="color:#25d366;font-size:12px;margin-top:8px">✓ Email enviado para ' + esc(email) + '</div>';
+          } else {
+            resultEl.innerHTML += '<div style="color:#ff922b;font-size:12px;margin-top:8px">⚠ Nao foi possivel enviar o email. Envie o token manualmente.</div>';
+          }
+        });
+      }
+    });
+  });
+}
+
+// ===== SEND WELCOME EMAIL =====
+var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_ZQ2372L2lmvBX22oOLYrJ07xbGfsnDAptfml7JVKIAg3IEijVg9k-nGFGTqPtv9uHA/exec";
+
+function sendWelcomeEmail(nome, email, token) {
+  return fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ nome: nome, email: email, token: token }),
+  }).then(function(res) {
+    return res.json();
+  }).then(function(data) {
+    console.log("[ADMIN] Email result:", data);
+    return data && data.ok;
+  }).catch(function(err) {
+    console.error("[ADMIN] Email error:", err);
+    return false;
+  });
+}
+
+// ===== EDIT USER MODAL =====
+function openEditUser(id) {
+  var user = allUsers.find(function(u) { return u.id === id; });
+  if (!user) return;
+
+  var isAdmin = user.role === "admin";
+  var featChecks = "";
+  var userFeats = user.features || [];
+  ALL_FEATURES.forEach(function(f) {
+    var checked = userFeats.indexOf(f.key) !== -1 ? "checked" : "";
+    featChecks += '<label><input type="checkbox" name="editFeat" value="' + f.key + '" ' + checked + '> ' + f.label + '</label>';
+  });
+
+  var phonesVal = (user.allowed_phones || []).join(", ");
+
+  var featGroupContent = isAdmin
+    ? '<label>Funcionalidades</label><div style="color:#cc5de8;font-size:12px;padding:8px;background:#cc5de810;border-radius:6px">Administradores tem acesso a <strong>todas</strong> as funcionalidades automaticamente.</div>'
+    : '<label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div>';
+
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Editar Usuario</h3>' +
+        '<div class="form-group"><label>Nome completo</label><input type="text" id="editUserName" value="' + esc(user.name || '') + '"></div>' +
+        '<div class="form-group"><label>Email</label><input type="email" id="editUserEmail" value="' + esc(user.email || '') + '"></div>' +
+        '<div class="form-group"><label>Telefone contato</label><input type="text" id="editUserPhone" value="' + esc(user.phone || '') + '"></div>' +
+        '<div class="form-group" id="editPhonesGroup" style="' + (isAdmin ? 'display:none' : '') + '"><label>Numeros WhatsApp permitidos</label><input type="text" id="editUserPhones" value="' + esc(phonesVal) + '"><div class="hint">Separados por virgula (somente digitos com DDI+DDD). Ex: 5519993473149, 5511998887777</div></div>' +
+        '<div class="form-group"><label>Perfil</label><select id="editUserRole"><option value="user"' + (user.role === 'user' ? ' selected' : '') + '>Usuario</option><option value="admin"' + (user.role === 'admin' ? ' selected' : '') + '>Administrador</option></select></div>' +
+        '<div class="form-group" id="editFeatGroup">' + featGroupContent + '</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="saveEditUser(\'' + id + '\')">Salvar</button>' +
+        '</div>' +
+        '<div id="editUserResult"></div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById("editUserName").focus();
+  onRoleChange("editUserRole", "editFeatGroup", "editPhonesGroup");
+}
+
+function saveEditUser(id) {
+  var name = document.getElementById("editUserName").value.trim();
+  var email = document.getElementById("editUserEmail").value.trim();
+  var phone = document.getElementById("editUserPhone").value.trim();
+  var phonesEl = document.getElementById("editUserPhones");
+  var phonesStr = phonesEl ? phonesEl.value.trim() : "";
+  var role = document.getElementById("editUserRole").value;
+  var resultEl = document.getElementById("editUserResult");
+
+  // Admin gets all features automatically
+  var features = [];
+  if (role === "admin") {
+    features = ALL_FEATURES.map(function(f) { return f.key; });
+  } else {
+    document.querySelectorAll('input[name="editFeat"]:checked').forEach(function(cb) {
+      features.push(cb.value);
+    });
+  }
+
+  // Parse allowed phones (admin doesn't need them)
+  var allowedPhones = [];
+  if (phonesStr && role !== "admin") {
+    allowedPhones = phonesStr.split(",").map(function(p) { return p.trim().replace(/\D/g, ""); }).filter(function(p) { return p.length >= 10; });
+  }
+
+  if (!name) { resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Preencha o nome</div>'; return; }
+
+  supa("/rest/v1/users?id=eq." + id, {
+    method: "PATCH",
+    body: {
+      name: name,
+      email: email || null,
+      phone: phone || null,
+      role: role,
+      features: features,
+      allowed_phones: role === "admin" ? [] : allowedPhones,
+    }
+  }).then(function(data) {
+    if (data && data.code) {
+      resultEl.innerHTML = '<div style="color:#ff6b6b;font-size:13px;margin-top:12px">Erro: ' + (data.message || data.code) + '</div>';
+      return;
+    }
+    closeModalForce();
+    loadUsers();
+  });
+}
+
+// ===== GLOBAL MESSAGES =====
+function loadMessages() {
+  // Load messages with read counts
+  Promise.all([
+    supa("/rest/v1/global_messages?select=*&order=created_at.desc"),
+    supa("/rest/v1/notification_reads?select=message_id,user_id,read_at,users(name)")
+  ]).then(function(results) {
+    var msgs = results[0];
+    var reads = results[1];
+    if (!Array.isArray(msgs)) return;
+    // Build reads map: message_id -> [{user_id, name, read_at}]
+    var readsMap = {};
+    if (Array.isArray(reads)) {
+      reads.forEach(function(r) {
+        if (!readsMap[r.message_id]) readsMap[r.message_id] = [];
+        readsMap[r.message_id].push({
+          user_id: r.user_id,
+          name: r.users ? r.users.name : "Desconhecido",
+          read_at: r.read_at
+        });
+      });
+    }
+    renderMessages(msgs, readsMap);
+  });
+}
+
+function renderMessages(msgs, readsMap) {
+  var container = document.getElementById("messagesList");
+  if (msgs.length === 0) {
+    container.innerHTML = '<div class="empty-state">Nenhuma mensagem global criada. Crie mensagens que todos os usuarios poderao utilizar.</div>';
+    return;
+  }
+
+  var totalActiveUsers = allUsers ? allUsers.filter(function(u) { return u.active; }).length : 0;
+
+  var html = "";
+  msgs.forEach(function(m) {
+    var readList = (readsMap && readsMap[m.id]) ? readsMap[m.id] : [];
+    var readCount = readList.length;
+
+    html += '<div class="msg-card">';
+    html += '<div class="msg-card-header">';
+    html += '<div class="msg-card-title">' + esc(m.title) + '</div>';
+    html += '<div style="display:flex;gap:6px;align-items:center">';
+    if (m.is_notification) {
+      var nType = m.notification_type || 'info';
+      var nLabel = nType === 'warning' ? 'Aviso' : nType === 'success' ? 'Sucesso' : 'Info';
+      html += '<span class="msg-card-notif-badge ' + nType + '">Notificacao: ' + nLabel + '</span>';
+      if (m.target_users && Array.isArray(m.target_users)) {
+        var names = m.target_users.map(function(uid) {
+          var u = allUsers ? allUsers.find(function(x) { return x.id === uid; }) : null;
+          return u ? u.name.split(' ')[0] : '?';
+        });
+        html += '<span style="font-size:10px;color:#8696a0;padding:2px 6px;background:#2a3942;border-radius:4px">' + names.join(', ') + '</span>';
+      } else {
+        html += '<span style="font-size:10px;color:#8696a0;padding:2px 6px;background:#2a3942;border-radius:4px">Todos</span>';
+      }
+    }
+    if (m.category) html += '<span class="msg-card-category">' + esc(m.category) + '</span>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="msg-card-content">' + esc(m.content) + '</div>';
+    // Status badges (scheduled, pinned, dismissed)
+    if (m.is_notification) {
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">';
+      if (m.dismissed_at) {
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#ff6b6b20;color:#ff6b6b;font-weight:600">Dispensada em ' + formatDate(m.dismissed_at) + '</span>';
+      } else if (m.scheduled_at && new Date(m.scheduled_at) > new Date()) {
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:#228be620;color:#228be6;font-weight:600">Agendada: ' + formatDate(m.scheduled_at) + '</span>';
+      }
+      if (m.is_pinned && m.pin_start && m.pin_end) {
+        var now = new Date();
+        var pinActive = now >= new Date(m.pin_start) && now <= new Date(m.pin_end) && !m.dismissed_at;
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + (pinActive ? '#fab00520;color:#fab005' : '#3b4a5420;color:#8696a0') + ';font-weight:600">Fixada: ' + formatDate(m.pin_start) + ' - ' + formatDate(m.pin_end) + '</span>';
+      }
+      html += '</div>';
+    }
+    html += '<div class="msg-card-footer">';
+    html += '<div style="display:flex;align-items:center;gap:12px">';
+    html += '<span class="msg-card-date">Criada em ' + formatDate(m.created_at) + '</span>';
+    if (m.is_notification) {
+      html += '<span class="msg-card-reads" onclick="showReadsModal(\'' + m.id + '\', \'' + esc(m.title) + '\')" title="Ver quem visualizou">';
+      html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>';
+      html += readCount + '/' + totalActiveUsers + ' leram';
+      html += '</span>';
+    }
+    html += '</div>';
+    html += '<div class="actions">';
+    if (m.is_notification && m.active && !m.dismissed_at) {
+      html += '<button class="btn-sm" style="background:#fab00520;color:#fab005;border:1px solid #fab00540" onclick="dismissMessage(\'' + m.id + '\')">Dispensar</button>';
+    }
+    if (m.is_notification) {
+      html += '<button class="btn-sm" style="background:#228be620;color:#228be6;border:1px solid #228be640" onclick="resendMessage(\'' + m.id + '\')">Reenviar</button>';
+    }
+    html += '<button class="btn-sm" onclick="editMessage(\'' + m.id + '\')">Editar</button>';
+    html += '<button class="btn-sm danger" onclick="deleteMessage(\'' + m.id + '\', \'' + esc(m.title) + '\')">Excluir</button>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function openCreateMessage() {
+  showMessageModal(null);
+}
+
+function editMessage(id) {
+  supa("/rest/v1/global_messages?id=eq." + id).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      showMessageModal(data[0]);
+    }
+  });
+}
+
+function showMessageModal(msg, resendMode) {
+  var isEdit = !!msg && !resendMode;
+  var isNotif = msg ? msg.is_notification : false;
+  var nType = (msg && msg.notification_type) ? msg.notification_type : 'info';
+  var targetUsers = (msg && msg.target_users) ? msg.target_users : null;
+  var isAllUsers = !targetUsers;
+  var isPinned = msg ? msg.is_pinned : false;
+  var scheduledAt = msg ? msg.scheduled_at : null;
+  var pinStart = msg ? msg.pin_start : null;
+  var pinEnd = msg ? msg.pin_end : null;
+
+  // For resend mode, default to notification ON and schedule to now
+  if (resendMode) {
+    isNotif = true;
+    scheduledAt = null;
+    isPinned = false;
+  }
+
+  // Determine send mode: now, scheduled
+  var sendMode = scheduledAt ? 'scheduled' : 'now';
+
+  // Build user checkboxes
+  var userCheckboxes = '';
+  if (allUsers && allUsers.length > 0) {
+    allUsers.filter(function(u) { return u.active; }).forEach(function(u) {
+      var checked = isAllUsers || (targetUsers && targetUsers.indexOf(u.id) !== -1) ? ' checked' : '';
+      userCheckboxes += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0;font-size:13px">' +
+        '<input type="checkbox" class="msg-user-check" value="' + u.id + '"' + checked + '>' +
+        esc(u.name) + ' <span style="color:#8696a0;font-size:11px">(' + esc(u.email || '') + ')</span>' +
+      '</label>';
+    });
+  }
+
+  // Format datetime for input
+  function fmtDt(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + 'T' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+
+  var modalTitle = resendMode ? 'Reenviar Mensagem' : (isEdit ? 'Editar Mensagem' : 'Nova Mensagem Global');
+
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal" style="max-width:520px;max-height:85vh;overflow-y:auto">' +
+        '<h3>' + modalTitle + '</h3>' +
+        '<div class="form-group"><label>Titulo</label><input type="text" id="msgTitle" placeholder="Ex: Boas-vindas" value="' + (msg ? esc(msg.title) : '') + '"' + (resendMode ? ' readonly style="opacity:0.7;background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:8px;padding:10px;width:100%;box-sizing:border-box"' : '') + '></div>' +
+        '<div class="form-group"><label>Categoria (opcional)</label><input type="text" id="msgCategory" placeholder="Ex: Atendimento, Follow-up" value="' + (msg && msg.category ? esc(msg.category) : '') + '"></div>' +
+        '<div class="form-group"><label>Conteudo da mensagem</label><textarea id="msgContent" rows="4" placeholder="Escreva a mensagem aqui..."' + (resendMode ? ' readonly style="opacity:0.7;background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:8px;padding:10px;width:100%;box-sizing:border-box"' : '') + '>' + (msg ? esc(msg.content) : '') + '</textarea></div>' +
+        '<div class="form-group" style="display:flex;align-items:center;gap:10px">' +
+          '<label style="margin:0;cursor:pointer;display:flex;align-items:center;gap:6px">' +
+            '<input type="checkbox" id="msgIsNotification" ' + (isNotif ? 'checked' : '') + ' onchange="toggleNotifOptions(this.checked)">' +
+            'Enviar como notificacao' +
+          '</label>' +
+        '</div>' +
+        '<div id="notifTypeGroup" style="display:' + (isNotif ? 'block' : 'none') + '">' +
+          // Type + Users
+          '<div class="form-group" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
+            '<label style="margin:0">Tipo:</label>' +
+            '<select id="msgNotifType" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:13px">' +
+              '<option value="info"' + (nType === 'info' ? ' selected' : '') + '>Info</option>' +
+              '<option value="warning"' + (nType === 'warning' ? ' selected' : '') + '>Aviso</option>' +
+              '<option value="success"' + (nType === 'success' ? ' selected' : '') + '>Sucesso</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="form-group" style="margin-bottom:8px">' +
+            '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">' +
+              '<input type="checkbox" id="msgAllUsers" ' + (isAllUsers ? 'checked' : '') + ' onchange="toggleAllUsers(this.checked)">' +
+              'Todos os usuarios' +
+            '</label>' +
+          '</div>' +
+          '<div id="msgUsersList" class="form-group" style="display:' + (isAllUsers ? 'none' : 'block') + ';max-height:120px;overflow-y:auto;border:1px solid #2a3942;border-radius:8px;padding:8px 12px;background:#111b21">' +
+            userCheckboxes +
+          '</div>' +
+          // Send mode
+          '<div class="form-group" style="margin-top:12px;border-top:1px solid #2a3942;padding-top:12px">' +
+            '<label style="font-weight:600;margin-bottom:8px;display:block">Quando enviar</label>' +
+            '<div style="display:flex;gap:12px;margin-bottom:8px">' +
+              '<label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="radio" name="msgSendMode" value="now"' + (sendMode === 'now' ? ' checked' : '') + ' onchange="toggleSendMode()"> Agora</label>' +
+              '<label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="radio" name="msgSendMode" value="scheduled"' + (sendMode === 'scheduled' ? ' checked' : '') + ' onchange="toggleSendMode()"> Agendar</label>' +
+            '</div>' +
+            '<div id="msgScheduleGroup" style="display:' + (sendMode === 'scheduled' ? 'block' : 'none') + '">' +
+              '<input type="datetime-local" id="msgScheduledAt" value="' + fmtDt(scheduledAt) + '" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:8px;font-size:13px;width:100%;box-sizing:border-box">' +
+            '</div>' +
+          '</div>' +
+          // Pin mode
+          '<div class="form-group" style="border-top:1px solid #2a3942;padding-top:12px">' +
+            '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600">' +
+              '<input type="checkbox" id="msgIsPinned" ' + (isPinned ? 'checked' : '') + ' onchange="togglePinOptions(this.checked)">' +
+              'Fixar mensagem (sem botao de fechar)' +
+            '</label>' +
+          '</div>' +
+          '<div id="msgPinGroup" style="display:' + (isPinned ? 'block' : 'none') + '">' +
+            '<div style="display:flex;gap:8px;margin-bottom:6px">' +
+              '<div style="flex:1"><label style="font-size:11px;color:#8696a0">Inicio</label><input type="datetime-local" id="msgPinStart" value="' + fmtDt(pinStart) + '" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px;font-size:12px;width:100%;box-sizing:border-box"></div>' +
+              '<div style="flex:1"><label style="font-size:11px;color:#8696a0">Termino</label><input type="datetime-local" id="msgPinEnd" value="' + fmtDt(pinEnd) + '" style="background:#2a3942;color:#e9edef;border:1px solid #3b4a54;border-radius:6px;padding:6px;font-size:12px;width:100%;box-sizing:border-box"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="saveMessage(' + (isEdit ? "'" + msg.id + "'" : 'null') + (resendMode ? ", true" : "") + ')">' + (resendMode ? 'Reenviar' : isEdit ? 'Salvar' : 'Criar') + '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById("msgTitle").focus();
+}
+
+function toggleNotifOptions(checked) {
+  document.getElementById('notifTypeGroup').style.display = checked ? 'block' : 'none';
+}
+
+function toggleAllUsers(checked) {
+  document.getElementById('msgUsersList').style.display = checked ? 'none' : 'block';
+  if (checked) {
+    document.querySelectorAll('.msg-user-check').forEach(function(cb) { cb.checked = true; });
+  }
+}
+
+function toggleSendMode() {
+  var mode = document.querySelector('input[name="msgSendMode"]:checked').value;
+  document.getElementById('msgScheduleGroup').style.display = mode === 'scheduled' ? 'block' : 'none';
+}
+
+function togglePinOptions(checked) {
+  document.getElementById('msgPinGroup').style.display = checked ? 'block' : 'none';
+}
+
+function saveMessage(editId, isResend) {
+  var title = document.getElementById("msgTitle").value.trim();
+  var category = document.getElementById("msgCategory").value.trim();
+  var content = document.getElementById("msgContent").value.trim();
+  var isNotification = document.getElementById("msgIsNotification").checked;
+  var notifType = document.getElementById("msgNotifType") ? document.getElementById("msgNotifType").value : 'info';
+  var allUsersChecked = document.getElementById("msgAllUsers") ? document.getElementById("msgAllUsers").checked : true;
+
+  if (!title || !content) { alert("Preencha titulo e conteudo"); return; }
+
+  // Build target_users
+  var targetUsers = null;
+  if (isNotification && !allUsersChecked) {
+    targetUsers = [];
+    document.querySelectorAll('.msg-user-check:checked').forEach(function(cb) {
+      targetUsers.push(cb.value);
+    });
+    if (targetUsers.length === 0) { alert("Selecione pelo menos um usuario"); return; }
+  }
+
+  // Send mode
+  var sendMode = document.querySelector('input[name="msgSendMode"]:checked');
+  var scheduledAt = null;
+  if (sendMode && sendMode.value === 'scheduled') {
+    var dt = document.getElementById("msgScheduledAt").value;
+    if (!dt) { alert("Selecione a data e horario para agendar"); return; }
+    scheduledAt = new Date(dt).toISOString();
+  }
+
+  // Pin mode
+  var isPinned = document.getElementById("msgIsPinned") ? document.getElementById("msgIsPinned").checked : false;
+  var pinStart = null, pinEnd = null;
+  if (isPinned) {
+    var ps = document.getElementById("msgPinStart").value;
+    var pe = document.getElementById("msgPinEnd").value;
+    if (!ps || !pe) { alert("Preencha inicio e termino para fixar"); return; }
+    pinStart = new Date(ps).toISOString();
+    pinEnd = new Date(pe).toISOString();
+  }
+
+  var body = {
+    title: title,
+    content: content,
+    category: category || null,
+    is_notification: isNotification,
+    notification_type: isNotification ? notifType : 'info',
+    target_users: targetUsers,
+    scheduled_at: scheduledAt,
+    is_pinned: isPinned,
+    pin_start: pinStart,
+    pin_end: pinEnd,
+    dismissed_at: null,
+    active: true
+  };
+
+  if (isResend) {
+    // Create a new copy of the message
+    body.created_by = currentAdmin.user_id;
+    supa("/rest/v1/global_messages", { method: "POST", body: body })
+      .then(function() {
+        closeModalForce();
+        loadMessages();
+      });
+  } else if (editId) {
+    body.updated_at = new Date().toISOString();
+    supa("/rest/v1/global_messages?id=eq." + editId, { method: "PATCH", body: body })
+      .then(function() { closeModalForce(); loadMessages(); });
+  } else {
+    body.created_by = currentAdmin.user_id;
+    supa("/rest/v1/global_messages", { method: "POST", body: body })
+      .then(function() { closeModalForce(); loadMessages(); });
+  }
+}
+
+function resendMessage(id) {
+  supa("/rest/v1/global_messages?id=eq." + id).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      showMessageModal(data[0], true);
+    }
+  });
+}
+
+function dismissMessage(id) {
+  if (!confirm('Dispensar esta notificacao? Ela sera removida de todos os usuarios imediatamente.')) return;
+  supa("/rest/v1/global_messages?id=eq." + id, {
+    method: "PATCH",
+    body: { dismissed_at: new Date().toISOString(), active: false, updated_at: new Date().toISOString() }
+  }).then(function() { loadMessages(); });
+}
+
+function deleteMessage(id, title) {
+  if (!confirm('Excluir a mensagem "' + title + '"?')) return;
+  supa("/rest/v1/global_messages?id=eq." + id, { method: "DELETE" })
+    .then(function() { loadMessages(); });
+}
+
+function showReadsModal(msgId, msgTitle) {
+  supa("/rest/v1/notification_reads?message_id=eq." + msgId + "&select=read_at,users(name,email)&order=read_at.desc").then(function(reads) {
+    if (!Array.isArray(reads)) reads = [];
+    var container = document.getElementById("modalsContainer");
+    var html = '<div class="modal-overlay" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Visualizacoes: ' + esc(msgTitle) + '</h3>';
+
+    if (reads.length === 0) {
+      html += '<div class="empty-state">Nenhum usuario visualizou esta notificacao ainda.</div>';
+    } else {
+      html += '<div style="font-size:12px;color:#8696a0;margin-bottom:10px">' + reads.length + ' visualizacao(oes)</div>';
+      html += '<div class="reads-modal-list">';
+      reads.forEach(function(r) {
+        var userName = r.users ? r.users.name : 'Desconhecido';
+        var userEmail = r.users ? r.users.email : '';
+        html += '<div class="reads-modal-item">';
+        html += '<div><strong style="color:#e9edef">' + esc(userName) + '</strong>';
+        if (userEmail) html += ' <span style="color:#8696a0;font-size:11px">' + esc(userEmail) + '</span>';
+        html += '</div>';
+        html += '<span style="color:#3b4a54;font-size:11px">' + formatDate(r.read_at) + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div class="modal-actions"><button class="btn-cancel" onclick="closeModalForce()">Fechar</button></div>';
+    html += '</div></div>';
+    container.innerHTML = html;
+  });
+}
+
+// ===== SECURITY LOG =====
+function loadSecurityLog() {
+  // Load last 100 attempts, most recent first
+  supa("/rest/v1/token_attempts?select=*,users(name,email)&order=attempted_at.desc&limit=100").then(function(logs) {
+    if (!Array.isArray(logs)) {
+      // Fallback if join fails (table might not exist yet before migration)
+      document.getElementById("securityLog").innerHTML = '<div class="empty-state">Nenhum registro encontrado. Execute a migration_003 primeiro.</div>';
+      return;
+    }
+    renderSecurityLog(logs);
+
+    // Count blocked attempts for badge
+    var blocked = logs.filter(function(l) { return l.blocked; }).length;
+    var badge = document.getElementById("secBadge");
+    if (blocked > 0) {
+      badge.textContent = blocked;
+      badge.style.display = "flex";
+    } else {
+      badge.style.display = "none";
+    }
+  });
+}
+
+function renderSecurityLog(logs) {
+  var container = document.getElementById("securityLog");
+  if (logs.length === 0) {
+    container.innerHTML = '<div class="empty-state">Nenhum registro de acesso ainda.</div>';
+    return;
+  }
+
+  var html = "";
+  logs.forEach(function(l) {
+    var isBlocked = l.blocked;
+    var userName = l.users ? l.users.name : "Desconhecido";
+    var icon = isBlocked ? "&#128683;" : "&#9989;";
+    var cls = isBlocked ? "blocked" : "ok";
+
+    var reasonText = "";
+    if (l.reason === "device_mismatch") reasonText = "Dispositivo diferente tentou usar o token";
+    else if (l.reason === "phone_mismatch") reasonText = "Numero WhatsApp nao corresponde ao cadastrado (detectado: +" + esc(l.token_used) + ")";
+    else if (isBlocked) reasonText = "Acesso bloqueado";
+
+    html += '<div class="log-item ' + cls + '">';
+    html += '<div class="log-icon">' + icon + '</div>';
+    html += '<div class="log-details">';
+    html += '<div class="log-name">' + esc(userName) + '</div>';
+    html += '<div class="log-meta">';
+    if (l.ip_address) html += 'IP: <strong>' + esc(l.ip_address) + '</strong>';
+    if (l.location) html += ' &mdash; ' + esc(l.location);
+    html += '</div>';
+    if (reasonText) html += '<div class="log-reason">' + reasonText + '</div>';
+    html += '</div>';
+    html += '<div class="log-time">' + formatDate(l.attempted_at) + '</div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+// ===== SETTINGS =====
+function loadSettings() {
+  supa("/rest/v1/app_settings?select=*").then(function(rows) {
+    if (!Array.isArray(rows)) return;
+    rows.forEach(function(r) {
+      if (r.key === "hubspot_api_key" && r.value) {
+        var input = document.getElementById("settingsHubspotKey");
+        if (input) input.value = r.value;
+      }
+    });
+  });
+}
+
+function saveHubspotKey() {
+  var key = document.getElementById("settingsHubspotKey").value.trim();
+  var statusEl = document.getElementById("hubspotStatus");
+  if (!key) { statusEl.style.color = "#ff6b6b"; statusEl.textContent = "Insira a chave"; return; }
+
+  statusEl.style.color = "#8696a0";
+  statusEl.textContent = "Salvando...";
+
+  // Upsert: try update first, if no rows affected then insert
+  supa("/rest/v1/app_settings?key=eq.hubspot_api_key", {
+    method: "PATCH",
+    body: { value: key, updated_at: new Date().toISOString() },
+    prefer: "return=representation"
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      statusEl.style.color = "#25d366";
+      statusEl.textContent = "Salvo!";
+      return;
+    }
+    // No rows updated = key doesn't exist yet, insert it
+    return supa("/rest/v1/app_settings", {
+      method: "POST",
+      body: { key: "hubspot_api_key", value: key }
+    }).then(function() {
+      statusEl.style.color = "#25d366";
+      statusEl.textContent = "Salvo!";
+    });
+  }).catch(function() {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Erro ao salvar";
+  });
+}
+
+function testHubspotKey() {
+  var key = document.getElementById("settingsHubspotKey").value.trim();
+  var statusEl = document.getElementById("hubspotStatus");
+  if (!key) { statusEl.style.color = "#ff6b6b"; statusEl.textContent = "Insira a chave primeiro"; return; }
+
+  statusEl.style.color = "#8696a0";
+  statusEl.textContent = "Testando...";
+
+  fetch("https://api.hubapi.com/crm/v3/objects/contacts?limit=1", {
+    headers: { "Authorization": "Bearer " + key }
+  }).then(function(r) {
+    if (r.ok) {
+      statusEl.style.color = "#25d366";
+      statusEl.textContent = "Conectado ao HubSpot com sucesso!";
+    } else {
+      statusEl.style.color = "#ff6b6b";
+      statusEl.textContent = "Erro: HTTP " + r.status + " — verifique a chave";
+    }
+  }).catch(function() {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Erro de conexao";
+  });
+}
+
+// ===== VERSION RELEASE =====
+var RELEASE_JSON_URL = SUPA_URL + "/storage/v1/object/public/releases/release.json";
+var BUILD_INFO_URL = SUPA_URL + "/storage/v1/object/public/releases/build-info.json";
+var RELEASE_UPLOAD_URL = SUPA_URL + "/storage/v1/object/releases/release.json";
+var RELEASE_DOWNLOAD_URL = SUPA_URL + "/storage/v1/object/public/releases/ezap-latest.zip";
+
+function loadCurrentRelease() {
+  var infoEl = document.getElementById("currentReleaseInfo");
+
+  // Fetch both release.json (published) and build-info.json (latest build) in parallel
+  Promise.all([
+    fetch(RELEASE_JSON_URL + "?t=" + Date.now()).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+    fetch(BUILD_INFO_URL + "?t=" + Date.now()).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+  ]).then(function(results) {
+    var published = results[0];
+    var build = results[1];
+    var html = "";
+
+    // Show published version
+    if (published && published.version) {
+      var dateStr = published.published_at ? formatDate(published.published_at) : "-";
+      html +=
+        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">' +
+          '<div style="width:8px;height:8px;border-radius:50%;background:#25d366;flex-shrink:0"></div>' +
+          '<div>' +
+            '<div style="color:#e9edef;font-weight:600">Versao publicada: <span style="color:#25d366">' + esc(published.version) + '</span></div>' +
+            '<div style="font-size:11px;color:#8696a0;margin-top:2px">' + dateStr +
+              (published.message ? ' &mdash; ' + esc(published.message) : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    } else {
+      html += '<div style="color:#ff922b;margin-bottom:8px">Nenhuma versao publicada ainda.</div>';
+    }
+
+    // Compare with latest build and show alert if there's a newer build
+    if (build && build.version) {
+      var publishedVersion = published ? published.version : "0.0.0";
+      var isNewer = isNewerSemver(build.version, publishedVersion);
+
+      if (isNewer) {
+        var buildDate = build.built_at ? formatDate(build.built_at) : "";
+        html +=
+          '<div style="display:flex;align-items:center;gap:12px;background:#ff922b15;border:1px solid #ff922b30;border-radius:6px;padding:10px 12px">' +
+            '<div style="font-size:18px;flex-shrink:0">&#9888;&#65039;</div>' +
+            '<div>' +
+              '<div style="color:#ff922b;font-weight:600;font-size:12px">Nova versao no Supabase: <span style="color:#e9edef">' + esc(build.version) + '</span> — ainda nao publicada!</div>' +
+              (buildDate ? '<div style="font-size:11px;color:#8696a0;margin-top:2px">Build: ' + buildDate + '</div>' : '') +
+            '</div>' +
+          '</div>';
+
+        // Auto-fill version input with the new build version
+        var vInput = document.getElementById("releaseVersion");
+        if (vInput) vInput.value = build.version;
+      } else {
+        // Published version is up to date
+        var vInput2 = document.getElementById("releaseVersion");
+        if (vInput2 && !vInput2.value && published) vInput2.value = published.version;
+      }
+    } else if (published) {
+      var vInput3 = document.getElementById("releaseVersion");
+      if (vInput3 && !vInput3.value) vInput3.value = published.version;
+    }
+
+    infoEl.innerHTML = html || '<span style="color:#8696a0">Nenhuma informacao disponivel.</span>';
+  });
+}
+
+// Compare semver: returns true if vA > vB
+function isNewerSemver(vA, vB) {
+  var a = vA.split(".").map(Number);
+  var b = vB.split(".").map(Number);
+  for (var i = 0; i < 3; i++) {
+    if ((a[i] || 0) > (b[i] || 0)) return true;
+    if ((a[i] || 0) < (b[i] || 0)) return false;
+  }
+  return false;
+}
+
+function publishRelease() {
+  var version = document.getElementById("releaseVersion").value.trim();
+  var message = document.getElementById("releaseMessage").value.trim();
+  var statusEl = document.getElementById("releaseStatus");
+
+  if (!version) {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Informe a versao";
+    return;
+  }
+
+  // Validate version format (semver-like)
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Formato invalido. Use X.Y.Z (ex: 1.4.0)";
+    return;
+  }
+
+  if (!confirm("Publicar versao " + version + " e notificar todos os usuarios?")) return;
+
+  statusEl.style.color = "#8696a0";
+  statusEl.textContent = "Publicando...";
+
+  var releaseData = {
+    version: version,
+    message: message || "",
+    download_url: RELEASE_DOWNLOAD_URL,
+    published_at: new Date().toISOString(),
+    published_by: currentAdmin.user_name || "admin"
+  };
+
+  // Upload release.json to Supabase Storage (upsert)
+  fetch(RELEASE_UPLOAD_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + SUPA_KEY,
+      "Content-Type": "application/json",
+      "x-upsert": "true"
+    },
+    body: JSON.stringify(releaseData)
+  }).then(function(r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    statusEl.style.color = "#25d366";
+    statusEl.textContent = "Versao " + version + " publicada com sucesso!";
+    document.getElementById("releaseMessage").value = "";
+    loadCurrentRelease();
+    setTimeout(function() { statusEl.textContent = ""; }, 5000);
+  }).catch(function(err) {
+    statusEl.style.color = "#ff6b6b";
+    statusEl.textContent = "Erro ao publicar: " + err.message;
+  });
+}
+
+// Load release info on settings load
+(function() {
+  var origLoadSettings = loadSettings;
+  loadSettings = function() {
+    origLoadSettings();
+    loadCurrentRelease();
+  };
+})();
+
+// ===== UTILS =====
+function closeModal(e) { if (e.target.classList.contains("modal-overlay")) closeModalForce(); }
+function closeModalForce() { document.getElementById("modalsContainer").innerHTML = ""; }
+
+function formatDate(d) {
+  if (!d) return "-";
+  var dt = new Date(d);
+  var day = String(dt.getDate()).padStart(2, "0");
+  var mon = String(dt.getMonth() + 1).padStart(2, "0");
+  var yr = dt.getFullYear();
+  var h = String(dt.getHours()).padStart(2, "0");
+  var m = String(dt.getMinutes()).padStart(2, "0");
+  return day + "/" + mon + "/" + yr + " " + h + ":" + m;
+}
+
+function esc(s) {
+  if (!s) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+</script>
+</body>
+</html>
