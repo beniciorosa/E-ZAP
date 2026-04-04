@@ -13,6 +13,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const hubspotSection = document.getElementById("hubspot-section");
   const userInfoSection = document.getElementById("user-info-section");
 
+  // ===== Set version from manifest =====
+  var manifest = chrome.runtime.getManifest();
+  var versionLabel = document.getElementById("version-label");
+  if (versionLabel) versionLabel.textContent = "E-ZAP V" + manifest.version;
+
   // ===== Load auth info =====
   chrome.storage.local.get("wcrm_auth", (data) => {
     const auth = data.wcrm_auth;
@@ -20,7 +25,8 @@ document.addEventListener("DOMContentLoaded", () => {
       userSection.style.display = "block";
       noUserSection.style.display = "none";
       userName.textContent = auth.userName;
-      userRole.textContent = auth.userRole === "admin" ? "Administrador" : "Usuário";
+      var roleMap = { admin: "Administrador", user: "Usu\u00e1rio", cx_cs: "CX/CS" };
+      userRole.textContent = roleMap[auth.userRole] || auth.userRole || "Usu\u00e1rio";
       userAvatar.textContent = (auth.userName || "U").charAt(0).toUpperCase();
       userToken.textContent = auth.token;
 
