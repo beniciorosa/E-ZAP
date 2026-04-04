@@ -351,7 +351,13 @@ function silentRevalidate(token) {
           validatedAt: new Date().toISOString(),
         };
         chrome.storage.local.set(saved);
+        var oldFeatures = (window.__wcrmAuth && window.__wcrmAuth.features || []).slice().sort().join(",");
         setAuthGlobal(saved[AUTH_STORAGE_KEY]);
+        var newFeatures = (window.__wcrmAuth.features || []).slice().sort().join(",");
+        if (oldFeatures !== newFeatures) {
+          console.log("[EZAP AUTH] Features changed, reloading page. Old:", oldFeatures, "New:", newFeatures);
+          location.reload();
+        }
       }
     });
   });
