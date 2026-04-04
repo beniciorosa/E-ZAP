@@ -29,7 +29,7 @@ Chrome Extension (Manifest V3) para gestao de WhatsApp Business. Inclui CRM, men
 - **URL**: `https://xsqpqdjffjqxdcmoytfc.supabase.co`
 - **Anon key**: no `background.js` linha 5 (AUTH_SUPA_ANON)
 - **Service key**: no `background.js` linha 6 (AUTH_SERVICE_KEY)
-- **Management API token**: `sbp_35eaeec13fd7f23d79c23f855a18ee8d7fd04987`
+- **Management API token**: `sbp_755da5b1316c8a4cba6e0feb282b454b67e6793b`
 
 ## GitHub
 - Repo: `https://github.com/beniciorosa/E-ZAP.git`

@@ -416,3 +416,40 @@
   font-size: 12px;
   border-top: none;
 }
+
+/* ===== GEIA Sidebar ===== */
+#geia-sidebar {
+  display: none;
+  flex-direction: column;
+}
+#geia-sidebar.open {
+  display: flex;
+}
+
+/* GEIA inline suggest button (next to received messages) */
+.geia-suggest-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2a1a3a;
+  color: #cc5de8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  cursor: pointer;
+  position: absolute;
+  right: -34px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  transition: background 0.2s, transform 0.15s;
+  user-select: none;
+  border: none;
+  line-height: 1;
+}
+.geia-suggest-btn:hover {
+  background: #3d2557;
+  transform: translateY(-50%) scale(1.12);
+}

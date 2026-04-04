@@ -384,6 +384,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // ===== GEIA - AI Chat Completion =====
+  if (request.action === "geia_chat") {
+    handleAsync(() => geiaChatCompletion(request.messages, request.maxTokens), sendResponse);
+    return true;
+  }
+  if (request.action === "geia_get_config") {
+    handleAsync(() => geiaGetConfig(), sendResponse);
+    return true;
+  }
+
   // ===== Generic Supabase REST (for data sync) =====
   if (request.action === "supabase_rest") {
     handleAsync(() => supabaseRest(request.path, request.method, request.body, request.prefer), sendResponse);
@@ -1262,6 +1272,65 @@ async function transcribeAudio(base64, contentType) {
     return { text: data.text || "" };
   } catch (err) {
     console.error("[EZAP BG] Transcription error:", err);
+    return { error: err.message || "Erro desconhecido" };
+  }
+}
+
+// ===== GEIA - AI Functions =====
+async function geiaGetConfig() {
+  try {
+    const headers = {
+      "apikey": AUTH_SERVICE_KEY,
+      "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+      "Content-Type": "application/json",
+    };
+    // Fetch personality + knowledge in parallel
+    const [persResp, knResp] = await Promise.all([
+      fetch(AUTH_SUPA_URL + "/rest/v1/app_settings?key=eq.geia_personality&select=value", { headers }),
+      fetch(AUTH_SUPA_URL + "/rest/v1/geia_knowledge?active=eq.true&select=title,type,content,url&order=created_at.asc", { headers }),
+    ]);
+    const persRows = await persResp.json();
+    const knowledge = await knResp.json();
+    return {
+      personality: (Array.isArray(persRows) && persRows.length > 0) ? persRows[0].value : "",
+      knowledge: Array.isArray(knowledge) ? knowledge : [],
+    };
+  } catch (err) {
+    console.error("[EZAP BG] GEIA config error:", err);
+    return { personality: "", knowledge: [] };
+  }
+}
+
+async function geiaChatCompletion(messages, maxTokens) {
+  try {
+    const apiKey = await getOpenAIKey();
+    if (!apiKey) throw new Error("OpenAI API key não configurada");
+
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: messages,
+        max_tokens: maxTokens || 1000,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error("[EZAP BG] GEIA API error:", resp.status, errText);
+      throw new Error("OpenAI API " + resp.status);
+    }
+
+    const data = await resp.json();
+    const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    return { text: text || "" };
+  } catch (err) {
+    console.error("[EZAP BG] GEIA error:", err);
     return { error: err.message || "Erro desconhecido" };
   }
 }

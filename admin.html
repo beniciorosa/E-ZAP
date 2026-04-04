@@ -975,6 +975,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/></svg>
         Permissões
       </button>
+      <button class="sidebar-nav-item" data-tab="geia" onclick="switchTab('geia')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1.07A7 7 0 0 1 14 22h-4a7 7 0 0 1-6.93-3H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/><circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="14" r="1.5"/></svg>
+        GEIA
+      </button>
       <button class="sidebar-nav-item" data-tab="security" onclick="switchTab('security')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         Segurança
@@ -1083,6 +1087,52 @@
     </div>
 
     <!-- ===== SETTINGS PANEL ===== -->
+    <div class="panel" id="panel-geia">
+      <div class="page-header">
+        <div class="page-title">GEIA - Inteligência Artificial</div>
+      </div>
+
+      <!-- Personality Prompt -->
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(204,93,232,0.1)">
+            <span>&#129302;</span>
+          </div>
+          <div>
+            <div class="settings-card-title">Prompt de Personalidade</div>
+            <div class="settings-card-desc">Defina como a GEIA deve se comportar, tom de voz, regras e instruções gerais</div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label>System Prompt</label>
+          <textarea id="geiaPersonality" rows="8" placeholder="Ex: Você é a GEIA, assistente do Grupo Escalada. Responda de forma profissional e técnica..." style="font-size:13px;line-height:1.6;resize:vertical"></textarea>
+          <div class="hint">Este texto será enviado como instrução base em todas as interações da IA. Quanto mais detalhado, melhor.</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn-primary" onclick="saveGeiaPersonality()" style="padding:8px 18px;font-size:12px">Salvar</button>
+          <span id="geiaPersonalityStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+
+      <!-- Knowledge Base -->
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(37,211,102,0.1)">
+            <span>&#128218;</span>
+          </div>
+          <div>
+            <div class="settings-card-title">Base de Conhecimento</div>
+            <div class="settings-card-desc">Materiais que a GEIA usa como referência para responder</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div id="geiaKnowledgeCount" style="font-size:12px;color:var(--on-surface-variant)">Carregando...</div>
+          <button class="btn-primary" onclick="openAddKnowledge()" style="padding:8px 16px;font-size:12px">+ Adicionar Material</button>
+        </div>
+        <div id="geiaKnowledgeList"></div>
+      </div>
+    </div>
+
     <div class="panel" id="panel-settings">
       <div class="page-header">
         <div class="page-title">Configurações</div>
@@ -1181,6 +1231,9 @@ var ALL_FEATURES = [
   { key: "abas", label: "ABAS (Grupos)", category: "sidebar", side: "right" },
   { key: "pin", label: "PIN (Fixar contatos)", category: "complementar" },
   { key: "transcribe", label: "Transcrição de Áudio", category: "complementar" },
+  { key: "geia", label: "GEIA (I.A.)", category: "sidebar", side: "right" },
+  { key: "geia_resumo", label: "GEIA - Resumo de Conversa", category: "geia" },
+  { key: "geia_sugestao", label: "GEIA - Sugestão de Resposta", category: "geia" },
 ];
 
 var DEFAULT_FEATURES = ["crm", "msg", "abas", "pin"];
@@ -1262,6 +1315,8 @@ function showApp() {
   loadMessages();
   loadSecurityLog();
   loadSettings();
+  loadGeiaPersonality();
+  loadGeiaKnowledge();
 }
 
 // Auto-login
@@ -2170,6 +2225,7 @@ function buildFeatDragHTML(selectedFeats, prefix) {
   var categories = [
     { key: "sidebar", label: "Botões Sidebar (direita)" },
     { key: "complementar", label: "Funções Complementares" },
+    { key: "geia", label: "GEIA - Inteligência Artificial" },
   ];
   // Use admin profile order if available
   var adminProfile = userProfiles.find(function(p) { return p.key === "admin"; });
@@ -2348,6 +2404,193 @@ function deleteProfile(idx) {
   if (!confirm('Excluir o perfil "' + p.name + '"?')) return;
   userProfiles.splice(idx, 1);
   saveProfiles(function() { renderProfiles(); });
+}
+
+// ===== GEIA =====
+function loadGeiaPersonality() {
+  supa("/rest/v1/app_settings?key=eq.geia_personality&select=*").then(function(rows) {
+    var el = document.getElementById("geiaPersonality");
+    if (el && Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+      el.value = rows[0].value;
+    }
+  });
+}
+
+function saveGeiaPersonality() {
+  var val = (document.getElementById("geiaPersonality").value || "").trim();
+  var statusEl = document.getElementById("geiaPersonalityStatus");
+  statusEl.textContent = "Salvando...";
+  statusEl.style.color = "var(--on-surface-variant)";
+
+  supa("/rest/v1/app_settings?key=eq.geia_personality", {
+    method: "PATCH", body: { value: val, updated_at: new Date().toISOString() }, prefer: "return=representation"
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+      return;
+    }
+    return supa("/rest/v1/app_settings", {
+      method: "POST", body: { key: "geia_personality", value: val }
+    }).then(function() {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+    });
+  });
+  setTimeout(function() { statusEl.textContent = ""; }, 3000);
+}
+
+var geiaKnowledge = [];
+
+function loadGeiaKnowledge() {
+  supa("/rest/v1/geia_knowledge?select=*&order=created_at.asc").then(function(rows) {
+    if (!Array.isArray(rows)) return;
+    geiaKnowledge = rows;
+    renderGeiaKnowledge();
+  });
+}
+
+function renderGeiaKnowledge() {
+  var list = document.getElementById("geiaKnowledgeList");
+  var countEl = document.getElementById("geiaKnowledgeCount");
+  var active = geiaKnowledge.filter(function(k) { return k.active; });
+  countEl.textContent = active.length + " material(is) ativo(s) de " + geiaKnowledge.length + " total";
+
+  if (geiaKnowledge.length === 0) {
+    list.innerHTML = '<div class="empty-state">Nenhum material adicionado. Clique em "+ Adicionar Material" para começar.</div>';
+    return;
+  }
+
+  var html = '';
+  geiaKnowledge.forEach(function(k, idx) {
+    var typeIcons = { text: "&#128196;", link: "&#128279;", pdf: "&#128203;" };
+    var typeLabels = { text: "Texto", link: "Link", pdf: "PDF" };
+    var opacity = k.active ? "1" : "0.5";
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface-container-lowest);border-radius:var(--radius-md);margin-bottom:8px;opacity:' + opacity + '">';
+    html += '<div style="font-size:20px">' + (typeIcons[k.type] || "&#128196;") + '</div>';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-weight:600;font-size:13px;color:var(--on-surface)">' + esc(k.title) + '</div>';
+    html += '<div style="font-size:11px;color:var(--on-surface-variant)">' + (typeLabels[k.type] || k.type);
+    if (k.url) html += ' &middot; <a href="' + esc(k.url) + '" target="_blank" style="color:var(--primary)">Abrir link</a>';
+    var preview = (k.content || "").substring(0, 80);
+    if (preview) html += ' &middot; ' + esc(preview) + (k.content.length > 80 ? '...' : '');
+    html += '</div></div>';
+    html += '<label class="toggle-label" style="margin:0"><input type="checkbox" ' + (k.active ? 'checked' : '') + ' onchange="toggleKnowledge(\'' + k.id + '\', this.checked)"><span class="toggle-slider"></span></label>';
+    html += '<button class="btn-secondary" onclick="openEditKnowledge(' + idx + ')" style="padding:4px 10px;font-size:11px">Editar</button>';
+    html += '<button class="btn-secondary" onclick="deleteKnowledge(\'' + k.id + '\')" style="padding:4px 10px;font-size:11px;color:var(--error)">Excluir</button>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function toggleKnowledge(id, active) {
+  supa("/rest/v1/geia_knowledge?id=eq." + id, {
+    method: "PATCH", body: { active: active, updated_at: new Date().toISOString() }
+  }).then(function() {
+    var k = geiaKnowledge.find(function(x) { return x.id === id; });
+    if (k) k.active = active;
+    renderGeiaKnowledge();
+  });
+}
+
+function deleteKnowledge(id) {
+  if (!confirm("Excluir este material?")) return;
+  supa("/rest/v1/geia_knowledge?id=eq." + id, { method: "DELETE" }).then(function() {
+    geiaKnowledge = geiaKnowledge.filter(function(x) { return x.id !== id; });
+    renderGeiaKnowledge();
+  });
+}
+
+function openAddKnowledge() {
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onmousedown="modalOverlayMouseDown(event)" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Adicionar Material</h3>' +
+        '<div class="form-group"><label>Título</label><input type="text" id="knowledgeTitle" placeholder="Ex: Manual de Atendimento"></div>' +
+        '<div class="form-group"><label>Tipo</label><select id="knowledgeType" onchange="onKnowledgeTypeChange()">' +
+          '<option value="text">Texto</option>' +
+          '<option value="link">Link</option>' +
+        '</select></div>' +
+        '<div class="form-group" id="knowledgeUrlGroup" style="display:none"><label>URL</label><input type="text" id="knowledgeUrl" placeholder="https://..."></div>' +
+        '<div class="form-group"><label>Conteúdo / Texto</label><textarea id="knowledgeContent" rows="10" placeholder="Cole aqui o conteúdo, FAQ, procedimento, instruções..." style="font-size:13px;line-height:1.5;resize:vertical"></textarea>' +
+        '<div class="hint">Para links, descreva o que o conteúdo ensina. Para texto, cole o material completo.</div></div>' +
+        '<div id="knowledgeResult"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="saveNewKnowledge()">Salvar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+function onKnowledgeTypeChange() {
+  var type = document.getElementById("knowledgeType").value;
+  document.getElementById("knowledgeUrlGroup").style.display = type === "link" ? "block" : "none";
+}
+
+function saveNewKnowledge() {
+  var title = (document.getElementById("knowledgeTitle").value || "").trim();
+  var type = document.getElementById("knowledgeType").value;
+  var content = (document.getElementById("knowledgeContent").value || "").trim();
+  var url = type === "link" ? (document.getElementById("knowledgeUrl").value || "").trim() : null;
+  var resultEl = document.getElementById("knowledgeResult");
+
+  if (!title) { resultEl.innerHTML = '<div style="color:var(--error);font-size:13px;margin-top:8px">Preencha o título</div>'; return; }
+  if (!content && !url) { resultEl.innerHTML = '<div style="color:var(--error);font-size:13px;margin-top:8px">Preencha o conteúdo ou URL</div>'; return; }
+
+  supa("/rest/v1/geia_knowledge", {
+    method: "POST", body: { title: title, type: type, content: content, url: url, active: true }
+  }).then(function(data) {
+    closeModalForce();
+    loadGeiaKnowledge();
+  });
+}
+
+function openEditKnowledge(idx) {
+  var k = geiaKnowledge[idx];
+  if (!k) return;
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onmousedown="modalOverlayMouseDown(event)" onclick="closeModal(event)">' +
+      '<div class="modal">' +
+        '<h3>Editar Material</h3>' +
+        '<div class="form-group"><label>Título</label><input type="text" id="editKnowledgeTitle" value="' + esc(k.title) + '"></div>' +
+        '<div class="form-group"><label>Tipo</label><select id="editKnowledgeType" onchange="onEditKnowledgeTypeChange()">' +
+          '<option value="text"' + (k.type === "text" ? " selected" : "") + '>Texto</option>' +
+          '<option value="link"' + (k.type === "link" ? " selected" : "") + '>Link</option>' +
+        '</select></div>' +
+        '<div class="form-group" id="editKnowledgeUrlGroup" style="display:' + (k.type === "link" ? "block" : "none") + '"><label>URL</label><input type="text" id="editKnowledgeUrl" value="' + esc(k.url || "") + '"></div>' +
+        '<div class="form-group"><label>Conteúdo / Texto</label><textarea id="editKnowledgeContent" rows="10" style="font-size:13px;line-height:1.5;resize:vertical">' + esc(k.content || "") + '</textarea></div>' +
+        '<div id="editKnowledgeResult"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" onclick="saveEditKnowledge(\'' + k.id + '\')">Salvar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+function onEditKnowledgeTypeChange() {
+  var type = document.getElementById("editKnowledgeType").value;
+  document.getElementById("editKnowledgeUrlGroup").style.display = type === "link" ? "block" : "none";
+}
+
+function saveEditKnowledge(id) {
+  var title = (document.getElementById("editKnowledgeTitle").value || "").trim();
+  var type = document.getElementById("editKnowledgeType").value;
+  var content = (document.getElementById("editKnowledgeContent").value || "").trim();
+  var url = type === "link" ? (document.getElementById("editKnowledgeUrl").value || "").trim() : null;
+  var resultEl = document.getElementById("editKnowledgeResult");
+
+  if (!title) { resultEl.innerHTML = '<div style="color:var(--error);font-size:13px;margin-top:8px">Preencha o título</div>'; return; }
+
+  supa("/rest/v1/geia_knowledge?id=eq." + id, {
+    method: "PATCH", body: { title: title, type: type, content: content, url: url, updated_at: new Date().toISOString() }
+  }).then(function() {
+    closeModalForce();
+    loadGeiaKnowledge();
+  });
 }
 
 // ===== SECURITY LOG =====
