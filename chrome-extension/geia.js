@@ -155,17 +155,13 @@ function createGeiaButton() {
   if (document.getElementById("geia-toggle")) return;
   var btn = document.createElement("button");
   btn.id = "geia-toggle";
-  btn.textContent = "GEIA";
   btn.title = "GEIA - Inteligencia Artificial";
   btn.addEventListener("click", toggleGeiaSidebar);
   Object.assign(btn.style, {
     width: "50px",
     height: "50px",
     borderRadius: "50%",
-    background: "#cc5de8",
-    color: "#fff",
     border: "none",
-    fontSize: "10px",
     fontWeight: "bold",
     cursor: "pointer",
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
@@ -173,6 +169,8 @@ function createGeiaButton() {
     alignItems: "center",
     justifyContent: "center",
   });
+  if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "geia");
+  else { btn.textContent = "GEIA"; btn.style.background = "#cc5de8"; btn.style.color = "#fff"; btn.style.fontSize = "10px"; }
   var container = document.getElementById("ezap-float-container");
   if (container) container.appendChild(btn);
   else document.body.appendChild(btn);

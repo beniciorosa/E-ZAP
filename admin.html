@@ -979,6 +979,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1.07A7 7 0 0 1 14 22h-4a7 7 0 0 1-6.93-3H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/><circle cx="9" cy="14" r="1.5"/><circle cx="15" cy="14" r="1.5"/></svg>
         GEIA
       </button>
+      <button class="sidebar-nav-item" data-tab="buttons" onclick="switchTab('buttons')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+        Botões
+      </button>
       <button class="sidebar-nav-item" data-tab="security" onclick="switchTab('security')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         Segurança
@@ -1130,6 +1134,31 @@
           <button class="btn-primary" onclick="openAddKnowledge()" style="padding:8px 16px;font-size:12px">+ Adicionar Material</button>
         </div>
         <div id="geiaKnowledgeList"></div>
+      </div>
+    </div>
+
+    <!-- ===== BUTTONS PANEL ===== -->
+    <div class="panel" id="panel-buttons">
+      <div class="page-header">
+        <div class="page-title">Botões Flutuantes</div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(37,211,102,0.1)">
+            <span>&#127912;</span>
+          </div>
+          <div>
+            <div class="settings-card-title">Personalização dos botões</div>
+            <div class="settings-card-desc">Edite a sigla (até 5 caracteres), cor de fundo, cor do texto e ordem dos botões flutuantes</div>
+          </div>
+        </div>
+        <div id="buttonsList" style="display:flex;flex-direction:column;gap:12px"></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
+          <button class="btn-primary" onclick="saveButtonConfig()" style="padding:8px 18px;font-size:12px">Salvar</button>
+          <button class="btn-secondary" onclick="resetButtonConfig()" style="padding:8px 18px;font-size:12px">Restaurar padrão</button>
+          <span id="buttonConfigStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
       </div>
     </div>
 
@@ -1317,6 +1346,7 @@ function showApp() {
   loadSettings();
   loadGeiaPersonality();
   loadGeiaKnowledge();
+  loadButtonConfig();
 }
 
 // Auto-login
@@ -2404,6 +2434,151 @@ function deleteProfile(idx) {
   if (!confirm('Excluir o perfil "' + p.name + '"?')) return;
   userProfiles.splice(idx, 1);
   saveProfiles(function() { renderProfiles(); });
+}
+
+// ===== BUTTON CONFIG =====
+var DEFAULT_BUTTON_CONFIG = {
+  crm:   { label: "CRM",   bgColor: "#25d366", textColor: "#111b21", order: 1 },
+  msg:   { label: "MSG",   bgColor: "#4d96ff", textColor: "#ffffff", order: 2 },
+  slice: { label: "SLICE", bgColor: "#ff922b", textColor: "#ffffff", order: 3 },
+  abas:  { label: "ABAS",  bgColor: "#cc5de8", textColor: "#ffffff", order: 4 },
+  geia:  { label: "GEIA",  bgColor: "#cc5de8", textColor: "#ffffff", order: 5 }
+};
+var BUTTON_KEYS = ["crm", "msg", "slice", "abas", "geia"];
+var BUTTON_PALETTE = ["#25d366","#4d96ff","#ff922b","#cc5de8","#ff6b6b","#ffd93d","#20c997","#f44336","#ff7a59","#748ffc","#8e44ad","#111b21"];
+var currentButtonConfig = JSON.parse(JSON.stringify(DEFAULT_BUTTON_CONFIG));
+
+function loadButtonConfig() {
+  supa("/rest/v1/app_settings?key=eq.button_config&select=value").then(function(rows) {
+    if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+      try {
+        var val = rows[0].value;
+        var parsed = typeof val === "string" ? JSON.parse(val) : val;
+        var merged = {};
+        BUTTON_KEYS.forEach(function(k) {
+          merged[k] = Object.assign({}, DEFAULT_BUTTON_CONFIG[k], (parsed && parsed[k]) || {});
+        });
+        currentButtonConfig = merged;
+      } catch (e) {
+        currentButtonConfig = JSON.parse(JSON.stringify(DEFAULT_BUTTON_CONFIG));
+      }
+    }
+    renderButtonConfig();
+  });
+}
+
+function escapeHtmlAttr(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderButtonConfig() {
+  var list = document.getElementById("buttonsList");
+  if (!list) return;
+  var sortedKeys = BUTTON_KEYS.slice().sort(function(a, b) {
+    return (currentButtonConfig[a].order || 0) - (currentButtonConfig[b].order || 0);
+  });
+  var html = "";
+  sortedKeys.forEach(function(k, idx) {
+    var c = currentButtonConfig[k];
+    var paletteHtml = BUTTON_PALETTE.map(function(col) {
+      var sel = col.toLowerCase() === (c.bgColor || "").toLowerCase() ? "border:2px solid #fff;box-shadow:0 0 0 2px var(--primary)" : "border:2px solid transparent";
+      return '<span onclick="setButtonColor(\'' + k + '\',\'' + col + '\')" style="width:22px;height:22px;border-radius:50%;background:' + col + ';cursor:pointer;display:inline-block;' + sel + '"></span>';
+    }).join("");
+    var textColor = (c.textColor || "#ffffff").toLowerCase();
+    var blackSel = textColor === "#111b21" || textColor === "#000000" || textColor === "#000" ? "border:2px solid var(--primary)" : "border:2px solid transparent";
+    var whiteSel = textColor === "#ffffff" || textColor === "#fff" ? "border:2px solid var(--primary)" : "border:2px solid transparent";
+    html += '<div class="button-config-row" style="display:flex;align-items:center;gap:14px;padding:12px;background:var(--surface-variant);border-radius:8px;border:1px solid var(--border)">' +
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:60px">' +
+        '<button id="btnPreview_' + k + '" style="width:50px;height:50px;border-radius:50%;background:' + c.bgColor + ';color:' + c.textColor + ';border:none;font-weight:bold;font-size:' + (c.label.length <= 3 ? "12px" : c.label.length === 4 ? "11px" : "9px") + ';box-shadow:0 4px 12px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center" type="button">' + escapeHtmlAttr(c.label) + '</button>' +
+        '<div style="font-size:10px;color:var(--on-surface-variant);text-transform:uppercase">' + k + '</div>' +
+      '</div>' +
+      '<div style="flex:1;display:flex;flex-direction:column;gap:8px">' +
+        '<div style="display:flex;gap:10px;align-items:center">' +
+          '<label style="font-size:11px;color:var(--on-surface-variant);min-width:60px">Sigla</label>' +
+          '<input type="text" maxlength="5" value="' + escapeHtmlAttr(c.label) + '" oninput="setButtonLabel(\'' + k + '\', this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--on-surface);font-size:12px;width:100px">' +
+          '<label style="font-size:11px;color:var(--on-surface-variant);margin-left:10px">Ordem</label>' +
+          '<input type="number" min="1" max="99" value="' + (c.order || 0) + '" onchange="setButtonOrder(\'' + k + '\', this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--on-surface);font-size:12px;width:60px">' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+          '<label style="font-size:11px;color:var(--on-surface-variant);min-width:60px">Fundo</label>' +
+          paletteHtml +
+          '<input type="color" value="' + c.bgColor + '" oninput="setButtonColor(\'' + k + '\', this.value)" style="width:28px;height:22px;border:none;border-radius:4px;cursor:pointer;padding:0;background:transparent" title="Cor customizada">' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          '<label style="font-size:11px;color:var(--on-surface-variant);min-width:60px">Texto</label>' +
+          '<span onclick="setButtonTextColor(\'' + k + '\',\'#111b21\')" style="padding:4px 12px;border-radius:6px;background:#111b21;color:#fff;font-size:11px;cursor:pointer;' + blackSel + '">Preto</span>' +
+          '<span onclick="setButtonTextColor(\'' + k + '\',\'#ffffff\')" style="padding:4px 12px;border-radius:6px;background:#ffffff;color:#111b21;font-size:11px;cursor:pointer;' + whiteSel + '">Branco</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function setButtonLabel(key, val) {
+  val = (val || "").toUpperCase().slice(0, 5);
+  currentButtonConfig[key].label = val || DEFAULT_BUTTON_CONFIG[key].label;
+  updateButtonPreview(key);
+}
+
+function setButtonColor(key, color) {
+  currentButtonConfig[key].bgColor = color;
+  renderButtonConfig();
+}
+
+function setButtonTextColor(key, color) {
+  currentButtonConfig[key].textColor = color;
+  renderButtonConfig();
+}
+
+function setButtonOrder(key, val) {
+  var n = parseInt(val, 10);
+  if (isNaN(n) || n < 1) n = 1;
+  currentButtonConfig[key].order = n;
+}
+
+function updateButtonPreview(key) {
+  var preview = document.getElementById("btnPreview_" + key);
+  if (!preview) return;
+  var c = currentButtonConfig[key];
+  preview.textContent = c.label;
+  preview.style.background = c.bgColor;
+  preview.style.color = c.textColor;
+  var len = (c.label || "").length;
+  preview.style.fontSize = len <= 3 ? "12px" : len === 4 ? "11px" : "9px";
+}
+
+function saveButtonConfig() {
+  var statusEl = document.getElementById("buttonConfigStatus");
+  statusEl.textContent = "Salvando...";
+  statusEl.style.color = "var(--on-surface-variant)";
+  var payload = JSON.stringify(currentButtonConfig);
+  supa("/rest/v1/app_settings?key=eq.button_config", {
+    method: "PATCH", body: { value: payload, updated_at: new Date().toISOString() }, prefer: "return=representation"
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+      setTimeout(function() { statusEl.textContent = ""; }, 3000);
+      return;
+    }
+    return supa("/rest/v1/app_settings", {
+      method: "POST", body: { key: "button_config", value: payload }
+    }).then(function() {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+      setTimeout(function() { statusEl.textContent = ""; }, 3000);
+    });
+  }).catch(function(e) {
+    statusEl.textContent = "Erro ao salvar";
+    statusEl.style.color = "#ff6b6b";
+  });
+}
+
+function resetButtonConfig() {
+  if (!confirm("Restaurar configuração padrão dos botões?")) return;
+  currentButtonConfig = JSON.parse(JSON.stringify(DEFAULT_BUTTON_CONFIG));
+  renderButtonConfig();
 }
 
 // ===== GEIA =====

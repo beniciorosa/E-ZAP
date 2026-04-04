@@ -163,6 +163,94 @@ window.__ezapHasFeature = function(feature) {
          window.__wcrmAuth.features.indexOf(feature) !== -1;
 };
 
+// ===== Button config (label, colors, order) =====
+window.__ezapDefaultButtonConfig = {
+  crm:   { label: "CRM",   bgColor: "#25d366", textColor: "#111b21", order: 1 },
+  msg:   { label: "MSG",   bgColor: "#4d96ff", textColor: "#ffffff", order: 2 },
+  slice: { label: "SLICE", bgColor: "#ff922b", textColor: "#ffffff", order: 3 },
+  abas:  { label: "ABAS",  bgColor: "#cc5de8", textColor: "#ffffff", order: 4 },
+  geia:  { label: "GEIA",  bgColor: "#cc5de8", textColor: "#ffffff", order: 5 }
+};
+
+window.__ezapButtonConfig = window.__ezapDefaultButtonConfig;
+
+window.__ezapGetButtonConfig = function(key) {
+  var cfg = (window.__ezapButtonConfig && window.__ezapButtonConfig[key]) || {};
+  var def = window.__ezapDefaultButtonConfig[key] || {};
+  return {
+    label: cfg.label || def.label || key.toUpperCase(),
+    bgColor: cfg.bgColor || def.bgColor || "#25d366",
+    textColor: cfg.textColor || def.textColor || "#ffffff",
+    order: (typeof cfg.order === "number") ? cfg.order : (def.order || 0)
+  };
+};
+
+window.__ezapApplyButtonStyle = function(btn, key) {
+  var c = window.__ezapGetButtonConfig(key);
+  btn.textContent = c.label;
+  btn.style.background = c.bgColor;
+  btn.style.color = c.textColor;
+  btn.style.order = c.order;
+  // Auto-size font based on label length
+  var len = (c.label || "").length;
+  var fs = len <= 3 ? "12px" : (len === 4 ? "11px" : (len === 5 ? "9px" : "8px"));
+  btn.style.fontSize = fs;
+};
+
+function loadButtonConfig() {
+  chrome.runtime.sendMessage({
+    action: "supabase_rest",
+    path: "/rest/v1/app_settings?key=eq.button_config&select=value",
+    method: "GET"
+  }, function(resp) {
+    if (chrome.runtime.lastError) return;
+    if (!resp || !Array.isArray(resp) || resp.length === 0) return;
+    try {
+      var val = resp[0].value;
+      var parsed = typeof val === "string" ? JSON.parse(val) : val;
+      if (parsed && typeof parsed === "object") {
+        // Merge with defaults (don't lose keys)
+        var merged = {};
+        var keys = ["crm", "msg", "slice", "abas", "geia"];
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          merged[k] = Object.assign({}, window.__ezapDefaultButtonConfig[k], parsed[k] || {});
+        }
+        var prev = JSON.stringify(window.__ezapButtonConfig);
+        window.__ezapButtonConfig = merged;
+        // Re-apply to existing buttons if any
+        applyConfigToExistingButtons();
+        if (prev !== JSON.stringify(merged)) {
+          console.log("[EZAP AUTH] Button config loaded", merged);
+        }
+      }
+    } catch (e) {
+      console.warn("[EZAP AUTH] Failed to parse button_config", e);
+    }
+  });
+}
+
+function applyConfigToExistingButtons() {
+  var map = {
+    crm: "wcrm-toggle",
+    msg: "wcrm-msg-toggle",
+    slice: "wcrm-slice-toggle",
+    abas: "wcrm-abas-toggle",
+    geia: "geia-toggle"
+  };
+  Object.keys(map).forEach(function(k) {
+    var el = document.getElementById(map[k]);
+    if (el) window.__ezapApplyButtonStyle(el, k);
+  });
+}
+
+// Expose reload function for manual refresh
+window.__ezapReloadButtonConfig = loadButtonConfig;
+
+// Load on init and every 2 minutes
+loadButtonConfig();
+setInterval(loadButtonConfig, 2 * 60 * 1000);
+
 // ===== Dispatch auth ready event =====
 function dispatchAuthReady() {
   console.log("[EZAP AUTH] Authenticated as:", window.__wcrmAuth.userName,

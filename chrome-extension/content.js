@@ -38,17 +38,13 @@ function createToggleButton() {
   console.log("[WCRM] Creating toggle button");
   const btn = document.createElement("button");
   btn.id = "wcrm-toggle";
-  btn.textContent = "CRM";
   btn.title = "WhatsApp CRM";
   btn.addEventListener("click", toggleSidebar);
   Object.assign(btn.style, {
     width: "50px",
     height: "50px",
     borderRadius: "50%",
-    background: "#25d366",
-    color: "#111b21",
     border: "none",
-    fontSize: "12px",
     fontWeight: "bold",
     cursor: "pointer",
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
@@ -56,6 +52,8 @@ function createToggleButton() {
     alignItems: "center",
     justifyContent: "center",
   });
+  if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "crm");
+  else { btn.textContent = "CRM"; btn.style.background = "#25d366"; btn.style.color = "#111b21"; btn.style.fontSize = "12px"; }
   getButtonContainer().appendChild(btn);
   console.log("[WCRM] Toggle button added to page");
 }

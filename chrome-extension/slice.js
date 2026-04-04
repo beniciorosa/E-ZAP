@@ -10,17 +10,13 @@ function createSliceButton() {
   if (document.getElementById("wcrm-slice-toggle")) return;
   var btn = document.createElement("button");
   btn.id = "wcrm-slice-toggle";
-  btn.textContent = "SLICE";
   btn.title = "Filtrar por Mentor";
   btn.addEventListener("click", toggleSliceSidebar);
   Object.assign(btn.style, {
     width: "50px",
     height: "50px",
     borderRadius: "50%",
-    background: "#ff922b",
-    color: "#fff",
     border: "none",
-    fontSize: "9px",
     fontWeight: "bold",
     cursor: "pointer",
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
@@ -28,6 +24,8 @@ function createSliceButton() {
     alignItems: "center",
     justifyContent: "center",
   });
+  if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "slice");
+  else { btn.textContent = "SLICE"; btn.style.background = "#ff922b"; btn.style.color = "#fff"; btn.style.fontSize = "9px"; }
   var container = document.getElementById("ezap-float-container");
   if (container) container.appendChild(btn);
   else document.body.appendChild(btn);

@@ -123,17 +123,13 @@ function createMsgButton() {
   if (document.getElementById("wcrm-msg-toggle")) return;
   var btn = document.createElement("button");
   btn.id = "wcrm-msg-toggle";
-  btn.textContent = "MSG";
   btn.title = "Mensagens Automáticas";
   btn.addEventListener("click", toggleMsgSidebar);
   Object.assign(btn.style, {
     width: "50px",
     height: "50px",
     borderRadius: "50%",
-    background: "#4d96ff",
-    color: "#fff",
     border: "none",
-    fontSize: "11px",
     fontWeight: "bold",
     cursor: "pointer",
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
@@ -141,6 +137,8 @@ function createMsgButton() {
     alignItems: "center",
     justifyContent: "center",
   });
+  if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "msg");
+  else { btn.textContent = "MSG"; btn.style.background = "#4d96ff"; btn.style.color = "#fff"; btn.style.fontSize = "11px"; }
   var container = document.getElementById("ezap-float-container");
   if (container) container.appendChild(btn);
   else document.body.appendChild(btn);
