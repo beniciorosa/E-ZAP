@@ -842,6 +842,42 @@
       display: flex; gap: 8px; justify-content: flex-end;
     }
 
+    /* ===== DRAG & DROP FEATURES ===== */
+    .feat-category { margin-bottom: 16px; }
+    .feat-category-title {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--on-surface-variant); font-weight: 700; margin-bottom: 6px;
+      padding: 0 4px;
+    }
+    .feat-drag-list {
+      min-height: 36px; border-radius: var(--radius-sm);
+      background: var(--surface-container-lowest); padding: 4px;
+      border: 1px dashed var(--outline-variant);
+    }
+    .feat-drag-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; margin-bottom: 4px; border-radius: var(--radius-sm);
+      background: var(--surface-container); cursor: grab;
+      font-size: 13px; font-weight: 500; user-select: none;
+      transition: background 0.1s, box-shadow 0.1s;
+    }
+    .feat-drag-item:last-child { margin-bottom: 0; }
+    .feat-drag-item:hover { background: var(--surface-container-high); }
+    .feat-drag-item.dragging { opacity: 0.4; }
+    .feat-drag-item .feat-drag-handle {
+      color: var(--on-surface-variant); font-size: 14px; cursor: grab; flex-shrink: 0;
+    }
+    .feat-drag-item .feat-drag-label { flex: 1; }
+    .feat-drag-item .feat-drag-toggle {
+      width: 16px; height: 16px; accent-color: var(--primary); flex-shrink: 0; cursor: pointer;
+    }
+    .feat-drag-list.drag-over { border-color: var(--primary); background: rgba(37,211,102,0.04); }
+
+    .light-theme .feat-drag-list { background: #f8f9fb; border-color: #dde2e8; }
+    .light-theme .feat-drag-item { background: #fff; }
+    .light-theme .feat-drag-item:hover { background: #f4f6f9; }
+    .light-theme .feat-drag-list.drag-over { background: rgba(13,159,79,0.04); border-color: #0d9f4f; }
+
     /* ===== SETTINGS CARDS ===== */
     .settings-card {
       background: var(--surface-container);
@@ -1139,12 +1175,12 @@ var SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
 var SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
 
 var ALL_FEATURES = [
-  { key: "crm", label: "CRM (Labels + HubSpot)" },
-  { key: "msg", label: "Mensagens (MSG)" },
-  { key: "slice", label: "SLICE (Filtro Mentor)" },
-  { key: "abas", label: "ABAS (Grupos)" },
-  { key: "pin", label: "PIN (Fixar contatos)" },
-  { key: "transcribe", label: "Transcrição de Áudio" },
+  { key: "crm", label: "CRM (Labels + HubSpot)", category: "sidebar", side: "right" },
+  { key: "msg", label: "Mensagens (MSG)", category: "sidebar", side: "right" },
+  { key: "slice", label: "SLICE (Filtro Mentor)", category: "sidebar", side: "right" },
+  { key: "abas", label: "ABAS (Grupos)", category: "sidebar", side: "right" },
+  { key: "pin", label: "PIN (Fixar contatos)", category: "complementar" },
+  { key: "transcribe", label: "Transcrição de Áudio", category: "complementar" },
 ];
 
 var DEFAULT_FEATURES = ["crm", "msg", "abas", "pin"];
@@ -2121,12 +2157,8 @@ function renderProfiles() {
     html += '<div style="display:flex;align-items:center;justify-content:space-between">';
     html += '<span style="font-size:11px;color:var(--on-surface-variant)">' + count + ' usuário' + (count !== 1 ? 's' : '') + ' atribuído' + (count !== 1 ? 's' : '') + '</span>';
     html += '<div class="profile-card-actions">';
-    if (!isAdmin) {
-      html += '<button class="btn-sm primary" onclick="openEditProfile(' + idx + ')">Editar</button>';
-      if (!p.system) html += '<button class="btn-sm danger" onclick="deleteProfile(' + idx + ')">Excluir</button>';
-    } else {
-      html += '<span style="font-size:11px;color:#cc5de8;font-weight:600">Todas as funcionalidades</span>';
-    }
+    html += '<button class="btn-sm primary" onclick="openEditProfile(' + idx + ')">' + (isAdmin ? 'Ordenar' : 'Editar') + '</button>';
+    if (!isAdmin && !p.system) html += '<button class="btn-sm danger" onclick="deleteProfile(' + idx + ')">Excluir</button>';
     html += '</div></div>';
     html += '</div>';
   });
@@ -2134,12 +2166,79 @@ function renderProfiles() {
   container.innerHTML = html;
 }
 
-function openCreateProfile() {
-  var featChecks = "";
-  ALL_FEATURES.forEach(function(f) {
-    featChecks += '<label><input type="checkbox" name="profileFeat" value="' + f.key + '"> ' + f.label + '</label>';
+function buildFeatDragHTML(selectedFeats, prefix) {
+  var categories = [
+    { key: "sidebar", label: "Botões Sidebar (direita)" },
+    { key: "complementar", label: "Funções Complementares" },
+  ];
+  // Use admin profile order if available
+  var adminProfile = userProfiles.find(function(p) { return p.key === "admin"; });
+  var featureOrder = (adminProfile && adminProfile.featureOrder) || ALL_FEATURES.map(function(f) { return f.key; });
+
+  var html = '';
+  categories.forEach(function(cat) {
+    var catFeats = ALL_FEATURES.filter(function(f) { return f.category === cat.key; });
+    // Sort by admin order
+    catFeats.sort(function(a, b) { return featureOrder.indexOf(a.key) - featureOrder.indexOf(b.key); });
+
+    html += '<div class="feat-category">';
+    html += '<div class="feat-category-title">' + cat.label + '</div>';
+    html += '<div class="feat-drag-list" data-category="' + cat.key + '" id="' + prefix + '_list_' + cat.key + '">';
+    catFeats.forEach(function(f) {
+      var checked = selectedFeats.indexOf(f.key) !== -1 ? "checked" : "";
+      html += '<div class="feat-drag-item" draggable="true" data-feat="' + f.key + '">';
+      html += '<span class="feat-drag-handle">&#9776;</span>';
+      html += '<span class="feat-drag-label">' + esc(f.label) + '</span>';
+      html += '<input type="checkbox" class="feat-drag-toggle" name="' + prefix + 'Feat" value="' + f.key + '" ' + checked + '>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  });
+  return html;
+}
+
+function initDragDrop(prefix) {
+  var lists = document.querySelectorAll('#modalsContainer .feat-drag-list');
+  var dragItem = null;
+
+  lists.forEach(function(list) {
+    list.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      list.classList.add('drag-over');
+      var afterEl = getDragAfterElement(list, e.clientY);
+      if (afterEl) list.insertBefore(dragItem, afterEl);
+      else list.appendChild(dragItem);
+    });
+    list.addEventListener('dragleave', function() { list.classList.remove('drag-over'); });
+    list.addEventListener('drop', function() { list.classList.remove('drag-over'); });
   });
 
+  document.querySelectorAll('#modalsContainer .feat-drag-item').forEach(function(item) {
+    item.addEventListener('dragstart', function() { dragItem = item; item.classList.add('dragging'); });
+    item.addEventListener('dragend', function() { item.classList.remove('dragging'); dragItem = null; });
+  });
+}
+
+function getDragAfterElement(list, y) {
+  var items = Array.from(list.querySelectorAll('.feat-drag-item:not(.dragging)'));
+  var closest = null, closestOffset = Number.NEGATIVE_INFINITY;
+  items.forEach(function(item) {
+    var box = item.getBoundingClientRect();
+    var offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closestOffset) { closestOffset = offset; closest = item; }
+  });
+  return closest;
+}
+
+function getOrderedFeatsFromDOM() {
+  var order = [];
+  document.querySelectorAll('#modalsContainer .feat-drag-item').forEach(function(item) {
+    order.push(item.getAttribute('data-feat'));
+  });
+  return order;
+}
+
+function openCreateProfile() {
   var container = document.getElementById("modalsContainer");
   container.innerHTML =
     '<div class="modal-overlay" onmousedown="modalOverlayMouseDown(event)" onclick="closeModal(event)">' +
@@ -2147,7 +2246,7 @@ function openCreateProfile() {
         '<h3>Novo Perfil</h3>' +
         '<div class="form-group"><label>Nome do perfil</label><input type="text" id="profileName" placeholder="Ex: Vendedor, Suporte"></div>' +
         '<div class="form-group"><label>Identificador (slug)</label><input type="text" id="profileKey" placeholder="Ex: vendedor, suporte"><div class="hint">Usado internamente. Letras minúsculas, sem espaços ou acentos.</div></div>' +
-        '<div class="form-group"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
+        '<div class="form-group"><label>Funcionalidades</label><div class="hint" style="margin-bottom:8px">Arraste para reordenar. Marque/desmarque para ativar.</div>' + buildFeatDragHTML(DEFAULT_FEATURES, 'newProf') + '</div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="saveNewProfile()">Criar Perfil</button>' +
@@ -2155,6 +2254,7 @@ function openCreateProfile() {
         '<div id="profileResult"></div>' +
       '</div>' +
     '</div>';
+  initDragDrop('newProf');
 }
 
 function saveNewProfile() {
@@ -2166,7 +2266,7 @@ function saveNewProfile() {
   if (userProfiles.find(function(p) { return p.key === key; })) { resultEl.innerHTML = '<div style="color:var(--error);font-size:13px;margin-top:12px">Já existe um perfil com esse identificador</div>'; return; }
 
   var features = [];
-  document.querySelectorAll('input[name="profileFeat"]:checked').forEach(function(cb) { features.push(cb.value); });
+  document.querySelectorAll('input[name="newProfFeat"]:checked').forEach(function(cb) { features.push(cb.value); });
 
   userProfiles.push({ key: key, name: name, features: features, system: false });
   saveProfiles(function() {
@@ -2177,36 +2277,47 @@ function saveNewProfile() {
 
 function openEditProfile(idx) {
   var p = userProfiles[idx];
-  if (!p || p.key === "admin") return;
+  if (!p) return;
 
-  var featChecks = "";
-  ALL_FEATURES.forEach(function(f) {
-    var checked = p.features.indexOf(f.key) !== -1 ? "checked" : "";
-    featChecks += '<label><input type="checkbox" name="editProfileFeat" value="' + f.key + '" ' + checked + '> ' + f.label + '</label>';
-  });
+  var isAdmin = p.key === "admin";
+  var titleExtra = isAdmin ? '<div class="hint" style="margin-top:4px">Arraste para definir a ordem padrão das funcionalidades para todos os perfis.</div>' : '';
 
   var container = document.getElementById("modalsContainer");
   container.innerHTML =
     '<div class="modal-overlay" onmousedown="modalOverlayMouseDown(event)" onclick="closeModal(event)">' +
       '<div class="modal">' +
-        '<h3>Editar Perfil: ' + esc(p.name) + '</h3>' +
-        '<div class="form-group"><label>Nome do perfil</label><input type="text" id="editProfileName" value="' + esc(p.name) + '"></div>' +
-        '<div class="form-group"><label>Funcionalidades</label><div class="checkbox-group">' + featChecks + '</div></div>' +
+        '<h3>Editar Perfil: ' + esc(p.name) + '</h3>' + titleExtra +
+        (isAdmin ? '' : '<div class="form-group"><label>Nome do perfil</label><input type="text" id="editProfileName" value="' + esc(p.name) + '"></div>') +
+        '<div class="form-group"><label>Funcionalidades</label><div class="hint" style="margin-bottom:8px">Arraste para reordenar.' + (isAdmin ? ' A ordem definida aqui é a referência para todos os perfis.' : ' Marque/desmarque para ativar.') + '</div>' + buildFeatDragHTML(p.features, 'editProf') + '</div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="saveEditProfile(' + idx + ')">Salvar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
+
+  // Admin: all checkboxes checked and disabled
+  if (isAdmin) {
+    document.querySelectorAll('input[name="editProfFeat"]').forEach(function(cb) { cb.checked = true; cb.disabled = true; });
+  }
+  initDragDrop('editProf');
 }
 
 function saveEditProfile(idx) {
   var p = userProfiles[idx];
   if (!p) return;
 
-  p.name = (document.getElementById("editProfileName").value || "").trim() || p.name;
-  p.features = [];
-  document.querySelectorAll('input[name="editProfileFeat"]:checked').forEach(function(cb) { p.features.push(cb.value); });
+  var nameEl = document.getElementById("editProfileName");
+  if (nameEl) p.name = nameEl.value.trim() || p.name;
+
+  // Save feature order for admin profile
+  if (p.key === "admin") {
+    p.featureOrder = getOrderedFeatsFromDOM();
+    p.features = ALL_FEATURES.map(function(f) { return f.key; });
+  } else {
+    p.features = [];
+    document.querySelectorAll('input[name="editProfFeat"]:checked').forEach(function(cb) { p.features.push(cb.value); });
+  }
 
   saveProfiles(function() {
     closeModalForce();

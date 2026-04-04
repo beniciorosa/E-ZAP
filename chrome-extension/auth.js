@@ -273,7 +273,7 @@ function checkPhoneMatch(detected, allowedPhones) {
         location: info.location,
       });
     });
-    showPhoneBlockOverlay("Este token esta vinculado a outro numero de WhatsApp. Numero detectado: +" + detected + ". Solicite ao administrador a atualizacao do seu numero.");
+    showPhoneBlockOverlay("Este token está vinculado a outro número de WhatsApp. Número detectado: +" + detected + ". Solicite ao administrador a atualização do seu número.");
   }
 }
 
@@ -448,7 +448,7 @@ function setupLoginEvents() {
           userAgent: navigator.userAgent,
         }, function(response) {
           if (chrome.runtime.lastError) {
-            status.textContent = "Erro de conexao. Tente novamente.";
+            status.textContent = "Erro de conexão. Tente novamente.";
             resetButton();
             return;
           }
@@ -565,11 +565,11 @@ function showUpdateBanner(version, message, downloadUrl) {
         '<svg viewBox="0 0 24 24" width="18" height="18" fill="#111b21"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>' +
       '</div>' +
       '<div>' +
-        '<div style="font-size:13px;font-weight:600;color:#e9edef">Nova versao disponivel: <span style="color:#25d366">v' + version + '</span>' + msgText + '</div>' +
+        '<div style="font-size:13px;font-weight:600;color:#e9edef">Nova versão disponível: <span style="color:#25d366">v' + version + '</span>' + msgText + '</div>' +
       '</div>' +
     '</div>' +
     '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
-      '<a href="' + (downloadUrl || "#") + '" target="_blank" style="padding:8px 18px;background:#25d366;color:#111b21;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap">Baixar Atualizacao</a>' +
+      '<a href="' + (downloadUrl || "#") + '" target="_blank" style="padding:8px 18px;background:#25d366;color:#111b21;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap">Baixar Atualização</a>' +
       '<button id="ezap-update-dismiss" style="padding:6px;background:transparent;border:none;cursor:pointer;color:#8696a0;font-size:18px;line-height:1" title="Fechar">&times;</button>' +
     '</div>';
 

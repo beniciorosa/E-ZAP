@@ -14,9 +14,6 @@ function createSliceButton() {
   btn.title = "Filtrar por Mentor";
   btn.addEventListener("click", toggleSliceSidebar);
   Object.assign(btn.style, {
-    position: "fixed",
-    top: "200px",
-    right: "16px",
     width: "50px",
     height: "50px",
     borderRadius: "50%",
@@ -26,13 +23,14 @@ function createSliceButton() {
     fontSize: "9px",
     fontWeight: "bold",
     cursor: "pointer",
-    zIndex: "99999",
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
   });
-  document.body.appendChild(btn);
+  var container = document.getElementById("ezap-float-container");
+  if (container) container.appendChild(btn);
+  else document.body.appendChild(btn);
 }
 
 // ===== Sidebar =====

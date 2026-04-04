@@ -13,6 +13,25 @@ let sidebarOpen = false;
 let tagSidebarOpen = false;
 let labelTemplates = [];
 
+// ===== Floating buttons container =====
+function getButtonContainer() {
+  var c = document.getElementById("ezap-float-container");
+  if (c) return c;
+  c = document.createElement("div");
+  c.id = "ezap-float-container";
+  Object.assign(c.style, {
+    position: "fixed",
+    top: "80px",
+    right: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    zIndex: "99999",
+  });
+  document.body.appendChild(c);
+  return c;
+}
+
 // ===== Create button IMMEDIATELY =====
 function createToggleButton() {
   if (document.getElementById("wcrm-toggle")) return;
@@ -22,11 +41,7 @@ function createToggleButton() {
   btn.textContent = "CRM";
   btn.title = "WhatsApp CRM";
   btn.addEventListener("click", toggleSidebar);
-  // Inline styles to guarantee visibility
   Object.assign(btn.style, {
-    position: "fixed",
-    top: "80px",
-    right: "16px",
     width: "50px",
     height: "50px",
     borderRadius: "50%",
@@ -36,13 +51,12 @@ function createToggleButton() {
     fontSize: "12px",
     fontWeight: "bold",
     cursor: "pointer",
-    zIndex: "99999",
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
   });
-  document.body.appendChild(btn);
+  getButtonContainer().appendChild(btn);
   console.log("[WCRM] Toggle button added to page");
 }
 
@@ -222,18 +236,12 @@ function toggleSidebar() {
 }
 
 function updateFloatingButtons() {
-  var crmBtn = document.getElementById("wcrm-toggle");
-  var msgBtn = document.getElementById("wcrm-msg-toggle");
-  var sliceBtn = document.getElementById("wcrm-slice-toggle");
-  var abasBtn = document.getElementById("wcrm-abas-toggle");
+  var container = document.getElementById("ezap-float-container");
   var anySidebarOpen = sidebarOpen || tagSidebarOpen ||
     (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) ||
     (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) ||
     (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen);
-  if (crmBtn) crmBtn.style.display = anySidebarOpen ? "none" : "flex";
-  if (msgBtn) msgBtn.style.display = anySidebarOpen ? "none" : "flex";
-  if (sliceBtn) sliceBtn.style.display = anySidebarOpen ? "none" : "flex";
-  if (abasBtn) abasBtn.style.display = anySidebarOpen ? "none" : "flex";
+  if (container) container.style.display = anySidebarOpen ? "none" : "flex";
 }
 
 // ===== TAG Sidebar (Label Management) =====

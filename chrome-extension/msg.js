@@ -124,12 +124,9 @@ function createMsgButton() {
   var btn = document.createElement("button");
   btn.id = "wcrm-msg-toggle";
   btn.textContent = "MSG";
-  btn.title = "Mensagens Automaticas";
+  btn.title = "Mensagens Automáticas";
   btn.addEventListener("click", toggleMsgSidebar);
   Object.assign(btn.style, {
-    position: "fixed",
-    top: "140px",
-    right: "16px",
     width: "50px",
     height: "50px",
     borderRadius: "50%",
@@ -139,13 +136,14 @@ function createMsgButton() {
     fontSize: "11px",
     fontWeight: "bold",
     cursor: "pointer",
-    zIndex: "99999",
     boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
   });
-  document.body.appendChild(btn);
+  var container = document.getElementById("ezap-float-container");
+  if (container) container.appendChild(btn);
+  else document.body.appendChild(btn);
 }
 
 // ===== MSG Sidebar =====
