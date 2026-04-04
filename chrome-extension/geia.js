@@ -209,7 +209,6 @@ function createGeiaSidebar() {
     background: "#111b21",
     borderLeft: "1px solid #2a3942",
     zIndex: "10000",
-    display: "none",
     flexDirection: "column",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     color: "#e9edef",
