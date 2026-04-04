@@ -1076,6 +1076,28 @@
 
       <div class="settings-card">
         <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(37,211,102,0.1)">
+            <span>&#127908;</span>
+          </div>
+          <div>
+            <div class="settings-card-title">OpenAI (Transcrição de Áudio)</div>
+            <div class="settings-card-desc">API Key para transcrição de áudios via Whisper</div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label>API Key</label>
+          <input type="password" id="settingsOpenaiKey" placeholder="sk-proj-xxxxxxxx" style="font-family:monospace">
+          <div class="hint">Crie em platform.openai.com > API Keys. Usada para transcrição de áudios do WhatsApp.</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn-primary" onclick="saveOpenaiKey()" style="padding:8px 18px;font-size:12px">Salvar</button>
+          <button class="btn-secondary" onclick="testOpenaiKey()">Testar conexão</button>
+          <span id="openaiStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
           <div class="settings-card-icon" style="background:rgba(110,180,255,0.1)">
             <span>&#128640;</span>
           </div>
@@ -2306,6 +2328,10 @@ function loadSettings() {
         var input = document.getElementById("settingsHubspotKey");
         if (input) input.value = r.value;
       }
+      if (r.key === "openai_api_key" && r.value) {
+        var input = document.getElementById("settingsOpenaiKey");
+        if (input) input.value = r.value;
+      }
     });
   });
 }
@@ -2339,6 +2365,38 @@ function testHubspotKey() {
   }).then(function(r) {
     if (r.ok) { statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Conectado ao HubSpot com sucesso!"; }
     else { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro: HTTP " + r.status + " verifique a chave"; }
+  }).catch(function() { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro de conexão"; });
+}
+
+function saveOpenaiKey() {
+  var key = document.getElementById("settingsOpenaiKey").value.trim();
+  var statusEl = document.getElementById("openaiStatus");
+  if (!key) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Insira a chave"; return; }
+  statusEl.style.color = "var(--on-surface-variant)"; statusEl.textContent = "Salvando...";
+
+  supa("/rest/v1/app_settings?key=eq.openai_api_key", {
+    method: "PATCH", body: { value: key, updated_at: new Date().toISOString() }, prefer: "return=representation"
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Salvo!"; return;
+    }
+    return supa("/rest/v1/app_settings", { method: "POST", body: { key: "openai_api_key", value: key } }).then(function() {
+      statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Salvo!";
+    });
+  }).catch(function() { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro ao salvar"; });
+}
+
+function testOpenaiKey() {
+  var key = document.getElementById("settingsOpenaiKey").value.trim();
+  var statusEl = document.getElementById("openaiStatus");
+  if (!key) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Insira a chave primeiro"; return; }
+  statusEl.style.color = "var(--on-surface-variant)"; statusEl.textContent = "Testando...";
+
+  fetch("https://api.openai.com/v1/models", {
+    headers: { "Authorization": "Bearer " + key }
+  }).then(function(r) {
+    if (r.ok) { statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Conectado à OpenAI com sucesso!"; }
+    else { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro: HTTP " + r.status + " — verifique a chave"; }
   }).catch(function() { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro de conexão"; });
 }
 

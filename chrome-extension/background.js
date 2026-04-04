@@ -5,8 +5,22 @@ const AUTH_SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
 const AUTH_SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MTIyMDMsImV4cCI6MjA3OTA4ODIwM30.TlUt4FQ7cffBKgJYrixFdHbyMESAhRa2auPpKCXMIMM";
 const AUTH_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
 
-// ===== OpenAI (Whisper transcription) =====
-const OPENAI_API_KEY = "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";
+// ===== OpenAI key (fetched from Supabase app_settings) =====
+let _openaiKey = null;
+async function getOpenAIKey() {
+  if (_openaiKey) return _openaiKey;
+  try {
+    const resp = await fetch(AUTH_SUPA_URL + "/rest/v1/app_settings?key=eq.openai_api_key&select=value", {
+      headers: { "apikey": AUTH_SERVICE_KEY, "Authorization": "Bearer " + AUTH_SERVICE_KEY }
+    });
+    const rows = await resp.json();
+    if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+      _openaiKey = rows[0].value;
+      return _openaiKey;
+    }
+  } catch (e) { console.error("[EZAP BG] Failed to fetch OpenAI key:", e); }
+  return null;
+}
 
 // ===== Auto-reload WhatsApp tabs on extension update =====
 chrome.runtime.onInstalled.addListener((details) => {
@@ -1228,9 +1242,12 @@ async function transcribeAudio(base64, contentType) {
 
     console.log("[EZAP BG] Transcribing audio:", Math.round(blob.size / 1024) + "KB", contentType);
 
+    const apiKey = await getOpenAIKey();
+    if (!apiKey) throw new Error("OpenAI API key não configurada");
+
     const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: { "Authorization": "Bearer " + OPENAI_API_KEY },
+      headers: { "Authorization": "Bearer " + apiKey },
       body: formData,
     });
 
