@@ -2358,14 +2358,8 @@ function testHubspotKey() {
   var key = document.getElementById("settingsHubspotKey").value.trim();
   var statusEl = document.getElementById("hubspotStatus");
   if (!key) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Insira a chave primeiro"; return; }
-  statusEl.style.color = "var(--on-surface-variant)"; statusEl.textContent = "Testando...";
-
-  fetch("https://api.hubapi.com/crm/v3/objects/contacts?limit=1", {
-    headers: { "Authorization": "Bearer " + key }
-  }).then(function(r) {
-    if (r.ok) { statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Conectado ao HubSpot com sucesso!"; }
-    else { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro: HTTP " + r.status + " verifique a chave"; }
-  }).catch(function() { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro de conexão"; });
+  if (!key.startsWith("pat-")) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Formato inválido — deve começar com pat-"; return; }
+  statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Chave salva! O teste de conexão é feito pela extensão (CORS impede teste direto do navegador).";
 }
 
 function saveOpenaiKey() {
@@ -2392,11 +2386,15 @@ function testOpenaiKey() {
   if (!key) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Insira a chave primeiro"; return; }
   statusEl.style.color = "var(--on-surface-variant)"; statusEl.textContent = "Testando...";
 
-  fetch("https://api.openai.com/v1/models", {
-    headers: { "Authorization": "Bearer " + key }
+  fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }], max_tokens: 1 })
   }).then(function(r) {
     if (r.ok) { statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Conectado à OpenAI com sucesso!"; }
-    else { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro: HTTP " + r.status + " — verifique a chave"; }
+    else if (r.status === 401) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Chave inválida (401)"; }
+    else if (r.status === 429) { statusEl.style.color = "var(--primary-fixed-dim)"; statusEl.textContent = "Chave válida! (rate limit atingido, mas autenticação OK)"; }
+    else { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro: HTTP " + r.status; }
   }).catch(function() { statusEl.style.color = "var(--error)"; statusEl.textContent = "Erro de conexão"; });
 }
 
