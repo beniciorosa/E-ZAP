@@ -389,27 +389,25 @@ function _buildNativePreviewMap() {
       var title = titleSpan.getAttribute('title') || '';
       if (!title) continue;
 
-      // Pega o textContent do row inteiro, remove o title + timestamp
-      var fullText = (rows[i].textContent || '').trim();
-      if (!fullText) continue;
+      // Encontra a "segunda linha" do row: o preview fica em spans ABAIXO
+      // do container do titulo. Busca spans que NAO contem o titulo e NAO
+      // sao icones/SVGs.
+      var titleParent = titleSpan.parentElement; // container da linha 1
+      if (!titleParent) continue;
+      var line2 = titleParent.nextElementSibling; // container da linha 2
+      if (!line2) continue;
 
-      var preview = fullText;
-      // Remove o titulo
-      preview = preview.split(title).join('').trim();
-      // Remove timestamps comuns (19:22, 28/03/26, 28/03, ontem, ter, qua)
-      preview = preview.replace(/\b\d{1,2}:\d{2}\b/g, '');
-      preview = preview.replace(/\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/g, '');
-      preview = preview.replace(/\b(ontem|hoje)\b/gi, '');
-      preview = preview.replace(/\b(dom|seg|ter|qua|qui|sex|sab)\b/gi, '');
-      // Remove badge de unread (numeros ate 3 digitos no final, possivel + para 99+)
-      preview = preview.replace(/\s*\d{1,3}\+?\s*$/g, '');
-      // Remove caracteres de controle unicode (bi-di, etc)
-      preview = preview.replace(/[\u200e\u200f\u202a\u202c\u202d\u202e]/g, '');
-      // Compacta espacos
-      preview = preview.replace(/\s+/g, ' ').trim();
+      // Pega innerText da linha 2 (ignora SVGs, icons, hidden elements)
+      var previewText = '';
+      try { previewText = (line2.innerText || '').trim(); } catch (e2) {}
+      if (!previewText) continue;
 
-      if (preview && preview.length >= 2) {
-        map[title] = preview;
+      // Limpa: remove badge numeros (1, 2, 99+) que podem estar no final
+      previewText = previewText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+      previewText = previewText.replace(/\s+\d{1,3}\+?\s*$/, '').trim();
+
+      if (previewText && previewText.length >= 2) {
+        map[title] = previewText;
       }
     }
   } catch (e) {}
