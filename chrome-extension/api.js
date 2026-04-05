@@ -162,7 +162,40 @@
     if (!el) return null;
     var keys = Object.keys(el);
     for (var i = 0; i < keys.length; i++) {
-      if (keys[i].indexOf('__reactProps') === 0) return keys[i];
+      var k = keys[i];
+      if (k.indexOf('__reactProps') === 0) return k;
+      if (k.indexOf('__reactEventHandlers') === 0) return k;
+    }
+    return null;
+  }
+
+  function _findReactFiberKey(el) {
+    if (!el) return null;
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (k.indexOf('__reactFiber') === 0) return k;
+      if (k.indexOf('__reactInternalInstance') === 0) return k;
+    }
+    return null;
+  }
+
+  // Walk fiber parents procurando onClick em memoizedProps
+  function _walkFiberForHandler(fiber, maxDepth) {
+    var cur = fiber;
+    var depth = 0;
+    var handlers = ['onClick', 'onPointerUp', 'onMouseUp', 'onPointerDown', 'onMouseDown'];
+    while (cur && depth < (maxDepth || 20)) {
+      var props = cur.memoizedProps || cur.pendingProps;
+      if (props) {
+        for (var h = 0; h < handlers.length; h++) {
+          if (typeof props[handlers[h]] === 'function') {
+            return { handler: props[handlers[h]], name: handlers[h], fiber: cur };
+          }
+        }
+      }
+      cur = cur.return;
+      depth++;
     }
     return null;
   }
@@ -171,12 +204,15 @@
   // Retorna true se achou e chamou o handler.
   function _invokeReactOnClick(el) {
     var cur = el;
+    var checkedEls = 0;
+    var foundPropsEls = 0;
     while (cur && cur !== document.body) {
+      checkedEls++;
       var propKey = _findReactPropsKey(cur);
       if (propKey) {
+        foundPropsEls++;
         var props = cur[propKey];
         if (props) {
-          // Procura handlers possiveis: onClick, onPointerDown, onMouseDown
           var handlers = ['onClick', 'onPointerUp', 'onMouseUp', 'onPointerDown', 'onMouseDown'];
           for (var h = 0; h < handlers.length; h++) {
             var handler = props[handlers[h]];
@@ -199,7 +235,7 @@
                   persist: function() {}
                 };
                 handler(fakeEvt);
-                return { ok: true, handler: handlers[h], el: cur };
+                return { ok: true, handler: handlers[h], el: cur, via: 'props' };
               } catch (e) {
                 console.log('[EZAP-DOM] handler ' + handlers[h] + ' err:', e && e.message);
               }
@@ -209,6 +245,47 @@
       }
       cur = cur.parentElement;
     }
+    console.log('[EZAP-DOM] no React props handler. checked=' + checkedEls + ' withProps=' + foundPropsEls);
+
+    // Fallback via fiber: acessa __reactFiber e sobe a arvore de memoizedProps
+    var fiberKey = _findReactFiberKey(el);
+    if (fiberKey) {
+      var fiber = el[fiberKey];
+      var found = _walkFiberForHandler(fiber, 20);
+      if (found) {
+        try {
+          var rect2 = el.getBoundingClientRect();
+          var evt2 = {
+            bubbles: true, cancelable: true, isTrusted: true,
+            type: found.name.replace(/^on/, '').toLowerCase(),
+            button: 0, buttons: 0, detail: 1,
+            clientX: rect2.left + rect2.width / 2,
+            clientY: rect2.top + rect2.height / 2,
+            pageX: rect2.left + rect2.width / 2,
+            pageY: rect2.top + rect2.height / 2,
+            target: el, currentTarget: el,
+            nativeEvent: null,
+            preventDefault: function() {},
+            stopPropagation: function() {},
+            stopImmediatePropagation: function() {},
+            persist: function() {}
+          };
+          found.handler(evt2);
+          return { ok: true, handler: found.name, el: el, via: 'fiber' };
+        } catch (e) {
+          console.log('[EZAP-DOM] fiber handler err:', e && e.message);
+        }
+      } else {
+        console.log('[EZAP-DOM] fiber walk: no handler found');
+      }
+    } else {
+      console.log('[EZAP-DOM] no reactFiber key on element');
+    }
+    // Log debug: lista todas keys do elemento
+    try {
+      var allKeys = Object.keys(el).filter(function(k) { return k.indexOf('__react') === 0; });
+      console.log('[EZAP-DOM] react keys on clickable:', allKeys);
+    } catch(e) {}
     return null;
   }
 
@@ -231,11 +308,14 @@
           // Estrategia 1: invocar onClick do React fiber direto (bypass events)
           var reactResult = _invokeReactOnClick(clickable);
           if (reactResult && reactResult.ok) {
-            console.log('[EZAP-DOM] React handler invoked:', reactResult.handler);
+            console.log('[EZAP-DOM] React handler invoked via ' + reactResult.via + ':', reactResult.handler);
             return true;
           }
 
-          // Estrategia 2: dispatchEvent tradicional (fallback)
+          // Estrategia 2: element.click() nativo
+          try { clickable.click(); console.log('[EZAP-DOM] native .click() called'); return true; } catch (e) {}
+
+          // Estrategia 3: dispatchEvent tradicional (fallback)
           var rect = clickable.getBoundingClientRect();
           var cx = rect.left + rect.width / 2;
           var cy = rect.top + rect.height / 2;
@@ -472,11 +552,33 @@
   // 1) DOM click (row ja no viewport do virtual scroll) — instantaneo
   // 2) Search bar do WA — funciona pra contatos fora do viewport
   // 3) Bridge RPC (Store.Cmd via fiber) — fallback experimental
+  // Verifica se a conversa de um contato foi aberta checando o header
+  function _isChatOpenFor(nameHint) {
+    try {
+      var main = document.getElementById('main');
+      if (!main) return false;
+      var headerSpan = main.querySelector('header span[title]');
+      if (!headerSpan) return false;
+      var openedName = headerSpan.getAttribute('title') || '';
+      return ezapMatchContact(nameHint, openedName);
+    } catch (e) { return false; }
+  }
+
   function ezapOpenChat(jid, nameHint) {
     return new Promise(function(resolve) {
       // Strategy 1: DOM click (so funciona se row esta no viewport)
       if (_tryDomClick(nameHint)) {
-        resolve({ ok: true, via: 'dom-click' });
+        // Verifica em 600ms se a conversa realmente abriu
+        setTimeout(function() {
+          if (_isChatOpenFor(nameHint)) {
+            resolve({ ok: true, via: 'dom-click' });
+          } else {
+            console.log('[EZAP-DOM] click did not open chat, falling back to search');
+            ezapOpenChatViaSearch(nameHint).then(function(r) {
+              resolve(r && r.ok ? r : { ok: false, reason: 'dom-click-no-effect', searchResult: r });
+            });
+          }
+        }, 600);
         return;
       }
 
