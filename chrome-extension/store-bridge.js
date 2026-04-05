@@ -109,36 +109,88 @@
     return found;
   }
 
-  // Captura __webpack_require__ via modulo parasita (tecnica moduleRaid).
-  // Alguns builds do WA nao chamam o callback runtime quando modules={}.
-  // Entao registramos um modulo fake e forcamos webpack a carrega-lo.
+  // Captura __webpack_require__ via varias tecnicas.
   var _webpackRequire = null;
+  var _pushHijacked = false;
+  var _pushDiag = '';
 
-  function captureWebpackRequire(onReady) {
-    var chunk = findWebpackChunk();
-    if (!chunk) return false;
-    var parasiteId = 'ezap_parasite_' + Date.now() + '_' + _initTries;
+  // TECNICA A: monkey-patch push pra interceptar proximas chunks do WA.
+  function hijackPush(chunk, onReady) {
+    if (_pushHijacked) return;
+    _pushHijacked = true;
+    try {
+      var originalPush = chunk.push;
+      _pushDiag = String(originalPush).substring(0, 120);
+      chunk.push = function() {
+        var args = arguments;
+        for (var i = 0; i < args.length; i++) {
+          var entry = args[i];
+          if (entry && entry[2] && typeof entry[2] === 'function' && !_webpackRequire) {
+            var orig = entry[2];
+            entry[2] = function(webpack_require) {
+              if (!_webpackRequire) {
+                _webpackRequire = webpack_require;
+                console.log('[EZAP-STORE] Captured via push hijack');
+                try { onReady(webpack_require); } catch(e) { console.log('[EZAP-STORE] onReady err:', e.message); }
+              }
+              return orig.apply(this, arguments);
+            };
+          }
+        }
+        return originalPush.apply(this, args);
+      };
+    } catch (e) {
+      console.log('[EZAP-STORE] hijack failed:', e && e.message);
+    }
+  }
+
+  // TECNICA B: push parasita (moduleRaid pattern)
+  function pushParasite(chunk, onReady) {
+    var parasiteId = 'ezap_p_' + Date.now() + '_' + _initTries;
     try {
       var moduleMap = {};
       moduleMap[parasiteId] = function(module, exports, webpack_require) {
-        _webpackRequire = webpack_require;
+        if (!_webpackRequire) {
+          _webpackRequire = webpack_require;
+          console.log('[EZAP-STORE] Captured via parasite');
+          onReady(webpack_require);
+        }
         module.exports = {};
-        onReady(webpack_require);
       };
       chunk.push([
-        [parasiteId],    // chunkIds
-        moduleMap,       // module factories (contem nosso parasita)
-        function(req) {  // runtime: trigger para carregar nosso modulo
-          try { req(parasiteId); } catch (e) {
-            console.log('[EZAP-STORE] parasite require failed:', e && e.message);
-          }
+        [parasiteId],
+        moduleMap,
+        function(req) {
+          try { req(parasiteId); } catch (e) {}
         }
       ]);
       return true;
     } catch (e) {
-      console.log('[EZAP-STORE] push failed:', e && e.message);
+      console.log('[EZAP-STORE] push parasite failed:', e && e.message);
       return false;
     }
+  }
+
+  // TECNICA C: inspecionar chunks ja presentes no array
+  function scanExistingChunks(chunk) {
+    var info = { total: chunk.length, withRuntime: 0 };
+    for (var i = 0; i < chunk.length; i++) {
+      var entry = chunk[i];
+      if (entry && entry[2] && typeof entry[2] === 'function') {
+        info.withRuntime++;
+      }
+    }
+    return info;
+  }
+
+  function captureWebpackRequire(onReady) {
+    var chunk = findWebpackChunk();
+    if (!chunk) return false;
+    // A: hijack push pro futuro
+    hijackPush(chunk, onReady);
+    // B: parasita pra disparar callback imediato
+    pushParasite(chunk, onReady);
+    return true;
   }
 
   function tryInject() {
@@ -252,12 +304,18 @@
   // Debug helper exposto no console: window._ezapDebugStore()
   window._ezapDebugStore = function() {
     var allKeys = Object.keys(window).filter(function(k){return k.indexOf('webpackChunk')===0;});
+    var chunk = findWebpackChunk();
     return {
       ready: window._ezapStoreReady,
       tries: _initTries,
       lastWebpackKey: _lastWebpackKey,
       allWebpackKeys: allKeys,
-      chunkPresent: !!findWebpackChunk(),
+      chunkPresent: !!chunk,
+      chunkLength: chunk ? chunk.length : null,
+      chunksWithRuntime: chunk ? scanExistingChunks(chunk).withRuntime : null,
+      pushIsNative: chunk ? /\[native code\]/.test(String(chunk.push)) : null,
+      pushDiag: _pushDiag,
+      pushHijacked: _pushHijacked,
       webpackRequireCaptured: !!_webpackRequire,
       store: window._ezapStore ? {
         Chat: !!window._ezapStore.Chat,
