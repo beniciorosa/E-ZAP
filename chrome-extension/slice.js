@@ -382,23 +382,36 @@ function applyConversationFilters() {
 }
 
 function setupFilterObserver() {
-  if (sliceFilterObserver) sliceFilterObserver.disconnect();
+  if (sliceFilterObserver) { try { sliceFilterObserver.disconnect(); } catch(e) {} sliceFilterObserver = null; }
 
   var hasAnyFilter = !!selectedMentor || (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
   if (!hasAnyFilter) return;
 
-  var pane = document.getElementById("pane-side");
-  if (!pane) return;
+  // CRITICAL: observe o container da lista (direct children only).
+  // Usar pane-side com subtree:true captura todas mudancas do WA
+  // (typing, presence, reordering) + nossas proprias mudancas de class
+  // -> loop infinito que trava a UI.
+  var container = findChatListContainer();
+  if (!container) return;
 
   sliceFilterObserver = new MutationObserver(function(mutations) {
-    // Only re-apply if children were added/removed (not attribute changes from our classes)
-    var dominated = mutations.some(function(m) { return m.addedNodes.length > 0 || m.removedNodes.length > 0; });
-    if (!dominated) return;
+    // Ignora mutations que sao so nossas (wcrm-hidden / wcrm-filter-active)
+    var ourClassesOnly = mutations.every(function(m) {
+      if (m.type !== 'attributes') return false;
+      if (m.attributeName !== 'class') return false;
+      return true; // e attr change de class, quase certeza que e nossa
+    });
+    if (ourClassesOnly) return;
+    // Precisa ser mudanca estrutural (children adicionados/removidos)
+    var structural = mutations.some(function(m) {
+      return m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0);
+    });
+    if (!structural) return;
     clearTimeout(sliceFilterObserver._debounce);
-    sliceFilterObserver._debounce = setTimeout(applyConversationFilters, 300);
+    sliceFilterObserver._debounce = setTimeout(applyConversationFilters, 500);
   });
 
-  sliceFilterObserver.observe(pane, { childList: true, subtree: true });
+  sliceFilterObserver.observe(container, { childList: true, subtree: false });
 }
 
 // Helper for ABAS (defined here so it's available; abas.js populates the data)
