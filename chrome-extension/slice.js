@@ -286,7 +286,7 @@ function _ensureCustomListCSS() {
   var s = document.createElement('style');
   s.id = 'wcrm-custom-list-css';
   s.textContent = [
-    '#wcrm-custom-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; background: #111b21; color: #e9edef; font-family: "Segoe UI", Helvetica, "Helvetica Neue", Arial, sans-serif; }',
+    '#wcrm-custom-list { overflow-y: auto; background: #111b21; color: #e9edef; font-family: "Segoe UI", Helvetica, "Helvetica Neue", Arial, sans-serif; }',
     '.wcrm-custom-row { display: flex; align-items: stretch; padding: 0 15px; height: 72px; box-sizing: border-box; cursor: pointer; background: transparent; position: relative; }',
     '.wcrm-custom-row:hover { background: #202c33; }',
     '.wcrm-custom-row:active { background: #2a3942; }',
@@ -332,26 +332,40 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var container = findChatListContainer();
   if (!container) return false;
 
-  // Acha o container pai que e scrollavel (esse que vamos esconder)
+  // Acha o container pai que e scrollavel
   var scrollParent = _findScrollParent(container) || container.parentElement;
   if (!scrollParent) return false;
 
-  // Esconde a lista nativa do WA (preserva display original pra restaurar)
+  // MUDANCA v1.8.27: NAO escondemos mais o scrollParent. Fazemos overlay
+  // do custom list POR CIMA dele. Isso permite que dispatchEvent nas
+  // rows nativas funcione (elemento em flow + visivel).
+  var overlayParent = scrollParent.parentNode;
+  if (!overlayParent) return false;
+
+  // Marca scrollParent pra referencia (mesmo nao sendo escondido)
   if (!scrollParent.hasAttribute('data-ezap-hidden')) {
     scrollParent.setAttribute('data-ezap-hidden', '1');
     scrollParent.setAttribute('data-ezap-orig-display', scrollParent.style.display || '');
-    scrollParent.style.display = 'none';
+  }
+  // Scroll nativo ao topo pra primeiras rows carregarem no virtual scroll
+  try { if (scrollParent.scrollTop > 0) scrollParent.scrollTop = 0; } catch(e) {}
+
+  // Garante position:relative no parent pro overlay absolute funcionar
+  var parentPos = getComputedStyle(overlayParent).position;
+  if (parentPos === 'static') {
+    overlayParent.setAttribute('data-ezap-orig-pos', parentPos);
+    overlayParent.style.position = 'relative';
   }
 
-  // Cria nossa lista custom (ou reusa)
+  // Cria nossa lista custom como OVERLAY absoluto (ou reusa)
   var custom = document.getElementById('wcrm-custom-list');
   if (!custom) {
     custom = document.createElement('div');
     custom.id = 'wcrm-custom-list';
-    // Insere no MESMO pai do scrollParent, logo depois dele
-    scrollParent.parentNode.insertBefore(custom, scrollParent.nextSibling);
+    overlayParent.appendChild(custom);
   }
-  custom.style.display = 'block';
+  // Posiciona overlay cobrindo o scrollParent
+  custom.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:100;display:block;';
   custom.innerHTML = '';
 
   // Resolve contatos da aba (nome + JID + pin status + nome de display)
@@ -708,10 +722,16 @@ function _hideCustomAbaList() {
   }
   var hidden = document.querySelector('[data-ezap-hidden="1"]');
   if (hidden) {
-    var orig = hidden.getAttribute('data-ezap-orig-display') || '';
-    hidden.style.display = orig;
+    // Nao precisamos mais restaurar display (nao esta mais em none),
+    // so removemos os marcadores
     hidden.removeAttribute('data-ezap-hidden');
     hidden.removeAttribute('data-ezap-orig-display');
+    // Restaura position do parent se mudamos
+    var parent = hidden.parentNode;
+    if (parent && parent.hasAttribute('data-ezap-orig-pos')) {
+      parent.style.position = parent.getAttribute('data-ezap-orig-pos');
+      parent.removeAttribute('data-ezap-orig-pos');
+    }
   }
 }
 

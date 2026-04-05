@@ -158,29 +158,8 @@
   // antes do click, e restaura depois.
   function _tryDomClick(nameHint) {
     if (!nameHint) return false;
-    var hidden = document.querySelector('[data-ezap-hidden="1"]');
-    var saved = null;
-    if (hidden) {
-      // Desesconde temporariamente fora da tela (pra dispatchEvent funcionar
-      // sem alterar layout visual do custom list).
-      saved = {
-        display: hidden.style.display,
-        position: hidden.style.position,
-        top: hidden.style.top,
-        left: hidden.style.left,
-        width: hidden.style.width,
-        height: hidden.style.height,
-        zIndex: hidden.style.zIndex
-      };
-      hidden.style.display = hidden.getAttribute('data-ezap-orig-display') || 'block';
-      hidden.style.position = 'absolute';
-      hidden.style.top = '-99999px';
-      hidden.style.left = '-99999px';
-      hidden.style.width = '400px';
-      hidden.style.height = '600px';
-      hidden.style.zIndex = '-1';
-    }
-    var clicked = false;
+    // v1.8.27: scrollParent nao esta mais hidden. Custom list eh overlay.
+    // dispatchEvent em rows nativas funciona diretamente.
     try {
       var pane = document.getElementById('pane-side');
       if (!pane) return false;
@@ -194,27 +173,17 @@
         if (ezapMatchContact(nameHint, t)) {
           var clickable = span.closest('[role="listitem"]') || span.closest('div[tabindex]') || rows[i];
           if (!clickable) continue;
-          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0 }));
-          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0 }));
-          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 }));
-          clicked = true;
-          break;
+          var rect = clickable.getBoundingClientRect();
+          var cx = rect.left + rect.width / 2;
+          var cy = rect.top + rect.height / 2;
+          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0, clientX: cx, clientY: cy }));
+          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0, clientX: cx, clientY: cy }));
+          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0, clientX: cx, clientY: cy }));
+          return true;
         }
       }
     } catch (e) {}
-    // Restaura estado do scrollParent oculto (delay pra React processar o click)
-    if (hidden && saved) {
-      setTimeout(function() {
-        hidden.style.display = saved.display;
-        hidden.style.position = saved.position;
-        hidden.style.top = saved.top;
-        hidden.style.left = saved.left;
-        hidden.style.width = saved.width;
-        hidden.style.height = saved.height;
-        hidden.style.zIndex = saved.zIndex;
-      }, 150);
-    }
-    return clicked;
+    return false;
   }
 
   // Acha o campo de busca do WA. WA muda atributos entre versoes, entao
