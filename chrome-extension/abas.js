@@ -302,55 +302,59 @@ function removePinIndicator(nameSpan) {
   if (icon) icon.remove();
 }
 
-// Move pinned contacts to the top of the chat list
+// Mark pinned contacts with a visual indicator.
+// NOTE: We intentionally do NOT reorder/reposition pinned rows when no filter
+// is active, because WhatsApp Web uses a virtual scroll that positions rows
+// with absolute `top: Xpx` inline styles. Overriding positioning (via the
+// wcrm-filter-active class) or using insertBefore fights WA's renderer and
+// causes rows to disappear and the scrollbar to glitch. The pin icon alone
+// is enough to identify pinned contacts. When a filter IS active
+// (slice/abas), applyConversationFilters already handles pin-at-top safely.
 function applyPinnedOrder() {
   var pinned = window._wcrmPinned || {};
   var pinnedNames = Object.keys(pinned);
+
+  var container = findChatListContainer();
+
+  // No pins: strip all indicators and exit.
   if (pinnedNames.length === 0) {
-    // Remove all pin indicators
     document.querySelectorAll('.wcrm-pin-icon').forEach(function(el) { el.remove(); });
-    // Remove pin mode if no pins
-    var container = findChatListContainer();
-    if (container && container.classList.contains('wcrm-pin-active')) {
-      container.classList.remove('wcrm-pin-active');
-      var scrollParent = container.parentElement;
-      if (scrollParent) {
-        var pos = scrollParent.scrollTop;
-        scrollParent.scrollTop = pos + 1;
-        setTimeout(function() { scrollParent.scrollTop = pos; }, 50);
-      }
+    if (container && container.classList.contains('wcrm-filter-active')) {
+      // Make sure we never leave the virtual-scroll-breaking class hanging
+      // around from an older version of the extension.
+      var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
+                      (typeof selectedMentor !== 'undefined' && !!selectedMentor);
+      if (!hasFilter) container.classList.remove('wcrm-filter-active');
     }
     return;
   }
 
-  injectFilterCSS();
-  var container = findChatListContainer();
   if (!container) return;
 
-  // Only enable pin reordering if no filter is active (filters handle their own pinning)
+  // If a filter is active, let applyConversationFilters own the DOM (it
+  // handles pin-at-top because it's already overriding the virtual scroll).
   var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
                   (typeof selectedMentor !== 'undefined' && !!selectedMentor);
   if (hasFilter) return;
 
-  container.classList.add('wcrm-filter-active');
-
-  var pinnedRows = [];
+  // Pin-only mode: visual indicator only, no reordering, no CSS override.
+  // Strip any stale wcrm-filter-active left over from previous behavior.
+  if (container.classList.contains('wcrm-filter-active')) {
+    container.classList.remove('wcrm-filter-active');
+    container.querySelectorAll('.wcrm-hidden').forEach(function(el) {
+      el.classList.remove('wcrm-hidden');
+    });
+  }
   for (var i = 0; i < container.children.length; i++) {
     var row = container.children[i];
     var nameSpan = row.querySelector('span[title]');
     if (!nameSpan) continue;
     var title = nameSpan.getAttribute('title') || '';
     if (pinned[title]) {
-      pinnedRows.push(row);
       addPinIndicator(nameSpan);
     } else {
       removePinIndicator(nameSpan);
     }
-  }
-
-  // Move pinned rows to the top
-  for (var j = pinnedRows.length - 1; j >= 0; j--) {
-    container.insertBefore(pinnedRows[j], container.firstChild);
   }
 }
 
