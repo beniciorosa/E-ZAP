@@ -878,6 +878,14 @@ function calcButtonSizes(availableHeight) {
 }
 
 function injectSidebarButtons() {
+  // If widget mode is "floating", remove sidebar buttons and let widget.js handle rendering
+  var wc = window.__ezapWidgetConfig || {};
+  if (wc.position === "floating") {
+    var oldWrapper = document.getElementById('wcrm-sidebar-buttons');
+    if (oldWrapper) oldWrapper.remove();
+    return;
+  }
+
   var info = findSidebarInfo();
   if (!info) return;
 

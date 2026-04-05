@@ -981,7 +981,7 @@
       </button>
       <button class="sidebar-nav-item" data-tab="buttons" onclick="switchTab('buttons')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
-        Botões
+        Botões e Widgets
       </button>
       <button class="sidebar-nav-item" data-tab="security" onclick="switchTab('security')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -1137,25 +1137,72 @@
       </div>
     </div>
 
-    <!-- ===== BUTTONS PANEL ===== -->
+    <!-- ===== BUTTONS & WIDGETS PANEL ===== -->
     <div class="panel" id="panel-buttons">
       <div class="page-header">
-        <div class="page-title">Botões Flutuantes</div>
+        <div class="page-title">Botões e Widgets</div>
       </div>
 
+      <!-- Widgets do chat (Pin / Abas / Etiquetas) -->
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(77,150,255,0.1)">
+            <span>&#128269;</span>
+          </div>
+          <div>
+            <div class="settings-card-title">Widgets do chat</div>
+            <div class="settings-card-desc">Posição, estilo e ordem dos widgets Fixar, Abas e Etiquetas</div>
+          </div>
+        </div>
+
+        <!-- Position toggle -->
+        <div style="margin-bottom:16px">
+          <label style="font-size:11px;color:var(--on-surface-variant);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Posição</label>
+          <div style="display:flex;gap:8px">
+            <div id="widgetPos_sidebar" onclick="setWidgetPosition('sidebar')" style="flex:1;padding:14px;border-radius:10px;border:2px solid var(--border);cursor:pointer;transition:all 0.15s">
+              <div style="font-size:13px;font-weight:600;color:var(--on-surface);margin-bottom:4px">Lateral esquerda</div>
+              <div style="font-size:11px;color:var(--on-surface-variant)">Integrado na barra lateral do WhatsApp</div>
+            </div>
+            <div id="widgetPos_floating" onclick="setWidgetPosition('floating')" style="flex:1;padding:14px;border-radius:10px;border:2px solid var(--border);cursor:pointer;transition:all 0.15s">
+              <div style="font-size:13px;font-weight:600;color:var(--on-surface);margin-bottom:4px">Widget flutuante</div>
+              <div style="font-size:11px;color:var(--on-surface-variant)">No topo da conversa, acompanha scroll</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Style variants (only shown for floating) -->
+        <div id="widgetStyleSection" style="margin-bottom:16px">
+          <label style="font-size:11px;color:var(--on-surface-variant);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Estilo do widget flutuante</label>
+          <div id="widgetStyleGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px"></div>
+        </div>
+
+        <!-- Widget items ordering -->
+        <div>
+          <label style="font-size:11px;color:var(--on-surface-variant);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Ordem e itens visíveis</label>
+          <div id="widgetItemsList" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
+          <button class="btn-primary" onclick="saveWidgetConfig()" style="padding:8px 18px;font-size:12px">Salvar widgets</button>
+          <button class="btn-secondary" onclick="resetWidgetConfig()" style="padding:8px 18px;font-size:12px">Restaurar padrão</button>
+          <span id="widgetConfigStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
+      </div>
+
+      <!-- Floating buttons -->
       <div class="settings-card">
         <div class="settings-card-header">
           <div class="settings-card-icon" style="background:rgba(37,211,102,0.1)">
             <span>&#127912;</span>
           </div>
           <div>
-            <div class="settings-card-title">Personalização dos botões</div>
-            <div class="settings-card-desc">Edite a sigla (até 5 caracteres), cor de fundo, cor do texto e ordem dos botões flutuantes</div>
+            <div class="settings-card-title">Botões flutuantes laterais</div>
+            <div class="settings-card-desc">Edite a sigla (até 5 caracteres), cor de fundo, cor do texto e ordem</div>
           </div>
         </div>
         <div id="buttonsList" style="display:flex;flex-direction:column;gap:12px"></div>
         <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
-          <button class="btn-primary" onclick="saveButtonConfig()" style="padding:8px 18px;font-size:12px">Salvar</button>
+          <button class="btn-primary" onclick="saveButtonConfig()" style="padding:8px 18px;font-size:12px">Salvar botões</button>
           <button class="btn-secondary" onclick="resetButtonConfig()" style="padding:8px 18px;font-size:12px">Restaurar padrão</button>
           <span id="buttonConfigStatus" style="font-size:12px;margin-left:8px"></span>
         </div>
@@ -1347,6 +1394,7 @@ function showApp() {
   loadGeiaPersonality();
   loadGeiaKnowledge();
   loadButtonConfig();
+  loadWidgetConfigAdmin();
 }
 
 // Auto-login
@@ -2579,6 +2627,149 @@ function resetButtonConfig() {
   if (!confirm("Restaurar configuração padrão dos botões?")) return;
   currentButtonConfig = JSON.parse(JSON.stringify(DEFAULT_BUTTON_CONFIG));
   renderButtonConfig();
+}
+
+// ===== WIDGET CONFIG =====
+var DEFAULT_WIDGET_CONFIG = {
+  position: "sidebar",
+  style: "pill",
+  widgets: {
+    pin:  { enabled: true, order: 1 },
+    abas: { enabled: true, order: 2 },
+    tags: { enabled: true, order: 3 }
+  }
+};
+var WIDGET_STYLE_VARIANTS = [
+  { key: "pill",    label: "Pill",     desc: "Clássico arredondado" },
+  { key: "glass",   label: "Glass",    desc: "Vidro com degradê" },
+  { key: "minimal", label: "Minimal",  desc: "Sem fundo, só ícones" },
+  { key: "solid",   label: "Solid",    desc: "Fundo sólido opaco" }
+];
+var WIDGET_ITEMS = [
+  { key: "pin",  label: "Fixar contato", icon: "&#128204;" },
+  { key: "abas", label: "Abas",          icon: "&#128462;" },
+  { key: "tags", label: "Etiquetas",     icon: "&#127991;" }
+];
+var currentWidgetConfig = JSON.parse(JSON.stringify(DEFAULT_WIDGET_CONFIG));
+
+function loadWidgetConfigAdmin() {
+  supa("/rest/v1/app_settings?key=eq.widget_config&select=value").then(function(rows) {
+    if (Array.isArray(rows) && rows.length > 0 && rows[0].value) {
+      try {
+        var val = rows[0].value;
+        var parsed = typeof val === "string" ? JSON.parse(val) : val;
+        currentWidgetConfig = {
+          position: parsed.position || DEFAULT_WIDGET_CONFIG.position,
+          style: parsed.style || DEFAULT_WIDGET_CONFIG.style,
+          widgets: Object.assign({}, DEFAULT_WIDGET_CONFIG.widgets, parsed.widgets || {})
+        };
+      } catch (e) {
+        currentWidgetConfig = JSON.parse(JSON.stringify(DEFAULT_WIDGET_CONFIG));
+      }
+    }
+    renderWidgetConfig();
+  });
+}
+
+function renderWidgetConfig() {
+  // Position selection
+  var posS = document.getElementById("widgetPos_sidebar");
+  var posF = document.getElementById("widgetPos_floating");
+  if (!posS || !posF) return;
+  var activeStyle = "border-color:var(--primary);background:rgba(37,211,102,0.08)";
+  var inactiveStyle = "border-color:var(--border);background:transparent";
+  posS.setAttribute("style", "flex:1;padding:14px;border-radius:10px;border:2px solid;cursor:pointer;transition:all 0.15s;" + (currentWidgetConfig.position === "sidebar" ? activeStyle : inactiveStyle));
+  posF.setAttribute("style", "flex:1;padding:14px;border-radius:10px;border:2px solid;cursor:pointer;transition:all 0.15s;" + (currentWidgetConfig.position === "floating" ? activeStyle : inactiveStyle));
+
+  // Style section visibility
+  var styleSection = document.getElementById("widgetStyleSection");
+  if (styleSection) styleSection.style.display = currentWidgetConfig.position === "floating" ? "block" : "none";
+
+  // Style grid
+  var grid = document.getElementById("widgetStyleGrid");
+  if (grid) {
+    grid.innerHTML = WIDGET_STYLE_VARIANTS.map(function(v) {
+      var sel = currentWidgetConfig.style === v.key;
+      var border = sel ? "border:2px solid var(--primary);background:rgba(37,211,102,0.08)" : "border:2px solid var(--border);background:transparent";
+      return '<div onclick="setWidgetStyle(\'' + v.key + '\')" style="padding:12px 10px;border-radius:8px;cursor:pointer;text-align:center;transition:all 0.15s;' + border + '">' +
+        '<div style="font-size:12px;font-weight:600;color:var(--on-surface);margin-bottom:2px">' + v.label + '</div>' +
+        '<div style="font-size:10px;color:var(--on-surface-variant)">' + v.desc + '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  // Items list (with order + enable toggle)
+  var itemsList = document.getElementById("widgetItemsList");
+  if (itemsList) {
+    var sorted = WIDGET_ITEMS.slice().sort(function(a, b) {
+      return (currentWidgetConfig.widgets[a.key].order || 0) - (currentWidgetConfig.widgets[b.key].order || 0);
+    });
+    itemsList.innerHTML = sorted.map(function(item) {
+      var cfg = currentWidgetConfig.widgets[item.key];
+      return '<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface-variant);border-radius:8px;border:1px solid var(--border)">' +
+        '<span style="font-size:18px">' + item.icon + '</span>' +
+        '<div style="flex:1;font-size:13px;font-weight:500;color:var(--on-surface)">' + item.label + '</div>' +
+        '<label style="font-size:11px;color:var(--on-surface-variant)">Ordem</label>' +
+        '<input type="number" min="1" max="9" value="' + (cfg.order || 0) + '" onchange="setWidgetItemOrder(\'' + item.key + '\', this.value)" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--on-surface);font-size:12px;width:50px">' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--on-surface-variant);cursor:pointer">' +
+          '<input type="checkbox" ' + (cfg.enabled ? "checked" : "") + ' onchange="setWidgetItemEnabled(\'' + item.key + '\', this.checked)"> Ativo' +
+        '</label>' +
+      '</div>';
+    }).join("");
+  }
+}
+
+function setWidgetPosition(pos) {
+  currentWidgetConfig.position = pos;
+  renderWidgetConfig();
+}
+
+function setWidgetStyle(style) {
+  currentWidgetConfig.style = style;
+  renderWidgetConfig();
+}
+
+function setWidgetItemOrder(key, val) {
+  var n = parseInt(val, 10);
+  if (isNaN(n) || n < 1) n = 1;
+  currentWidgetConfig.widgets[key].order = n;
+}
+
+function setWidgetItemEnabled(key, checked) {
+  currentWidgetConfig.widgets[key].enabled = !!checked;
+}
+
+function saveWidgetConfig() {
+  var statusEl = document.getElementById("widgetConfigStatus");
+  statusEl.textContent = "Salvando...";
+  statusEl.style.color = "var(--on-surface-variant)";
+  var payload = JSON.stringify(currentWidgetConfig);
+  supa("/rest/v1/app_settings?key=eq.widget_config", {
+    method: "PATCH", body: { value: payload, updated_at: new Date().toISOString() }, prefer: "return=representation"
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+      setTimeout(function() { statusEl.textContent = ""; }, 3000);
+      return;
+    }
+    return supa("/rest/v1/app_settings", {
+      method: "POST", body: { key: "widget_config", value: payload }
+    }).then(function() {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+      setTimeout(function() { statusEl.textContent = ""; }, 3000);
+    });
+  }).catch(function() {
+    statusEl.textContent = "Erro ao salvar";
+    statusEl.style.color = "#ff6b6b";
+  });
+}
+
+function resetWidgetConfig() {
+  if (!confirm("Restaurar configuração padrão dos widgets?")) return;
+  currentWidgetConfig = JSON.parse(JSON.stringify(DEFAULT_WIDGET_CONFIG));
+  renderWidgetConfig();
 }
 
 // ===== GEIA =====

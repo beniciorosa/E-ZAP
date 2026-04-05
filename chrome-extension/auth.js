@@ -251,6 +251,52 @@ window.__ezapReloadButtonConfig = loadButtonConfig;
 loadButtonConfig();
 setInterval(loadButtonConfig, 2 * 60 * 1000);
 
+// ===== Widget config (top floating widget for Pin/Abas/Tags) =====
+window.__ezapDefaultWidgetConfig = {
+  position: "sidebar", // "sidebar" | "floating"
+  style: "pill",        // "pill" | "glass" | "minimal" | "solid"
+  widgets: {
+    pin:  { enabled: true, order: 1 },
+    abas: { enabled: true, order: 2 },
+    tags: { enabled: true, order: 3 }
+  }
+};
+
+window.__ezapWidgetConfig = window.__ezapDefaultWidgetConfig;
+
+function loadWidgetConfig() {
+  chrome.runtime.sendMessage({
+    action: "supabase_rest",
+    path: "/rest/v1/app_settings?key=eq.widget_config&select=value",
+    method: "GET"
+  }, function(resp) {
+    if (chrome.runtime.lastError) return;
+    if (!resp || !Array.isArray(resp) || resp.length === 0) return;
+    try {
+      var val = resp[0].value;
+      var parsed = typeof val === "string" ? JSON.parse(val) : val;
+      if (parsed && typeof parsed === "object") {
+        var prev = JSON.stringify(window.__ezapWidgetConfig);
+        window.__ezapWidgetConfig = {
+          position: parsed.position || window.__ezapDefaultWidgetConfig.position,
+          style: parsed.style || window.__ezapDefaultWidgetConfig.style,
+          widgets: Object.assign({}, window.__ezapDefaultWidgetConfig.widgets, parsed.widgets || {})
+        };
+        if (prev !== JSON.stringify(window.__ezapWidgetConfig)) {
+          console.log("[EZAP AUTH] Widget config loaded", window.__ezapWidgetConfig);
+          if (typeof window.__ezapRefreshWidget === "function") window.__ezapRefreshWidget();
+        }
+      }
+    } catch (e) {
+      console.warn("[EZAP AUTH] Failed to parse widget_config", e);
+    }
+  });
+}
+
+window.__ezapReloadWidgetConfig = loadWidgetConfig;
+loadWidgetConfig();
+setInterval(loadWidgetConfig, 2 * 60 * 1000);
+
 // ===== Dispatch auth ready event =====
 function dispatchAuthReady() {
   console.log("[EZAP AUTH] Authenticated as:", window.__wcrmAuth.userName,
