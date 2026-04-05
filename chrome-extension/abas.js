@@ -335,30 +335,36 @@ function togglePinContact(chatName) {
 // Pins e contatos de aba salvos antes da existencia do bridge nao tem JID.
 // Na primeira vez que o store ficar disponivel, percorre os nomes e tenta
 // resolver o JID via store-bridge. Salva tudo em uma tacada.
-var _wcrmJidMigrationDone = false;
+// Migra JIDs faltantes. Reroda enquanto houver contatos sem JID (ate 10 tentativas).
+var _wcrmJidMigrationAttempts = 0;
 function migrateJidsWhenStoreReady() {
-  if (_wcrmJidMigrationDone) return;
-  if (!window.ezapStoreReady || !window.ezapBuildChatIndex) return;
+  if (!window.ezapStoreReady || !window.ezapBuildChatIndex) {
+    setTimeout(migrateJidsWhenStoreReady, 2000);
+    return;
+  }
   window.ezapStoreReady().then(function(ready) {
     if (!ready) { setTimeout(migrateJidsWhenStoreReady, 3000); return; }
     window.ezapBuildChatIndex().then(function(index) {
       if (!index) return;
-      _wcrmJidMigrationDone = true;
+      _wcrmJidMigrationAttempts++;
 
       // Migra pins
       var pinned = window._wcrmPinned || {};
       var pinJids = window._wcrmPinnedJids || {};
       var pinDirty = false;
+      var pinMissing = 0;
       Object.keys(pinned).forEach(function(name) {
         if (!pinJids[name]) {
           var jid = window.ezapFindJidInIndex(index, name);
           if (jid) { pinJids[name] = jid; pinDirty = true; }
+          else pinMissing++;
         }
       });
       if (pinDirty) savePinnedContacts(pinned, pinJids);
 
       // Migra ABAS contacts
       var cache = window._wcrmAbasCache;
+      var abasMissing = 0;
       if (cache && cache.tabs) {
         var abasDirty = false;
         cache.tabs.forEach(function(tab) {
@@ -367,16 +373,29 @@ function migrateJidsWhenStoreReady() {
             if (!tab.contactJids[name]) {
               var jid = window.ezapFindJidInIndex(index, name);
               if (jid) { tab.contactJids[name] = jid; abasDirty = true; }
+              else abasMissing++;
             }
           });
         });
         if (abasDirty) saveAbasData(cache);
       }
 
-      console.log("[WCRM JID] Migration done. Pins updated:", pinDirty, "Abas updated:", !!cache);
+      var totalMissing = pinMissing + abasMissing;
+      console.log("[WCRM JID] Migration attempt #" + _wcrmJidMigrationAttempts + ". Updated pins:" + pinDirty + " abas:" + (abasDirty || false) + " missing:" + totalMissing);
+
+      // Se ainda ha faltando e nao passou de 10 tentativas, tenta de novo
+      if (totalMissing > 0 && _wcrmJidMigrationAttempts < 10) {
+        setTimeout(migrateJidsWhenStoreReady, 5000);
+      }
     });
   });
 }
+
+// Expoe pra uso manual via console: window.ezapForceMigrateJids()
+window.ezapForceMigrateJids = function() {
+  _wcrmJidMigrationAttempts = 0;
+  migrateJidsWhenStoreReady();
+};
 
 // ===== Pin Indicator in Chat List =====
 function addPinIndicator(nameSpan) {

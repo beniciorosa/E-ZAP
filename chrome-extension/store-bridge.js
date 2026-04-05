@@ -372,14 +372,21 @@
         chat && chat.contact && chat.contact.profilePicThumb,
         chat && chat.contact && chat.contact.__x_profilePicThumb,
         chat && chat.profilePicThumbObj,
-        chat && chat.__x_profilePicThumbObj
+        chat && chat.__x_profilePicThumbObj,
+        chat && chat.contact && chat.contact.profilePicThumbObj,
+        chat && chat.contact && chat.contact.__x_profilePicThumbObj
       ];
       for (var i = 0; i < candidates.length; i++) {
         var p = candidates[i];
         if (!p) continue;
-        var url = p.eurl || p.__x_eurl || p.img || p.__x_img || p.imgFull || p.__x_imgFull;
+        var url = p.eurl || p.__x_eurl || p.img || p.__x_img ||
+                  p.imgFull || p.__x_imgFull || p.eurl_1x || p.url;
         if (url && typeof url === 'string') return url;
       }
+      // Tenta direto em fields do chat
+      var directUrl = (chat && (chat.eurl || chat.__x_eurl ||
+                     (chat.contact && (chat.contact.eurl || chat.contact.__x_eurl)))) || '';
+      if (directUrl && typeof directUrl === 'string') return directUrl;
     } catch (e) {}
     return '';
   }

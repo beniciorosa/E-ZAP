@@ -326,6 +326,51 @@ function _findScrollParent(startEl) {
   return null;
 }
 
+// Seta a imagem no avatar de uma row custom (substitui inicial por foto)
+function _setAvatarImg(avatar, picUrl) {
+  if (!avatar || !picUrl) return;
+  var existingImg = avatar.querySelector('img');
+  if (existingImg) { existingImg.src = picUrl; return; }
+  var initialText = avatar.textContent;
+  var img = document.createElement('img');
+  img.className = 'wcrm-custom-avatar-img';
+  img.src = picUrl;
+  img.loading = 'lazy';
+  img.draggable = false;
+  img.onerror = function() {
+    try { img.parentNode && img.parentNode.removeChild(img); } catch(e) {}
+    avatar.textContent = initialText;
+    avatar.classList.remove('wcrm-custom-avatar-has-img');
+  };
+  avatar.textContent = '';
+  avatar.classList.add('wcrm-custom-avatar-has-img');
+  avatar.appendChild(img);
+}
+
+// Scan da lista nativa do WA pra extrair foto de perfil de cada row visivel.
+// Usado como fallback quando o store fiber nao tem profilePicThumb populado.
+// Retorna { nome -> picUrl } das rows que WA ja renderizou no viewport.
+function _buildNativePicMap() {
+  var map = {};
+  try {
+    var pane = document.getElementById('pane-side');
+    if (!pane) return map;
+    var rows = pane.querySelectorAll('[role="row"], [role="listitem"]');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].closest && rows[i].closest('#wcrm-custom-list')) continue;
+      var span = rows[i].querySelector('span[title]');
+      if (!span) continue;
+      var title = span.getAttribute('title') || '';
+      if (!title) continue;
+      var img = rows[i].querySelector('img');
+      if (img && img.src && img.src.indexOf('data:') !== 0) {
+        map[title] = img.src;
+      }
+    }
+  } catch (e) {}
+  return map;
+}
+
 function _showCustomAbaList(abaTab, chatIndex) {
   _ensureCustomListCSS();
 
@@ -373,6 +418,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var contactJids = (abaTab && abaTab.contactJids) || {};
   var pinned = window._wcrmPinned || {};
   var pinJids = window._wcrmPinnedJids || {};
+  var nativePicMap = _buildNativePicMap();  // nome -> picUrl do DOM nativo
 
   if (contacts.length === 0) {
     var empty = document.createElement('div');
@@ -403,6 +449,20 @@ function _showCustomAbaList(abaTab, chatIndex) {
       if (meta.unread) unread = meta.unread;
       if (meta.lastMsgText) lastMsgText = meta.lastMsgText;
       if (meta.lastMsgFromMe) lastMsgFromMe = meta.lastMsgFromMe;
+    }
+    // Fallback: pega foto de perfil do DOM nativo do WA (mais confiavel)
+    if (!picUrl && nativePicMap) {
+      picUrl = nativePicMap[n] || nativePicMap[displayName] || '';
+      // Match tolerante
+      if (!picUrl && window.ezapMatchContact) {
+        var mapNames = Object.keys(nativePicMap);
+        for (var mi = 0; mi < mapNames.length; mi++) {
+          if (window.ezapMatchContact(n, mapNames[mi]) || window.ezapMatchContact(displayName, mapNames[mi])) {
+            picUrl = nativePicMap[mapNames[mi]];
+            break;
+          }
+        }
+      }
     }
     var isPinned = !!pinned[n];
     if (!isPinned && jid && pinJids) {
@@ -653,6 +713,7 @@ function _pollCustomListUpdates() {
   window.ezapBuildChatIndex().then(function(idx) {
     if (!idx || !idx.byJid) return;
     var rows = custom.querySelectorAll('.wcrm-custom-row');
+    var nativePicMap = _buildNativePicMap();
     var anyReordered = false;
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
@@ -669,6 +730,12 @@ function _pollCustomListUpdates() {
       };
       var changed = _updateCustomRow(row, data);
       if (changed) anyReordered = true;
+      // Atualiza foto se nao tem ainda
+      var avatar = row.querySelector('.wcrm-custom-avatar');
+      if (avatar && !avatar.classList.contains('wcrm-custom-avatar-has-img')) {
+        var picUrl = meta.profilePicUrl || nativePicMap[meta.name] || '';
+        if (picUrl) _setAvatarImg(avatar, picUrl);
+      }
     }
     // Se algum lastTs mudou, re-ordena rows (mantem pinned no topo)
     if (anyReordered) _resortCustomRows(custom);
