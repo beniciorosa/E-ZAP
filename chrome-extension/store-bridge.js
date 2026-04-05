@@ -109,6 +109,38 @@
     return found;
   }
 
+  // Captura __webpack_require__ via modulo parasita (tecnica moduleRaid).
+  // Alguns builds do WA nao chamam o callback runtime quando modules={}.
+  // Entao registramos um modulo fake e forcamos webpack a carrega-lo.
+  var _webpackRequire = null;
+
+  function captureWebpackRequire(onReady) {
+    var chunk = findWebpackChunk();
+    if (!chunk) return false;
+    var parasiteId = 'ezap_parasite_' + Date.now() + '_' + _initTries;
+    try {
+      var moduleMap = {};
+      moduleMap[parasiteId] = function(module, exports, webpack_require) {
+        _webpackRequire = webpack_require;
+        module.exports = {};
+        onReady(webpack_require);
+      };
+      chunk.push([
+        [parasiteId],    // chunkIds
+        moduleMap,       // module factories (contem nosso parasita)
+        function(req) {  // runtime: trigger para carregar nosso modulo
+          try { req(parasiteId); } catch (e) {
+            console.log('[EZAP-STORE] parasite require failed:', e && e.message);
+          }
+        }
+      ]);
+      return true;
+    } catch (e) {
+      console.log('[EZAP-STORE] push failed:', e && e.message);
+      return false;
+    }
+  }
+
   function tryInject() {
     _initTries++;
     var chunk = findWebpackChunk();
@@ -117,31 +149,44 @@
       else console.log('[EZAP-STORE] webpack chunk never appeared after', _initTries, 'tries — giving up');
       return;
     }
-    try {
-      chunk.push([
-        ['_ezap_parasite_' + Date.now() + '_' + _initTries],
-        {},
-        function(req) {
-          var found = scanModules(req);
-          window._ezapStore = found;
-          window._ezapStoreReady = !!found.Chat;
-          if (_initTries <= 3 || found.Chat) {
-            console.log('[EZAP-STORE] Hook try', _initTries, 'key:', _lastWebpackKey, 'found:', {
-              Chat: !!found.Chat, Contact: !!found.Contact,
-              GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid
-            });
-          }
-          if (!found.Chat && _initTries < INIT_MAX_TRIES) {
-            // Modulos ainda carregando — tenta de novo em 2s
-            setTimeout(tryInject, 2000);
-          } else if (found.Chat && _initTries > 3) {
-            console.log('[EZAP-STORE] Chat module finally loaded on try', _initTries);
-          }
-        }
-      ]);
-    } catch (e) {
-      console.log('[EZAP-STORE] webpack push failed (try', _initTries, '):', e && e.message);
-      if (_initTries < INIT_MAX_TRIES) setTimeout(tryInject, 1000);
+
+    // Se ja capturamos __webpack_require__, apenas re-escaneia os modulos
+    if (_webpackRequire) {
+      var found = scanModules(_webpackRequire);
+      window._ezapStore = found;
+      window._ezapStoreReady = !!found.Chat;
+      if (_initTries <= 3 || found.Chat) {
+        console.log('[EZAP-STORE] Rescan try', _initTries, 'found:', {
+          Chat: !!found.Chat, Contact: !!found.Contact,
+          GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid
+        });
+      }
+      if (!found.Chat && _initTries < INIT_MAX_TRIES) {
+        setTimeout(tryInject, 2000);
+      } else if (found.Chat && _initTries > 3) {
+        console.log('[EZAP-STORE] Chat module finally loaded on try', _initTries);
+      }
+      return;
+    }
+
+    // Primeira captura: injeta parasita
+    var ok = captureWebpackRequire(function(req) {
+      console.log('[EZAP-STORE] Captured __webpack_require__ on try', _initTries, 'key:', _lastWebpackKey);
+      var found = scanModules(req);
+      window._ezapStore = found;
+      window._ezapStoreReady = !!found.Chat;
+      console.log('[EZAP-STORE] First scan found:', {
+        Chat: !!found.Chat, Contact: !!found.Contact,
+        GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid,
+        scanned: window._ezapDebug.lastScan.scanned,
+        errors: window._ezapDebug.lastScan.errors
+      });
+      if (!found.Chat && _initTries < INIT_MAX_TRIES) {
+        setTimeout(tryInject, 2000);
+      }
+    });
+    if (!ok && _initTries < INIT_MAX_TRIES) {
+      setTimeout(tryInject, 1000);
     }
   }
 
@@ -213,6 +258,7 @@
       lastWebpackKey: _lastWebpackKey,
       allWebpackKeys: allKeys,
       chunkPresent: !!findWebpackChunk(),
+      webpackRequireCaptured: !!_webpackRequire,
       store: window._ezapStore ? {
         Chat: !!window._ezapStore.Chat,
         Contact: !!window._ezapStore.Contact,
