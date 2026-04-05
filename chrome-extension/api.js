@@ -342,11 +342,8 @@
   // 3) Bridge RPC (Store.Cmd via fiber) — fallback experimental
   function ezapOpenChat(jid, nameHint) {
     return new Promise(function(resolve) {
-      // Strategy 1: DOM click (so funciona se row esta no viewport E
-      // custom list nao esta cobrindo)
-      var customList = document.getElementById('wcrm-custom-list');
-      var customVisible = customList && customList.style.display !== 'none';
-      if (!customVisible && _tryDomClick(nameHint)) {
+      // Strategy 1: DOM click (so funciona se row esta no viewport)
+      if (_tryDomClick(nameHint)) {
         resolve({ ok: true, via: 'dom-click' });
         return;
       }

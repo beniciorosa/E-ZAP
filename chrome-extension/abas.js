@@ -499,6 +499,10 @@ function applyPinnedOrder() {
 
   if (!container) return;
 
+  // Garante observer vivo ANTES de qualquer reorder (assim se o reorder
+  // falhar, futuras mutacoes do WA ainda vao re-aplicar pins).
+  ensurePinObserver();
+
   // If a filter is active, let applyConversationFilters own the DOM
   // (it already handles pin-at-top via wcrm-filter-active + fragment).
   var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
@@ -520,7 +524,6 @@ function applyPinnedOrder() {
     if (!c2) return;
     var count = _reorderPinsToTop(c2, chatIndex);
     if (count > 0) console.log("[WCRM PIN] Moveu", count, "pinned rows pro topo (pin-only mode)");
-    ensurePinObserver();
   });
 }
 
@@ -588,7 +591,7 @@ function ensurePinObserver() {
   _pinObserver = new MutationObserver(function(mutations) {
     if (_pinMutationIsOursOnly(mutations)) return; // evita loop
     if (_pinDebounce) clearTimeout(_pinDebounce);
-    _pinDebounce = setTimeout(_reapplyPinIndicators, 600);
+    _pinDebounce = setTimeout(_reapplyPinIndicators, 400);
   });
   _pinObserver.observe(container, { childList: true, subtree: false });
 }
@@ -1614,6 +1617,49 @@ function deleteAba(abaId) {
   });
 }
 
+// ===== Boot Pin Retry Loop =====
+// Tenta aplicar pins ate 8x a cada 1200ms. Garante que o observer fique
+// vivo mesmo se container demorar a existir ou pins nao estiverem no viewport.
+function _bootPinRetryLoop() {
+  var maxTries = 8;
+  var interval = 1200;
+  var attempt = 0;
+  var observerAlive = false;
+
+  var tick = function() {
+    attempt++;
+    var container = findChatListContainer();
+    if (!container) {
+      if (attempt === 1 || attempt === maxTries) {
+        console.log("[WCRM PIN] Boot retry #" + attempt + ": container nao encontrado");
+      }
+      if (attempt < maxTries) setTimeout(tick, interval);
+      return;
+    }
+    // Container existe — garante observer antes de qualquer reorder
+    try { ensurePinObserver(); observerAlive = true; } catch(e) {}
+    applyPinnedOrder();
+    var pinnedNames = Object.keys(window._wcrmPinned || {});
+    var pinsVisible = document.querySelectorAll('.wcrm-pin-icon').length;
+    if (attempt === 1) {
+      console.log("[WCRM PIN] Boot retry #1: container OK, observer ativo, pins=" + pinnedNames.length + ", visible=" + pinsVisible);
+    }
+    // Para se observer ta vivo E tem pelo menos 1 pin visivel
+    // (ou nao tem pins pra aplicar)
+    if (pinnedNames.length === 0) return;
+    if (pinsVisible > 0) {
+      console.log("[WCRM PIN] Boot done em retry #" + attempt + ": " + pinsVisible + " pins visiveis");
+      return;
+    }
+    if (attempt < maxTries) {
+      setTimeout(tick, interval);
+    } else {
+      console.log("[WCRM PIN] Boot retry esgotou (" + maxTries + "x). Observer continua vivo=" + observerAlive);
+    }
+  };
+  setTimeout(tick, 800);
+}
+
 // ===== Init =====
 function initAbas() {
   var abasEnabled = window.__ezapAbasEnabled !== false;
@@ -1628,7 +1674,7 @@ function initAbas() {
 
   if (pinEnabled) {
     loadPinnedContacts().then(function() {
-      setTimeout(function() { applyPinnedOrder(); }, 2000);
+      _bootPinRetryLoop();
     });
   }
 

@@ -46,33 +46,15 @@ function findChatListContainer() {
   return bestCount > 2 ? best : null;
 }
 
-// ===== Apply ABAS filter =====
+// ===== Apply ABAS filter (nativo WA) =====
+// Filtra a lista NATIVA do WA: hide rows que nao batem com a aba, synth rows
+// pros contatos fora do viewport, pin-at-top. Click nas rows nativas usa
+// o proprio handler do WA (nao interceptamos). Click nas synth usa ezapOpenChat.
 function applyConversationFilters() {
-  // PLANO B: quando ABAS filter ativo, esconde a lista do WA e renderiza
-  // nossa propria lista (zero dependencia de virtual scroll). Fora do filtro,
-  // usa o caminho antigo (_runFiltersSync pra limpeza/restauracao).
-  var hasAbasFilter = typeof selectedAbaId !== 'undefined' && selectedAbaId !== null;
-  var runLegacy = function(idx) { _hideCustomAbaList(); _runFiltersSync(idx); };
-  var runCustom = function(idx) {
-    var tab = _getAbaTabEntry(selectedAbaId);
-    if (!tab) { runLegacy(idx); return; }
-    // Garante que a lista legacy esta em estado neutro antes de overlay
-    var container = findChatListContainer();
-    if (container) {
-      container.classList.remove('wcrm-filter-active');
-      var hidden = container.querySelectorAll('.wcrm-hidden');
-      for (var h = 0; h < hidden.length; h++) hidden[h].classList.remove('wcrm-hidden');
-      var synth = container.querySelectorAll('.wcrm-synth-row');
-      for (var s = 0; s < synth.length; s++) synth[s].parentNode.removeChild(synth[s]);
-    }
-    _showCustomAbaList(tab, idx);
-  };
   if (window.ezapBuildChatIndex) {
-    window.ezapBuildChatIndex().then(function(idx) {
-      if (hasAbasFilter) runCustom(idx); else runLegacy(idx);
-    });
+    window.ezapBuildChatIndex().then(function(idx) { _runFiltersSync(idx); });
   } else {
-    if (hasAbasFilter) runCustom(null); else runLegacy(null);
+    _runFiltersSync(null);
   }
 }
 
@@ -148,6 +130,13 @@ function _runFiltersSync(chatIndex) {
 
   // Enable filter mode: override virtual scroll to normal flow
   container.classList.add('wcrm-filter-active');
+
+  // Force scroll to top: garante que WA renderize as primeiras rows
+  // (fundamental para contatos no topo da lista aparecerem)
+  var scrollParent = container.parentElement;
+  if (scrollParent && scrollParent.scrollTop > 0) {
+    scrollParent.scrollTop = 0;
+  }
 
   // Remove synthetic rows de rodadas anteriores antes de reiterar
   var oldSynth = container.querySelectorAll('.wcrm-synth-row');
@@ -269,14 +258,14 @@ function _runFiltersSync(chatIndex) {
   setupFilterObserver();
 }
 
-// ===== PLANO B: Custom List (renderizacao propria, zero virtual scroll) =====
-// Quando a ABA esta ativa, a gente esconde a lista do WA e renderiza nossa
-// propria lista com os contatos da aba. Isso elimina TODOS os problemas
-// de virtual scroll (contatos nao carregados, scroll bugado, pin que nao sobe).
-//
-// Click nos cards abre o chat via search-bar do WA (ezapOpenChatViaSearch),
-// que funciona independente de viewport/scroll.
+// ===== (Removido em v1.8.24) Plano B Custom List =====
+// Agora usamos apenas filtro na lista nativa do WA (_runFiltersSync).
+// Stubs no-op mantidos pra backwards compat:
+window._wcrmHideCustomList = function() {};
+window._wcrmShowCustomList = function() { return false; };
 
+// Codigo antigo preservado em branch morto (dead code, pra diff historico):
+if (false) {
 function _ensureCustomListCSS() {
   if (document.getElementById('wcrm-custom-list-css')) return;
   var s = document.createElement('style');
@@ -554,90 +543,134 @@ function _hideCustomAbaList() {
   }
 }
 
-// Expoe pra outras partes da extensao poderem esconder/mostrar manualmente
-window._wcrmHideCustomList = _hideCustomAbaList;
-window._wcrmShowCustomList = _showCustomAbaList;
+} // end if(false) - Plano B code (removed in v1.8.24)
 
 // Cria uma row sintetica pra contato que nao esta no virtual scroll.
-// Estilo visual aproximado de uma row do WA (avatar placeholder + nome).
-// Click abre o chat via ezapOpenChat.
+// CLONA uma row nativa do WA como template (quando disponivel) pra ter
+// visual 100% identico. Fallback: constroi do zero com estilo aproximado.
+// Click abre o chat via ezapOpenChat (search bar fallback).
+// Tenta clonar uma row nativa do WA como template. Retorna clone ou null.
+function _cloneNativeRowTemplate(container) {
+  if (!container) return null;
+  for (var i = 0; i < container.children.length; i++) {
+    var row = container.children[i];
+    if (!row || !row.classList) continue;
+    if (row.classList.contains('wcrm-synth-row')) continue;
+    if (row.classList.contains('wcrm-hidden')) continue;
+    // Row nativa valida: tem span[title] com conteudo
+    var t = row.querySelector && row.querySelector('span[title]');
+    if (t && t.getAttribute('title')) {
+      return row.cloneNode(true);
+    }
+  }
+  return null;
+}
+
+// Ajusta um clone de row nativa para representar outro contato (nosso synth).
+function _hydrateClonedRow(clone, name, jid, isPinned) {
+  if (!clone) return null;
+  clone.classList.add('wcrm-synth-row');
+  clone.setAttribute('data-ezap-jid', jid || '');
+  clone.setAttribute('data-ezap-name', name || '');
+  // Neutraliza position:absolute/top inline (virtual scroll)
+  try { clone.style.position = 'relative'; clone.style.top = 'auto'; clone.style.transform = 'none'; } catch(e) {}
+
+  // Troca nome
+  var titleSpan = clone.querySelector('span[title]');
+  if (titleSpan) {
+    titleSpan.setAttribute('title', name || '');
+    titleSpan.textContent = name || '';
+  }
+
+  // Zera preview/snippet (evita texto residual do contato clonado)
+  var spans = clone.querySelectorAll('span');
+  for (var s = 0; s < spans.length; s++) {
+    var sp = spans[s];
+    if (sp === titleSpan) continue;
+    // Mantem timestamps curtos mas limpa previews longos
+    var txt = (sp.textContent || '').trim();
+    if (txt.length > 0 && !sp.querySelector('img,svg') && sp !== titleSpan) {
+      // Se e candidato a preview de mensagem, zera
+      if (txt.length > 3 || /mensagem|voce|via/i.test(txt)) {
+        // So zera se estiver fora do container do nome
+        var parentTitle = sp.closest && sp.closest('[title]');
+        if (parentTitle !== titleSpan) sp.textContent = '';
+      }
+    }
+  }
+
+  // Remove avatar img (seria de outro contato), deixa placeholder
+  var imgs = clone.querySelectorAll('img');
+  for (var i = 0; i < imgs.length; i++) {
+    try { imgs[i].parentNode && imgs[i].parentNode.removeChild(imgs[i]); } catch(e) {}
+  }
+
+  // Remove badges de notificacao / unread count do template original
+  var badges = clone.querySelectorAll('[aria-label*="nao"], [aria-label*="mensag"], [aria-label*="unread"]');
+  for (var b = 0; b < badges.length; b++) {
+    try { badges[b].parentNode && badges[b].parentNode.removeChild(badges[b]); } catch(e) {}
+  }
+
+  // Pin indicator
+  if (isPinned && titleSpan) {
+    var pinEl = document.createElement('span');
+    pinEl.className = 'wcrm-pin-icon';
+    pinEl.textContent = '📌';
+    pinEl.style.cssText = 'font-size:12px;margin-left:6px;';
+    titleSpan.appendChild(pinEl);
+  }
+
+  return clone;
+}
+
+// Cria uma row sintetica pra contato fora do virtual scroll.
+// Prefere CLONAR row nativa como template (visual identico). Fallback manual.
 function _createSyntheticRow(name, jid, isPinned) {
+  var container = findChatListContainer();
+  var clone = _cloneNativeRowTemplate(container);
+  var hydrated = _hydrateClonedRow(clone, name, jid, isPinned);
+  if (hydrated) {
+    _attachSynthClick(hydrated);
+    return hydrated;
+  }
+
+  // Fallback: constroi row manual (estilo aproximado WA)
   var row = document.createElement('div');
   row.className = 'wcrm-synth-row';
   row.setAttribute('data-ezap-jid', jid || '');
   row.setAttribute('data-ezap-name', name || '');
-  Object.assign(row.style, {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '10px 15px',
-    height: '72px',
-    boxSizing: 'border-box',
-    borderBottom: '1px solid rgba(134,150,160,0.15)',
-    cursor: 'pointer',
-    background: 'transparent',
-    transition: 'background 0.15s'
-  });
+  row.style.cssText = 'display:flex;align-items:center;padding:10px 15px;height:72px;box-sizing:border-box;border-bottom:1px solid rgba(134,150,160,0.15);cursor:pointer;background:transparent;';
   row.addEventListener('mouseenter', function() { row.style.background = 'rgba(42,57,66,0.5)'; });
   row.addEventListener('mouseleave', function() { row.style.background = 'transparent'; });
 
-  // Avatar placeholder (circulo cinza com inicial)
-  var avatar = document.createElement('div');
   var initial = (name || '?').trim().charAt(0).toUpperCase();
-  Object.assign(avatar.style, {
-    width: '49px',
-    height: '49px',
-    borderRadius: '50%',
-    background: '#6b7c85',
-    color: '#fff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '20px',
-    fontWeight: '600',
-    flexShrink: '0',
-    marginRight: '15px'
-  });
+  var avatar = document.createElement('div');
+  avatar.style.cssText = 'width:49px;height:49px;border-radius:50%;background:#6b7c85;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;flex-shrink:0;margin-right:15px;';
   avatar.textContent = initial;
   row.appendChild(avatar);
 
-  // Nome + indicador
   var info = document.createElement('div');
-  Object.assign(info.style, { flex: '1', minWidth: '0', display: 'flex', alignItems: 'center' });
+  info.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;';
   var nameEl = document.createElement('span');
   nameEl.setAttribute('title', name || '');
-  Object.assign(nameEl.style, {
-    color: '#e9edef',
-    fontSize: '15px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    flex: '1'
-  });
+  nameEl.style.cssText = 'color:#e9edef;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
   nameEl.textContent = name || '';
   info.appendChild(nameEl);
-
   if (isPinned) {
     var pinIcon = document.createElement('span');
     pinIcon.className = 'wcrm-pin-icon';
     pinIcon.textContent = '📌';
-    Object.assign(pinIcon.style, { fontSize: '12px', marginLeft: '6px', flexShrink: '0' });
+    pinIcon.style.cssText = 'font-size:12px;margin-left:6px;flex-shrink:0;';
     info.appendChild(pinIcon);
   }
-
-  var subtitle = document.createElement('span');
-  Object.assign(subtitle.style, {
-    color: '#8696a0',
-    fontSize: '11px',
-    fontStyle: 'italic',
-    marginLeft: '8px',
-    flexShrink: '0'
-  });
-  subtitle.textContent = 'fora do scroll';
-  info.appendChild(subtitle);
-
   row.appendChild(info);
 
-  // Click handler: abre o chat via ezapOpenChat
+  _attachSynthClick(row);
+  return row;
+}
+
+// Attach click handler that opens chat via ezapOpenChat (search fallback).
+function _attachSynthClick(row) {
   row.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -647,15 +680,15 @@ function _createSyntheticRow(name, jid, isPinned) {
     }
     var lockedJid = row.getAttribute('data-ezap-jid');
     var lockedName = row.getAttribute('data-ezap-name');
+    row.style.opacity = '0.6';
     window.ezapOpenChat(lockedJid, lockedName).then(function(result) {
-      console.log("[WCRM FILTER] openChat result:", result);
+      row.style.opacity = '';
+      console.log("[WCRM FILTER] synth openChat result:", result);
       if (!result || !result.ok) {
         console.warn("[WCRM FILTER] Nao consegui abrir o chat:", result);
       }
     });
   });
-
-  return row;
 }
 
 function setupFilterObserver() {
@@ -685,7 +718,7 @@ function setupFilterObserver() {
     });
     if (!structural) return;
     clearTimeout(filterObserver._debounce);
-    filterObserver._debounce = setTimeout(applyConversationFilters, 500);
+    filterObserver._debounce = setTimeout(applyConversationFilters, 300);
   });
 
   filterObserver.observe(container, { childList: true, subtree: false });
