@@ -619,14 +619,33 @@
   function executeSendMessage(data, ctx) {
     var text = replaceTemplates(data.text || "", ctx.vars);
     if (!text.trim()) return Promise.resolve({ output: 0, skipped: true });
-    // Use existing typeInWhatsApp from msg.js if available (shared content-script scope)
-    var typeFn = null;
-    try { if (typeof typeInWhatsApp === "function") typeFn = typeInWhatsApp; } catch(e) {}
-    if (typeFn) {
-      return Promise.resolve(typeFn(text)).then(function() { return { output: 0 }; });
-    }
-    // Fallback: paste + enter
-    return typeInWhatsAppFallback(text).then(function() { return { output: 0 }; });
+    // Aguarda ate 4s pelo campo de mensagem (chat pode ainda estar carregando)
+    return waitForMessageInput(4000).then(function() {
+      var typeFn = null;
+      try { if (typeof typeInWhatsApp === "function") typeFn = typeInWhatsApp; } catch(e) {}
+      if (typeFn) {
+        return Promise.resolve(typeFn(text)).then(function() { return { output: 0 }; });
+      }
+      return typeInWhatsAppFallback(text).then(function() { return { output: 0 }; });
+    });
+  }
+
+  function waitForMessageInput(maxMs) {
+    return new Promise(function(resolve, reject) {
+      var start = Date.now();
+      function check() {
+        var input = document.querySelector('div[contenteditable="true"][data-tab="10"]')
+                 || document.querySelector('#main footer div[contenteditable="true"][role="textbox"]')
+                 || document.querySelector('[data-testid="conversation-compose-box-input"]')
+                 || document.querySelector('#main div[contenteditable="true"][role="textbox"]');
+        if (input) return resolve(input);
+        if (Date.now() - start > (maxMs || 4000)) {
+          return reject(new Error("Campo de mensagem nao apareceu. Chat esta aberto? WA pode estar carregando."));
+        }
+        setTimeout(check, 250);
+      }
+      check();
+    });
   }
 
   function typeInWhatsAppFallback(text) {
