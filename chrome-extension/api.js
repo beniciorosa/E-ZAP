@@ -178,7 +178,9 @@
   // custom list, e escolhe o que parece ser search (title/aria-label
   // contem "search"/"pesquisa", ou data-tab="3").
   function _findWASearchField() {
-    var all = document.querySelectorAll('div[contenteditable="true"]');
+    // Usa [contenteditable] (nao apenas ="true") porque WA Web as vezes
+    // usa "plaintext-only". Inclui tambem input[type=search] por garantia.
+    var all = document.querySelectorAll('[contenteditable]:not([contenteditable="false"]), input[type="search"], input[role="textbox"]');
     var best = null;
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
@@ -204,6 +206,8 @@
       if (el2.closest('#main') || el2.closest('#wcrm-sidebar') || el2.closest('#wcrm-custom-list') || el2.closest('#wcrm-widget')) continue;
       return el2;
     }
+    // Diagnostico quando falha
+    console.log('[EZAP-SEARCH] no field. total contenteditable:', all.length, 'page has #side:', !!document.getElementById('side'));
     return null;
   }
 

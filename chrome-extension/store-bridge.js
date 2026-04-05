@@ -478,6 +478,37 @@
     console.log('[EZAP-OPEN] storeFns disponiveis (' + storeFns.length + '):', storeFns);
     console.log('[EZAP-OPEN] chatFns disponiveis (' + chatFns.length + '):', chatFns);
 
+    // ===== PRIORIDADE: onItemClick com varios arg shapes =====
+    // Em WA atual, onItemClick e o handler da lista. Signature provavel:
+    // (chat, event) ou (event, chat) ou ({item, event}). Testa tudo.
+    if (typeof store.onItemClick === 'function') {
+      var fakeEvent = {
+        type: 'click', button: 0, bubbles: true,
+        preventDefault: function() {}, stopPropagation: function() {},
+        stopImmediatePropagation: function() {},
+        currentTarget: null, target: null, nativeEvent: null
+      };
+      var shapes = [
+        ['chat,event', function(){ return store.onItemClick(target, fakeEvent); }],
+        ['event,chat', function(){ return store.onItemClick(fakeEvent, target); }],
+        ['{item,event}', function(){ return store.onItemClick({ item: target, event: fakeEvent, chat: target }); }],
+        ['chat-only', function(){ return store.onItemClick(target); }],
+        ['event-only-with-currentTarget', function(){
+          var ev = Object.assign({}, fakeEvent, { currentTarget: { dataset: { id: jid } } });
+          return store.onItemClick(ev);
+        }]
+      ];
+      console.log('[EZAP-OPEN] onItemClick.toString():', String(store.onItemClick).slice(0, 200));
+      for (var si = 0; si < shapes.length; si++) {
+        try {
+          shapes[si][1]();
+          return { ok: true, via: 'store.onItemClick[' + shapes[si][0] + ']' };
+        } catch (e) {
+          tried.push('onItemClick[' + shapes[si][0] + ']: ' + (e && e.message));
+        }
+      }
+    }
+
     // Strategy 1: metodos no proprio chat model (lista expandida)
     var chatMethods = ['open', 'activate', 'select', 'click', 'onClick', 'openChat', 'setActive', 'focus'];
     for (var i = 0; i < chatMethods.length; i++) {
@@ -491,10 +522,11 @@
     }
 
     // Strategy 2: metodos no store (lista expandida)
+    // onItemClick ja foi tentado com prioridade acima.
     var storeMethods = [
       'openChat', 'onChatClick', 'onChatPressed', 'handleChatClick', 'selectChat',
       'onChatOpen', 'onOpenChat', 'chatSelect', 'onSelectChat', 'setActiveChat',
-      'onClick', 'onPress', 'onChatSelect', 'onItemClick', 'onItemPress'
+      'onClick', 'onPress', 'onChatSelect', 'onItemPress'
     ];
     for (var j = 0; j < storeMethods.length; j++) {
       var sm = storeMethods[j];
@@ -516,10 +548,14 @@
     }
 
     // Strategy 3: escanea props do store por qualquer function com nome matching
+    // Skip: metodos que nao sao pra abrir chat (multiSelect = entrar em modo
+    // selecao, focus search = focar a busca, etc).
+    var skipKeys = /multiselect|focussearch|focusfilters|focus|startselect|selectmode/i;
     try {
       for (var k = 0; k < storeFns.length; k++) {
         var key = storeFns[k];
-        if (/chat|open|select|activate|press|click|navigate|goto/i.test(key)) {
+        if (skipKeys.test(key)) continue;
+        if (/chat|open|activate|press|click|navigate|goto/i.test(key)) {
           try {
             store[key](target);
             return { ok: true, via: 'store.' + key + '(chat)' };
