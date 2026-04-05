@@ -397,13 +397,16 @@ function _buildNativePreviewMap() {
 
       // Quebra em linhas e remove a que contem o titulo
       var lines = rowText.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+      // Normaliza titulo pra comparacao (espaços ao redor de pipe, trim)
+      var titleNorm = title.replace(/\s*\|\s*/g, '|').replace(/\s+/g, ' ').trim().toLowerCase();
       var previewParts = [];
       for (var li = 0; li < lines.length; li++) {
         var line = lines[li];
-        // Pula se e EXATAMENTE o titulo (nao se titulo e parte de frase maior)
-        if (line === title) continue;
-        // Pula se e substring inicial do titulo truncado (ex: "Lucas Siqueira..." vs titulo completo)
-        if (title.indexOf(line) === 0 && line.length > 5) continue;
+        var lineNorm = line.replace(/\s*\|\s*/g, '|').replace(/\s+/g, ' ').trim().toLowerCase();
+        // Pula se e o titulo (normalizado, ignora diferença de espaço)
+        if (lineNorm === titleNorm) continue;
+        // Pula se e substring inicial do titulo truncado
+        if (titleNorm.indexOf(lineNorm) === 0 && lineNorm.length > 5) continue;
         // Pula timestamps isolados
         if (/^\d{1,2}:\d{2}$/.test(line)) continue;
         if (/^(ontem|hoje)$/i.test(line)) continue;

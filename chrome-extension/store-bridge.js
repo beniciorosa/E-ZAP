@@ -413,9 +413,9 @@
   }
 
   function getAllChatsFromFiber() {
-    var store = _fiberStoreCache;
-    // Valida cache ou re-acha (store pode ficar stale apos re-renders do React)
-    if (!store || !store.chats || !Array.isArray(store.chats)) store = findFiberStore();
+    // SEMPRE re-scana fiber store (cache pode ficar stale apos React re-render,
+    // ex: grupo renomeado, contato mudou pushname). Custo minimo (~1-3ms).
+    var store = findFiberStore();
     if (!store || !Array.isArray(store.chats) || !store.chats.length) return null;
     var chats = store.chats;
     var out = [];
