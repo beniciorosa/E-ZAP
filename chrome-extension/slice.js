@@ -607,7 +607,11 @@ function _wcrmFormatTime(ts) {
 function _formatPreview(data) {
   var txt = data.lastMsgText || '';
   if (!txt) return '';
-  return (data.lastMsgFromMe ? 'Voce: ' : '') + txt;
+  // Evita duplicar "Voce:" se o texto nativo ja tem
+  if (data.lastMsgFromMe && !/^Voce?:?\s/i.test(txt) && !/^Voc[eê]:?\s/i.test(txt)) {
+    txt = 'Voce: ' + txt;
+  }
+  return txt;
 }
 
 // Atualiza incrementalmente uma row existente com novos dados (sem re-render)
@@ -627,11 +631,11 @@ function _updateCustomRow(row, data) {
     else timeEl.classList.remove('wcrm-time-unread');
   }
 
-  // Preview
+  // Preview: nao sobrescreve com vazio se ja tem conteudo
   var prevEl = row.querySelector('.wcrm-custom-preview');
   if (prevEl) {
     var newPrev = _formatPreview(data);
-    if (prevEl.textContent !== newPrev) { prevEl.textContent = newPrev; changed = true; }
+    if (newPrev && prevEl.textContent !== newPrev) { prevEl.textContent = newPrev; changed = true; }
   }
 
   // Badge de unread
@@ -780,17 +784,32 @@ function _pollCustomListUpdates() {
     if (!idx || !idx.byJid) return;
     var rows = custom.querySelectorAll('.wcrm-custom-row');
     var nativePicMap = _buildNativePicMap();
+    var nativePrevMap = _buildNativePreviewMap();
     var anyReordered = false;
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       var jid = row.getAttribute('data-ezap-jid');
+      var cname = row.getAttribute('data-ezap-name') || '';
       if (!jid) continue;
       var meta = idx.byJid[jid];
       if (!meta) continue;
+      // Preview: fiber > native map > manter existente
+      var msgText = meta.lastMsgText || '';
+      if (!msgText && nativePrevMap) {
+        msgText = nativePrevMap[meta.name] || nativePrevMap[cname] || '';
+        if (!msgText && window.ezapMatchContact) {
+          var pkeys = Object.keys(nativePrevMap);
+          for (var pk = 0; pk < pkeys.length; pk++) {
+            if (window.ezapMatchContact(cname, pkeys[pk]) || window.ezapMatchContact(meta.name, pkeys[pk])) {
+              msgText = nativePrevMap[pkeys[pk]]; break;
+            }
+          }
+        }
+      }
       var data = {
         lastTs: meta.lastTs || 0,
         unread: meta.unread || 0,
-        lastMsgText: meta.lastMsgText || '',
+        lastMsgText: msgText,
         lastMsgFromMe: !!meta.lastMsgFromMe,
         abaName: row.getAttribute('data-ezap-abaname') || ''
       };
@@ -803,7 +822,6 @@ function _pollCustomListUpdates() {
         if (picUrl) _setAvatarImg(avatar, picUrl);
       }
     }
-    // Se algum lastTs mudou, re-ordena rows (mantem pinned no topo)
     if (anyReordered) _resortCustomRows(custom);
   });
 }
