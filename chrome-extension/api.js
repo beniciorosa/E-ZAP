@@ -150,27 +150,71 @@
 
   // Clique direto na row se ela ja estiver no DOM (virtual scroll viewport).
   // Mais rapido/reliable que search quando disponivel.
+  //
+  // IMPORTANTE: quando custom list esta ativa, a lista nativa do WA esta
+  // display:none (via scrollParent). Click em elemento display:none nao
+  // propaga pros handlers do React. Por isso temporariamente "desesconde"
+  // o scrollParent de forma invisivel (opacity 0 + pointer-events none)
+  // antes do click, e restaura depois.
   function _tryDomClick(nameHint) {
     if (!nameHint) return false;
+    var hidden = document.querySelector('[data-ezap-hidden="1"]');
+    var saved = null;
+    if (hidden) {
+      // Desesconde temporariamente fora da tela (pra dispatchEvent funcionar
+      // sem alterar layout visual do custom list).
+      saved = {
+        display: hidden.style.display,
+        position: hidden.style.position,
+        top: hidden.style.top,
+        left: hidden.style.left,
+        width: hidden.style.width,
+        height: hidden.style.height,
+        zIndex: hidden.style.zIndex
+      };
+      hidden.style.display = hidden.getAttribute('data-ezap-orig-display') || 'block';
+      hidden.style.position = 'absolute';
+      hidden.style.top = '-99999px';
+      hidden.style.left = '-99999px';
+      hidden.style.width = '400px';
+      hidden.style.height = '600px';
+      hidden.style.zIndex = '-1';
+    }
+    var clicked = false;
     try {
       var pane = document.getElementById('pane-side');
       if (!pane) return false;
       var rows = pane.querySelectorAll('[role="row"]');
       for (var i = 0; i < rows.length; i++) {
+        // Pula rows dentro de nossa custom list
+        if (rows[i].closest && rows[i].closest('#wcrm-custom-list')) continue;
         var span = rows[i].querySelector('span[title]');
         if (!span) continue;
         var t = span.getAttribute('title') || '';
         if (ezapMatchContact(nameHint, t)) {
           var clickable = span.closest('[role="listitem"]') || span.closest('div[tabindex]') || rows[i];
           if (!clickable) continue;
-          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-          return true;
+          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0 }));
+          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0 }));
+          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0 }));
+          clicked = true;
+          break;
         }
       }
     } catch (e) {}
-    return false;
+    // Restaura estado do scrollParent oculto (delay pra React processar o click)
+    if (hidden && saved) {
+      setTimeout(function() {
+        hidden.style.display = saved.display;
+        hidden.style.position = saved.position;
+        hidden.style.top = saved.top;
+        hidden.style.left = saved.left;
+        hidden.style.width = saved.width;
+        hidden.style.height = saved.height;
+        hidden.style.zIndex = saved.zIndex;
+      }, 150);
+    }
+    return clicked;
   }
 
   // Acha o campo de busca do WA. WA muda atributos entre versoes, entao
