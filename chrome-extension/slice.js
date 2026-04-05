@@ -607,9 +607,12 @@ function _wcrmFormatTime(ts) {
 function _formatPreview(data) {
   var txt = data.lastMsgText || '';
   if (!txt) return '';
-  // Evita duplicar "Voce:" se o texto nativo ja tem
-  if (data.lastMsgFromMe && !/^Voce?:?\s/i.test(txt) && !/^Voc[eê]:?\s/i.test(txt)) {
-    txt = 'Voce: ' + txt;
+  // Nao adiciona "Voce:" se:
+  // 1. Texto ja comeca com Voce/Você
+  // 2. Texto eh evento de sistema (saiu, entrou, adicionou, removeu, criou)
+  var isSystemEvent = /saiu|entrou|adicionou|removeu|criou o grupo|mudou o/i.test(txt);
+  if (data.lastMsgFromMe && !isSystemEvent && !/^Voc[eê]:?\s/i.test(txt)) {
+    txt = 'Voc\u00ea: ' + txt;
   }
   return txt;
 }
