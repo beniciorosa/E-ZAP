@@ -300,11 +300,11 @@ function _ensureCustomListCSS() {
     '.wcrm-custom-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-right: 6px; border-top: 1px solid rgba(134,150,160,0.15); }',
     '.wcrm-custom-row:first-child .wcrm-custom-meta { border-top: none; }',
     '.wcrm-custom-line1 { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }',
-    '.wcrm-custom-name { color: #e9edef; font-size: 17px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }',
+    '.wcrm-custom-name { color: #e9edef; font-size: 17px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
     '.wcrm-custom-time { color: #8696a0; font-size: 12px; flex-shrink: 0; }',
     '.wcrm-custom-time.wcrm-time-unread { color: #00a884; }',
     '.wcrm-custom-line2 { display: flex; align-items: center; gap: 6px; }',
-    '.wcrm-custom-preview { color: #8696a0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }',
+    '.wcrm-custom-preview { color: #8696a0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
     '.wcrm-custom-pin { color: #8696a0; font-size: 14px; flex-shrink: 0; transform: rotate(45deg); }',
     '.wcrm-custom-badge { background: #00a884; color: #111b21; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
     '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: #8696a0; font-size: 14px; }',
@@ -347,9 +347,8 @@ function _setAvatarImg(avatar, picUrl) {
   avatar.appendChild(img);
 }
 
-// Scan da lista nativa do WA pra extrair foto de perfil de cada row visivel.
-// Usado como fallback quando o store fiber nao tem profilePicThumb populado.
-// Retorna { nome -> picUrl } das rows que WA ja renderizou no viewport.
+// Scan da lista nativa do WA pra extrair foto + preview de cada row visivel.
+// Retorna { nome -> {picUrl, preview} } das rows que WA ja renderizou.
 function _buildNativePicMap() {
   var map = {};
   try {
@@ -363,9 +362,48 @@ function _buildNativePicMap() {
       var title = span.getAttribute('title') || '';
       if (!title) continue;
       var img = rows[i].querySelector('img');
-      if (img && img.src && img.src.indexOf('data:') !== 0) {
-        map[title] = img.src;
+      var picUrl = (img && img.src && img.src.indexOf('data:') !== 0) ? img.src : '';
+      map[title] = picUrl;
+    }
+  } catch (e) {}
+  return map;
+}
+
+// Scan da lista nativa para extrair preview de ultima mensagem.
+// Usado como fallback quando fiber store nao tem lastMsgText.
+// Retorna { nome -> preview }
+function _buildNativePreviewMap() {
+  var map = {};
+  try {
+    var pane = document.getElementById('pane-side');
+    if (!pane) return map;
+    var rows = pane.querySelectorAll('[role="row"], [role="listitem"]');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].closest && rows[i].closest('#wcrm-custom-list')) continue;
+      var span = rows[i].querySelector('span[title]');
+      if (!span) continue;
+      var title = span.getAttribute('title') || '';
+      if (!title) continue;
+      // Preview esta em outro span[dir="ltr"] ou similar abaixo do titulo.
+      // Pega o texto do row excluindo o titulo e timestamps numericos.
+      var allSpans = rows[i].querySelectorAll('span');
+      var preview = '';
+      for (var s = 0; s < allSpans.length; s++) {
+        var sp = allSpans[s];
+        if (sp === span) continue;
+        if (sp.contains(span) || span.contains(sp)) continue;
+        var txt = (sp.textContent || '').trim();
+        if (!txt || txt.length < 2) continue;
+        // Ignora timestamps (ex: 19:22, ontem, seg, ter, 28/03)
+        if (/^\d{1,2}:\d{2}$/.test(txt)) continue;
+        if (/^(ontem|hoje|dom|seg|ter|qua|qui|sex|sab)$/i.test(txt)) continue;
+        if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(txt)) continue;
+        // Ignora contagem de badge (apenas numeros curtos)
+        if (/^\d{1,3}\+?$/.test(txt) && txt.length <= 4) continue;
+        // Acha o mais longo (mais provavel ser preview)
+        if (txt.length > preview.length) preview = txt;
       }
+      if (preview) map[title] = preview;
     }
   } catch (e) {}
   return map;
@@ -418,7 +456,8 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var contactJids = (abaTab && abaTab.contactJids) || {};
   var pinned = window._wcrmPinned || {};
   var pinJids = window._wcrmPinnedJids || {};
-  var nativePicMap = _buildNativePicMap();  // nome -> picUrl do DOM nativo
+  var nativePicMap = _buildNativePicMap();        // nome -> picUrl do DOM nativo
+  var nativePrevMap = _buildNativePreviewMap();   // nome -> preview do DOM nativo
 
   if (contacts.length === 0) {
     var empty = document.createElement('div');
@@ -459,6 +498,19 @@ function _showCustomAbaList(abaTab, chatIndex) {
         for (var mi = 0; mi < mapNames.length; mi++) {
           if (window.ezapMatchContact(n, mapNames[mi]) || window.ezapMatchContact(displayName, mapNames[mi])) {
             picUrl = nativePicMap[mapNames[mi]];
+            break;
+          }
+        }
+      }
+    }
+    // Fallback: pega preview de ultima mensagem do DOM nativo
+    if (!lastMsgText && nativePrevMap) {
+      lastMsgText = nativePrevMap[n] || nativePrevMap[displayName] || '';
+      if (!lastMsgText && window.ezapMatchContact) {
+        var prevNames = Object.keys(nativePrevMap);
+        for (var pi = 0; pi < prevNames.length; pi++) {
+          if (window.ezapMatchContact(n, prevNames[pi]) || window.ezapMatchContact(displayName, prevNames[pi])) {
+            lastMsgText = nativePrevMap[prevNames[pi]];
             break;
           }
         }
