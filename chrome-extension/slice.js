@@ -46,15 +46,33 @@ function findChatListContainer() {
   return bestCount > 2 ? best : null;
 }
 
-// ===== Apply ABAS filter (nativo WA) =====
-// Filtra a lista NATIVA do WA: hide rows que nao batem com a aba, synth rows
-// pros contatos fora do viewport, pin-at-top. Click nas rows nativas usa
-// o proprio handler do WA (nao interceptamos). Click nas synth usa ezapOpenChat.
+// ===== Apply ABAS filter (Plano B - custom list) =====
+// ABA ativa: esconde lista nativa do WA e renderiza nossa custom list.
+// ABA inativa: restaura lista nativa + limpa filter-active/hidden/synth.
 function applyConversationFilters() {
+  var hasAbasFilter = typeof selectedAbaId !== 'undefined' && selectedAbaId !== null;
+  var runLegacyCleanup = function(idx) { _hideCustomAbaList(); _stopCustomListPolling(); _runFiltersSync(idx); };
+  var runCustom = function(idx) {
+    var tab = _getAbaTabEntry(selectedAbaId);
+    if (!tab) { runLegacyCleanup(idx); return; }
+    // Garante que a lista legacy esta em estado neutro antes de overlay
+    var container = findChatListContainer();
+    if (container) {
+      container.classList.remove('wcrm-filter-active');
+      var hidden = container.querySelectorAll('.wcrm-hidden');
+      for (var h = 0; h < hidden.length; h++) hidden[h].classList.remove('wcrm-hidden');
+      var synth = container.querySelectorAll('.wcrm-synth-row');
+      for (var s = 0; s < synth.length; s++) synth[s].parentNode.removeChild(synth[s]);
+    }
+    _showCustomAbaList(tab, idx);
+    _startCustomListPolling();
+  };
   if (window.ezapBuildChatIndex) {
-    window.ezapBuildChatIndex().then(function(idx) { _runFiltersSync(idx); });
+    window.ezapBuildChatIndex().then(function(idx) {
+      if (hasAbasFilter) runCustom(idx); else runLegacyCleanup(idx);
+    });
   } else {
-    _runFiltersSync(null);
+    if (hasAbasFilter) runCustom(null); else runLegacyCleanup(null);
   }
 }
 
@@ -258,14 +276,11 @@ function _runFiltersSync(chatIndex) {
   setupFilterObserver();
 }
 
-// ===== (Removido em v1.8.24) Plano B Custom List =====
-// Agora usamos apenas filtro na lista nativa do WA (_runFiltersSync).
-// Stubs no-op mantidos pra backwards compat:
-window._wcrmHideCustomList = function() {};
-window._wcrmShowCustomList = function() { return false; };
-
-// Codigo antigo preservado em branch morto (dead code, pra diff historico):
-if (false) {
+// ===== PLANO B: Custom List (v1.8.25 - resgatado + tempo real) =====
+// Quando a ABA esta ativa, esconde a lista do WA e renderiza nossa
+// propria lista com os contatos da aba. Zero dependencia de virtual scroll.
+// Polling de 3s atualiza unread/timestamp/preview de mensagem em tempo real.
+// Click abre conversa via store-bridge (Store.Chat) ou search bar fallback.
 function _ensureCustomListCSS() {
   if (document.getElementById('wcrm-custom-list-css')) return;
   var s = document.createElement('style');
@@ -277,6 +292,8 @@ function _ensureCustomListCSS() {
     '.wcrm-custom-row:active { background: #2a3942; }',
     '.wcrm-custom-row.wcrm-row-loading { opacity: 0.6; pointer-events: none; }',
     '.wcrm-custom-row.wcrm-row-active { background: #2a3942; }',
+    '.wcrm-custom-row.wcrm-row-new-msg { animation: wcrmFlash 1.2s ease-out; }',
+    '@keyframes wcrmFlash { 0% { background: rgba(0,168,132,0.35); } 100% { background: transparent; } }',
     '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 500; flex-shrink: 0; margin: 11px 15px 11px 0; overflow: hidden; align-self: center; }',
     '.wcrm-custom-avatar-has-img { background: transparent !important; }',
     '.wcrm-custom-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }',
@@ -362,12 +379,16 @@ function _showCustomAbaList(abaTab, chatIndex) {
     var picUrl = '';
     var lastTs = 0;
     var unread = 0;
+    var lastMsgText = '';
+    var lastMsgFromMe = false;
     if (jid && chatIndex && chatIndex.byJid && chatIndex.byJid[jid]) {
       var meta = chatIndex.byJid[jid];
       if (meta.name) displayName = meta.name;
       if (meta.profilePicUrl) picUrl = meta.profilePicUrl;
       if (meta.lastTs) lastTs = meta.lastTs;
       if (meta.unread) unread = meta.unread;
+      if (meta.lastMsgText) lastMsgText = meta.lastMsgText;
+      if (meta.lastMsgFromMe) lastMsgFromMe = meta.lastMsgFromMe;
     }
     var isPinned = !!pinned[n];
     if (!isPinned && jid && pinJids) {
@@ -378,7 +399,8 @@ function _showCustomAbaList(abaTab, chatIndex) {
     }
     return {
       name: n, displayName: displayName, jid: jid, isPinned: isPinned,
-      picUrl: picUrl, lastTs: lastTs, unread: unread, abaName: abaName
+      picUrl: picUrl, lastTs: lastTs, unread: unread, abaName: abaName,
+      lastMsgText: lastMsgText, lastMsgFromMe: lastMsgFromMe
     };
   });
 
@@ -442,11 +464,71 @@ function _wcrmFormatTime(ts) {
   return dd + '/' + mo + '/' + String(d.getFullYear()).slice(-2);
 }
 
+function _formatPreview(data) {
+  var txt = data.lastMsgText || '';
+  if (!txt) return data.abaName ? ('em ' + data.abaName) : '';
+  return (data.lastMsgFromMe ? 'Voce: ' : '') + txt;
+}
+
+// Atualiza incrementalmente uma row existente com novos dados (sem re-render)
+// Retorna true se algo mudou (pra sinalizar necessidade de re-sort)
+function _updateCustomRow(row, data) {
+  if (!row) return false;
+  var changed = false;
+  var prevTs = Number(row.getAttribute('data-ezap-lastts') || 0);
+  var prevUnread = Number(row.getAttribute('data-ezap-unread') || 0);
+
+  // Timestamp
+  var timeEl = row.querySelector('.wcrm-custom-time');
+  if (timeEl) {
+    var newTime = _wcrmFormatTime(data.lastTs);
+    if (timeEl.textContent !== newTime) { timeEl.textContent = newTime; changed = true; }
+    if (data.unread > 0) timeEl.classList.add('wcrm-time-unread');
+    else timeEl.classList.remove('wcrm-time-unread');
+  }
+
+  // Preview
+  var prevEl = row.querySelector('.wcrm-custom-preview');
+  if (prevEl) {
+    var newPrev = _formatPreview(data);
+    if (prevEl.textContent !== newPrev) { prevEl.textContent = newPrev; changed = true; }
+  }
+
+  // Badge de unread
+  var badge = row.querySelector('.wcrm-custom-badge');
+  if (badge) {
+    if (data.unread > 0) {
+      var txt = data.unread > 99 ? '99+' : String(data.unread);
+      if (badge.textContent !== txt) { badge.textContent = txt; changed = true; }
+      badge.style.display = '';
+    } else {
+      if (badge.style.display !== 'none') { badge.style.display = 'none'; changed = true; }
+    }
+  }
+
+  // Attrs pra proxima comparacao
+  row.setAttribute('data-ezap-lastts', String(data.lastTs || 0));
+  row.setAttribute('data-ezap-unread', String(data.unread || 0));
+
+  // Se recebeu mensagem nova (unread subiu), pisca o row
+  if (data.unread > prevUnread && prevUnread >= 0) {
+    row.classList.remove('wcrm-row-new-msg');
+    // Force reflow pra reativar animacao
+    void row.offsetWidth;
+    row.classList.add('wcrm-row-new-msg');
+  }
+
+  return changed || (data.lastTs !== prevTs);
+}
+
 function _createCustomRow(data) {
   var row = document.createElement('div');
   row.className = 'wcrm-custom-row';
   row.setAttribute('data-ezap-jid', data.jid || '');
   row.setAttribute('data-ezap-name', data.name || '');
+  row.setAttribute('data-ezap-lastts', String(data.lastTs || 0));
+  row.setAttribute('data-ezap-unread', String(data.unread || 0));
+  row.setAttribute('data-ezap-abaname', data.abaName || '');
 
   var avatar = document.createElement('div');
   avatar.className = 'wcrm-custom-avatar';
@@ -491,7 +573,7 @@ function _createCustomRow(data) {
   line2.className = 'wcrm-custom-line2';
   var preview = document.createElement('span');
   preview.className = 'wcrm-custom-preview';
-  preview.textContent = data.abaName ? ('em ' + data.abaName) : '';
+  preview.textContent = _formatPreview(data);
   line2.appendChild(preview);
   if (data.isPinned) {
     var pin = document.createElement('span');
@@ -499,12 +581,14 @@ function _createCustomRow(data) {
     pin.textContent = '⚲';
     line2.appendChild(pin);
   }
+  var badge = document.createElement('span');
+  badge.className = 'wcrm-custom-badge';
   if (data.unread > 0) {
-    var badge = document.createElement('span');
-    badge.className = 'wcrm-custom-badge';
     badge.textContent = data.unread > 99 ? '99+' : String(data.unread);
-    line2.appendChild(badge);
+  } else {
+    badge.style.display = 'none';
   }
+  line2.appendChild(badge);
   meta.appendChild(line2);
 
   row.appendChild(meta);
@@ -528,6 +612,94 @@ function _createCustomRow(data) {
   return row;
 }
 
+// ===== Polling de tempo real (Plan B) =====
+// Enquanto custom list visivel, busca updates a cada 3s e patcha rows.
+// Pausa quando tab em background.
+var _customListPollTimer = null;
+var _customListLastUpdate = 0;
+
+function _startCustomListPolling() {
+  _stopCustomListPolling();
+  _customListPollTimer = setInterval(_pollCustomListUpdates, 3000);
+  // Primeira atualizacao rapida apos 1s (ja tem chatIndex em cache)
+  setTimeout(_pollCustomListUpdates, 1000);
+}
+
+function _stopCustomListPolling() {
+  if (_customListPollTimer) { clearInterval(_customListPollTimer); _customListPollTimer = null; }
+}
+
+function _pollCustomListUpdates() {
+  // Pausa se tab em background ou custom list escondida
+  if (document.hidden) return;
+  var custom = document.getElementById('wcrm-custom-list');
+  if (!custom || custom.style.display === 'none') { _stopCustomListPolling(); return; }
+  if (!window.ezapBuildChatIndex) return;
+
+  window.ezapBuildChatIndex().then(function(idx) {
+    if (!idx || !idx.byJid) return;
+    var rows = custom.querySelectorAll('.wcrm-custom-row');
+    var anyReordered = false;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var jid = row.getAttribute('data-ezap-jid');
+      if (!jid) continue;
+      var meta = idx.byJid[jid];
+      if (!meta) continue;
+      var data = {
+        lastTs: meta.lastTs || 0,
+        unread: meta.unread || 0,
+        lastMsgText: meta.lastMsgText || '',
+        lastMsgFromMe: !!meta.lastMsgFromMe,
+        abaName: row.getAttribute('data-ezap-abaname') || ''
+      };
+      var changed = _updateCustomRow(row, data);
+      if (changed) anyReordered = true;
+    }
+    // Se algum lastTs mudou, re-ordena rows (mantem pinned no topo)
+    if (anyReordered) _resortCustomRows(custom);
+  });
+}
+
+// Reordena rows do custom list baseado em data-ezap-lastts (pinned first, depois ts desc)
+function _resortCustomRows(custom) {
+  if (!custom) return;
+  var rows = Array.prototype.slice.call(custom.querySelectorAll('.wcrm-custom-row'));
+  if (rows.length <= 1) return;
+  rows.sort(function(a, b) {
+    var aPinned = !!a.querySelector('.wcrm-custom-pin');
+    var bPinned = !!b.querySelector('.wcrm-custom-pin');
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    var aTs = Number(a.getAttribute('data-ezap-lastts') || 0);
+    var bTs = Number(b.getAttribute('data-ezap-lastts') || 0);
+    return bTs - aTs;
+  });
+  // Check se ja esta na ordem certa
+  var currentOrder = Array.prototype.slice.call(custom.querySelectorAll('.wcrm-custom-row'));
+  var sameOrder = true;
+  for (var i = 0; i < rows.length; i++) {
+    if (currentOrder[i] !== rows[i]) { sameOrder = false; break; }
+  }
+  if (sameOrder) return;
+  // Reordena via DocumentFragment
+  var frag = document.createDocumentFragment();
+  rows.forEach(function(r) { frag.appendChild(r); });
+  // Preserva header no topo
+  var header = custom.querySelector('.wcrm-custom-header');
+  if (header) custom.insertBefore(frag, header.nextSibling);
+  else custom.appendChild(frag);
+}
+
+// Reinicia polling quando tab volta ao foreground
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) {
+    var custom = document.getElementById('wcrm-custom-list');
+    if (custom && custom.style.display !== 'none' && !_customListPollTimer) {
+      _startCustomListPolling();
+    }
+  }
+});
+
 function _hideCustomAbaList() {
   var custom = document.getElementById('wcrm-custom-list');
   if (custom) {
@@ -543,7 +715,9 @@ function _hideCustomAbaList() {
   }
 }
 
-} // end if(false) - Plano B code (removed in v1.8.24)
+// Expoe pra outras partes da extensao poderem esconder/mostrar manualmente
+window._wcrmHideCustomList = _hideCustomAbaList;
+window._wcrmShowCustomList = _showCustomAbaList;
 
 // Cria uma row sintetica pra contato que nao esta no virtual scroll.
 // CLONA uma row nativa do WA como template (quando disponivel) pra ter

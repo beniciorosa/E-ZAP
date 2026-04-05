@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "E-ZAP",
-  "version": "1.8.24",
+  "version": "1.8.25",
   "description": "E-ZAP — Gestão inteligente para WhatsApp Business",
   "permissions": ["storage", "activeTab", "alarms", "tabs"],
   "host_permissions": ["https://api.hubapi.com/*", "https://eklcsufcwjtxlpxhncnt.supabase.co/*", "https://xsqpqdjffjqxdcmoytfc.supabase.co/*", "https://ipapi.co/*", "https://api.openai.com/*"],

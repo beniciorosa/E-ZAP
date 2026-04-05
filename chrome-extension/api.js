@@ -178,38 +178,76 @@
   // custom list, e escolhe o que parece ser search (title/aria-label
   // contem "search"/"pesquisa", ou data-tab="3").
   function _findWASearchField() {
-    // Usa [contenteditable] (nao apenas ="true") porque WA Web as vezes
-    // usa "plaintext-only". Inclui tambem input[type=search] por garantia.
-    var all = document.querySelectorAll('[contenteditable]:not([contenteditable="false"]), input[type="search"], input[role="textbox"]');
-    var best = null;
+    // Busca ampla: contenteditable (todos os valores != false) + inputs de texto/search
+    // + lexical editor (novo editor React do WA). WA muda atributos entre versoes.
+    var selectors = [
+      '[contenteditable]:not([contenteditable="false"])',
+      'input[type="search"]',
+      'input[role="textbox"]',
+      'div[data-lexical-editor="true"]',
+      '[data-tab="3"]',
+      '[aria-label*="search" i]',
+      '[aria-label*="pesquis" i]',
+      '[aria-label*="busca" i]'
+    ];
+    var all = document.querySelectorAll(selectors.join(','));
+    // Dedupe
+    var seen = {};
+    var candidates = [];
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
-      if (el.closest('#main')) continue;               // compose box
-      if (el.closest('#wcrm-sidebar')) continue;       // nossa sidebar
-      if (el.closest('#wcrm-custom-list')) continue;   // nossa lista
-      if (el.closest('#wcrm-widget')) continue;        // nosso widget
+      if (seen[el._ezapId = el._ezapId || (++_ezapElId)]) continue;
+      seen[el._ezapId] = true;
+      // Exclui areas nossas + compose box do chat
+      if (el.closest('#main')) continue;
+      if (el.closest('#wcrm-sidebar')) continue;
+      if (el.closest('#wcrm-custom-list')) continue;
+      if (el.closest('#wcrm-widget')) continue;
+      if (el.closest('#wcrm-abas-sidebar')) continue;
+      if (el.closest('[data-ezap-synth]')) continue;
+      // Exclui elementos invisiveis ou fora da tela
+      if (!el.offsetParent && el.tagName !== 'INPUT') continue;
+      candidates.push(el);
+    }
+
+    // Score pra decidir o melhor candidato
+    var scored = candidates.map(function(el) {
       var title = el.getAttribute('title') || '';
       var aria = el.getAttribute('aria-label') || '';
+      var ph = el.getAttribute('placeholder') || '';
       var dataTab = el.getAttribute('data-tab') || '';
       var role = el.getAttribute('role') || '';
-      // Match forte: tem keywords de search
-      if (/search|pesquis|busca/i.test(title + ' ' + aria) || dataTab === '3') {
-        return el;
-      }
-      // Match fraco: primeiro role=textbox fora do main
-      if (!best && role === 'textbox') best = el;
+      var isLexical = el.getAttribute('data-lexical-editor') === 'true';
+      var text = (title + ' ' + aria + ' ' + ph).toLowerCase();
+      var score = 0;
+      if (/search|pesquis|busca/i.test(text)) score += 100;
+      if (dataTab === '3') score += 80;
+      if (isLexical) score += 40;
+      if (role === 'textbox') score += 20;
+      // Preferencia por posicao: campo de search fica no topo da pagina
+      try {
+        var rect = el.getBoundingClientRect();
+        if (rect.top < 200 && rect.top > 0) score += 50;
+        if (rect.left < 500) score += 20;   // coluna esquerda
+        if (rect.width > 100 && rect.width < 600) score += 10;
+      } catch (e) {}
+      return { el: el, score: score, tag: el.tagName };
+    });
+    scored.sort(function(a, b) { return b.score - a.score; });
+
+    if (scored.length > 0 && scored[0].score > 0) {
+      return scored[0].el;
     }
-    if (best) return best;
-    // Ultimo recurso: primeiro contenteditable que sobrou
-    for (var j = 0; j < all.length; j++) {
-      var el2 = all[j];
-      if (el2.closest('#main') || el2.closest('#wcrm-sidebar') || el2.closest('#wcrm-custom-list') || el2.closest('#wcrm-widget')) continue;
-      return el2;
-    }
-    // Diagnostico quando falha
-    console.log('[EZAP-SEARCH] no field. total contenteditable:', all.length, 'page has #side:', !!document.getElementById('side'));
-    return null;
+
+    // Diagnostico quando falha: loga candidatos pra debug
+    console.log('[EZAP-SEARCH] no confident field. candidates:', scored.length);
+    scored.slice(0, 5).forEach(function(c, i) {
+      console.log('[EZAP-SEARCH] candidate #' + i + ' score=' + c.score + ' tag=' + c.tag + ' outer=', (c.el.outerHTML || '').slice(0, 160));
+    });
+    // Ultimo recurso: retorna primeiro candidato qualquer
+    return scored.length > 0 ? scored[0].el : null;
   }
+  var _ezapElId = 0;
 
   function _clearSearchField(field) {
     if (!field) return;
@@ -278,18 +316,33 @@
       var searchTerm;
       try {
         field.focus();
+        // Clicka pra garantir cursor dentro
+        try {
+          var r = field.getBoundingClientRect();
+          field.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: r.left + 10, clientY: r.top + r.height/2 }));
+          field.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: r.left + 10, clientY: r.top + r.height/2 }));
+          field.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: r.left + 10, clientY: r.top + r.height/2 }));
+        } catch (e1) {}
         document.execCommand('selectAll', false, null);
         document.execCommand('delete', false, null);
         // Pega so nome antes de pipe pra buscar melhor
         searchTerm = (name.split(/\s*\|\s*/)[0] || name).trim();
+        // Dispara beforeinput pra preparar listeners React/Lexical
+        try { field.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: searchTerm })); } catch (e2) {}
         // Digita (execCommand.insertText funciona com React contenteditable)
         var inserted = document.execCommand('insertText', false, searchTerm);
         console.log('[EZAP-SEARCH] typed "' + searchTerm + '" inserted=' + inserted);
         if (!inserted) {
-          // Fallback manual
-          field.textContent = searchTerm;
+          // Fallback manual: seta textContent + dispara input event
+          if (field.tagName === 'INPUT' || field.tagName === 'TEXTAREA') {
+            field.value = searchTerm;
+          } else {
+            field.textContent = searchTerm;
+          }
           field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: searchTerm }));
         }
+        // Dispara input event adicional (alguns listeners Lexical so pegam esse)
+        try { field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: searchTerm })); } catch (e3) {}
       } catch (e) {
         console.log('[EZAP-SEARCH] type err:', e.message);
         restore();

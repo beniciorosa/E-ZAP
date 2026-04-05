@@ -430,6 +430,34 @@
       } catch (e) {}
       var unread = 0;
       try { unread = Number(c.unreadCount || c.__x_unreadCount || 0) || 0; } catch (e) {}
+      // Extrai preview da ultima mensagem (body + fromMe)
+      var lastMsgText = '';
+      var lastMsgFromMe = false;
+      try {
+        var msgs = c.msgs || c.__x_msgs;
+        var lastMsg = null;
+        if (msgs) {
+          if (typeof msgs.last === 'function') lastMsg = msgs.last();
+          else if (msgs._models && msgs._models.length) lastMsg = msgs._models[msgs._models.length - 1];
+          else if (Array.isArray(msgs) && msgs.length) lastMsg = msgs[msgs.length - 1];
+        }
+        if (lastMsg) {
+          lastMsgFromMe = !!(lastMsg.id && lastMsg.id.fromMe) || !!lastMsg.__x_isSentByMe;
+          var body = lastMsg.body || lastMsg.__x_body || lastMsg.caption || lastMsg.__x_caption || '';
+          if (!body) {
+            // Tipos nao-texto: mostra label
+            var type = lastMsg.type || lastMsg.__x_type || '';
+            if (type === 'image') body = '📷 Foto';
+            else if (type === 'video') body = '🎥 Video';
+            else if (type === 'audio' || type === 'ptt') body = '🎤 Audio';
+            else if (type === 'document') body = '📄 Documento';
+            else if (type === 'sticker') body = '🖼️ Sticker';
+            else if (type === 'location') body = '📍 Localizacao';
+            else if (type === 'vcard' || type === 'multi_vcard') body = '👤 Contato';
+          }
+          lastMsgText = String(body || '').slice(0, 80);
+        }
+      } catch (e) {}
       out.push({
         jid: jid,
         name: String(name || '').trim(),
@@ -438,7 +466,9 @@
         shortName: (c.contact && (c.contact.shortName || c.contact.__x_shortName)) || '',
         profilePicUrl: getFiberProfilePic(c),
         lastTs: lastTs,
-        unread: unread
+        unread: unread,
+        lastMsgText: lastMsgText,
+        lastMsgFromMe: lastMsgFromMe
       });
     }
     return out;
