@@ -19,51 +19,93 @@
   window._ezapStoreReady = false;
   window._ezapStore = null;
 
-  var WEBPACK_KEYS = [
-    'webpackChunkwhatsapp_web_client',
-    'webpackChunkbuild'
-  ];
-  var INIT_MAX_TRIES = 120;      // ~60s
+  var INIT_MAX_TRIES = 240;      // ~2min (WA demora pra carregar Chat module)
   var INIT_INTERVAL_MS = 500;
   var _initTries = 0;
+  var _lastWebpackKey = null;
 
+  // Scan dinamico: WA pode mudar o nome da key (ex: webpackChunkwhatsapp_web_client,
+  // webpackChunkbuild, webpackChunk_N_E_, etc). Procura qualquer chave webpackChunk*
+  // que tenha .push e entries com formato [ids, modules, runtime?].
   function findWebpackChunk() {
-    for (var i = 0; i < WEBPACK_KEYS.length; i++) {
-      var k = WEBPACK_KEYS[i];
-      if (window[k] && typeof window[k].push === 'function') return window[k];
+    var keys = Object.keys(window);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (k.indexOf('webpackChunk') !== 0) continue;
+      var v = window[k];
+      if (v && typeof v.push === 'function' && Array.isArray(v)) {
+        _lastWebpackKey = k;
+        return v;
+      }
     }
     return null;
   }
 
+  function _isCollection(obj) {
+    return obj && typeof obj.getModelsArray === 'function'
+      && (typeof obj.get === 'function' || typeof obj.add === 'function' || obj._models);
+  }
+  function _modelClassName(coll) {
+    try {
+      var mc = coll && coll.modelClass;
+      if (!mc) return '';
+      if (mc.name) return mc.name;
+      if (mc.prototype && mc.prototype.constructor && mc.prototype.constructor.name) {
+        return mc.prototype.constructor.name;
+      }
+    } catch (e) {}
+    return '';
+  }
+  function _sniffCollectionByProbe(coll) {
+    // Inspeciona 1 modelo pra decidir se eh Chat/Contact/GroupMetadata
+    try {
+      var arr = coll.getModelsArray();
+      if (!arr || !arr.length) return '';
+      var m = arr[0];
+      if (!m) return '';
+      // Chat: tem lastReceivedKey/unreadCount/msgs/contact
+      if ('unreadCount' in m || m.msgs || m.contact || 'archive' in m) return 'Chat';
+      // GroupMetadata: tem participants + subject
+      if (m.participants && m.subject) return 'GroupMetadata';
+      // Contact: tem pushname/verifiedName
+      if ('pushname' in m || 'verifiedName' in m || 'isMe' in m) return 'Contact';
+    } catch (e) {}
+    return '';
+  }
+
   function scanModules(req) {
     var found = { Chat: null, Contact: null, GroupMetadata: null, Wid: null };
-    var keys = Object.keys(req.m || {});
+    var modSource = req.m || req.c || {};
+    var keys = Object.keys(modSource);
+    var scanned = 0, errors = 0;
     for (var i = 0; i < keys.length; i++) {
       var mod;
-      try { mod = req(keys[i]); } catch (e) { continue; }
+      try { mod = req(keys[i]); scanned++; } catch (e) { errors++; continue; }
       if (!mod) continue;
-      var candidates = [mod, mod.default, mod.Chat, mod.Contact, mod.GroupMetadata];
+      // Tenta todos os possiveis lugares onde a collection pode estar
+      var candidates = [mod, mod.default, mod.Chat, mod.Contact, mod.GroupMetadata, mod.ChatCollection, mod.ContactCollection];
       for (var c = 0; c < candidates.length; c++) {
         var obj = candidates[c];
         if (!obj) continue;
-        // Chat collection: has getModelsArray + modelClass name Chat
-        if (!found.Chat && typeof obj.getModelsArray === 'function' && obj.modelClass) {
-          var mcName = '';
-          try { mcName = (obj.modelClass && (obj.modelClass.name || obj.modelClass.prototype && obj.modelClass.prototype.constructor && obj.modelClass.prototype.constructor.name)) || ''; } catch (e) {}
-          if (mcName === 'Chat') found.Chat = obj;
-          else if (mcName === 'Contact') found.Contact = found.Contact || obj;
-          else if (mcName === 'GroupMetadata') found.GroupMetadata = found.GroupMetadata || obj;
+        if (_isCollection(obj)) {
+          // 1. Tenta pelo nome da modelClass
+          var mcName = _modelClassName(obj);
+          // 2. Se nao achou, sniff pelos atributos do modelo
+          if (!mcName) mcName = _sniffCollectionByProbe(obj);
+          if (mcName === 'Chat' && !found.Chat) found.Chat = obj;
+          else if (mcName === 'Contact' && !found.Contact) found.Contact = obj;
+          else if (mcName === 'GroupMetadata' && !found.GroupMetadata) found.GroupMetadata = obj;
         }
-        // Wid: has createWid / fromSerialized helpers
+        // Wid: helpers globais
         if (!found.Wid && typeof obj.createWid === 'function' && typeof obj.fromSerialized === 'function') {
           found.Wid = obj;
         }
       }
-      // Namespaced exports: mod.Chat etc
-      if (!found.Chat && mod.Chat && typeof mod.Chat.getModelsArray === 'function') found.Chat = mod.Chat;
-      if (!found.Contact && mod.Contact && typeof mod.Contact.getModelsArray === 'function') found.Contact = mod.Contact;
-      if (!found.GroupMetadata && mod.GroupMetadata && typeof mod.GroupMetadata.getModelsArray === 'function') found.GroupMetadata = mod.GroupMetadata;
     }
+    window._ezapDebug = window._ezapDebug || {};
+    window._ezapDebug.lastScan = { scanned: scanned, errors: errors, found: {
+      Chat: !!found.Chat, Contact: !!found.Contact, GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid
+    }};
     return found;
   }
 
@@ -72,31 +114,33 @@
     var chunk = findWebpackChunk();
     if (!chunk) {
       if (_initTries < INIT_MAX_TRIES) setTimeout(tryInject, INIT_INTERVAL_MS);
-      else console.log('[EZAP-STORE] webpack chunk never appeared, giving up');
+      else console.log('[EZAP-STORE] webpack chunk never appeared after', _initTries, 'tries — giving up');
       return;
     }
     try {
       chunk.push([
-        ['_ezap_parasite_' + Date.now()],
+        ['_ezap_parasite_' + Date.now() + '_' + _initTries],
         {},
         function(req) {
           var found = scanModules(req);
           window._ezapStore = found;
           window._ezapStoreReady = !!found.Chat;
-          console.log('[EZAP-STORE] Hook done:', {
-            Chat: !!found.Chat,
-            Contact: !!found.Contact,
-            GroupMetadata: !!found.GroupMetadata,
-            Wid: !!found.Wid
-          });
+          if (_initTries <= 3 || found.Chat) {
+            console.log('[EZAP-STORE] Hook try', _initTries, 'key:', _lastWebpackKey, 'found:', {
+              Chat: !!found.Chat, Contact: !!found.Contact,
+              GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid
+            });
+          }
           if (!found.Chat && _initTries < INIT_MAX_TRIES) {
-            // Module shape may have changed — retry later, modules keep loading
+            // Modulos ainda carregando — tenta de novo em 2s
             setTimeout(tryInject, 2000);
+          } else if (found.Chat && _initTries > 3) {
+            console.log('[EZAP-STORE] Chat module finally loaded on try', _initTries);
           }
         }
       ]);
     } catch (e) {
-      console.log('[EZAP-STORE] webpack push failed:', e && e.message);
+      console.log('[EZAP-STORE] webpack push failed (try', _initTries, '):', e && e.message);
       if (_initTries < INIT_MAX_TRIES) setTimeout(tryInject, 1000);
     }
   }
@@ -160,6 +204,28 @@
     }
   });
 
+  // Debug helper exposto no console: window._ezapDebugStore()
+  window._ezapDebugStore = function() {
+    var allKeys = Object.keys(window).filter(function(k){return k.indexOf('webpackChunk')===0;});
+    return {
+      ready: window._ezapStoreReady,
+      tries: _initTries,
+      lastWebpackKey: _lastWebpackKey,
+      allWebpackKeys: allKeys,
+      chunkPresent: !!findWebpackChunk(),
+      store: window._ezapStore ? {
+        Chat: !!window._ezapStore.Chat,
+        Contact: !!window._ezapStore.Contact,
+        GroupMetadata: !!window._ezapStore.GroupMetadata,
+        Wid: !!window._ezapStore.Wid
+      } : null,
+      lastScan: (window._ezapDebug && window._ezapDebug.lastScan) || null,
+      chatCount: (function(){
+        try { return window._ezapStore && window._ezapStore.Chat ? window._ezapStore.Chat.getModelsArray().length : null; } catch(e) { return 'err:'+e.message; }
+      })()
+    };
+  };
+
   tryInject();
-  console.log('[EZAP-STORE] Bridge started');
+  console.log('[EZAP-STORE] Bridge started (v2 robust scan). Call window._ezapDebugStore() for state.');
 })();
