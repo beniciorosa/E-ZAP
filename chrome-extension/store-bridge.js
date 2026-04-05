@@ -42,14 +42,17 @@
     try {
       Object.defineProperty(window, chunkName, {
         configurable: true,
+        enumerable: true,   // critico: sem isso Object.keys(window) nao acha
         get: function() { return _value; },
         set: function(v) {
           _value = v;
           if (Array.isArray(v)) {
+            console.log('[EZAP-STORE] Intercepted array assignment for', chunkName);
             wrapArrayPush(v);
           }
         }
       });
+      console.log('[EZAP-STORE] Early interceptor installed for', chunkName);
     } catch (e) {
       console.log('[EZAP-STORE] defineProperty failed for', chunkName, ':', e && e.message);
     }
