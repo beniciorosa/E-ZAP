@@ -3343,6 +3343,85 @@ var FLOW_PALETTE_ORDER = {
   data: ["hubspot_next_meeting"]
 };
 
+// ===== Variaveis disponiveis nos fluxos =====
+var FLOW_VARIABLES = [
+  { group: "Contato", options: [
+    { key: "contact.name", label: "Nome do contato", type: "string" },
+    { key: "contact.phone", label: "Telefone", type: "string" },
+    { key: "contact.is_group", label: "Eh grupo", type: "boolean" },
+    { key: "contact.is_pinned", label: "Esta fixado", type: "boolean" },
+    { key: "contact.has_label", label: "Possui etiqueta", type: "boolean" },
+    { key: "contact.in_tab", label: "Esta em alguma aba", type: "boolean" },
+    { key: "contact.days_since_last_message", label: "Dias sem trocar mensagem", type: "number" },
+    { key: "contact.total_messages", label: "Total de mensagens", type: "number" }
+  ]},
+  { group: "Reuniao (HubSpot)", options: [
+    { key: "meeting.exists", label: "Tem reuniao agendada", type: "boolean" },
+    { key: "meeting.days_until", label: "Dias ate a proxima reuniao", type: "number" },
+    { key: "meeting.days_since", label: "Dias desde a ultima reuniao", type: "number" },
+    { key: "meeting.total_count", label: "Total de reunioes realizadas", type: "number" },
+    { key: "meeting.last_outcome", label: "Resultado da ultima", type: "string" }
+  ]},
+  { group: "Deal (HubSpot)", options: [
+    { key: "deal.exists", label: "Tem deal ativo", type: "boolean" },
+    { key: "deal.stage", label: "Estagio do funil", type: "string" },
+    { key: "deal.amount", label: "Valor do deal", type: "number" },
+    { key: "deal.days_in_stage", label: "Dias no estagio atual", type: "number" },
+    { key: "deal.owner", label: "Responsavel", type: "string" }
+  ]},
+  { group: "Ticket (HubSpot)", options: [
+    { key: "ticket.exists", label: "Tem ticket ativo", type: "boolean" },
+    { key: "ticket.subject", label: "Assunto / nome", type: "string" },
+    { key: "ticket.stage", label: "Estagio do pipeline", type: "string" },
+    { key: "ticket.pipeline", label: "Nome do pipeline", type: "string" },
+    { key: "ticket.priority", label: "Prioridade (HIGH/MEDIUM/LOW)", type: "string" },
+    { key: "ticket.days_since_created", label: "Dias desde criado", type: "number" },
+    { key: "ticket.calls_restantes", label: "Calls restantes (mentoria)", type: "number" },
+    { key: "ticket.calls_total", label: "Total de calls (mentoria)", type: "number" },
+    { key: "ticket.modelo_mentoria", label: "Modelo de mentoria", type: "string" },
+    { key: "ticket.data_inicio_blocos", label: "Data inicio dos blocos", type: "string" },
+    { key: "ticket.data_termino_1o_bloco", label: "Data termino 1o bloco", type: "string" },
+    { key: "ticket.data_termino_2o_bloco", label: "Data termino 2o bloco", type: "string" }
+  ]},
+  { group: "Tempo", options: [
+    { key: "now.hour", label: "Hora atual (0-23)", type: "number" },
+    { key: "now.day_of_week", label: "Dia da semana (0=dom, 6=sab)", type: "number" },
+    { key: "now.day", label: "Dia do mes (1-31)", type: "number" },
+    { key: "now.is_business_hours", label: "Horario comercial", type: "boolean" }
+  ]}
+];
+
+// ===== Operadores disponiveis por tipo =====
+var FLOW_OPERATORS = {
+  string: [
+    { key: "eq", label: "Igual a" },
+    { key: "neq", label: "Diferente de" },
+    { key: "contains", label: "Contem" }
+  ],
+  number: [
+    { key: "eq", label: "Igual a" },
+    { key: "neq", label: "Diferente de" },
+    { key: "gt", label: "Maior que" },
+    { key: "gte", label: "Maior ou igual a" },
+    { key: "lt", label: "Menor que" },
+    { key: "lte", label: "Menor ou igual a" }
+  ],
+  boolean: [
+    { key: "eq", label: "Eh" },
+    { key: "neq", label: "Nao eh" }
+  ]
+};
+
+function findFlowVariable(key) {
+  for (var i = 0; i < FLOW_VARIABLES.length; i++) {
+    var opts = FLOW_VARIABLES[i].options;
+    for (var j = 0; j < opts.length; j++) {
+      if (opts[j].key === key) return opts[j];
+    }
+  }
+  return null;
+}
+
 // ===== Flow state =====
 var allFlows = [];
 var currentFlow = null;
@@ -3657,7 +3736,15 @@ function nodeSummary(n) {
   if (!n || !n.data) return "";
   switch (n.type) {
     case "start": return n.data.triggerType === "schedule" ? "A cada " + (n.data.interval || "?") : "Manual";
-    case "ifelse": return (n.data.field || "campo") + " " + (n.data.op || "eq") + " " + (n.data.value || "");
+    case "ifelse":
+      var v = findFlowVariable(n.data.field);
+      var fieldLbl = v ? v.label : (n.data.field || "campo");
+      var opArr = FLOW_OPERATORS[v ? v.type : "string"] || FLOW_OPERATORS.string;
+      var opMatch = opArr.find(function(o) { return o.key === n.data.op; });
+      var opLbl = opMatch ? opMatch.label : (n.data.op || "eq");
+      var valLbl = n.data.value;
+      if (v && v.type === "boolean") valLbl = (n.data.value === "true" || n.data.value === true) ? "Sim" : "Nao";
+      return fieldLbl + " " + opLbl.toLowerCase() + " " + (valLbl || "");
     case "wait": return "Aguardar " + (n.data.amount || 1) + " " + (n.data.unit || "hours");
     case "send_message": return (n.data.text || "").substring(0, 50);
     case "add_label": return n.data.labelName || "";
@@ -4019,15 +4106,39 @@ function renderNodeConfigForm(n) {
       break;
     case "ifelse":
       h += lbl("Campo / variavel");
-      h += '<input type="text" placeholder="{{contact.days_since_meeting}}" value="' + esc(n.data.field || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'field\',this.value)" style="' + inp + '">';
+      h += '<select onchange="updateIfFieldType(\'' + n.id + '\', this.value)" style="' + inp + '">';
+      h += '<option value=""' + (!n.data.field ? " selected" : "") + '>-- selecione --</option>';
+      FLOW_VARIABLES.forEach(function(g) {
+        h += '<optgroup label="' + esc(g.group) + '">';
+        g.options.forEach(function(o) {
+          h += '<option value="' + o.key + '"' + (n.data.field === o.key ? " selected" : "") + '>' + esc(o.label) + '</option>';
+        });
+        h += '</optgroup>';
+      });
+      h += '</select>';
+      var selectedVar = findFlowVariable(n.data.field);
+      var fieldType = selectedVar ? selectedVar.type : "string";
+      var ops = FLOW_OPERATORS[fieldType] || FLOW_OPERATORS.string;
       h += lbl("Operador");
       h += '<select onchange="updateNodeData(\'' + n.id + '\',\'op\',this.value)" style="' + inp + '">' +
-        ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains'].map(function(op) {
-          return '<option value="' + op + '"' + (n.data.op === op ? " selected" : "") + '>' + op + '</option>';
+        ops.map(function(op) {
+          return '<option value="' + op.key + '"' + (n.data.op === op.key ? " selected" : "") + '>' + esc(op.label) + '</option>';
         }).join('') +
       '</select>';
       h += lbl("Valor");
-      h += '<input type="text" value="' + esc(n.data.value || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'value\',this.value)" style="' + inp + '">';
+      if (fieldType === "boolean") {
+        h += '<select onchange="updateNodeData(\'' + n.id + '\',\'value\',this.value)" style="' + inp + '">' +
+          '<option value="true"' + (n.data.value === "true" || n.data.value === true ? " selected" : "") + '>Sim</option>' +
+          '<option value="false"' + (n.data.value === "false" || n.data.value === false ? " selected" : "") + '>Nao</option>' +
+        '</select>';
+      } else if (fieldType === "number") {
+        h += '<input type="number" value="' + esc(n.data.value || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'value\',this.value)" style="' + inp + '">';
+      } else {
+        h += '<input type="text" value="' + esc(n.data.value || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'value\',this.value)" style="' + inp + '">';
+      }
+      if (selectedVar) {
+        h += '<div style="font-size:10px;color:var(--on-surface-variant);background:var(--surface);padding:8px 10px;border-radius:6px;border:1px solid var(--outline-variant);font-family:monospace">{{' + selectedVar.key + '}}</div>';
+      }
       break;
     case "wait":
       h += lbl("Duracao");
@@ -4060,6 +4171,22 @@ function renderNodeConfigForm(n) {
       break;
   }
   return h;
+}
+
+function updateIfFieldType(nodeId, newField) {
+  var n = currentFlow.nodes.find(function(x) { return x.id === nodeId; });
+  if (!n) return;
+  var oldVar = findFlowVariable(n.data.field);
+  var newVar = findFlowVariable(newField);
+  n.data.field = newField;
+  // Reset operator/value if type changed
+  if (!oldVar || !newVar || oldVar.type !== newVar.type) {
+    n.data.op = (FLOW_OPERATORS[newVar ? newVar.type : "string"][0] || {}).key || "eq";
+    n.data.value = newVar && newVar.type === "boolean" ? "true" : "";
+  }
+  renderFlowNodes();
+  renderFlowConfigPanel();
+  scheduleAutoSave();
 }
 
 function updateNodeData(nodeId, key, value) {
