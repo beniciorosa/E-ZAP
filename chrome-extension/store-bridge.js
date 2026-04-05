@@ -324,30 +324,142 @@
     return out;
   }
 
+  // ===== REACT FIBER STRATEGY (primary) =====
+  // WA Web expose o store inteiro (chats/contacts/messages/actions) nos props
+  // do componente virtual-scroll-list ancestral de cada row da lista de chats.
+  // Caminhando o fiber de qualquer [role="row"] dentro de #pane-side uns ~13
+  // niveis pra cima, achamos um memoizedProps com esses campos. store.chats
+  // e um Array JS simples com TODOS os chats do usuario — incluindo os que
+  // nao estao renderizados no virtual scroll. Zero dependencia de webpack.
+  var _fiberStoreCache = null;
+  var _fiberStoreLastFoundAt = 0;
+  function findFiberStore() {
+    try {
+      var pane = document.getElementById('pane-side');
+      if (!pane) return null;
+      var rows = pane.querySelectorAll('[role="row"]');
+      if (!rows.length) return null;
+      for (var r = 0; r < Math.min(rows.length, 3); r++) {
+        var row = rows[r];
+        var keys = Object.keys(row);
+        var fiberKey = null;
+        for (var kk = 0; kk < keys.length; kk++) {
+          if (keys[kk].indexOf('__reactFiber') === 0) { fiberKey = keys[kk]; break; }
+        }
+        if (!fiberKey) continue;
+        var cur = row[fiberKey];
+        var depth = 0;
+        while (cur && depth < 25) {
+          var p = cur.memoizedProps;
+          if (p && p.chats && p.contacts && p.messages && Array.isArray(p.chats)) {
+            _fiberStoreCache = p;
+            _fiberStoreLastFoundAt = Date.now();
+            return p;
+          }
+          cur = cur.return;
+          depth++;
+        }
+      }
+    } catch (e) {
+      console.log('[EZAP-STORE] findFiberStore err:', e && e.message);
+    }
+    return null;
+  }
+
+  function getFiberChatName(chat) {
+    try {
+      if (typeof chat.name === 'string' && chat.name) return chat.name;
+      if (typeof chat.title === 'function') { var t = chat.title(); if (t) return String(t); }
+      else if (typeof chat.title === 'string' && chat.title) return chat.title;
+      if (chat.__x_formattedTitle) return String(chat.__x_formattedTitle);
+      if (chat.formattedTitle) return String(chat.formattedTitle);
+      var ct = chat.contact;
+      if (ct) {
+        if (typeof ct.name === 'string' && ct.name) return ct.name;
+        if (ct.verifiedName) return String(ct.verifiedName);
+        if (ct.pushname) return String(ct.pushname);
+        if (ct.shortName) return String(ct.shortName);
+        if (ct.formattedName) return String(ct.formattedName);
+        if (ct.__x_name) return String(ct.__x_name);
+        if (ct.__x_pushname) return String(ct.__x_pushname);
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function getAllChatsFromFiber() {
+    var store = _fiberStoreCache;
+    // Valida cache ou re-acha (store pode ficar stale apos re-renders do React)
+    if (!store || !store.chats || !Array.isArray(store.chats)) store = findFiberStore();
+    if (!store || !Array.isArray(store.chats) || !store.chats.length) return null;
+    var chats = store.chats;
+    var out = [];
+    for (var i = 0; i < chats.length; i++) {
+      var c = chats[i];
+      if (!c || !c.id) continue;
+      var jid = '';
+      try {
+        if (c.id._serialized) jid = c.id._serialized;
+        else if (typeof c.id === 'string') jid = c.id;
+        else if (c.id.toString) jid = c.id.toString();
+      } catch (e) { continue; }
+      if (!jid) continue;
+      var name = getFiberChatName(c);
+      var isGroup = jid.indexOf('@g.us') >= 0;
+      out.push({
+        jid: jid,
+        name: String(name || '').trim(),
+        isGroup: isGroup,
+        pushname: (c.contact && (c.contact.pushname || c.contact.__x_pushname)) || '',
+        shortName: (c.contact && (c.contact.shortName || c.contact.__x_shortName)) || ''
+      });
+    }
+    return out;
+  }
+
   // ===== RPC via postMessage =====
   window.addEventListener('message', function(event) {
     if (!event.data || event.source !== window) return;
     var d = event.data;
     if (d.type === '_ezap_get_chats_req') {
-      var chats = getAllChats();
+      // Estrategia primaria: React fiber (zero dep webpack)
+      var chats = getAllChatsFromFiber();
+      var via = 'fiber';
+      if (!chats || !chats.length) {
+        // Fallback: webpack store (so funciona se _ezapWebpackRequire capturado)
+        chats = getAllChats();
+        via = 'webpack';
+      }
       window.postMessage({
         type: '_ezap_get_chats_res',
         id: d.id,
-        ok: !!chats,
+        ok: !!(chats && chats.length),
         chats: chats || [],
-        ready: window._ezapStoreReady
+        ready: !!(chats && chats.length) || window._ezapStoreReady,
+        via: via
       }, '*');
     } else if (d.type === '_ezap_store_ready_req') {
+      // Fiber store nao precisa de "ready handshake" — ou tem, ou nao tem.
+      var fiberOk = false;
+      try { var s = _fiberStoreCache || findFiberStore(); fiberOk = !!(s && s.chats && s.chats.length); } catch(e) {}
       window.postMessage({
         type: '_ezap_store_ready_res',
         id: d.id,
-        ready: window._ezapStoreReady
+        ready: fiberOk || window._ezapStoreReady
       }, '*');
     }
   });
 
   // Debug helper exposto no console: window._ezapDebugStore()
   window._ezapDebugStore = function() {
+    var fiberChats = null;
+    try { fiberChats = getAllChatsFromFiber(); } catch(e) {}
+    var fiberInfo = fiberChats ? {
+      count: fiberChats.length,
+      sample: fiberChats.slice(0, 3),
+      withName: fiberChats.filter(function(x){return x.name;}).length,
+      withoutName: fiberChats.filter(function(x){return !x.name;}).length
+    } : null;
     var allKeys = Object.keys(window).filter(function(k){return k.indexOf('webpackChunk')===0;});
     // Inclui nomes conhecidos mesmo se nao enumerable
     ['webpackChunkwhatsapp_web_client','webpackChunkbuild','webpackChunk_N_E_'].forEach(function(n){
@@ -368,6 +480,7 @@
     });
     var chunk = findWebpackChunk();
     return {
+      fiber: fiberInfo,
       ready: window._ezapStoreReady,
       tries: _initTries,
       lastWebpackKey: _lastWebpackKey,
@@ -392,5 +505,5 @@
     };
   };
 
-  console.log('[EZAP-STORE] Bridge started (v7 polling only, no early interceptor). Call window._ezapDebugStore() for state.');
+  console.log('[EZAP-STORE] Bridge started (v8 React fiber primary, webpack fallback). Call window._ezapDebugStore() for state.');
 })();
