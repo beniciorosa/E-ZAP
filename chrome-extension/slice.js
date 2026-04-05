@@ -78,6 +78,9 @@ function _runFiltersSync(chatIndex) {
     for (var j = 0; j < hiddenItems.length; j++) {
       hiddenItems[j].classList.remove('wcrm-hidden');
     }
+    // Remove synthetic rows
+    var synthGone = container.querySelectorAll('.wcrm-synth-row');
+    for (var sg = 0; sg < synthGone.length; sg++) synthGone[sg].parentNode.removeChild(synthGone[sg]);
     // Nudge scroll to force WhatsApp to re-render virtual list
     var scrollParent = container.parentElement;
     if (scrollParent) {
@@ -97,6 +100,7 @@ function _runFiltersSync(chatIndex) {
   // Fonte da verdade: tab.contactJids (salvo ao adicionar) + resolucao
   // lazy via chatIndex (pra contatos antigos sem JID).
   var abaJidSet = {};
+  var abaJidToName = {};  // mapa JID -> nome salvo (pra sintetizar row)
   var abaNamesFallback = [];
   var tabEntry = _getAbaTabEntry(selectedAbaId);
   var tabContacts = (tabEntry && tabEntry.contacts) || [];
@@ -107,7 +111,7 @@ function _runFiltersSync(chatIndex) {
     if (!jid && chatIndex && window.ezapFindJidInIndex) {
       jid = window.ezapFindJidInIndex(chatIndex, n);
     }
-    if (jid) { abaJidSet[jid] = true; resolvedCount++; }
+    if (jid) { abaJidSet[jid] = true; abaJidToName[jid] = n; resolvedCount++; }
     else abaNamesFallback.push(n);
   });
 
@@ -127,11 +131,19 @@ function _runFiltersSync(chatIndex) {
   // Enable filter mode: override virtual scroll to normal flow
   container.classList.add('wcrm-filter-active');
 
+  // Remove synthetic rows de rodadas anteriores antes de reiterar
+  var oldSynth = container.querySelectorAll('.wcrm-synth-row');
+  for (var ss = 0; ss < oldSynth.length; ss++) oldSynth[ss].parentNode.removeChild(oldSynth[ss]);
+
   var pinnedRows = [];
   var unpinnedRows = [];
+  var matchedJids = {};  // JIDs que ja foram matchados via row DOM
+  var matchedNames = {}; // nomes (fallback) que ja foram matchados
 
   for (var i = 0; i < container.children.length; i++) {
     var row = container.children[i];
+    // Nao re-processa synthetic rows
+    if (row.classList && row.classList.contains('wcrm-synth-row')) continue;
     var nameSpan = row.querySelector('span[title]');
 
     if (!nameSpan) {
@@ -149,10 +161,15 @@ function _runFiltersSync(chatIndex) {
 
     // ABAS filter
     var found = false;
-    if (rowJid && abaJidSet[rowJid]) found = true;
+    if (rowJid && abaJidSet[rowJid]) { found = true; matchedJids[rowJid] = true; }
     if (!found && abaNamesFallback.length > 0) {
       // Fallback nome tolerante (apenas contatos que nao tinham JID)
-      found = abaNamesFallback.some(function(c) { return window.ezapMatchContact(c, title); });
+      var matchedName = null;
+      var isMatch = abaNamesFallback.some(function(c) {
+        if (window.ezapMatchContact(c, title)) { matchedName = c; return true; }
+        return false;
+      });
+      if (isMatch) { found = true; matchedNames[matchedName] = true; }
     }
     if (!found) show = false;
 
@@ -176,6 +193,34 @@ function _runFiltersSync(chatIndex) {
     }
   }
 
+  // Sintetiza rows pros contatos da aba que NAO estao na DOM
+  // (fora do viewport do virtual scroll). Isso resolve o 4-de-5.
+  var synthRows = [];
+  Object.keys(abaJidSet).forEach(function(jid) {
+    if (matchedJids[jid]) return;
+    var name = abaJidToName[jid] || jid;
+    var isPinnedSynth = !!pinJidSet[jid];
+    var synthRow = _createSyntheticRow(name, jid, isPinnedSynth);
+    synthRows.push({ row: synthRow, pinned: isPinnedSynth });
+  });
+  // Tambem sintetiza pros contatos sem JID (fallback por nome) que nao matcharam
+  abaNamesFallback.forEach(function(n) {
+    if (matchedNames[n]) return;
+    var isPinnedSynth = Object.keys(pinned).some(function(pn) { return window.ezapMatchContact(pn, n); });
+    var synthRow = _createSyntheticRow(n, null, isPinnedSynth);
+    synthRows.push({ row: synthRow, pinned: isPinnedSynth });
+  });
+
+  // Appenda synth rows: pinned no topo, nao-pinned no final
+  synthRows.forEach(function(s) {
+    container.appendChild(s.row);
+    if (s.pinned) pinnedRows.push(s.row);
+  });
+
+  if (synthRows.length > 0) {
+    console.log("[WCRM FILTER] Adicionou", synthRows.length, "rows sinteticas (contatos fora do virtual scroll)");
+  }
+
   // Reorder: pinned contacts first
   if (pinnedRows.length > 0) {
     pinnedRows.forEach(function(row) {
@@ -184,6 +229,106 @@ function _runFiltersSync(chatIndex) {
   }
 
   setupFilterObserver();
+}
+
+// Cria uma row sintetica pra contato que nao esta no virtual scroll.
+// Estilo visual aproximado de uma row do WA (avatar placeholder + nome).
+// Click abre o chat via ezapOpenChat.
+function _createSyntheticRow(name, jid, isPinned) {
+  var row = document.createElement('div');
+  row.className = 'wcrm-synth-row';
+  row.setAttribute('data-ezap-jid', jid || '');
+  row.setAttribute('data-ezap-name', name || '');
+  Object.assign(row.style, {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '10px 15px',
+    height: '72px',
+    boxSizing: 'border-box',
+    borderBottom: '1px solid rgba(134,150,160,0.15)',
+    cursor: 'pointer',
+    background: 'transparent',
+    transition: 'background 0.15s'
+  });
+  row.addEventListener('mouseenter', function() { row.style.background = 'rgba(42,57,66,0.5)'; });
+  row.addEventListener('mouseleave', function() { row.style.background = 'transparent'; });
+
+  // Avatar placeholder (circulo cinza com inicial)
+  var avatar = document.createElement('div');
+  var initial = (name || '?').trim().charAt(0).toUpperCase();
+  Object.assign(avatar.style, {
+    width: '49px',
+    height: '49px',
+    borderRadius: '50%',
+    background: '#6b7c85',
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '20px',
+    fontWeight: '600',
+    flexShrink: '0',
+    marginRight: '15px'
+  });
+  avatar.textContent = initial;
+  row.appendChild(avatar);
+
+  // Nome + indicador
+  var info = document.createElement('div');
+  Object.assign(info.style, { flex: '1', minWidth: '0', display: 'flex', alignItems: 'center' });
+  var nameEl = document.createElement('span');
+  nameEl.setAttribute('title', name || '');
+  Object.assign(nameEl.style, {
+    color: '#e9edef',
+    fontSize: '15px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: '1'
+  });
+  nameEl.textContent = name || '';
+  info.appendChild(nameEl);
+
+  if (isPinned) {
+    var pinIcon = document.createElement('span');
+    pinIcon.className = 'wcrm-pin-icon';
+    pinIcon.textContent = '📌';
+    Object.assign(pinIcon.style, { fontSize: '12px', marginLeft: '6px', flexShrink: '0' });
+    info.appendChild(pinIcon);
+  }
+
+  var subtitle = document.createElement('span');
+  Object.assign(subtitle.style, {
+    color: '#8696a0',
+    fontSize: '11px',
+    fontStyle: 'italic',
+    marginLeft: '8px',
+    flexShrink: '0'
+  });
+  subtitle.textContent = 'fora do scroll';
+  info.appendChild(subtitle);
+
+  row.appendChild(info);
+
+  // Click handler: abre o chat via ezapOpenChat
+  row.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.ezapOpenChat) {
+      console.warn("[WCRM FILTER] ezapOpenChat nao disponivel");
+      return;
+    }
+    var lockedJid = row.getAttribute('data-ezap-jid');
+    var lockedName = row.getAttribute('data-ezap-name');
+    window.ezapOpenChat(lockedJid, lockedName).then(function(result) {
+      console.log("[WCRM FILTER] openChat result:", result);
+      if (!result || !result.ok) {
+        console.warn("[WCRM FILTER] Nao consegui abrir o chat:", result);
+      }
+    });
+  });
+
+  return row;
 }
 
 function setupFilterObserver() {

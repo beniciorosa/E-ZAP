@@ -114,7 +114,7 @@
   window.addEventListener('message', function(event) {
     if (!event.data || event.source !== window) return;
     var d = event.data;
-    if (d.type === '_ezap_get_chats_res' || d.type === '_ezap_store_ready_res') {
+    if (d.type === '_ezap_get_chats_res' || d.type === '_ezap_store_ready_res' || d.type === '_ezap_open_chat_res') {
       var cb = _ezapRpcPending[d.id];
       if (cb) { delete _ezapRpcPending[d.id]; cb(d); }
     }
@@ -145,6 +145,53 @@
       _ezapChatCache = resp.chats || [];
       _ezapChatCacheAt = Date.now();
       return _ezapChatCache;
+    });
+  }
+
+  // Abre um chat por JID usando o bridge. Antes de ir pro bridge,
+  // tenta achar a row na DOM e clicar nela — isso cobre os chats que
+  // ja estao renderizados pelo virtual scroll (caminho mais confiavel).
+  // Se a row nao esta na DOM, vai pro bridge que tenta chamar metodos
+  // do chat model / store props do React fiber.
+  function ezapOpenChat(jid, nameHint) {
+    return new Promise(function(resolve) {
+      // Tenta clicar na row da DOM primeiro (caminho mais confiavel)
+      try {
+        var pane = document.getElementById('pane-side');
+        if (pane && nameHint) {
+          var rows = pane.querySelectorAll('[role="row"]');
+          for (var i = 0; i < rows.length; i++) {
+            var span = rows[i].querySelector('span[title]');
+            if (!span) continue;
+            var t = span.getAttribute('title') || '';
+            if (ezapMatchContact(nameHint, t)) {
+              // Simula click de usuario - WA listens on mousedown normalmente
+              var clickable = span.closest('[role="listitem"]') || span.closest('div[tabindex]') || rows[i];
+              if (clickable) {
+                try {
+                  clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                  clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                  clickable.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                  resolve({ ok: true, via: 'dom-click' });
+                  return;
+                } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (e) {}
+      // Fallback: bridge RPC
+      var id = ++_ezapRpcId;
+      var timer = setTimeout(function() {
+        delete _ezapRpcPending[id];
+        resolve({ ok: false, reason: 'timeout' });
+      }, 3000);
+      _ezapRpcPending[id] = function(data) {
+        clearTimeout(timer);
+        resolve(data && data.result ? data.result : { ok: false, reason: 'no-response' });
+      };
+      try { window.postMessage({ type: '_ezap_open_chat_req', id: id, jid: jid }, '*'); }
+      catch (e) { clearTimeout(timer); delete _ezapRpcPending[id]; resolve({ ok: false, reason: 'postmessage-failed' }); }
     });
   }
 
@@ -219,4 +266,5 @@
   window.ezapResolveJid = ezapResolveJid;
   window.ezapBuildChatIndex = ezapBuildChatIndex;
   window.ezapFindJidInIndex = ezapFindJidInIndex;
+  window.ezapOpenChat = ezapOpenChat;
 })();

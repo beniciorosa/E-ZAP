@@ -417,6 +417,77 @@
     return out;
   }
 
+  // Busca o modelo do chat no fiber store por JID
+  function findChatModelByJid(jid) {
+    var store = _fiberStoreCache || findFiberStore();
+    if (!store || !Array.isArray(store.chats)) return null;
+    for (var i = 0; i < store.chats.length; i++) {
+      var c = store.chats[i];
+      if (!c || !c.id) continue;
+      try {
+        var cjid = c.id._serialized || (typeof c.id === 'string' ? c.id : (c.id.toString && c.id.toString()));
+        if (cjid === jid) return { chat: c, store: store };
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  // Tenta abrir um chat por JID usando varios metodos do WA Web.
+  // Returns { ok, via, tried, availableKeys } pra diagnostico.
+  function openChatByJid(jid) {
+    var match = findChatModelByJid(jid);
+    if (!match) return { ok: false, reason: 'chat-not-found' };
+    var target = match.chat;
+    var store = match.store;
+    var tried = [];
+
+    // Strategy 1: metodos no proprio chat model
+    var chatMethods = ['open', 'activate', 'select', 'click', 'onClick', 'openChat'];
+    for (var i = 0; i < chatMethods.length; i++) {
+      var m = chatMethods[i];
+      try {
+        if (typeof target[m] === 'function') {
+          target[m]();
+          return { ok: true, via: 'chat.' + m + '()' };
+        }
+      } catch (e) { tried.push('chat.' + m + ':' + (e && e.message)); }
+    }
+
+    // Strategy 2: metodos no store (props do virtual-scroll-list)
+    var storeMethods = ['openChat', 'onChatClick', 'onChatPressed', 'handleChatClick', 'selectChat'];
+    for (var j = 0; j < storeMethods.length; j++) {
+      var sm = storeMethods[j];
+      try {
+        if (typeof store[sm] === 'function') {
+          store[sm](target);
+          return { ok: true, via: 'store.' + sm + '(chat)' };
+        }
+      } catch (e) { tried.push('store.' + sm + ':' + (e && e.message)); }
+    }
+
+    // Strategy 3: escanea props do store por qualquer function com nome matching
+    try {
+      var keys = Object.keys(store);
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        if (/^(on|handle)?(chat)?(click|open|select|activate|press)/i.test(key)
+            && typeof store[key] === 'function') {
+          try {
+            store[key](target);
+            return { ok: true, via: 'store.' + key + '(chat)' };
+          } catch (e) { tried.push('store.' + key + ':' + (e && e.message)); }
+        }
+      }
+    } catch (e) {}
+
+    // Diagnostico: retorna keys disponiveis pro caso de nada funcionar
+    var storeFns = [];
+    try { storeFns = Object.keys(store).filter(function(k){return typeof store[k]==='function';}); } catch(e) {}
+    var chatFns = [];
+    try { chatFns = Object.keys(target).filter(function(k){return typeof target[k]==='function';}).slice(0, 40); } catch(e) {}
+    return { ok: false, reason: 'no-method-worked', tried: tried, storeFns: storeFns, chatFns: chatFns };
+  }
+
   // ===== RPC via postMessage =====
   window.addEventListener('message', function(event) {
     if (!event.data || event.source !== window) return;
@@ -437,6 +508,15 @@
         chats: chats || [],
         ready: !!(chats && chats.length) || window._ezapStoreReady,
         via: via
+      }, '*');
+    } else if (d.type === '_ezap_open_chat_req') {
+      var result;
+      try { result = openChatByJid(d.jid); }
+      catch (e) { result = { ok: false, reason: 'exception', error: e && e.message }; }
+      window.postMessage({
+        type: '_ezap_open_chat_res',
+        id: d.id,
+        result: result
       }, '*');
     } else if (d.type === '_ezap_store_ready_req') {
       // Fiber store nao precisa de "ready handshake" — ou tem, ou nao tem.
