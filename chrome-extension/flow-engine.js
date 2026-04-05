@@ -137,6 +137,9 @@
       flow = f;
       logSteps.push({ t: Date.now(), type: "start", msg: "Iniciando fluxo: " + f.name });
 
+      // Step 1.5: abrir chat do escopo (se aplicavel)
+      return ensureTargetChatOpen(flow, logSteps);
+    }).then(function() {
       // Step 2: get current chat context
       return getCurrentChatContext();
     }).then(function(chat) {
@@ -171,6 +174,95 @@
       method: "GET"
     }).then(function(rows) {
       return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    });
+  }
+
+  // ===== Abre o chat alvo baseado no scope_config do fluxo =====
+  function ensureTargetChatOpen(flow, logSteps) {
+    var scope = flow && flow.scope_config;
+    if (!scope || !scope.type || scope.type === "all") {
+      // Sem escopo especifico -> usa o chat atualmente aberto
+      return Promise.resolve();
+    }
+    var targetName = (scope.value || "").trim();
+    if (!targetName) return Promise.resolve();
+
+    // Se o chat ja esta aberto e bate com o escopo, nao abre de novo
+    var currentOpen = extractChatNameFromDOM();
+    var matches = false;
+    if (currentOpen) {
+      var cn = currentOpen.toLowerCase();
+      var tn = targetName.toLowerCase();
+      // "chat_name" e label "Nome contem" no admin -> substring match
+      if (scope.type === "chat_name" && cn.indexOf(tn) >= 0) matches = true;
+    }
+    if (matches) {
+      logSteps.push({ t: Date.now(), type: "scope", msg: "Chat alvo ja aberto: " + currentOpen });
+      return Promise.resolve();
+    }
+
+    logSteps.push({ t: Date.now(), type: "scope", msg: "Abrindo chat: " + targetName });
+    return openChatByName(targetName).then(function(opened) {
+      logSteps.push({ t: Date.now(), type: "scope", msg: "Chat aberto: " + opened });
+    });
+  }
+
+  // ===== Abre um chat usando a busca lateral do WhatsApp Web =====
+  function openChatByName(name) {
+    return new Promise(function(resolve, reject) {
+      // 1. Encontra o campo de pesquisa da sidebar
+      var searchBox = document.querySelector('#side div[contenteditable="true"][role="textbox"]')
+                   || document.querySelector('div[contenteditable="true"][role="textbox"]');
+      if (!searchBox) {
+        reject(new Error("Campo de pesquisa do WhatsApp nao encontrado"));
+        return;
+      }
+
+      // 2. Foca e limpa
+      searchBox.focus();
+      try { document.execCommand('selectAll', false, null); } catch(e) {}
+      try { document.execCommand('delete', false, null); } catch(e) {}
+
+      // 3. Cola o nome via clipboard event
+      var clipData = new DataTransfer();
+      clipData.setData('text/plain', name);
+      var pasteEvent = new ClipboardEvent('paste', {
+        bubbles: true, cancelable: true, clipboardData: clipData
+      });
+      searchBox.dispatchEvent(pasteEvent);
+
+      // 4. Aguarda o resultado aparecer e clica no primeiro item
+      var attempts = 0;
+      var check = setInterval(function() {
+        attempts++;
+        var firstItem = document.querySelector('#pane-side div[role="listitem"]')
+                     || document.querySelector('[aria-label="Lista de conversas"] div[role="listitem"]')
+                     || document.querySelector('[data-testid="cell-frame-container"]');
+        // Tambem checa se o nome no listitem bate com o alvo
+        if (firstItem) {
+          var titleEl = firstItem.querySelector('span[dir="auto"][title]') || firstItem.querySelector('span[dir="auto"]');
+          var itemName = titleEl ? (titleEl.getAttribute("title") || titleEl.textContent || "") : "";
+          // clica no primeiro resultado
+          var clickTarget = firstItem.querySelector('div[role="row"]') || firstItem;
+          clickTarget.click();
+          // Aguarda o header do chat carregar
+          setTimeout(function() {
+            clearInterval(check);
+            // Limpa a pesquisa para nao ficar com filtro
+            try {
+              var back = document.querySelector('button[aria-label="Cancelar busca"]')
+                      || document.querySelector('button[aria-label="Voltar"]');
+              if (back) back.click();
+            } catch(e) {}
+            resolve(itemName || name);
+          }, 700);
+          return;
+        }
+        if (attempts > 15) {
+          clearInterval(check);
+          reject(new Error("Contato nao encontrado na busca: " + name));
+        }
+      }, 300);
     });
   }
 
