@@ -55,7 +55,6 @@ function applyConversationFilters() {
   var runCustom = function(idx) {
     var tab = _getAbaTabEntry(selectedAbaId);
     if (!tab) { runLegacyCleanup(idx); return; }
-    // Garante que a lista legacy esta em estado neutro antes de overlay
     var container = findChatListContainer();
     if (container) {
       container.classList.remove('wcrm-filter-active');
@@ -68,7 +67,8 @@ function applyConversationFilters() {
     _startCustomListPolling();
   };
   if (window.ezapBuildChatIndex) {
-    window.ezapBuildChatIndex().then(function(idx) {
+    // Force fresh data (bypass cache) quando ativando/trocando ABA
+    window.ezapBuildChatIndex(hasAbasFilter ? { force: true } : null).then(function(idx) {
       if (hasAbasFilter) runCustom(idx); else runLegacyCleanup(idx);
     });
   } else {
@@ -400,8 +400,10 @@ function _buildNativePreviewMap() {
       var previewParts = [];
       for (var li = 0; li < lines.length; li++) {
         var line = lines[li];
-        // Pula se e o titulo (ou parte dele)
-        if (line === title || title.indexOf(line) === 0 || line.indexOf(title) === 0) continue;
+        // Pula se e EXATAMENTE o titulo (nao se titulo e parte de frase maior)
+        if (line === title) continue;
+        // Pula se e substring inicial do titulo truncado (ex: "Lucas Siqueira..." vs titulo completo)
+        if (title.indexOf(line) === 0 && line.length > 5) continue;
         // Pula timestamps isolados
         if (/^\d{1,2}:\d{2}$/.test(line)) continue;
         if (/^(ontem|hoje)$/i.test(line)) continue;
@@ -625,6 +627,16 @@ function _updateCustomRow(row, data) {
   var prevTs = Number(row.getAttribute('data-ezap-lastts') || 0);
   var prevUnread = Number(row.getAttribute('data-ezap-unread') || 0);
 
+  // Nome (pode mudar se grupo renomeado ou contato mudou pushname)
+  if (data.displayName) {
+    var nameEl = row.querySelector('.wcrm-custom-name');
+    if (nameEl && nameEl.textContent !== data.displayName) {
+      nameEl.textContent = data.displayName;
+      nameEl.setAttribute('title', data.displayName);
+      changed = true;
+    }
+  }
+
   // Timestamp
   var timeEl = row.querySelector('.wcrm-custom-time');
   if (timeEl) {
@@ -814,7 +826,8 @@ function _pollCustomListUpdates() {
         unread: meta.unread || 0,
         lastMsgText: msgText,
         lastMsgFromMe: !!meta.lastMsgFromMe,
-        abaName: row.getAttribute('data-ezap-abaname') || ''
+        abaName: row.getAttribute('data-ezap-abaname') || '',
+        displayName: meta.name || ''
       };
       var changed = _updateCustomRow(row, data);
       if (changed) anyReordered = true;

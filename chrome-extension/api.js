@@ -685,8 +685,8 @@
 
   // Constroi lookup { jid -> {jid, name, isGroup} } e { normalizedName -> jid }
   // para filtros/pin que precisam casar rows do DOM com JIDs em lote.
-  function ezapBuildChatIndex() {
-    return ezapGetAllChats().then(function(chats) {
+  function ezapBuildChatIndex(opts) {
+    return ezapGetAllChats(opts).then(function(chats) {
       if (!chats) return null;
       var byJid = {};
       var byName = {};
