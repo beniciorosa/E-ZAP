@@ -495,8 +495,8 @@
     }
 
     // String comparison
-    var sField = String(fieldValue || "").toLowerCase();
-    var sTarget = String(targetValue || "").toLowerCase();
+    var sField = String(fieldValue || "").toLowerCase().trim();
+    var sTarget = String(targetValue || "").toLowerCase().trim();
     if (op === "eq") return sField === sTarget;
     if (op === "neq") return sField !== sTarget;
     if (op === "contains") return sField.indexOf(sTarget) >= 0;

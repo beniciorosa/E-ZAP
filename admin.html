@@ -3527,6 +3527,7 @@ function renderFlowsList() {
 
 function createNewFlow() {
   var body = {
+    user_id: currentAdmin && currentAdmin.user_id,
     name: "Novo fluxo",
     description: "",
     status: "draft",
@@ -3551,6 +3552,7 @@ function duplicateFlow(flowId) {
   var f = allFlows.find(function(x) { return x.id === flowId; });
   if (!f) return;
   var body = {
+    user_id: currentAdmin && currentAdmin.user_id,
     name: (f.name || "Fluxo") + " (copia)",
     description: f.description || "",
     status: "draft",
