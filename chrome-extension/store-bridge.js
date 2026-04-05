@@ -127,6 +127,62 @@
   installEarlyInterceptor('webpackChunkwhatsapp_web_client');
   installEarlyInterceptor('webpackChunkbuild');
 
+  // ===== PARASITE PUSH POLLING =====
+  // Quando outra extensao (ex: WPPConnect/concorrente) rouba nosso descriptor
+  // antes do WA assignar, nosso setter nao dispara. Plano B: periodicamente
+  // pegar a chunk atual (whoever holds the real value), detectar se webpack
+  // ja substituiu .push por jsonpCallback, e entao empurrar uma entrada
+  // parasita que webpack vai processar imediatamente chamando nosso runtime
+  // com __webpack_require__ (tecnica moduleRaid/wppconnect).
+  var _parasitePoll = null;
+  var _parasitePushed = {};  // por key, evita spam
+  function tryParasitePush() {
+    if (window._ezapWebpackRequire) return true;
+    var keys = Object.keys(window).filter(function(k){return k.indexOf('webpackChunk')===0;});
+    // Fallback: testar nomes conhecidos mesmo se nao aparecem em Object.keys
+    ['webpackChunkwhatsapp_web_client','webpackChunkbuild','webpackChunk_N_E_'].forEach(function(n){
+      if (keys.indexOf(n) < 0) {
+        try { if (window[n]) keys.push(n); } catch(e) {}
+      }
+    });
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var chunk;
+      try { chunk = window[k]; } catch(e) { continue; }
+      if (!chunk || typeof chunk.push !== 'function') continue;
+      var isNative = String(chunk.push).indexOf('[native code]') >= 0;
+      if (isNative) continue; // webpack ainda nao instalou jsonpCallback
+      if (_parasitePushed[k]) continue; // ja empurramos parasita nesse chunk
+      try {
+        var marker = '_ezap_' + Math.random().toString(36).slice(2);
+        var keyRef = k;
+        chunk.push([
+          [marker],
+          {},
+          function(req) {
+            if (!window._ezapWebpackRequire) {
+              window._ezapWebpackRequire = req;
+              _capturedVia = 'parasite-poll:' + keyRef;
+              _lastWebpackKey = keyRef;
+              console.log('[EZAP-STORE] Captured __webpack_require__ via parasite poll on', keyRef);
+              try { onWebpackRequireReady(req); } catch(e) { console.log('[EZAP-STORE] onReady err:', e && e.message); }
+            }
+          }
+        ]);
+        _parasitePushed[k] = true;
+        console.log('[EZAP-STORE] Parasite pushed to', k, '(len=', chunk.length, ')');
+      } catch(e) {
+        console.log('[EZAP-STORE] parasite push failed on', k, ':', e && e.message);
+      }
+    }
+    return !!window._ezapWebpackRequire;
+  }
+  _parasitePoll = setInterval(function() {
+    if (window._ezapWebpackRequire) { clearInterval(_parasitePoll); return; }
+    tryParasitePush();
+  }, 200);
+  setTimeout(function() { if (_parasitePoll) clearInterval(_parasitePoll); }, 180000);
+
   // Scan dinamico: WA pode mudar o nome da key (ex: webpackChunkwhatsapp_web_client,
   // webpackChunkbuild, webpackChunk_N_E_, etc). Procura qualquer chave webpackChunk*
   // que tenha .push e entries com formato [ids, modules, runtime?].
@@ -286,12 +342,30 @@
   // Debug helper exposto no console: window._ezapDebugStore()
   window._ezapDebugStore = function() {
     var allKeys = Object.keys(window).filter(function(k){return k.indexOf('webpackChunk')===0;});
+    // Inclui nomes conhecidos mesmo se nao enumerable
+    ['webpackChunkwhatsapp_web_client','webpackChunkbuild','webpackChunk_N_E_'].forEach(function(n){
+      if (allKeys.indexOf(n) < 0) { try { if (window[n]) allKeys.push(n); } catch(e){} }
+    });
+    var perKey = {};
+    allKeys.forEach(function(k){
+      try {
+        var v = window[k];
+        perKey[k] = {
+          present: v !== undefined && v !== null,
+          isArray: Array.isArray(v),
+          len: v && typeof v.length === 'number' ? v.length : null,
+          pushNative: v && v.push ? String(v.push).indexOf('[native code]')>=0 : null,
+          parasitePushed: !!_parasitePushed[k]
+        };
+      } catch(e) { perKey[k] = 'err:'+e.message; }
+    });
     var chunk = findWebpackChunk();
     return {
       ready: window._ezapStoreReady,
       tries: _initTries,
       lastWebpackKey: _lastWebpackKey,
       allWebpackKeys: allKeys,
+      perKey: perKey,
       chunkPresent: !!chunk,
       chunkLength: chunk ? chunk.length : null,
       chunksWithRuntime: chunk ? scanExistingChunks(chunk).withRuntime : null,
@@ -311,5 +385,5 @@
     };
   };
 
-  console.log('[EZAP-STORE] Bridge started (v5 early interceptor). Call window._ezapDebugStore() for state.');
+  console.log('[EZAP-STORE] Bridge started (v6 early interceptor + parasite poll). Call window._ezapDebugStore() for state.');
 })();
