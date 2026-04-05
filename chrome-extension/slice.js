@@ -592,7 +592,7 @@ function _wcrmFormatTime(ts) {
 
 function _formatPreview(data) {
   var txt = data.lastMsgText || '';
-  if (!txt) return data.abaName ? ('em ' + data.abaName) : '';
+  if (!txt) return '';
   return (data.lastMsgFromMe ? 'Voce: ' : '') + txt;
 }
 
