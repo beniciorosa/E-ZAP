@@ -255,8 +255,23 @@ function savePinnedContacts(data) {
 
 function togglePinContact(chatName) {
   var pinned = window._wcrmPinned || {};
-  if (pinned[chatName]) {
-    delete pinned[chatName];
+  // Procura match tolerante entre os pins existentes. Assim, se o usuario
+  // salvou "Augusto" e agora clica no chat "Augusto Stoeterau | Thiago",
+  // o toggle identifica o pin existente e desfixa em vez de duplicar.
+  var existingKey = null;
+  if (window.ezapMatchContact) {
+    var keys = Object.keys(pinned);
+    for (var i = 0; i < keys.length; i++) {
+      if (window.ezapMatchContact(keys[i], chatName)) {
+        existingKey = keys[i];
+        break;
+      }
+    }
+  } else if (pinned[chatName]) {
+    existingKey = chatName;
+  }
+  if (existingKey) {
+    delete pinned[existingKey];
   } else {
     pinned[chatName] = true;
   }
@@ -333,17 +348,64 @@ function applyPinnedOrder() {
       el.classList.remove('wcrm-hidden');
     });
   }
+  // Tolerant match: "Augusto" salvo casa com "Augusto Stoeterau | Thiago Rocha".
   for (var i = 0; i < container.children.length; i++) {
     var row = container.children[i];
     var nameSpan = row.querySelector('span[title]');
     if (!nameSpan) continue;
     var title = nameSpan.getAttribute('title') || '';
-    if (pinned[title]) {
+    var match = pinnedNames.some(function(pn) {
+      return window.ezapMatchContact(pn, title);
+    });
+    if (match) {
       addPinIndicator(nameSpan);
     } else {
       removePinIndicator(nameSpan);
     }
   }
+
+  // Mantem indicadores em sincronia quando o WA recicla linhas no scroll.
+  ensurePinObserver();
+}
+
+// Observer que re-aplica applyPinnedOrder quando o WA muda a lista de chats.
+// Debounced pra nao rodar em excesso. So ativa em modo pin-only (sem filtro).
+var _pinObserver = null;
+var _pinDebounce = null;
+function ensurePinObserver() {
+  var pane = document.getElementById('pane-side');
+  if (!pane) return;
+  if (_pinObserver) return; // ja ativo
+  _pinObserver = new MutationObserver(function(mutations) {
+    // So reaplica se houve mudanca estrutural (linhas adicionadas/removidas)
+    var structural = mutations.some(function(m) {
+      return m.addedNodes.length > 0 || m.removedNodes.length > 0;
+    });
+    if (!structural) return;
+    if (_pinDebounce) clearTimeout(_pinDebounce);
+    _pinDebounce = setTimeout(function() {
+      // Se filtros estao ativos, applyConversationFilters cuida do pin.
+      var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
+                      (typeof selectedMentor !== 'undefined' && !!selectedMentor);
+      if (hasFilter) return;
+      var pinnedNames = Object.keys(window._wcrmPinned || {});
+      if (pinnedNames.length === 0) return;
+      var container = findChatListContainer();
+      if (!container) return;
+      for (var i = 0; i < container.children.length; i++) {
+        var row = container.children[i];
+        var nameSpan = row.querySelector('span[title]');
+        if (!nameSpan) continue;
+        var title = nameSpan.getAttribute('title') || '';
+        var match = pinnedNames.some(function(pn) {
+          return window.ezapMatchContact(pn, title);
+        });
+        if (match) addPinIndicator(nameSpan);
+        else removePinIndicator(nameSpan);
+      }
+    }, 300);
+  });
+  _pinObserver.observe(pane, { childList: true, subtree: true });
 }
 
 // ===== Floating Button =====
@@ -597,7 +659,7 @@ function toggleContactInAba(abaId, chatName) {
     if (!tab.contacts) tab.contacts = [];
 
     var idx = tab.contacts.findIndex(function(c) {
-      return c.toLowerCase().trim() === chatName.toLowerCase().trim();
+      return window.ezapMatchContact && window.ezapMatchContact(c, chatName);
     });
 
     if (idx >= 0) {
@@ -1068,11 +1130,10 @@ function updateSidebarButtonStates() {
 function isContactInAnyAba(chatName) {
   if (!chatName) return false;
   var data = window._wcrmAbasCache || { tabs: [] };
-  var nameLower = chatName.toLowerCase().trim();
   for (var i = 0; i < data.tabs.length; i++) {
     var contacts = data.tabs[i].contacts || [];
     for (var j = 0; j < contacts.length; j++) {
-      if (contacts[j].toLowerCase().trim() === nameLower) return true;
+      if (window.ezapMatchContact && window.ezapMatchContact(contacts[j], chatName)) return true;
     }
   }
   return false;
@@ -1089,7 +1150,9 @@ function updatePinButtonState(btn, chatName, theme, iconSz) {
   var t = theme || getTheme();
   var sz = iconSz || 20;
   var pinned = window._wcrmPinned || {};
-  var isPinned = !!pinned[chatName];
+  var isPinned = !!chatName && Object.keys(pinned).some(function(pn) {
+    return window.ezapMatchContact && window.ezapMatchContact(pn, chatName);
+  });
 
   if (isPinned) {
     btn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="#25d366"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>';
@@ -1163,7 +1226,7 @@ function _showHeaderAbasDropdownInner(anchorBtn, chatName, data) {
   }
   data.tabs.forEach(function(tab) {
     var isIn = (tab.contacts || []).some(function(c) {
-      return c.toLowerCase().trim() === chatName.toLowerCase().trim();
+      return window.ezapMatchContact && window.ezapMatchContact(c, chatName);
     });
     var icon = isIn ? '&#10003;' : '&plus;';
     var iconColor = isIn ? tab.color : t.textSecondary;

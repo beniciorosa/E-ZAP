@@ -72,9 +72,37 @@
     });
   }
 
+  // ===== Match de nome de contato (tolerante a pipe) =====
+  // Muitos contatos no WA aparecem como "Nome | Mentor" no title,
+  // mas podem ter sido salvos (em abas/pin) sem o sufixo. Este helper
+  // compara os dois de forma tolerante: antes do pipe, depois do pipe
+  // e a string inteira, tudo lowercase + trim.
+  function ezapNormalizeName(s) {
+    return (s || "").toLowerCase().trim();
+  }
+  function ezapNameBeforePipe(s) {
+    return ezapNormalizeName((s || "").split(/\s*\|\s*/)[0]);
+  }
+  function ezapMatchContact(stored, chatTitle) {
+    if (!stored || !chatTitle) return false;
+    var s = ezapNormalizeName(stored);
+    var t = ezapNormalizeName(chatTitle);
+    if (s === t) return true;
+    var sHead = ezapNameBeforePipe(stored);
+    var tHead = ezapNameBeforePipe(chatTitle);
+    if (sHead && tHead && sHead === tHead) return true;
+    // Fallback: um contem o outro (ex: "Dhiego" salvo, title "Dhiego Rosa | ...")
+    if (sHead && t.indexOf(sHead) === 0) return true;
+    if (tHead && s.indexOf(tHead) === 0) return true;
+    return false;
+  }
+
   // Expoe no window para os demais scripts usarem
   window.ezapIsExtValid = ezapIsExtValid;
   window.ezapUserId = ezapUserId;
   window.ezapSendBg = ezapSendBg;
   window.ezapSupaRest = ezapSupaRest;
+  window.ezapMatchContact = ezapMatchContact;
+  window.ezapNormalizeName = ezapNormalizeName;
+  window.ezapNameBeforePipe = ezapNameBeforePipe;
 })();

@@ -324,9 +324,8 @@ function applyConversationFilters() {
     if (show && hasAbasFilter) {
       var abasContacts = getAbaContacts(selectedAbaId);
       if (abasContacts) {
-        var titleLower = title.toLowerCase().trim();
         var found = abasContacts.some(function(c) {
-          return c.toLowerCase().trim() === titleLower;
+          return window.ezapMatchContact(c, title);
         });
         if (!found) show = false;
       } else {
@@ -336,8 +335,11 @@ function applyConversationFilters() {
 
     if (show) {
       row.classList.remove('wcrm-hidden');
-      // Separate pinned and unpinned for reordering
-      if (pinned[title]) {
+      // Separate pinned and unpinned for reordering (tolerant match)
+      var isPinnedRow = Object.keys(pinned).some(function(pn) {
+        return window.ezapMatchContact(pn, title);
+      });
+      if (isPinnedRow) {
         pinnedRows.push(row);
         if (typeof addPinIndicator === 'function') addPinIndicator(nameSpan);
       } else {

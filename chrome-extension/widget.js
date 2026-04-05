@@ -199,7 +199,12 @@ function buildWidgetButton(key, btnSize, iconSize, s) {
   var chatName = typeof currentName !== "undefined" ? currentName : null;
 
   if (key === "pin") {
-    var isPinned = !!(chatName && (window._wcrmPinned || {})[chatName]);
+    // Tolerant match: considera pin casado se qualquer nome salvo bate
+    // com o chatName atual (com ou sem "| Mentor" no titulo).
+    var _pinnedMap = window._wcrmPinned || {};
+    var isPinned = !!chatName && Object.keys(_pinnedMap).some(function(pn) {
+      return window.ezapMatchContact && window.ezapMatchContact(pn, chatName);
+    });
     btn.innerHTML = isPinned
       ? svgPinFilled(s.accent, iconSize)
       : svgPinOutline(s.icon, iconSize);
