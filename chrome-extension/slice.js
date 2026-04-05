@@ -372,6 +372,10 @@ function _buildNativePicMap() {
 // Scan da lista nativa para extrair preview de ultima mensagem.
 // Usado como fallback quando fiber store nao tem lastMsgText.
 // Retorna { nome -> preview }
+//
+// Estrategia: WA renderiza cada row como 2 linhas (name+timestamp, preview+badge).
+// Encontramos o titulo via span[title], depois pegamos o SEGUNDO nivel do row
+// (linha 2) que contem a preview. Removemos contagem de badge + simbolos WA.
 function _buildNativePreviewMap() {
   var map = {};
   try {
@@ -380,30 +384,33 @@ function _buildNativePreviewMap() {
     var rows = pane.querySelectorAll('[role="row"], [role="listitem"]');
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].closest && rows[i].closest('#wcrm-custom-list')) continue;
-      var span = rows[i].querySelector('span[title]');
-      if (!span) continue;
-      var title = span.getAttribute('title') || '';
+      var titleSpan = rows[i].querySelector('span[title]');
+      if (!titleSpan) continue;
+      var title = titleSpan.getAttribute('title') || '';
       if (!title) continue;
-      // Preview esta em outro span[dir="ltr"] ou similar abaixo do titulo.
-      // Pega o texto do row excluindo o titulo e timestamps numericos.
-      var allSpans = rows[i].querySelectorAll('span');
-      var preview = '';
-      for (var s = 0; s < allSpans.length; s++) {
-        var sp = allSpans[s];
-        if (sp === span) continue;
-        if (sp.contains(span) || span.contains(sp)) continue;
-        var txt = (sp.textContent || '').trim();
-        if (!txt || txt.length < 2) continue;
-        // Ignora timestamps (ex: 19:22, ontem, seg, ter, 28/03)
-        if (/^\d{1,2}:\d{2}$/.test(txt)) continue;
-        if (/^(ontem|hoje|dom|seg|ter|qua|qui|sex|sab)$/i.test(txt)) continue;
-        if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(txt)) continue;
-        // Ignora contagem de badge (apenas numeros curtos)
-        if (/^\d{1,3}\+?$/.test(txt) && txt.length <= 4) continue;
-        // Acha o mais longo (mais provavel ser preview)
-        if (txt.length > preview.length) preview = txt;
+
+      // Pega o textContent do row inteiro, remove o title + timestamp
+      var fullText = (rows[i].textContent || '').trim();
+      if (!fullText) continue;
+
+      var preview = fullText;
+      // Remove o titulo
+      preview = preview.split(title).join('').trim();
+      // Remove timestamps comuns (19:22, 28/03/26, 28/03, ontem, ter, qua)
+      preview = preview.replace(/\b\d{1,2}:\d{2}\b/g, '');
+      preview = preview.replace(/\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/g, '');
+      preview = preview.replace(/\b(ontem|hoje)\b/gi, '');
+      preview = preview.replace(/\b(dom|seg|ter|qua|qui|sex|sab)\b/gi, '');
+      // Remove badge de unread (numeros ate 3 digitos no final, possivel + para 99+)
+      preview = preview.replace(/\s*\d{1,3}\+?\s*$/g, '');
+      // Remove caracteres de controle unicode (bi-di, etc)
+      preview = preview.replace(/[\u200e\u200f\u202a\u202c\u202d\u202e]/g, '');
+      // Compacta espacos
+      preview = preview.replace(/\s+/g, ' ').trim();
+
+      if (preview && preview.length >= 2) {
+        map[title] = preview;
       }
-      if (preview) map[title] = preview;
     }
   } catch (e) {}
   return map;
