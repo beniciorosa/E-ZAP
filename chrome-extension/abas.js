@@ -368,44 +368,72 @@ function applyPinnedOrder() {
   ensurePinObserver();
 }
 
-// Observer que re-aplica applyPinnedOrder quando o WA muda a lista de chats.
-// Debounced pra nao rodar em excesso. So ativa em modo pin-only (sem filtro).
+// Observer que re-aplica pin indicators quando o WA recicla linhas.
+//
+// IMPORTANTE: este observer tem 3 regras pra nao matar o WhatsApp Web:
+//
+// 1. Observa SO o container da lista (childList direto), nao pane-side.
+//    pane-side com subtree:true dispara a cada typing/presence/mensagem,
+//    o que causa loop infinito e trava a UI do WA.
+//
+// 2. Ignora mutacoes que sao apenas nossos proprios .wcrm-pin-icon, senao
+//    adicionar/remover um icone dispara o observer que chama de novo,
+//    causando loop.
+//
+// 3. Debounce alto (600ms) pra evitar rajadas durante scroll rapido.
 var _pinObserver = null;
+var _pinObserverContainer = null;
 var _pinDebounce = null;
-function ensurePinObserver() {
-  var pane = document.getElementById('pane-side');
-  if (!pane) return;
-  if (_pinObserver) return; // ja ativo
-  _pinObserver = new MutationObserver(function(mutations) {
-    // So reaplica se houve mudanca estrutural (linhas adicionadas/removidas)
-    var structural = mutations.some(function(m) {
-      return m.addedNodes.length > 0 || m.removedNodes.length > 0;
+
+function _pinMutationIsOursOnly(mutations) {
+  // true se todas as mutacoes sao so nossos pin-icons sendo add/remove
+  return mutations.every(function(m) {
+    var added = Array.prototype.slice.call(m.addedNodes || []);
+    var removed = Array.prototype.slice.call(m.removedNodes || []);
+    var all = added.concat(removed);
+    if (all.length === 0) return true;
+    return all.every(function(n) {
+      return n && n.nodeType === 1 && n.classList && n.classList.contains('wcrm-pin-icon');
     });
-    if (!structural) return;
-    if (_pinDebounce) clearTimeout(_pinDebounce);
-    _pinDebounce = setTimeout(function() {
-      // Se filtros estao ativos, applyConversationFilters cuida do pin.
-      var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
-                      (typeof selectedMentor !== 'undefined' && !!selectedMentor);
-      if (hasFilter) return;
-      var pinnedNames = Object.keys(window._wcrmPinned || {});
-      if (pinnedNames.length === 0) return;
-      var container = findChatListContainer();
-      if (!container) return;
-      for (var i = 0; i < container.children.length; i++) {
-        var row = container.children[i];
-        var nameSpan = row.querySelector('span[title]');
-        if (!nameSpan) continue;
-        var title = nameSpan.getAttribute('title') || '';
-        var match = pinnedNames.some(function(pn) {
-          return window.ezapMatchContact(pn, title);
-        });
-        if (match) addPinIndicator(nameSpan);
-        else removePinIndicator(nameSpan);
-      }
-    }, 300);
   });
-  _pinObserver.observe(pane, { childList: true, subtree: true });
+}
+
+function _reapplyPinIndicators() {
+  var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
+                  (typeof selectedMentor !== 'undefined' && !!selectedMentor);
+  if (hasFilter) return;
+  var pinnedNames = Object.keys(window._wcrmPinned || {});
+  if (pinnedNames.length === 0) return;
+  var container = findChatListContainer();
+  if (!container) return;
+  var kids = container.children;
+  for (var i = 0; i < kids.length; i++) {
+    var row = kids[i];
+    if (!row || typeof row.querySelector !== 'function') continue;
+    var nameSpan = row.querySelector('span[title]');
+    if (!nameSpan) continue;
+    var title = nameSpan.getAttribute('title') || '';
+    var match = pinnedNames.some(function(pn) {
+      return window.ezapMatchContact && window.ezapMatchContact(pn, title);
+    });
+    if (match) addPinIndicator(nameSpan);
+    else removePinIndicator(nameSpan);
+  }
+}
+
+function ensurePinObserver() {
+  var container = findChatListContainer();
+  if (!container) return;
+  // Se container mudou (WA recriou o DOM), recria o observer
+  if (_pinObserver && _pinObserverContainer === container) return;
+  if (_pinObserver) { try { _pinObserver.disconnect(); } catch (e) {} _pinObserver = null; }
+  _pinObserverContainer = container;
+  _pinObserver = new MutationObserver(function(mutations) {
+    if (_pinMutationIsOursOnly(mutations)) return; // evita loop
+    if (_pinDebounce) clearTimeout(_pinDebounce);
+    _pinDebounce = setTimeout(_reapplyPinIndicators, 600);
+  });
+  _pinObserver.observe(container, { childList: true, subtree: false });
 }
 
 // ===== Floating Button =====

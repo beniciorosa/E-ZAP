@@ -288,6 +288,26 @@ function applyConversationFilters() {
     return;
   }
 
+  // Debug: loga lista de contatos salvos na aba + titulos presentes no DOM
+  if (hasAbasFilter) {
+    var _abasContacts = getAbaContacts(selectedAbaId) || [];
+    var _visibleTitles = [];
+    for (var _vi = 0; _vi < container.children.length; _vi++) {
+      var _r = container.children[_vi];
+      var _ns = _r && _r.querySelector && _r.querySelector('span[title]');
+      if (_ns) _visibleTitles.push(_ns.getAttribute('title') || '');
+    }
+    console.log("[WCRM FILTER] ABAS stored contacts:", _abasContacts);
+    console.log("[WCRM FILTER] Visible chat titles (" + _visibleTitles.length + " rows):", _visibleTitles);
+    // Quais salvos NAO batem com nenhum titulo visivel
+    var _missing = _abasContacts.filter(function(c) {
+      return !_visibleTitles.some(function(t) { return window.ezapMatchContact && window.ezapMatchContact(c, t); });
+    });
+    if (_missing.length > 0) {
+      console.log("[WCRM FILTER] Saved contacts NOT found in visible rows:", _missing, "(role a lista para carregar mais conversas antes de filtrar)");
+    }
+  }
+
   // Enable filter mode: override virtual scroll to normal flow
   container.classList.add('wcrm-filter-active');
 
