@@ -983,6 +983,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
         Botões e Widgets
       </button>
+      <button class="sidebar-nav-item" data-tab="fluxos" onclick="switchTab('fluxos')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 1 0-5 0V5H4c-1.1 0-2 .9-2 2v3.8h1.5a2.7 2.7 0 1 1 0 5.4H2V20c0 1.1.9 2 2 2h3.8v-1.5a2.7 2.7 0 1 1 5.4 0V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 1 0 0-5z"/></svg>
+        Fluxos
+      </button>
       <button class="sidebar-nav-item" data-tab="security" onclick="switchTab('security')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         Segurança
@@ -1206,6 +1210,73 @@
       </div>
     </div>
 
+    <div class="panel" id="panel-fluxos">
+      <!-- List view -->
+      <div id="fluxosListView">
+        <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div class="page-title">Fluxos</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Automacoes visuais disparadas por tempo, eventos ou condicoes</div>
+          </div>
+          <button class="btn-primary" onclick="createNewFlow()" style="padding:10px 18px">+ Novo fluxo</button>
+        </div>
+
+        <div id="fluxosListContainer" style="margin-top:24px">
+          <div style="text-align:center;padding:60px 20px;color:var(--text-secondary)">Carregando fluxos...</div>
+        </div>
+      </div>
+
+      <!-- Editor view -->
+      <div id="fluxosEditorView" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:var(--surface);z-index:1000;flex-direction:column">
+        <!-- Top bar -->
+        <div style="display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface-container)">
+          <button onclick="closeFlowEditor()" style="background:transparent;border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px">&larr; Voltar</button>
+          <input type="text" id="flowNameInput" placeholder="Nome do fluxo" style="flex:1;max-width:380px;background:transparent;border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:14px;font-weight:500">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="flowStatusLabel" style="font-size:12px;color:var(--text-secondary)">Rascunho</span>
+            <label class="switch" style="position:relative;display:inline-block;width:42px;height:22px">
+              <input type="checkbox" id="flowStatusToggle" onchange="toggleFlowStatus()" style="opacity:0;width:0;height:0">
+              <span class="slider" style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#555;border-radius:22px;transition:0.3s"></span>
+            </label>
+          </div>
+          <div style="flex:1"></div>
+          <span id="flowSaveStatus" style="font-size:12px;color:var(--text-secondary);margin-right:8px"></span>
+          <button class="btn-secondary" onclick="testFlow()" style="padding:8px 14px;font-size:13px">Testar</button>
+          <button class="btn-primary" onclick="saveCurrentFlow()" style="padding:8px 18px;font-size:13px">Salvar</button>
+        </div>
+
+        <!-- Workspace -->
+        <div style="flex:1;display:flex;overflow:hidden">
+          <!-- Left sidebar: node palette -->
+          <div style="width:240px;border-right:1px solid var(--border);background:var(--surface-container);overflow-y:auto;padding:16px">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:10px;font-weight:600">Core</div>
+            <div id="paletteCore" style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px"></div>
+
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:10px;font-weight:600">Logica</div>
+            <div id="paletteLogic" style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px"></div>
+
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:10px;font-weight:600">Acoes</div>
+            <div id="paletteActions" style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px"></div>
+
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:10px;font-weight:600">Dados</div>
+            <div id="paletteData" style="display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+
+          <!-- Center: canvas -->
+          <div id="flowCanvasRoot" style="flex:1;position:relative;background:var(--surface)"></div>
+
+          <!-- Right sidebar: node config -->
+          <div id="flowConfigPanel" style="width:320px;border-left:1px solid var(--border);background:var(--surface-container);overflow-y:auto;padding:20px;display:flex;flex-direction:column">
+            <div id="flowConfigContent">
+              <div style="text-align:center;padding:40px 16px;color:var(--text-secondary);font-size:13px">
+                Selecione um node no canvas para configurar
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="panel" id="panel-settings">
       <div class="page-header">
         <div class="page-title">Configurações</div>
@@ -1392,6 +1463,7 @@ function showApp() {
   loadGeiaKnowledge();
   loadButtonConfig();
   loadWidgetConfigAdmin();
+  loadFlows();
 }
 
 // Auto-login
@@ -1425,6 +1497,7 @@ function switchTab(tab) {
   document.querySelectorAll(".panel").forEach(function(p) { p.classList.remove("active"); });
   document.querySelector('.sidebar-nav-item[data-tab="' + tab + '"]').classList.add("active");
   document.getElementById("panel-" + tab).classList.add("active");
+  if (tab === "fluxos") loadFlows();
 }
 
 // ===== USERS =====
@@ -3216,6 +3289,790 @@ function toggleTheme() {
     }, 0);
   }
 })();
+
+// ==========================================
+// ===== FLUXOS (Automation Flow Builder) =====
+// ==========================================
+var FLOW_NODE_TYPES = {
+  start: {
+    label: "Start", icon: "&#9654;", color: "#00fc9b", category: "core",
+    inputs: 0, outputs: 1,
+    defaults: function() { return { triggerType: "manual" }; }
+  },
+  end: {
+    label: "End", icon: "&#9209;", color: "#ff7a59", category: "core",
+    inputs: 1, outputs: 0,
+    defaults: function() { return {}; }
+  },
+  ifelse: {
+    label: "If / Else", icon: "&#8600;&#8599;", color: "#ffb142", category: "logic",
+    inputs: 1, outputs: 2, outputLabels: ["Sim", "Nao"],
+    defaults: function() { return { field: "", op: "eq", value: "" }; }
+  },
+  wait: {
+    label: "Aguardar", icon: "&#9202;", color: "#6eb4ff", category: "logic",
+    inputs: 1, outputs: 1,
+    defaults: function() { return { amount: 1, unit: "hours" }; }
+  },
+  send_message: {
+    label: "Enviar mensagem", icon: "&#128172;", color: "#25d366", category: "actions",
+    inputs: 1, outputs: 1,
+    defaults: function() { return { text: "" }; }
+  },
+  add_label: {
+    label: "Adicionar etiqueta", icon: "&#127991;", color: "#cc5de8", category: "actions",
+    inputs: 1, outputs: 1,
+    defaults: function() { return { labelName: "" }; }
+  },
+  add_to_tab: {
+    label: "Adicionar a aba", icon: "&#128209;", color: "#a0ffc3", category: "actions",
+    inputs: 1, outputs: 1,
+    defaults: function() { return { tabName: "" }; }
+  },
+  hubspot_next_meeting: {
+    label: "Buscar proxima reuniao (HubSpot)", icon: "&#128197;", color: "#ff7a59", category: "data",
+    inputs: 1, outputs: 1,
+    defaults: function() { return { contactPhone: "{{contact.phone}}" }; }
+  }
+};
+
+var FLOW_PALETTE_ORDER = {
+  core: ["start", "end"],
+  logic: ["ifelse", "wait"],
+  actions: ["send_message", "add_label", "add_to_tab"],
+  data: ["hubspot_next_meeting"]
+};
+
+// ===== Flow state =====
+var allFlows = [];
+var currentFlow = null;
+var flowEditorState = {
+  viewport: { x: 0, y: 0, zoom: 1 },
+  selectedNodeId: null,
+  selectedEdgeId: null,
+  dragging: null,
+  connecting: null,
+  panning: null,
+  autoSaveTimer: null
+};
+
+// ===== Load flows list =====
+function loadFlows() {
+  var container = document.getElementById("fluxosListContainer");
+  if (container) container.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text-secondary)">Carregando fluxos...</div>';
+  supa("/rest/v1/flows?select=*&order=updated_at.desc").then(function(flows) {
+    if (!Array.isArray(flows)) flows = [];
+    allFlows = flows;
+    renderFlowsList();
+  }).catch(function() {
+    if (container) container.innerHTML = '<div style="text-align:center;padding:60px 20px;color:#ff6b6b">Erro ao carregar fluxos</div>';
+  });
+}
+
+function renderFlowsList() {
+  var container = document.getElementById("fluxosListContainer");
+  if (!container) return;
+  if (allFlows.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding:60px 20px;text-align:center;color:var(--on-surface-variant)">' +
+      '<div style="font-size:40px;margin-bottom:12px;opacity:0.5">&#129513;</div>' +
+      '<div style="font-size:15px;font-weight:500;color:var(--on-surface);margin-bottom:6px">Nenhum fluxo criado</div>' +
+      '<div style="font-size:13px">Clique em "+ Novo fluxo" para criar sua primeira automacao</div>' +
+    '</div>';
+    return;
+  }
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">';
+  allFlows.forEach(function(f) {
+    var statusColor = f.status === "active" ? "#00fc9b" : (f.status === "paused" ? "#ffb142" : "#7a8da0");
+    var statusLabel = f.status === "active" ? "Ativo" : (f.status === "paused" ? "Pausado" : "Rascunho");
+    var nodeCount = Array.isArray(f.nodes) ? f.nodes.length : 0;
+    var updated = formatDate(f.updated_at);
+    html += '<div onclick="openFlowEditor(\'' + f.id + '\')" style="padding:18px;background:var(--surface-variant);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+        '<div style="font-size:15px;font-weight:600;color:var(--on-surface)">' + esc(f.name || "Sem nome") + '</div>' +
+        '<span style="font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:600;color:' + statusColor + ';padding:3px 8px;border-radius:4px;background:' + statusColor + '22">' + statusLabel + '</span>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--on-surface-variant);margin-bottom:12px;min-height:32px">' + esc(f.description || "Sem descricao") + '</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--on-surface-variant)">' +
+        '<span>' + nodeCount + ' node' + (nodeCount !== 1 ? "s" : "") + ' &middot; ' + (f.run_count || 0) + ' exec</span>' +
+        '<span>' + updated + '</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px" onclick="event.stopPropagation()">' +
+        '<button onclick="duplicateFlow(\'' + f.id + '\')" style="flex:1;padding:6px 10px;font-size:11px;background:transparent;border:1px solid var(--border);color:var(--on-surface-variant);border-radius:6px;cursor:pointer">Duplicar</button>' +
+        '<button onclick="deleteFlow(\'' + f.id + '\', \'' + esc(f.name).replace(/\x27/g, "\\x27") + '\')" style="flex:1;padding:6px 10px;font-size:11px;background:transparent;border:1px solid #ff6b6b44;color:#ff6b6b;border-radius:6px;cursor:pointer">Excluir</button>' +
+      '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function createNewFlow() {
+  var body = {
+    name: "Novo fluxo",
+    description: "",
+    status: "draft",
+    nodes: [{
+      id: "n_start",
+      type: "start",
+      position: { x: 240, y: 200 },
+      data: FLOW_NODE_TYPES.start.defaults()
+    }],
+    edges: [],
+    viewport: { x: 0, y: 0, zoom: 1 }
+  };
+  supa("/rest/v1/flows", { method: "POST", body: body }).then(function(rows) {
+    if (Array.isArray(rows) && rows.length > 0) {
+      allFlows.unshift(rows[0]);
+      openFlowEditor(rows[0].id);
+    }
+  });
+}
+
+function duplicateFlow(flowId) {
+  var f = allFlows.find(function(x) { return x.id === flowId; });
+  if (!f) return;
+  var body = {
+    name: (f.name || "Fluxo") + " (copia)",
+    description: f.description || "",
+    status: "draft",
+    nodes: f.nodes || [],
+    edges: f.edges || [],
+    viewport: f.viewport || { x: 0, y: 0, zoom: 1 }
+  };
+  supa("/rest/v1/flows", { method: "POST", body: body }).then(function(rows) {
+    if (Array.isArray(rows) && rows.length > 0) {
+      allFlows.unshift(rows[0]);
+      renderFlowsList();
+    }
+  });
+}
+
+function deleteFlow(flowId, name) {
+  if (!confirm("Excluir o fluxo \"" + name + "\"? Esta acao nao pode ser desfeita.")) return;
+  supa("/rest/v1/flows?id=eq." + flowId, { method: "DELETE" }).then(function() {
+    allFlows = allFlows.filter(function(x) { return x.id !== flowId; });
+    renderFlowsList();
+  });
+}
+
+// ===== Open / Close editor =====
+function openFlowEditor(flowId) {
+  var f = allFlows.find(function(x) { return x.id === flowId; });
+  if (!f) return;
+  currentFlow = JSON.parse(JSON.stringify(f));
+  if (!Array.isArray(currentFlow.nodes)) currentFlow.nodes = [];
+  if (!Array.isArray(currentFlow.edges)) currentFlow.edges = [];
+  if (!currentFlow.viewport) currentFlow.viewport = { x: 0, y: 0, zoom: 1 };
+  flowEditorState.viewport = currentFlow.viewport;
+  flowEditorState.selectedNodeId = null;
+  flowEditorState.selectedEdgeId = null;
+
+  document.getElementById("fluxosListView").style.display = "none";
+  document.getElementById("fluxosEditorView").style.display = "flex";
+  document.getElementById("flowNameInput").value = currentFlow.name || "";
+  document.getElementById("flowStatusToggle").checked = currentFlow.status === "active";
+  document.getElementById("flowStatusLabel").textContent = currentFlow.status === "active" ? "Ativo" : (currentFlow.status === "paused" ? "Pausado" : "Rascunho");
+  document.getElementById("flowSaveStatus").textContent = "";
+
+  renderFlowPalette();
+  renderFlowCanvas();
+  renderFlowConfigPanel();
+  attachCanvasEvents();
+
+  // Name input auto-save
+  var nameInput = document.getElementById("flowNameInput");
+  nameInput.oninput = function() {
+    currentFlow.name = nameInput.value;
+    scheduleAutoSave();
+  };
+}
+
+function closeFlowEditor() {
+  if (flowEditorState.autoSaveTimer) {
+    clearTimeout(flowEditorState.autoSaveTimer);
+    saveCurrentFlow(true);
+  }
+  document.getElementById("fluxosEditorView").style.display = "none";
+  document.getElementById("fluxosListView").style.display = "block";
+  currentFlow = null;
+  loadFlows();
+}
+
+function toggleFlowStatus() {
+  if (!currentFlow) return;
+  var checked = document.getElementById("flowStatusToggle").checked;
+  currentFlow.status = checked ? "active" : "draft";
+  document.getElementById("flowStatusLabel").textContent = checked ? "Ativo" : "Rascunho";
+  scheduleAutoSave();
+}
+
+// ===== Save / Auto-save =====
+function scheduleAutoSave() {
+  if (flowEditorState.autoSaveTimer) clearTimeout(flowEditorState.autoSaveTimer);
+  var status = document.getElementById("flowSaveStatus");
+  if (status) status.textContent = "Editando...";
+  flowEditorState.autoSaveTimer = setTimeout(function() { saveCurrentFlow(); }, 1200);
+}
+
+function saveCurrentFlow(silent) {
+  if (!currentFlow) return;
+  var status = document.getElementById("flowSaveStatus");
+  if (status && !silent) status.textContent = "Salvando...";
+  currentFlow.viewport = flowEditorState.viewport;
+  var body = {
+    name: currentFlow.name || "Sem nome",
+    description: currentFlow.description || "",
+    status: currentFlow.status || "draft",
+    nodes: currentFlow.nodes,
+    edges: currentFlow.edges,
+    viewport: currentFlow.viewport
+  };
+  supa("/rest/v1/flows?id=eq." + currentFlow.id, { method: "PATCH", body: body }).then(function() {
+    if (status) status.textContent = "Salvo &#10003;";
+    setTimeout(function() { if (status && status.textContent.indexOf("Salvo") >= 0) status.textContent = ""; }, 2000);
+  }).catch(function() {
+    if (status) status.textContent = "Erro ao salvar";
+  });
+}
+
+function testFlow() {
+  alert("Execucao de teste sera implementada na proxima fase.");
+}
+
+// ===== Palette =====
+function renderFlowPalette() {
+  var categories = [
+    { id: "paletteCore", key: "core" },
+    { id: "paletteLogic", key: "logic" },
+    { id: "paletteActions", key: "actions" },
+    { id: "paletteData", key: "data" }
+  ];
+  categories.forEach(function(c) {
+    var el = document.getElementById(c.id);
+    if (!el) return;
+    var keys = FLOW_PALETTE_ORDER[c.key] || [];
+    el.innerHTML = keys.map(function(k) {
+      var t = FLOW_NODE_TYPES[k];
+      return '<div class="palette-item" draggable="true" data-node-type="' + k + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:grab;transition:all 0.15s;font-size:12px;color:var(--on-surface)">' +
+        '<span style="font-size:16px;width:22px;text-align:center;color:' + t.color + '">' + t.icon + '</span>' +
+        '<span style="flex:1">' + t.label + '</span>' +
+      '</div>';
+    }).join("");
+  });
+  // Drag handlers
+  document.querySelectorAll(".palette-item").forEach(function(item) {
+    item.addEventListener("dragstart", function(e) {
+      e.dataTransfer.setData("text/plain", item.getAttribute("data-node-type"));
+      e.dataTransfer.effectAllowed = "copy";
+    });
+    item.addEventListener("mouseover", function() { item.style.borderColor = "var(--primary)"; });
+    item.addEventListener("mouseout", function() { item.style.borderColor = "var(--border)"; });
+  });
+}
+
+// ===== Canvas rendering =====
+function renderFlowCanvas() {
+  var root = document.getElementById("flowCanvasRoot");
+  if (!root) return;
+  // Grid background + content transform wrapper + SVG edges + HTML nodes
+  root.innerHTML =
+    '<div id="flowCanvasGrid" style="position:absolute;inset:0;background-image:radial-gradient(circle, rgba(160,255,195,0.08) 1px, transparent 1px);background-size:20px 20px;pointer-events:none"></div>' +
+    '<div id="flowCanvasContent" style="position:absolute;top:0;left:0;width:100%;height:100%;transform-origin:0 0;pointer-events:none">' +
+      '<svg id="flowEdgesSvg" style="position:absolute;top:-5000px;left:-5000px;width:10000px;height:10000px;pointer-events:none;overflow:visible">' +
+        '<defs>' +
+          '<marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">' +
+            '<path d="M 0 0 L 10 5 L 0 10 z" fill="#7a8da0"/>' +
+          '</marker>' +
+          '<marker id="flow-arrow-sel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">' +
+            '<path d="M 0 0 L 10 5 L 0 10 z" fill="#00fc9b"/>' +
+          '</marker>' +
+        '</defs>' +
+        '<g id="flowEdgesGroup"></g>' +
+        '<path id="flowTempEdge" stroke="#00fc9b" stroke-width="2" stroke-dasharray="5,5" fill="none" style="display:none"></path>' +
+      '</svg>' +
+      '<div id="flowNodesLayer" style="position:absolute;top:0;left:0;pointer-events:none"></div>' +
+    '</div>' +
+    '<div id="flowMiniToolbar" style="position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:6px;background:var(--surface-variant);border:1px solid var(--border);border-radius:8px;padding:6px;z-index:10">' +
+      '<button onclick="flowZoom(1.2)" title="Zoom in" style="width:28px;height:28px;background:transparent;border:none;color:var(--on-surface);cursor:pointer;font-size:16px;border-radius:4px">+</button>' +
+      '<button onclick="flowZoom(0.8)" title="Zoom out" style="width:28px;height:28px;background:transparent;border:none;color:var(--on-surface);cursor:pointer;font-size:16px;border-radius:4px">&minus;</button>' +
+      '<button onclick="flowResetView()" title="Reset view" style="width:28px;height:28px;background:transparent;border:none;color:var(--on-surface);cursor:pointer;font-size:11px;border-radius:4px">1:1</button>' +
+      '<button onclick="flowFitView()" title="Fit view" style="width:28px;height:28px;background:transparent;border:none;color:var(--on-surface);cursor:pointer;font-size:10px;border-radius:4px">Fit</button>' +
+    '</div>' +
+    '<div id="flowZoomLabel" style="position:absolute;bottom:14px;left:14px;padding:6px 10px;font-size:11px;color:var(--on-surface-variant);background:var(--surface-variant);border:1px solid var(--border);border-radius:6px;z-index:10">100%</div>';
+  applyViewport();
+  renderFlowNodes();
+  renderFlowEdges();
+}
+
+function applyViewport() {
+  var content = document.getElementById("flowCanvasContent");
+  var grid = document.getElementById("flowCanvasGrid");
+  var zoomLabel = document.getElementById("flowZoomLabel");
+  if (!content) return;
+  var v = flowEditorState.viewport;
+  content.style.transform = "translate(" + v.x + "px, " + v.y + "px) scale(" + v.zoom + ")";
+  if (grid) {
+    grid.style.backgroundPosition = (v.x % (20 * v.zoom)) + "px " + (v.y % (20 * v.zoom)) + "px";
+    grid.style.backgroundSize = (20 * v.zoom) + "px " + (20 * v.zoom) + "px";
+  }
+  if (zoomLabel) zoomLabel.textContent = Math.round(v.zoom * 100) + "%";
+}
+
+function renderFlowNodes() {
+  var layer = document.getElementById("flowNodesLayer");
+  if (!layer || !currentFlow) return;
+  layer.innerHTML = currentFlow.nodes.map(function(n) {
+    var t = FLOW_NODE_TYPES[n.type];
+    if (!t) return "";
+    var sel = flowEditorState.selectedNodeId === n.id;
+    var border = sel ? "2px solid #00fc9b" : "1px solid var(--border)";
+    var shadow = sel ? "0 0 0 4px rgba(0,252,155,0.15)" : "0 2px 8px rgba(0,0,0,0.3)";
+    var summary = nodeSummary(n);
+    var handlesHtml = "";
+    if (t.inputs > 0) {
+      handlesHtml += '<div class="flow-handle" data-handle="input" data-node-id="' + n.id + '" style="position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:14px;height:14px;background:var(--surface);border:2px solid ' + t.color + ';border-radius:50%;cursor:crosshair;pointer-events:auto;z-index:2"></div>';
+    }
+    if (t.outputs === 1) {
+      handlesHtml += '<div class="flow-handle" data-handle="output" data-node-id="' + n.id + '" data-output-index="0" style="position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);width:14px;height:14px;background:' + t.color + ';border:2px solid var(--surface);border-radius:50%;cursor:crosshair;pointer-events:auto;z-index:2"></div>';
+    } else if (t.outputs === 2) {
+      var lbls = t.outputLabels || ["", ""];
+      handlesHtml +=
+        '<div class="flow-handle" data-handle="output" data-node-id="' + n.id + '" data-output-index="0" style="position:absolute;bottom:-7px;left:28%;transform:translateX(-50%);width:14px;height:14px;background:#00fc9b;border:2px solid var(--surface);border-radius:50%;cursor:crosshair;pointer-events:auto;z-index:2" title="' + lbls[0] + '"></div>' +
+        '<div class="flow-handle" data-handle="output" data-node-id="' + n.id + '" data-output-index="1" style="position:absolute;bottom:-7px;left:72%;transform:translateX(-50%);width:14px;height:14px;background:#ff6b6b;border:2px solid var(--surface);border-radius:50%;cursor:crosshair;pointer-events:auto;z-index:2" title="' + lbls[1] + '"></div>' +
+        '<div style="position:absolute;bottom:-22px;left:28%;transform:translateX(-50%);font-size:9px;color:#00fc9b;font-weight:600">Sim</div>' +
+        '<div style="position:absolute;bottom:-22px;left:72%;transform:translateX(-50%);font-size:9px;color:#ff6b6b;font-weight:600">Nao</div>';
+    }
+    return '<div class="flow-node" data-node-id="' + n.id + '" style="position:absolute;left:' + n.position.x + 'px;top:' + n.position.y + 'px;width:220px;background:var(--surface-variant);border:' + border + ';border-radius:10px;padding:12px 14px;cursor:move;pointer-events:auto;box-shadow:' + shadow + ';user-select:none;transition:box-shadow 0.1s">' +
+      handlesHtml +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:' + (summary ? "6px" : "0") + '">' +
+        '<span style="font-size:15px;color:' + t.color + ';width:20px;text-align:center">' + t.icon + '</span>' +
+        '<span style="flex:1;font-size:12px;font-weight:600;color:var(--on-surface)">' + t.label + '</span>' +
+      '</div>' +
+      (summary ? '<div style="font-size:11px;color:var(--on-surface-variant);line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(summary) + '</div>' : "") +
+    '</div>';
+  }).join("");
+}
+
+function nodeSummary(n) {
+  if (!n || !n.data) return "";
+  switch (n.type) {
+    case "start": return n.data.triggerType === "schedule" ? "A cada " + (n.data.interval || "?") : "Manual";
+    case "ifelse": return (n.data.field || "campo") + " " + (n.data.op || "eq") + " " + (n.data.value || "");
+    case "wait": return "Aguardar " + (n.data.amount || 1) + " " + (n.data.unit || "hours");
+    case "send_message": return (n.data.text || "").substring(0, 50);
+    case "add_label": return n.data.labelName || "";
+    case "add_to_tab": return n.data.tabName || "";
+    case "hubspot_next_meeting": return n.data.contactPhone || "";
+    default: return "";
+  }
+}
+
+function renderFlowEdges() {
+  var group = document.getElementById("flowEdgesGroup");
+  if (!group || !currentFlow) return;
+  group.innerHTML = currentFlow.edges.map(function(e) {
+    var coords = edgeCoords(e);
+    if (!coords) return "";
+    var sel = flowEditorState.selectedEdgeId === e.id;
+    var color = sel ? "#00fc9b" : "#7a8da0";
+    var marker = sel ? "url(#flow-arrow-sel)" : "url(#flow-arrow)";
+    var width = sel ? 3 : 2;
+    var path = bezierPath(coords.x1, coords.y1, coords.x2, coords.y2);
+    return '<path class="flow-edge" data-edge-id="' + e.id + '" d="' + path + '" stroke="' + color + '" stroke-width="' + width + '" fill="none" marker-end="' + marker + '" style="cursor:pointer;pointer-events:stroke" />';
+  }).join("");
+}
+
+function edgeCoords(edge) {
+  var src = currentFlow.nodes.find(function(n) { return n.id === edge.source; });
+  var tgt = currentFlow.nodes.find(function(n) { return n.id === edge.target; });
+  if (!src || !tgt) return null;
+  var srcType = FLOW_NODE_TYPES[src.type];
+  var x1 = src.position.x + 110;
+  if (srcType && srcType.outputs === 2) {
+    x1 = src.position.x + (edge.sourceHandle === 1 ? 220 * 0.72 : 220 * 0.28);
+  }
+  var y1 = src.position.y + 64;
+  var x2 = tgt.position.x + 110;
+  var y2 = tgt.position.y;
+  return { x1: x1 + 5000, y1: y1 + 5000, x2: x2 + 5000, y2: y2 + 5000 };
+}
+
+function bezierPath(x1, y1, x2, y2) {
+  var dy = Math.max(40, Math.abs(y2 - y1) * 0.5);
+  return "M " + x1 + " " + y1 + " C " + x1 + " " + (y1 + dy) + ", " + x2 + " " + (y2 - dy) + ", " + x2 + " " + y2;
+}
+
+// ===== Canvas events (pan, zoom, drag nodes, drop new) =====
+var _canvasEventsAttached = false;
+function attachCanvasEvents() {
+  var root = document.getElementById("flowCanvasRoot");
+  if (!root || _canvasEventsAttached) { _canvasEventsAttached = true; return; }
+  _canvasEventsAttached = true;
+
+  // Drop from palette
+  root.addEventListener("dragover", function(e) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+  root.addEventListener("drop", function(e) {
+    e.preventDefault();
+    var nodeType = e.dataTransfer.getData("text/plain");
+    if (!nodeType || !FLOW_NODE_TYPES[nodeType]) return;
+    var rect = root.getBoundingClientRect();
+    var v = flowEditorState.viewport;
+    var x = (e.clientX - rect.left - v.x) / v.zoom - 110;
+    var y = (e.clientY - rect.top - v.y) / v.zoom - 32;
+    addFlowNode(nodeType, x, y);
+  });
+
+  // Pan canvas (middle mouse or drag empty)
+  root.addEventListener("mousedown", function(e) {
+    var inNode = e.target.closest(".flow-node");
+    var inHandle = e.target.closest(".flow-handle");
+    var inEdge = e.target.closest(".flow-edge");
+    if (inHandle) return; // handled separately
+    if (inNode) {
+      startDragNode(inNode.getAttribute("data-node-id"), e);
+      return;
+    }
+    if (inEdge) {
+      flowEditorState.selectedEdgeId = inEdge.getAttribute("data-edge-id");
+      flowEditorState.selectedNodeId = null;
+      renderFlowEdges();
+      renderFlowNodes();
+      renderFlowConfigPanel();
+      return;
+    }
+    // Click empty space: deselect + start panning
+    flowEditorState.selectedNodeId = null;
+    flowEditorState.selectedEdgeId = null;
+    renderFlowNodes();
+    renderFlowEdges();
+    renderFlowConfigPanel();
+    startPan(e);
+  });
+
+  // Wheel zoom
+  root.addEventListener("wheel", function(e) {
+    e.preventDefault();
+    var rect = root.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    var v = flowEditorState.viewport;
+    var delta = e.deltaY < 0 ? 1.1 : 0.9;
+    var newZoom = Math.max(0.25, Math.min(2, v.zoom * delta));
+    var ratio = newZoom / v.zoom;
+    v.x = mx - (mx - v.x) * ratio;
+    v.y = my - (my - v.y) * ratio;
+    v.zoom = newZoom;
+    applyViewport();
+    scheduleAutoSave();
+  }, { passive: false });
+
+  // Handle connect (output -> input)
+  root.addEventListener("mousedown", function(e) {
+    var h = e.target.closest(".flow-handle");
+    if (!h) return;
+    var handleType = h.getAttribute("data-handle");
+    if (handleType !== "output") return;
+    e.stopPropagation();
+    startConnect(h, e);
+  }, true);
+
+  // Delete selected
+  document.addEventListener("keydown", function(e) {
+    if (!currentFlow) return;
+    if (document.getElementById("fluxosEditorView").style.display === "none") return;
+    var active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+    if (e.key === "Delete" || e.key === "Backspace") {
+      if (flowEditorState.selectedNodeId) {
+        deleteNode(flowEditorState.selectedNodeId);
+      } else if (flowEditorState.selectedEdgeId) {
+        deleteEdge(flowEditorState.selectedEdgeId);
+      }
+    }
+  });
+}
+
+function startPan(e) {
+  var startX = e.clientX;
+  var startY = e.clientY;
+  var v0 = { x: flowEditorState.viewport.x, y: flowEditorState.viewport.y };
+  var root = document.getElementById("flowCanvasRoot");
+  root.style.cursor = "grabbing";
+  function onMove(ev) {
+    flowEditorState.viewport.x = v0.x + (ev.clientX - startX);
+    flowEditorState.viewport.y = v0.y + (ev.clientY - startY);
+    applyViewport();
+  }
+  function onUp() {
+    root.style.cursor = "";
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    scheduleAutoSave();
+  }
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+
+function startDragNode(nodeId, e) {
+  var n = currentFlow.nodes.find(function(x) { return x.id === nodeId; });
+  if (!n) return;
+  flowEditorState.selectedNodeId = nodeId;
+  flowEditorState.selectedEdgeId = null;
+  renderFlowNodes();
+  renderFlowEdges();
+  renderFlowConfigPanel();
+  var startX = e.clientX;
+  var startY = e.clientY;
+  var pos0 = { x: n.position.x, y: n.position.y };
+  var zoom = flowEditorState.viewport.zoom;
+  var moved = false;
+  function onMove(ev) {
+    var dx = (ev.clientX - startX) / zoom;
+    var dy = (ev.clientY - startY) / zoom;
+    if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+    n.position.x = pos0.x + dx;
+    n.position.y = pos0.y + dy;
+    // Update node position and edges
+    var el = document.querySelector('.flow-node[data-node-id="' + nodeId + '"]');
+    if (el) { el.style.left = n.position.x + "px"; el.style.top = n.position.y + "px"; }
+    renderFlowEdges();
+  }
+  function onUp() {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    if (moved) scheduleAutoSave();
+  }
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+
+function startConnect(handleEl, e) {
+  var root = document.getElementById("flowCanvasRoot");
+  var sourceId = handleEl.getAttribute("data-node-id");
+  var sourceHandle = parseInt(handleEl.getAttribute("data-output-index") || "0", 10);
+  var tempEdge = document.getElementById("flowTempEdge");
+  tempEdge.style.display = "";
+  var rect = root.getBoundingClientRect();
+  var v = flowEditorState.viewport;
+  var src = currentFlow.nodes.find(function(x) { return x.id === sourceId; });
+  var srcType = FLOW_NODE_TYPES[src.type];
+  var x1 = src.position.x + 110;
+  if (srcType.outputs === 2) x1 = src.position.x + (sourceHandle === 1 ? 220 * 0.72 : 220 * 0.28);
+  var y1 = src.position.y + 64;
+  x1 += 5000; y1 += 5000;
+  function onMove(ev) {
+    var x2 = (ev.clientX - rect.left - v.x) / v.zoom + 5000;
+    var y2 = (ev.clientY - rect.top - v.y) / v.zoom + 5000;
+    tempEdge.setAttribute("d", bezierPath(x1, y1, x2, y2));
+  }
+  function onUp(ev) {
+    tempEdge.style.display = "none";
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    // Drop on input handle?
+    var target = document.elementFromPoint(ev.clientX, ev.clientY);
+    if (target) {
+      var h = target.closest('.flow-handle[data-handle="input"]');
+      if (h) {
+        var targetId = h.getAttribute("data-node-id");
+        if (targetId && targetId !== sourceId) {
+          addEdge(sourceId, targetId, sourceHandle);
+        }
+      }
+    }
+  }
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+
+// ===== Node/edge mutations =====
+function addFlowNode(nodeType, x, y) {
+  var t = FLOW_NODE_TYPES[nodeType];
+  if (!t) return;
+  var id = "n_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+  currentFlow.nodes.push({
+    id: id,
+    type: nodeType,
+    position: { x: Math.round(x), y: Math.round(y) },
+    data: t.defaults()
+  });
+  flowEditorState.selectedNodeId = id;
+  renderFlowNodes();
+  renderFlowConfigPanel();
+  scheduleAutoSave();
+}
+
+function addEdge(sourceId, targetId, sourceHandle) {
+  // Remove existing edge from same source+handle (one output per handle)
+  currentFlow.edges = currentFlow.edges.filter(function(e) {
+    return !(e.source === sourceId && (e.sourceHandle || 0) === (sourceHandle || 0));
+  });
+  currentFlow.edges.push({
+    id: "e_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+    source: sourceId,
+    target: targetId,
+    sourceHandle: sourceHandle || 0
+  });
+  renderFlowEdges();
+  scheduleAutoSave();
+}
+
+function deleteNode(nodeId) {
+  currentFlow.nodes = currentFlow.nodes.filter(function(n) { return n.id !== nodeId; });
+  currentFlow.edges = currentFlow.edges.filter(function(e) { return e.source !== nodeId && e.target !== nodeId; });
+  flowEditorState.selectedNodeId = null;
+  renderFlowNodes();
+  renderFlowEdges();
+  renderFlowConfigPanel();
+  scheduleAutoSave();
+}
+
+function deleteEdge(edgeId) {
+  currentFlow.edges = currentFlow.edges.filter(function(e) { return e.id !== edgeId; });
+  flowEditorState.selectedEdgeId = null;
+  renderFlowEdges();
+  scheduleAutoSave();
+}
+
+// ===== Zoom controls =====
+function flowZoom(factor) {
+  var root = document.getElementById("flowCanvasRoot");
+  var rect = root.getBoundingClientRect();
+  var mx = rect.width / 2;
+  var my = rect.height / 2;
+  var v = flowEditorState.viewport;
+  var newZoom = Math.max(0.25, Math.min(2, v.zoom * factor));
+  var ratio = newZoom / v.zoom;
+  v.x = mx - (mx - v.x) * ratio;
+  v.y = my - (my - v.y) * ratio;
+  v.zoom = newZoom;
+  applyViewport();
+  scheduleAutoSave();
+}
+
+function flowResetView() {
+  flowEditorState.viewport = { x: 0, y: 0, zoom: 1 };
+  applyViewport();
+  scheduleAutoSave();
+}
+
+function flowFitView() {
+  if (!currentFlow || currentFlow.nodes.length === 0) return flowResetView();
+  var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  currentFlow.nodes.forEach(function(n) {
+    minX = Math.min(minX, n.position.x);
+    minY = Math.min(minY, n.position.y);
+    maxX = Math.max(maxX, n.position.x + 220);
+    maxY = Math.max(maxY, n.position.y + 80);
+  });
+  var root = document.getElementById("flowCanvasRoot");
+  var rect = root.getBoundingClientRect();
+  var padding = 60;
+  var zoom = Math.min((rect.width - padding * 2) / (maxX - minX), (rect.height - padding * 2) / (maxY - minY), 1.2);
+  flowEditorState.viewport.zoom = Math.max(0.25, zoom);
+  flowEditorState.viewport.x = (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom;
+  flowEditorState.viewport.y = (rect.height - (maxY - minY) * zoom) / 2 - minY * zoom;
+  applyViewport();
+  scheduleAutoSave();
+}
+
+// ===== Config panel =====
+function renderFlowConfigPanel() {
+  var container = document.getElementById("flowConfigContent");
+  if (!container) return;
+  if (!flowEditorState.selectedNodeId) {
+    container.innerHTML = '<div style="text-align:center;padding:40px 16px;color:var(--on-surface-variant);font-size:13px">Selecione um node no canvas para configurar<br><br><span style="font-size:11px">Arraste da paleta &rarr; canvas<br>Delete para remover<br>Scroll para zoom</span></div>';
+    return;
+  }
+  var n = currentFlow.nodes.find(function(x) { return x.id === flowEditorState.selectedNodeId; });
+  if (!n) return;
+  var t = FLOW_NODE_TYPES[n.type];
+  var body = '';
+  body += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">';
+  body += '<span style="font-size:20px;color:' + t.color + '">' + t.icon + '</span>';
+  body += '<div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--on-surface)">' + t.label + '</div><div style="font-size:10px;color:var(--on-surface-variant);font-family:monospace">' + n.id + '</div></div>';
+  body += '<button onclick="deleteNode(\'' + n.id + '\')" style="padding:4px 10px;font-size:10px;background:transparent;border:1px solid #ff6b6b44;color:#ff6b6b;border-radius:4px;cursor:pointer">Excluir</button>';
+  body += '</div>';
+  body += renderNodeConfigForm(n);
+  container.innerHTML = body;
+}
+
+function renderNodeConfigForm(n) {
+  var h = '';
+  var lbl = function(x) { return '<label style="display:block;font-size:11px;color:var(--on-surface-variant);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">' + x + '</label>'; };
+  var inp = 'width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px;margin-bottom:12px';
+  switch (n.type) {
+    case "start":
+      h += lbl("Tipo de gatilho");
+      h += '<select onchange="updateNodeData(\'' + n.id + '\',\'triggerType\',this.value)" style="' + inp + '">' +
+        '<option value="manual"' + (n.data.triggerType === "manual" ? " selected" : "") + '>Manual</option>' +
+        '<option value="schedule"' + (n.data.triggerType === "schedule" ? " selected" : "") + '>Agendado (intervalo)</option>' +
+        '<option value="event"' + (n.data.triggerType === "event" ? " selected" : "") + '>Evento</option>' +
+      '</select>';
+      if (n.data.triggerType === "schedule") {
+        h += lbl("Intervalo (ex: 1h, 30m, 1d)");
+        h += '<input type="text" value="' + esc(n.data.interval || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'interval\',this.value)" style="' + inp + '">';
+      }
+      break;
+    case "end":
+      h += '<div style="font-size:12px;color:var(--on-surface-variant)">Finaliza a execucao do fluxo.</div>';
+      break;
+    case "ifelse":
+      h += lbl("Campo / variavel");
+      h += '<input type="text" placeholder="{{contact.days_since_meeting}}" value="' + esc(n.data.field || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'field\',this.value)" style="' + inp + '">';
+      h += lbl("Operador");
+      h += '<select onchange="updateNodeData(\'' + n.id + '\',\'op\',this.value)" style="' + inp + '">' +
+        ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains'].map(function(op) {
+          return '<option value="' + op + '"' + (n.data.op === op ? " selected" : "") + '>' + op + '</option>';
+        }).join('') +
+      '</select>';
+      h += lbl("Valor");
+      h += '<input type="text" value="' + esc(n.data.value || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'value\',this.value)" style="' + inp + '">';
+      break;
+    case "wait":
+      h += lbl("Duracao");
+      h += '<div style="display:flex;gap:8px;margin-bottom:12px">';
+      h += '<input type="number" min="1" value="' + (n.data.amount || 1) + '" oninput="updateNodeData(\'' + n.id + '\',\'amount\',parseInt(this.value)||1)" style="flex:1;padding:8px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px">';
+      h += '<select onchange="updateNodeData(\'' + n.id + '\',\'unit\',this.value)" style="flex:1;padding:8px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px">' +
+        ['minutes', 'hours', 'days'].map(function(u) {
+          return '<option value="' + u + '"' + (n.data.unit === u ? " selected" : "") + '>' + u + '</option>';
+        }).join('') +
+      '</select>';
+      h += '</div>';
+      break;
+    case "send_message":
+      h += lbl("Texto da mensagem");
+      h += '<textarea rows="6" oninput="updateNodeData(\'' + n.id + '\',\'text\',this.value)" placeholder="Ola {{contact.name}}, lembrete..." style="' + inp + ';font-family:inherit;resize:vertical">' + esc(n.data.text || "") + '</textarea>';
+      h += '<div style="font-size:10px;color:var(--on-surface-variant);margin-top:-8px;margin-bottom:12px">Variaveis: {{contact.name}}, {{contact.phone}}, {{meeting.date}}</div>';
+      break;
+    case "add_label":
+      h += lbl("Nome da etiqueta");
+      h += '<input type="text" placeholder="MARCAR REUNIAO" value="' + esc(n.data.labelName || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'labelName\',this.value)" style="' + inp + '">';
+      break;
+    case "add_to_tab":
+      h += lbl("Nome da aba");
+      h += '<input type="text" placeholder="Leads Frios" value="' + esc(n.data.tabName || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'tabName\',this.value)" style="' + inp + '">';
+      break;
+    case "hubspot_next_meeting":
+      h += lbl("Telefone do contato");
+      h += '<input type="text" value="' + esc(n.data.contactPhone || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'contactPhone\',this.value)" style="' + inp + '">';
+      h += '<div style="font-size:11px;color:var(--on-surface-variant);background:var(--surface);padding:10px;border-radius:6px;border:1px solid var(--border)">Armazena em <code>{{meeting.date}}</code> e <code>{{meeting.days_until}}</code></div>';
+      break;
+  }
+  return h;
+}
+
+function updateNodeData(nodeId, key, value) {
+  var n = currentFlow.nodes.find(function(x) { return x.id === nodeId; });
+  if (!n) return;
+  n.data[key] = value;
+  // Re-render node summary
+  var nodeType = n.type;
+  // Lightweight: just refresh summary text in the node
+  var el = document.querySelector('.flow-node[data-node-id="' + nodeId + '"]');
+  if (el) renderFlowNodes();
+  scheduleAutoSave();
+}
 
 // ===== UTILS =====
 var _modalMouseDownTarget = null;
