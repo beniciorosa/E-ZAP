@@ -282,19 +282,27 @@ function _ensureCustomListCSS() {
   var s = document.createElement('style');
   s.id = 'wcrm-custom-list-css';
   s.textContent = [
-    '#wcrm-custom-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; background: #111b21; color: #e9edef; }',
-    '.wcrm-custom-row { display: flex; align-items: center; padding: 10px 15px; min-height: 72px; box-sizing: border-box; border-bottom: 1px solid rgba(134,150,160,0.1); cursor: pointer; transition: background 0.15s; }',
-    '.wcrm-custom-row:hover { background: rgba(42,57,66,0.5); }',
-    '.wcrm-custom-row:active { background: rgba(42,57,66,0.8); }',
-    '.wcrm-custom-row.wcrm-row-loading { opacity: 0.5; pointer-events: none; }',
-    '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; background: #6b7c85; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; flex-shrink: 0; margin-right: 15px; overflow: hidden; }',
-    '.wcrm-custom-avatar-has-img { background: transparent; }',
+    '#wcrm-custom-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; background: #111b21; color: #e9edef; font-family: "Segoe UI", Helvetica, "Helvetica Neue", Arial, sans-serif; }',
+    '.wcrm-custom-row { display: flex; align-items: stretch; padding: 0 15px; height: 72px; box-sizing: border-box; cursor: pointer; background: transparent; position: relative; }',
+    '.wcrm-custom-row:hover { background: #202c33; }',
+    '.wcrm-custom-row:active { background: #2a3942; }',
+    '.wcrm-custom-row.wcrm-row-loading { opacity: 0.6; pointer-events: none; }',
+    '.wcrm-custom-row.wcrm-row-active { background: #2a3942; }',
+    '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 500; flex-shrink: 0; margin: 11px 15px 11px 0; overflow: hidden; align-self: center; }',
+    '.wcrm-custom-avatar-has-img { background: transparent !important; }',
     '.wcrm-custom-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }',
-    '.wcrm-custom-body { flex: 1; min-width: 0; display: flex; align-items: center; }',
-    '.wcrm-custom-name { color: #e9edef; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }',
-    '.wcrm-custom-pin { font-size: 12px; margin-left: 6px; flex-shrink: 0; }',
+    '.wcrm-custom-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-right: 6px; border-top: 1px solid rgba(134,150,160,0.15); }',
+    '.wcrm-custom-row:first-child .wcrm-custom-meta { border-top: none; }',
+    '.wcrm-custom-line1 { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }',
+    '.wcrm-custom-name { color: #e9edef; font-size: 17px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }',
+    '.wcrm-custom-time { color: #8696a0; font-size: 12px; flex-shrink: 0; }',
+    '.wcrm-custom-time.wcrm-time-unread { color: #00a884; }',
+    '.wcrm-custom-line2 { display: flex; align-items: center; gap: 6px; }',
+    '.wcrm-custom-preview { color: #8696a0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }',
+    '.wcrm-custom-pin { color: #8696a0; font-size: 14px; flex-shrink: 0; transform: rotate(45deg); }',
+    '.wcrm-custom-badge { background: #00a884; color: #111b21; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
     '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: #8696a0; font-size: 14px; }',
-    '.wcrm-custom-header { padding: 10px 15px; color: #8696a0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(134,150,160,0.2); background: #0b141a; position: sticky; top: 0; z-index: 1; }'
+    '.wcrm-custom-header { padding: 10px 15px; color: #8696a0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; background: #0b141a; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid rgba(134,150,160,0.15); }'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -355,6 +363,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     return true;
   }
 
+  var abaName = (abaTab && abaTab.name) || '';
   var rows = contacts.map(function(n) {
     var jid = contactJids[n];
     if (!jid && chatIndex && window.ezapFindJidInIndex) {
@@ -362,10 +371,14 @@ function _showCustomAbaList(abaTab, chatIndex) {
     }
     var displayName = n;
     var picUrl = '';
+    var lastTs = 0;
+    var unread = 0;
     if (jid && chatIndex && chatIndex.byJid && chatIndex.byJid[jid]) {
       var meta = chatIndex.byJid[jid];
       if (meta.name) displayName = meta.name;
       if (meta.profilePicUrl) picUrl = meta.profilePicUrl;
+      if (meta.lastTs) lastTs = meta.lastTs;
+      if (meta.unread) unread = meta.unread;
     }
     var isPinned = !!pinned[n];
     if (!isPinned && jid && pinJids) {
@@ -374,12 +387,17 @@ function _showCustomAbaList(abaTab, chatIndex) {
         if (pinJids[pkeys[pk]] === jid) { isPinned = true; break; }
       }
     }
-    return { name: n, displayName: displayName, jid: jid, isPinned: isPinned, picUrl: picUrl };
+    return {
+      name: n, displayName: displayName, jid: jid, isPinned: isPinned,
+      picUrl: picUrl, lastTs: lastTs, unread: unread, abaName: abaName
+    };
   });
 
-  // Ordena: pinned primeiro, depois alfabetico
+  // Ordena: pinned primeiro, depois por lastTs desc (mais recente em cima),
+  // fallback alfabetico quando nao tem timestamp
   rows.sort(function(a, b) {
     if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+    if (a.lastTs !== b.lastTs) return (b.lastTs || 0) - (a.lastTs || 0);
     return (a.displayName || '').localeCompare(b.displayName || '');
   });
 
@@ -399,6 +417,42 @@ function _showCustomAbaList(abaTab, chatIndex) {
   return true;
 }
 
+// Hash simples nome -> cor (placeholders nunca sao cinza chapado, parece
+// mais profissional que um uniforme #6b7c85)
+var _wcrmAvatarPalette = [
+  '#dfa79e', '#e8b58e', '#ddb16c', '#c8b57c', '#a8c792',
+  '#7ec88e', '#5fc8b0', '#5fb8d4', '#7aa6db', '#9592dc',
+  '#b785c9', '#d67fb3', '#d88995', '#c7a691', '#998f85'
+];
+function _wcrmAvatarColor(s) {
+  var str = String(s || '').trim();
+  if (!str) return _wcrmAvatarPalette[0];
+  var h = 0;
+  for (var i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  return _wcrmAvatarPalette[Math.abs(h) % _wcrmAvatarPalette.length];
+}
+
+function _wcrmFormatTime(ts) {
+  if (!ts) return '';
+  var d = new Date(ts * 1000);
+  if (isNaN(d.getTime())) return '';
+  var now = new Date();
+  var sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) {
+    var hh = ('0' + d.getHours()).slice(-2);
+    var mm = ('0' + d.getMinutes()).slice(-2);
+    return hh + ':' + mm;
+  }
+  var diffDays = Math.floor((now - d) / 86400000);
+  if (diffDays < 7) {
+    var days = ['dom','seg','ter','qua','qui','sex','sab'];
+    return days[d.getDay()];
+  }
+  var dd = ('0' + d.getDate()).slice(-2);
+  var mo = ('0' + (d.getMonth() + 1)).slice(-2);
+  return dd + '/' + mo + '/' + String(d.getFullYear()).slice(-2);
+}
+
 function _createCustomRow(data) {
   var row = document.createElement('div');
   row.className = 'wcrm-custom-row';
@@ -407,7 +461,9 @@ function _createCustomRow(data) {
 
   var avatar = document.createElement('div');
   avatar.className = 'wcrm-custom-avatar';
-  var initial = ((data.displayName || data.name || '?').trim().charAt(0) || '?').toUpperCase();
+  var label = (data.displayName || data.name || '?').trim();
+  var initial = (label.charAt(0) || '?').toUpperCase();
+  avatar.style.background = _wcrmAvatarColor(label);
   if (data.picUrl) {
     var img = document.createElement('img');
     img.className = 'wcrm-custom-avatar-img';
@@ -416,7 +472,6 @@ function _createCustomRow(data) {
     img.loading = 'lazy';
     img.draggable = false;
     img.onerror = function() {
-      // URL expirou ou falhou: volta ao placeholder
       avatar.textContent = initial;
       avatar.classList.remove('wcrm-custom-avatar-has-img');
     };
@@ -427,20 +482,43 @@ function _createCustomRow(data) {
   }
   row.appendChild(avatar);
 
-  var body = document.createElement('div');
-  body.className = 'wcrm-custom-body';
+  var meta = document.createElement('div');
+  meta.className = 'wcrm-custom-meta';
+
+  var line1 = document.createElement('div');
+  line1.className = 'wcrm-custom-line1';
   var name = document.createElement('span');
   name.className = 'wcrm-custom-name';
   name.setAttribute('title', data.displayName || data.name || '');
   name.textContent = data.displayName || data.name || '';
-  body.appendChild(name);
+  line1.appendChild(name);
+  var time = document.createElement('span');
+  time.className = 'wcrm-custom-time' + (data.unread ? ' wcrm-time-unread' : '');
+  time.textContent = _wcrmFormatTime(data.lastTs);
+  line1.appendChild(time);
+  meta.appendChild(line1);
+
+  var line2 = document.createElement('div');
+  line2.className = 'wcrm-custom-line2';
+  var preview = document.createElement('span');
+  preview.className = 'wcrm-custom-preview';
+  preview.textContent = data.abaName ? ('em ' + data.abaName) : '';
+  line2.appendChild(preview);
   if (data.isPinned) {
     var pin = document.createElement('span');
     pin.className = 'wcrm-custom-pin';
-    pin.textContent = '📌';
-    body.appendChild(pin);
+    pin.textContent = '⚲';
+    line2.appendChild(pin);
   }
-  row.appendChild(body);
+  if (data.unread > 0) {
+    var badge = document.createElement('span');
+    badge.className = 'wcrm-custom-badge';
+    badge.textContent = data.unread > 99 ? '99+' : String(data.unread);
+    line2.appendChild(badge);
+  }
+  meta.appendChild(line2);
+
+  row.appendChild(meta);
 
   row.addEventListener('click', function(e) {
     e.preventDefault();

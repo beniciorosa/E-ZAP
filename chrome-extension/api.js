@@ -173,23 +173,36 @@
     return false;
   }
 
-  // Acha o campo de busca do WA. O search input fica em #side > header,
-  // FORA de #pane-side. Evita matchear o compose box (dentro de #main).
+  // Acha o campo de busca do WA. WA muda atributos entre versoes, entao
+  // varre TODOS os contenteditable fora do compose box (#main) e da nossa
+  // custom list, e escolhe o que parece ser search (title/aria-label
+  // contem "search"/"pesquisa", ou data-tab="3").
   function _findWASearchField() {
-    var side = document.getElementById('side');
-    var root = side || document.body;
-    var candidates = [
-      'header div[contenteditable="true"][role="textbox"]',
-      'div[contenteditable="true"][role="textbox"][data-tab="3"]',
-      'div[contenteditable="true"][data-tab="3"]',
-      'div[contenteditable="true"][role="textbox"]',
-      '[contenteditable="true"][data-tab]',
-      'header div[contenteditable="true"]',
-      'div[contenteditable="true"]'
-    ];
-    for (var i = 0; i < candidates.length; i++) {
-      var el = root.querySelector(candidates[i]);
-      if (el && !el.closest('#main')) return el;
+    var all = document.querySelectorAll('div[contenteditable="true"]');
+    var best = null;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.closest('#main')) continue;               // compose box
+      if (el.closest('#wcrm-sidebar')) continue;       // nossa sidebar
+      if (el.closest('#wcrm-custom-list')) continue;   // nossa lista
+      if (el.closest('#wcrm-widget')) continue;        // nosso widget
+      var title = el.getAttribute('title') || '';
+      var aria = el.getAttribute('aria-label') || '';
+      var dataTab = el.getAttribute('data-tab') || '';
+      var role = el.getAttribute('role') || '';
+      // Match forte: tem keywords de search
+      if (/search|pesquis|busca/i.test(title + ' ' + aria) || dataTab === '3') {
+        return el;
+      }
+      // Match fraco: primeiro role=textbox fora do main
+      if (!best && role === 'textbox') best = el;
+    }
+    if (best) return best;
+    // Ultimo recurso: primeiro contenteditable que sobrou
+    for (var j = 0; j < all.length; j++) {
+      var el2 = all[j];
+      if (el2.closest('#main') || el2.closest('#wcrm-sidebar') || el2.closest('#wcrm-custom-list') || el2.closest('#wcrm-widget')) continue;
+      return el2;
     }
     return null;
   }

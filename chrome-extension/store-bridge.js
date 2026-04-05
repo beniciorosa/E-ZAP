@@ -424,13 +424,21 @@
       if (!jid) continue;
       var name = getFiberChatName(c);
       var isGroup = jid.indexOf('@g.us') >= 0;
+      var lastTs = 0;
+      try {
+        lastTs = Number(c.t || c.__x_t || (c.lastReceivedKey && c.lastReceivedKey.t) || 0) || 0;
+      } catch (e) {}
+      var unread = 0;
+      try { unread = Number(c.unreadCount || c.__x_unreadCount || 0) || 0; } catch (e) {}
       out.push({
         jid: jid,
         name: String(name || '').trim(),
         isGroup: isGroup,
         pushname: (c.contact && (c.contact.pushname || c.contact.__x_pushname)) || '',
         shortName: (c.contact && (c.contact.shortName || c.contact.__x_shortName)) || '',
-        profilePicUrl: getFiberProfilePic(c)
+        profilePicUrl: getFiberProfilePic(c),
+        lastTs: lastTs,
+        unread: unread
       });
     }
     return out;
