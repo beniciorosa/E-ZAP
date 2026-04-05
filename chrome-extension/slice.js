@@ -287,7 +287,9 @@ function _ensureCustomListCSS() {
     '.wcrm-custom-row:hover { background: rgba(42,57,66,0.5); }',
     '.wcrm-custom-row:active { background: rgba(42,57,66,0.8); }',
     '.wcrm-custom-row.wcrm-row-loading { opacity: 0.5; pointer-events: none; }',
-    '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; background: #6b7c85; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; flex-shrink: 0; margin-right: 15px; }',
+    '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; background: #6b7c85; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; flex-shrink: 0; margin-right: 15px; overflow: hidden; }',
+    '.wcrm-custom-avatar-has-img { background: transparent; }',
+    '.wcrm-custom-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }',
     '.wcrm-custom-body { flex: 1; min-width: 0; display: flex; align-items: center; }',
     '.wcrm-custom-name { color: #e9edef; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }',
     '.wcrm-custom-pin { font-size: 12px; margin-left: 6px; flex-shrink: 0; }',
@@ -359,8 +361,11 @@ function _showCustomAbaList(abaTab, chatIndex) {
       jid = window.ezapFindJidInIndex(chatIndex, n);
     }
     var displayName = n;
-    if (jid && chatIndex && chatIndex.byJid && chatIndex.byJid[jid] && chatIndex.byJid[jid].name) {
-      displayName = chatIndex.byJid[jid].name;
+    var picUrl = '';
+    if (jid && chatIndex && chatIndex.byJid && chatIndex.byJid[jid]) {
+      var meta = chatIndex.byJid[jid];
+      if (meta.name) displayName = meta.name;
+      if (meta.profilePicUrl) picUrl = meta.profilePicUrl;
     }
     var isPinned = !!pinned[n];
     if (!isPinned && jid && pinJids) {
@@ -369,7 +374,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
         if (pinJids[pkeys[pk]] === jid) { isPinned = true; break; }
       }
     }
-    return { name: n, displayName: displayName, jid: jid, isPinned: isPinned };
+    return { name: n, displayName: displayName, jid: jid, isPinned: isPinned, picUrl: picUrl };
   });
 
   // Ordena: pinned primeiro, depois alfabetico
@@ -402,7 +407,24 @@ function _createCustomRow(data) {
 
   var avatar = document.createElement('div');
   avatar.className = 'wcrm-custom-avatar';
-  avatar.textContent = ((data.displayName || data.name || '?').trim().charAt(0) || '?').toUpperCase();
+  var initial = ((data.displayName || data.name || '?').trim().charAt(0) || '?').toUpperCase();
+  if (data.picUrl) {
+    var img = document.createElement('img');
+    img.className = 'wcrm-custom-avatar-img';
+    img.src = data.picUrl;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.draggable = false;
+    img.onerror = function() {
+      // URL expirou ou falhou: volta ao placeholder
+      avatar.textContent = initial;
+      avatar.classList.remove('wcrm-custom-avatar-has-img');
+    };
+    avatar.classList.add('wcrm-custom-avatar-has-img');
+    avatar.appendChild(img);
+  } else {
+    avatar.textContent = initial;
+  }
   row.appendChild(avatar);
 
   var body = document.createElement('div');

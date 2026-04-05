@@ -173,15 +173,25 @@
     return false;
   }
 
-  // Acha o campo de busca do WA (contenteditable no header de pane-side)
+  // Acha o campo de busca do WA. O search input fica em #side > header,
+  // FORA de #pane-side. Evita matchear o compose box (dentro de #main).
   function _findWASearchField() {
-    var pane = document.getElementById('pane-side');
-    if (!pane) return null;
-    // WA usa varios seletores dependendo da versao
-    var field = pane.querySelector('div[contenteditable="true"][role="textbox"]') ||
-                pane.querySelector('[contenteditable="true"][data-tab]') ||
-                pane.querySelector('div[contenteditable="true"]');
-    return field;
+    var side = document.getElementById('side');
+    var root = side || document.body;
+    var candidates = [
+      'header div[contenteditable="true"][role="textbox"]',
+      'div[contenteditable="true"][role="textbox"][data-tab="3"]',
+      'div[contenteditable="true"][data-tab="3"]',
+      'div[contenteditable="true"][role="textbox"]',
+      '[contenteditable="true"][data-tab]',
+      'header div[contenteditable="true"]',
+      'div[contenteditable="true"]'
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      var el = root.querySelector(candidates[i]);
+      if (el && !el.closest('#main')) return el;
+    }
+    return null;
   }
 
   function _clearSearchField(field) {
@@ -227,6 +237,7 @@
     return new Promise(function(resolve) {
       if (!name) { resolve({ ok: false, reason: 'no-name' }); return; }
       var field = _findWASearchField();
+      console.log('[EZAP-SEARCH] field found:', !!field, field && field.outerHTML && field.outerHTML.slice(0, 120));
       if (!field) { resolve({ ok: false, reason: 'no-search-field' }); return; }
 
       // Se a custom list esta visivel, ela pode estar cobrindo a area da
@@ -247,27 +258,31 @@
       };
 
       // Foca, limpa, digita
+      var searchTerm;
       try {
         field.focus();
         document.execCommand('selectAll', false, null);
         document.execCommand('delete', false, null);
         // Pega so nome antes de pipe pra buscar melhor
-        var searchTerm = (name.split(/\s*\|\s*/)[0] || name).trim();
+        searchTerm = (name.split(/\s*\|\s*/)[0] || name).trim();
         // Digita (execCommand.insertText funciona com React contenteditable)
         var inserted = document.execCommand('insertText', false, searchTerm);
+        console.log('[EZAP-SEARCH] typed "' + searchTerm + '" inserted=' + inserted);
         if (!inserted) {
           // Fallback manual
           field.textContent = searchTerm;
           field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: searchTerm }));
         }
       } catch (e) {
+        console.log('[EZAP-SEARCH] type err:', e.message);
         restore();
         resolve({ ok: false, reason: 'type-failed', error: e.message });
         return;
       }
 
       // Aguarda resultado aparecer
-      _waitForSearchResult(name, 2000).then(function(resultRow) {
+      _waitForSearchResult(name, 2500).then(function(resultRow) {
+        console.log('[EZAP-SEARCH] result found:', !!resultRow, 'for "' + name + '"');
         if (!resultRow) {
           _clearSearchField(field);
           restore();
@@ -277,10 +292,18 @@
         // Clica no resultado
         try {
           var clickable = resultRow.closest('[role="listitem"]') || resultRow;
-          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          var rect = clickable.getBoundingClientRect();
+          var x = rect.left + rect.width / 2;
+          var y = rect.top + rect.height / 2;
+          var mk = function(type) {
+            return new MouseEvent(type, { bubbles: true, cancelable: true, view: window, button: 0, clientX: x, clientY: y });
+          };
+          clickable.dispatchEvent(mk('mousedown'));
+          clickable.dispatchEvent(mk('mouseup'));
+          clickable.dispatchEvent(mk('click'));
+          console.log('[EZAP-SEARCH] clicked on result');
         } catch (e) {
+          console.log('[EZAP-SEARCH] click err:', e.message);
           _clearSearchField(field);
           restore();
           resolve({ ok: false, reason: 'click-failed', error: e.message });
@@ -290,7 +313,7 @@
         setTimeout(function() {
           _clearSearchField(field);
           setTimeout(restore, 100);
-        }, 250);
+        }, 300);
         resolve({ ok: true, via: 'search' });
       });
     });

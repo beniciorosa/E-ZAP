@@ -366,6 +366,24 @@
     return null;
   }
 
+  function getFiberProfilePic(chat) {
+    try {
+      var candidates = [
+        chat && chat.contact && chat.contact.profilePicThumb,
+        chat && chat.contact && chat.contact.__x_profilePicThumb,
+        chat && chat.profilePicThumbObj,
+        chat && chat.__x_profilePicThumbObj
+      ];
+      for (var i = 0; i < candidates.length; i++) {
+        var p = candidates[i];
+        if (!p) continue;
+        var url = p.eurl || p.__x_eurl || p.img || p.__x_img || p.imgFull || p.__x_imgFull;
+        if (url && typeof url === 'string') return url;
+      }
+    } catch (e) {}
+    return '';
+  }
+
   function getFiberChatName(chat) {
     try {
       if (typeof chat.name === 'string' && chat.name) return chat.name;
@@ -411,7 +429,8 @@
         name: String(name || '').trim(),
         isGroup: isGroup,
         pushname: (c.contact && (c.contact.pushname || c.contact.__x_pushname)) || '',
-        shortName: (c.contact && (c.contact.shortName || c.contact.__x_shortName)) || ''
+        shortName: (c.contact && (c.contact.shortName || c.contact.__x_shortName)) || '',
+        profilePicUrl: getFiberProfilePic(c)
       });
     }
     return out;
