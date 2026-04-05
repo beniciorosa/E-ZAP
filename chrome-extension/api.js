@@ -156,14 +156,68 @@
   // propaga pros handlers do React. Por isso temporariamente "desesconde"
   // o scrollParent de forma invisivel (opacity 0 + pointer-events none)
   // antes do click, e restaura depois.
+  // Acha o React fiber associado a um elemento DOM.
+  // React 16+: prop keys com prefixo __reactProps$ ou __reactInternalInstance$
+  function _findReactPropsKey(el) {
+    if (!el) return null;
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf('__reactProps') === 0) return keys[i];
+    }
+    return null;
+  }
+
+  // Invoca diretamente o onClick do React em um elemento.
+  // Retorna true se achou e chamou o handler.
+  function _invokeReactOnClick(el) {
+    var cur = el;
+    while (cur && cur !== document.body) {
+      var propKey = _findReactPropsKey(cur);
+      if (propKey) {
+        var props = cur[propKey];
+        if (props) {
+          // Procura handlers possiveis: onClick, onPointerDown, onMouseDown
+          var handlers = ['onClick', 'onPointerUp', 'onMouseUp', 'onPointerDown', 'onMouseDown'];
+          for (var h = 0; h < handlers.length; h++) {
+            var handler = props[handlers[h]];
+            if (typeof handler === 'function') {
+              try {
+                var rect = cur.getBoundingClientRect();
+                var fakeEvt = {
+                  bubbles: true, cancelable: true, isTrusted: true,
+                  type: handlers[h].replace(/^on/, '').toLowerCase(),
+                  button: 0, buttons: 0, detail: 1,
+                  clientX: rect.left + rect.width / 2,
+                  clientY: rect.top + rect.height / 2,
+                  pageX: rect.left + rect.width / 2,
+                  pageY: rect.top + rect.height / 2,
+                  target: cur, currentTarget: cur,
+                  nativeEvent: null,
+                  preventDefault: function() {},
+                  stopPropagation: function() {},
+                  stopImmediatePropagation: function() {},
+                  persist: function() {}
+                };
+                handler(fakeEvt);
+                return { ok: true, handler: handlers[h], el: cur };
+              } catch (e) {
+                console.log('[EZAP-DOM] handler ' + handlers[h] + ' err:', e && e.message);
+              }
+            }
+          }
+        }
+      }
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
   function _tryDomClick(nameHint) {
     if (!nameHint) return false;
-    // v1.8.27: scrollParent nao esta mais hidden. Custom list eh overlay.
-    // dispatchEvent em rows nativas funciona diretamente.
     try {
       var pane = document.getElementById('pane-side');
       if (!pane) return false;
-      var rows = pane.querySelectorAll('[role="row"]');
+      var rows = pane.querySelectorAll('[role="row"], [role="listitem"]');
       for (var i = 0; i < rows.length; i++) {
         // Pula rows dentro de nossa custom list
         if (rows[i].closest && rows[i].closest('#wcrm-custom-list')) continue;
@@ -173,16 +227,28 @@
         if (ezapMatchContact(nameHint, t)) {
           var clickable = span.closest('[role="listitem"]') || span.closest('div[tabindex]') || rows[i];
           if (!clickable) continue;
+
+          // Estrategia 1: invocar onClick do React fiber direto (bypass events)
+          var reactResult = _invokeReactOnClick(clickable);
+          if (reactResult && reactResult.ok) {
+            console.log('[EZAP-DOM] React handler invoked:', reactResult.handler);
+            return true;
+          }
+
+          // Estrategia 2: dispatchEvent tradicional (fallback)
           var rect = clickable.getBoundingClientRect();
           var cx = rect.left + rect.width / 2;
           var cy = rect.top + rect.height / 2;
-          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, button: 0, clientX: cx, clientY: cy }));
-          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button: 0, clientX: cx, clientY: cy }));
-          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, button: 0, clientX: cx, clientY: cy }));
+          var evInit = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1, clientX: cx, clientY: cy };
+          try { clickable.dispatchEvent(new PointerEvent('pointerdown', evInit)); } catch (e) {}
+          clickable.dispatchEvent(new MouseEvent('mousedown', evInit));
+          try { clickable.dispatchEvent(new PointerEvent('pointerup', evInit)); } catch (e) {}
+          clickable.dispatchEvent(new MouseEvent('mouseup', evInit));
+          clickable.dispatchEvent(new MouseEvent('click', evInit));
           return true;
         }
       }
-    } catch (e) {}
+    } catch (e) { console.log('[EZAP-DOM] err:', e && e.message); }
     return false;
   }
 
