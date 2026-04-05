@@ -1142,22 +1142,33 @@ function _showHeaderAbasDropdownInner(anchorBtn, chatName, data) {
 
   var t = getTheme();
   var rect = anchorBtn.getBoundingClientRect();
+  var isWidget = anchorBtn.id && anchorBtn.id.indexOf("ezap-widget-btn-") === 0;
   var dropdown = document.createElement("div");
   dropdown.id = "wcrm-header-abas-dropdown";
+  var minW = 200;
+  var posStyle = isWidget
+    ? { top: (rect.bottom + 12) + "px", left: Math.max(8, rect.left + (rect.width / 2) - (minW / 2)) + "px" }
+    : { top: rect.top + "px", left: (rect.right + 8) + "px" };
   Object.assign(dropdown.style, {
     position: "fixed",
-    top: rect.top + "px",
-    left: (rect.right + 8) + "px",
+    top: posStyle.top,
+    left: posStyle.left,
     background: t.bgSecondary,
     border: "1px solid " + t.border,
-    borderRadius: "8px",
+    borderRadius: "10px",
     padding: "6px",
     zIndex: "999999",
-    minWidth: "180px",
-    boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+    minWidth: minW + "px",
+    maxHeight: "360px",
+    overflowY: "auto",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
   });
 
   var html = '';
+  if (!data.tabs || data.tabs.length === 0) {
+    html += '<div style="padding:10px 12px;color:' + t.textSecondary + ';font-size:12px;font-style:italic;text-align:center">Nenhuma aba criada</div>';
+  }
   data.tabs.forEach(function(tab) {
     var isIn = (tab.contacts || []).some(function(c) {
       return c.toLowerCase().trim() === chatName.toLowerCase().trim();
@@ -1166,10 +1177,16 @@ function _showHeaderAbasDropdownInner(anchorBtn, chatName, data) {
     var iconColor = isIn ? tab.color : t.textSecondary;
     html += '<div class="wcrm-header-aba-opt" data-aba-id="' + tab.id + '" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s">';
     html += '<span style="width:10px;height:10px;border-radius:50%;background:' + tab.color + ';display:inline-block;flex-shrink:0"></span>';
-    html += '<span style="font-size:12px;color:' + t.text + ';flex:1">' + tab.name + '</span>';
+    html += '<span style="font-size:12px;color:' + t.text + ';flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tab.name + '</span>';
     html += '<span style="color:' + iconColor + ';font-size:14px;font-weight:bold">' + icon + '</span>';
     html += '</div>';
   });
+  // Divider + "Criar nova aba"
+  html += '<div style="height:1px;background:' + t.border + ';margin:6px 4px"></div>';
+  html += '<div id="wcrm-header-abas-create" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s">';
+  html += '<span style="color:#20c997;font-size:16px;font-weight:bold;width:10px;display:inline-block;text-align:center">+</span>';
+  html += '<span style="font-size:12px;color:' + t.text + ';font-weight:500">Criar nova aba</span>';
+  html += '</div>';
 
   dropdown.innerHTML = html;
   document.body.appendChild(dropdown);
@@ -1183,6 +1200,16 @@ function _showHeaderAbasDropdownInner(anchorBtn, chatName, data) {
       dropdown.remove();
     });
   });
+  var createBtn = document.getElementById("wcrm-header-abas-create");
+  if (createBtn) {
+    createBtn.addEventListener('mouseenter', function() { createBtn.style.background = t.bgHover; });
+    createBtn.addEventListener('mouseleave', function() { createBtn.style.background = 'transparent'; });
+    createBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      dropdown.remove();
+      if (typeof toggleAbasSidebar === "function") toggleAbasSidebar();
+    });
+  }
 
   setTimeout(function() {
     function closeDropdown(e) {

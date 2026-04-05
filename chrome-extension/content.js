@@ -329,18 +329,19 @@ function showHeaderTagDropdown(anchorBtn, chatName) {
     text: "#e9edef", textSecondary: "#8696a0"
   };
   var rect = anchorBtn.getBoundingClientRect();
+  var minW = 220;
   var dropdown = document.createElement("div");
   dropdown.id = "wcrm-header-tag-dropdown";
   Object.assign(dropdown.style, {
     position: "fixed",
-    top: (rect.bottom + 6) + "px",
-    left: Math.max(8, rect.left - 80) + "px",
+    top: (rect.bottom + 12) + "px",
+    left: Math.max(8, rect.left + (rect.width / 2) - (minW / 2)) + "px",
     background: t.bgSecondary,
     border: "1px solid " + t.border,
     borderRadius: "10px",
     padding: "6px",
     zIndex: "999999",
-    minWidth: "220px",
+    minWidth: minW + "px",
     maxHeight: "360px",
     overflowY: "auto",
     boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
@@ -417,88 +418,21 @@ function renderHeaderTagDropdown(dropdown, chatName, t) {
   divider.style.cssText = "height:1px;background:" + t.border + ";margin:6px 4px";
   dropdown.appendChild(divider);
 
-  // "Criar nova etiqueta" section
-  var createSection = document.createElement("div");
-  createSection.style.cssText = "padding:4px";
-
-  var createHeader = document.createElement("div");
-  createHeader.id = "wcrm-header-tag-create-header";
-  createHeader.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s";
-  createHeader.innerHTML =
+  // "Criar nova etiqueta" → opens tag sidebar
+  var createRow = document.createElement("div");
+  createRow.id = "wcrm-header-tag-create";
+  createRow.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s";
+  createRow.innerHTML =
     '<span style="color:#20c997;font-size:16px;font-weight:bold;width:10px;display:inline-block;text-align:center">+</span>' +
     '<span style="font-size:12px;color:' + t.text + ';font-weight:500">Criar nova etiqueta</span>';
-  createHeader.addEventListener('mouseenter', function() { createHeader.style.background = t.bgHover; });
-  createHeader.addEventListener('mouseleave', function() { createHeader.style.background = 'transparent'; });
-
-  var createForm = document.createElement("div");
-  createForm.id = "wcrm-header-tag-create-form";
-  createForm.style.cssText = "display:none;padding:4px 4px 8px";
-
-  var colorsHtml = '';
-  (LABEL_COLORS || ["#25d366"]).forEach(function(color, i) {
-    colorsHtml += '<div class="wcrm-htd-color" data-color="' + color + '" style="width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid ' + (i === 0 ? t.text : 'transparent') + ';background:' + color + '"></div>';
-  });
-
-  createForm.innerHTML =
-    '<div style="display:flex;gap:4px;margin-bottom:6px">' +
-    '  <input type="text" id="wcrm-htd-input" placeholder="Nome..." maxlength="30" style="flex:1;background:' + t.bgHover + ';border:1px solid ' + t.border + ';border-radius:6px;padding:6px 8px;color:' + t.text + ';font-size:12px;outline:none">' +
-    '  <button id="wcrm-htd-save" style="background:#20c997;color:#111b21;border:none;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer">OK</button>' +
-    '</div>' +
-    '<div id="wcrm-htd-colors" style="display:flex;gap:4px;flex-wrap:wrap">' + colorsHtml + '</div>';
-
-  createHeader.addEventListener('click', function(e) {
+  createRow.addEventListener('mouseenter', function() { createRow.style.background = t.bgHover; });
+  createRow.addEventListener('mouseleave', function() { createRow.style.background = 'transparent'; });
+  createRow.addEventListener('click', function(e) {
     e.stopPropagation();
-    var isOpen = createForm.style.display !== 'none';
-    createForm.style.display = isOpen ? 'none' : 'block';
-    if (!isOpen) {
-      setTimeout(function() {
-        var inp = document.getElementById("wcrm-htd-input");
-        if (inp) inp.focus();
-      }, 50);
-    }
+    dropdown.remove();
+    if (typeof toggleTagSidebar === "function") toggleTagSidebar();
   });
-
-  createSection.appendChild(createHeader);
-  createSection.appendChild(createForm);
-  dropdown.appendChild(createSection);
-
-  // Wire up color picker + save button
-  setTimeout(function() {
-    var colorsDiv = document.getElementById("wcrm-htd-colors");
-    if (colorsDiv) {
-      colorsDiv.querySelectorAll(".wcrm-htd-color").forEach(function(el) {
-        el.addEventListener("click", function(e) {
-          e.stopPropagation();
-          colorsDiv.querySelectorAll(".wcrm-htd-color").forEach(function(x) { x.style.borderColor = 'transparent'; });
-          el.style.borderColor = t.text;
-          el.dataset.selected = "1";
-        });
-      });
-    }
-    var saveBtn = document.getElementById("wcrm-htd-save");
-    var inp = document.getElementById("wcrm-htd-input");
-    function saveNew() {
-      var name = (inp.value || "").trim();
-      if (!name) return;
-      var exists = (labelTemplates || []).some(function(tmpl) { return tmpl.name.toLowerCase() === name.toLowerCase(); });
-      var selected = colorsDiv ? colorsDiv.querySelector('.wcrm-htd-color[data-selected="1"]') : null;
-      var color = selected ? selected.dataset.color : (LABEL_COLORS ? LABEL_COLORS[0] : "#25d366");
-      if (!exists) {
-        if (!labelTemplates) labelTemplates = [];
-        labelTemplates.push({ name: name, color: color });
-        saveLabelTemplates();
-      }
-      assignLabel(name, color);
-      inp.value = "";
-      renderHeaderTagDropdown(dropdown, chatName, t);
-    }
-    if (saveBtn) saveBtn.addEventListener("click", function(e) { e.stopPropagation(); saveNew(); });
-    if (inp) inp.addEventListener("keydown", function(e) {
-      if (e.key === "Enter") { e.preventDefault(); saveNew(); }
-      e.stopPropagation();
-    });
-    if (inp) inp.addEventListener("click", function(e) { e.stopPropagation(); });
-  }, 10);
+  dropdown.appendChild(createRow);
 }
 
 function renderTagColorPicker() {
