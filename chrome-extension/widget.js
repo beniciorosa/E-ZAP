@@ -95,7 +95,8 @@ function svgTag(color, sz) {
 function computeWidgetHash() {
   var wc = window.__ezapWidgetConfig || {};
   var chatName = typeof currentName !== "undefined" ? currentName : null;
-  var isPinned = !!(chatName && (window._wcrmPinned || {})[chatName]);
+  // JID-aware pin check (sync fallback por nome, refinado depois)
+  var isPinned = !!(chatName && typeof window._wcrmIsTitlePinned === "function" && window._wcrmIsTitlePinned(chatName, null));
   var inAba = !!(chatName && typeof isContactInAnyAba === "function" && isContactInAnyAba(chatName));
   var dark = typeof isDarkMode === "function" ? isDarkMode() : false;
   return JSON.stringify({
@@ -199,12 +200,8 @@ function buildWidgetButton(key, btnSize, iconSize, s) {
   var chatName = typeof currentName !== "undefined" ? currentName : null;
 
   if (key === "pin") {
-    // Tolerant match: considera pin casado se qualquer nome salvo bate
-    // com o chatName atual (com ou sem "| Mentor" no titulo).
-    var _pinnedMap = window._wcrmPinned || {};
-    var isPinned = !!chatName && Object.keys(_pinnedMap).some(function(pn) {
-      return window.ezapMatchContact && window.ezapMatchContact(pn, chatName);
-    });
+    // Match JID-first (via _wcrmIsTitlePinned), fallback nome tolerante.
+    var isPinned = !!chatName && typeof window._wcrmIsTitlePinned === "function" && window._wcrmIsTitlePinned(chatName, null);
     btn.innerHTML = isPinned
       ? svgPinFilled(s.accent, iconSize)
       : svgPinOutline(s.icon, iconSize);
@@ -262,7 +259,7 @@ function buildWidgetButton(key, btnSize, iconSize, s) {
   });
   btn.addEventListener("mouseleave", function() {
     var cn = typeof currentName !== "undefined" ? currentName : null;
-    var isPinnedNow = key === "pin" && !!(cn && (window._wcrmPinned || {})[cn]);
+    var isPinnedNow = key === "pin" && !!cn && typeof window._wcrmIsTitlePinned === "function" && window._wcrmIsTitlePinned(cn, null);
     btn.style.background = isPinnedNow ? s.accentGlow : "transparent";
     var svg = btn.querySelector("svg");
     if (svg && !isPinnedNow && key !== "pin") svg.setAttribute("fill", s.icon);

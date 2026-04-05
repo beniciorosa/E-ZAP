@@ -89,18 +89,26 @@ function loadAbasData() {
         return;
       }
 
-      supaRest("/rest/v1/aba_contacts?aba_id=in.(" + abaIds.join(",") + ")&select=aba_id,contact_name").then(function(contacts) {
+      supaRest("/rest/v1/aba_contacts?aba_id=in.(" + abaIds.join(",") + ")&select=aba_id,contact_name,contact_jid").then(function(contacts) {
         if (_wcrmAbasSaveGen !== gen) return; // A save happened — don't overwrite
         contacts = contacts || [];
         var contactMap = {};
+        var jidMap = {};
         contacts.forEach(function(c) {
-          if (!contactMap[c.aba_id]) contactMap[c.aba_id] = [];
+          if (!contactMap[c.aba_id]) { contactMap[c.aba_id] = []; jidMap[c.aba_id] = {}; }
           contactMap[c.aba_id].push(c.contact_name);
+          jidMap[c.aba_id][c.contact_name] = c.contact_jid || null;
         });
 
         var data = {
           tabs: abas.map(function(a) {
-            return { id: a.id, name: a.name, color: a.color, contacts: contactMap[a.id] || [] };
+            return {
+              id: a.id,
+              name: a.name,
+              color: a.color,
+              contacts: contactMap[a.id] || [],
+              contactJids: jidMap[a.id] || {}
+            };
           })
         };
         window._wcrmAbasCache = data;
@@ -162,11 +170,16 @@ function syncAbasToSupabase(uid, data) {
         console.log("[WCRM ABAS] Supabase insert error:", result.error);
         return;
       }
-      // Insert contacts for each aba
+      // Insert contacts for each aba (incluindo JID quando conhecido)
       var allContacts = [];
       data.tabs.forEach(function(tab) {
+        var jids = tab.contactJids || {};
         (tab.contacts || []).forEach(function(contact) {
-          allContacts.push({ aba_id: tab.id, contact_name: contact });
+          allContacts.push({
+            aba_id: tab.id,
+            contact_name: contact,
+            contact_jid: jids[contact] || null
+          });
         });
       });
       if (allContacts.length > 0) {
@@ -215,11 +228,18 @@ function getAllKnownContacts() {
 }
 
 // ===== Pinned Contacts (Supabase + chrome.storage cache) =====
+// Modelo: _wcrmPinned = { 'Nome': true }  (retrocompat)
+//         _wcrmPinnedJids = { 'Nome': '5511...@c.us' }  (novo, aditivo)
+// Matching de pin:
+//   1. resolve JID do titulo do DOM via ezapResolveJid/ezapFindJidInIndex
+//   2. se houver JID e alguma entry em _wcrmPinnedJids casar -> pinado
+//   3. fallback: ezapMatchContact tolerante com nomes de _wcrmPinned
 function loadPinnedContacts() {
   return new Promise(function(resolve) {
     // Fast: load from local cache first
-    chrome.storage.local.get("wcrm_pinned", function(result) {
+    chrome.storage.local.get(["wcrm_pinned", "wcrm_pinned_jids"], function(result) {
       window._wcrmPinned = result.wcrm_pinned || {};
+      window._wcrmPinnedJids = result.wcrm_pinned_jids || {};
       resolve(window._wcrmPinned);
     });
 
@@ -227,19 +247,28 @@ function loadPinnedContacts() {
     var uid = getUserId();
     if (!uid) return;
 
-    supaRest("/rest/v1/pinned_contacts?user_id=eq." + uid + "&select=contact_name").then(function(rows) {
+    supaRest("/rest/v1/pinned_contacts?user_id=eq." + uid + "&select=contact_name,contact_jid").then(function(rows) {
       if (!rows || !Array.isArray(rows)) return;
       var pinned = {};
-      rows.forEach(function(r) { pinned[r.contact_name] = true; });
+      var jids = {};
+      rows.forEach(function(r) {
+        pinned[r.contact_name] = true;
+        if (r.contact_jid) jids[r.contact_name] = r.contact_jid;
+      });
       window._wcrmPinned = pinned;
-      chrome.storage.local.set({ wcrm_pinned: pinned });
+      window._wcrmPinnedJids = jids;
+      chrome.storage.local.set({ wcrm_pinned: pinned, wcrm_pinned_jids: jids });
     });
   });
 }
 
-function savePinnedContacts(data) {
+function savePinnedContacts(data, jids) {
   window._wcrmPinned = data;
-  if (isExtensionValid()) chrome.storage.local.set({ wcrm_pinned: data });
+  if (jids) window._wcrmPinnedJids = jids;
+  else jids = window._wcrmPinnedJids || {};
+  if (isExtensionValid()) {
+    chrome.storage.local.set({ wcrm_pinned: data, wcrm_pinned_jids: jids });
+  }
 
   // Sync to Supabase
   var uid = getUserId();
@@ -248,41 +277,105 @@ function savePinnedContacts(data) {
   supaRest("/rest/v1/pinned_contacts?user_id=eq." + uid, "DELETE", null, "return=minimal").then(function() {
     var names = Object.keys(data);
     if (names.length === 0) return;
-    var rows = names.map(function(n) { return { user_id: uid, contact_name: n }; });
+    var rows = names.map(function(n) {
+      return { user_id: uid, contact_name: n, contact_jid: jids[n] || null };
+    });
     supaRest("/rest/v1/pinned_contacts", "POST", rows, "return=minimal");
   });
 }
 
 function togglePinContact(chatName) {
-  var pinned = window._wcrmPinned || {};
-  // Procura match tolerante entre os pins existentes. Assim, se o usuario
-  // salvou "Augusto" e agora clica no chat "Augusto Stoeterau | Thiago",
-  // o toggle identifica o pin existente e desfixa em vez de duplicar.
-  var existingKey = null;
-  if (window.ezapMatchContact) {
-    var keys = Object.keys(pinned);
-    for (var i = 0; i < keys.length; i++) {
-      if (window.ezapMatchContact(keys[i], chatName)) {
-        existingKey = keys[i];
-        break;
+  // Resolve JID async pra guardar o identificador estavel do chat.
+  // Se o bridge (store-bridge.js) ainda nao esta pronto, salva sem JID e
+  // o JID sera resolvido preguicosamente depois (ver migratePinJids).
+  var jidPromise = window.ezapResolveJid
+    ? window.ezapResolveJid(chatName)
+    : Promise.resolve(null);
+
+  jidPromise.then(function(resolvedJid) {
+    var pinned = window._wcrmPinned || {};
+    var jids = window._wcrmPinnedJids || {};
+    var existingKey = null;
+
+    // 1) Match por JID (mais confiavel)
+    if (resolvedJid) {
+      var jidKeys = Object.keys(jids);
+      for (var k = 0; k < jidKeys.length; k++) {
+        if (jids[jidKeys[k]] === resolvedJid) { existingKey = jidKeys[k]; break; }
       }
     }
-  } else if (pinned[chatName]) {
-    existingKey = chatName;
-  }
-  if (existingKey) {
-    delete pinned[existingKey];
-  } else {
-    pinned[chatName] = true;
-  }
-  savePinnedContacts(pinned);
-  updateHeaderButtons();
-  // Always reorder: pin/unpin the conversation in the chat list
-  applyPinnedOrder();
-  // Also re-apply filter if active
-  if (selectedAbaId || (typeof selectedMentor !== 'undefined' && selectedMentor)) {
-    applyConversationFilters();
-  }
+
+    // 2) Fallback: match tolerante por nome (legacy pins sem JID)
+    if (!existingKey && window.ezapMatchContact) {
+      var keys = Object.keys(pinned);
+      for (var i = 0; i < keys.length; i++) {
+        if (window.ezapMatchContact(keys[i], chatName)) { existingKey = keys[i]; break; }
+      }
+    } else if (!existingKey && pinned[chatName]) {
+      existingKey = chatName;
+    }
+
+    if (existingKey) {
+      delete pinned[existingKey];
+      delete jids[existingKey];
+    } else {
+      pinned[chatName] = true;
+      if (resolvedJid) jids[chatName] = resolvedJid;
+    }
+    savePinnedContacts(pinned, jids);
+    updateHeaderButtons();
+    applyPinnedOrder();
+    if (selectedAbaId || (typeof selectedMentor !== 'undefined' && selectedMentor)) {
+      applyConversationFilters();
+    }
+  });
+}
+
+// ===== Lazy JID migration =====
+// Pins e contatos de aba salvos antes da existencia do bridge nao tem JID.
+// Na primeira vez que o store ficar disponivel, percorre os nomes e tenta
+// resolver o JID via store-bridge. Salva tudo em uma tacada.
+var _wcrmJidMigrationDone = false;
+function migrateJidsWhenStoreReady() {
+  if (_wcrmJidMigrationDone) return;
+  if (!window.ezapStoreReady || !window.ezapBuildChatIndex) return;
+  window.ezapStoreReady().then(function(ready) {
+    if (!ready) { setTimeout(migrateJidsWhenStoreReady, 3000); return; }
+    window.ezapBuildChatIndex().then(function(index) {
+      if (!index) return;
+      _wcrmJidMigrationDone = true;
+
+      // Migra pins
+      var pinned = window._wcrmPinned || {};
+      var pinJids = window._wcrmPinnedJids || {};
+      var pinDirty = false;
+      Object.keys(pinned).forEach(function(name) {
+        if (!pinJids[name]) {
+          var jid = window.ezapFindJidInIndex(index, name);
+          if (jid) { pinJids[name] = jid; pinDirty = true; }
+        }
+      });
+      if (pinDirty) savePinnedContacts(pinned, pinJids);
+
+      // Migra ABAS contacts
+      var cache = window._wcrmAbasCache;
+      if (cache && cache.tabs) {
+        var abasDirty = false;
+        cache.tabs.forEach(function(tab) {
+          if (!tab.contactJids) tab.contactJids = {};
+          (tab.contacts || []).forEach(function(name) {
+            if (!tab.contactJids[name]) {
+              var jid = window.ezapFindJidInIndex(index, name);
+              if (jid) { tab.contactJids[name] = jid; abasDirty = true; }
+            }
+          });
+        });
+        if (abasDirty) saveAbasData(cache);
+      }
+
+      console.log("[WCRM JID] Migration done. Pins updated:", pinDirty, "Abas updated:", !!cache);
+    });
+  });
 }
 
 // ===== Pin Indicator in Chat List =====
@@ -313,6 +406,30 @@ function removePinIndicator(nameSpan) {
 // causes rows to disappear and the scrollbar to glitch. The pin icon alone
 // is enough to identify pinned contacts. When a filter IS active
 // (slice/abas), applyConversationFilters already handles pin-at-top safely.
+// Helper sync: retorna true se o title corresponde a algum pin,
+// comparando primeiro pelo JID (via chatIndex) e depois por nome tolerante.
+// chatIndex pode ser null — entao so usa match por nome.
+function _isTitlePinned(title, chatIndex) {
+  var pinned = window._wcrmPinned || {};
+  var pinJids = window._wcrmPinnedJids || {};
+  if (chatIndex && window.ezapFindJidInIndex) {
+    var jid = window.ezapFindJidInIndex(chatIndex, title);
+    if (jid) {
+      var keys = Object.keys(pinJids);
+      for (var i = 0; i < keys.length; i++) {
+        if (pinJids[keys[i]] === jid) return true;
+      }
+    }
+  }
+  // Fallback: match tolerante por nome
+  var names = Object.keys(pinned);
+  for (var j = 0; j < names.length; j++) {
+    if (window.ezapMatchContact && window.ezapMatchContact(names[j], title)) return true;
+  }
+  return false;
+}
+window._wcrmIsTitlePinned = _isTitlePinned;
+
 function applyPinnedOrder() {
   var pinned = window._wcrmPinned || {};
   var pinnedNames = Object.keys(pinned);
@@ -348,24 +465,24 @@ function applyPinnedOrder() {
       el.classList.remove('wcrm-hidden');
     });
   }
-  // Tolerant match: "Augusto" salvo casa com "Augusto Stoeterau | Thiago Rocha".
-  for (var i = 0; i < container.children.length; i++) {
-    var row = container.children[i];
-    var nameSpan = row.querySelector('span[title]');
-    if (!nameSpan) continue;
-    var title = nameSpan.getAttribute('title') || '';
-    var match = pinnedNames.some(function(pn) {
-      return window.ezapMatchContact(pn, title);
-    });
-    if (match) {
-      addPinIndicator(nameSpan);
-    } else {
-      removePinIndicator(nameSpan);
+  // Match JID-first (chatIndex do store bridge), fallback nome tolerante.
+  // Constroi o index uma vez e passa pro loop sync.
+  var indexPromise = window.ezapBuildChatIndex
+    ? window.ezapBuildChatIndex()
+    : Promise.resolve(null);
+  indexPromise.then(function(chatIndex) {
+    var c2 = findChatListContainer();
+    if (!c2) return;
+    for (var i = 0; i < c2.children.length; i++) {
+      var row = c2.children[i];
+      var nameSpan = row.querySelector('span[title]');
+      if (!nameSpan) continue;
+      var title = nameSpan.getAttribute('title') || '';
+      if (_isTitlePinned(title, chatIndex)) addPinIndicator(nameSpan);
+      else removePinIndicator(nameSpan);
     }
-  }
-
-  // Mantem indicadores em sincronia quando o WA recicla linhas no scroll.
-  ensurePinObserver();
+    ensurePinObserver();
+  });
 }
 
 // Observer que re-aplica pin indicators quando o WA recicla linhas.
@@ -406,19 +523,24 @@ function _reapplyPinIndicators() {
   if (pinnedNames.length === 0) return;
   var container = findChatListContainer();
   if (!container) return;
-  var kids = container.children;
-  for (var i = 0; i < kids.length; i++) {
-    var row = kids[i];
-    if (!row || typeof row.querySelector !== 'function') continue;
-    var nameSpan = row.querySelector('span[title]');
-    if (!nameSpan) continue;
-    var title = nameSpan.getAttribute('title') || '';
-    var match = pinnedNames.some(function(pn) {
-      return window.ezapMatchContact && window.ezapMatchContact(pn, title);
-    });
-    if (match) addPinIndicator(nameSpan);
-    else removePinIndicator(nameSpan);
-  }
+  // Usa chatIndex se disponivel (JID-match), senao fallback nome tolerante.
+  var indexPromise = window.ezapBuildChatIndex
+    ? window.ezapBuildChatIndex()
+    : Promise.resolve(null);
+  indexPromise.then(function(chatIndex) {
+    var c2 = findChatListContainer();
+    if (!c2) return;
+    var kids = c2.children;
+    for (var i = 0; i < kids.length; i++) {
+      var row = kids[i];
+      if (!row || typeof row.querySelector !== 'function') continue;
+      var nameSpan = row.querySelector('span[title]');
+      if (!nameSpan) continue;
+      var title = nameSpan.getAttribute('title') || '';
+      if (_isTitlePinned(title, chatIndex)) addPinIndicator(nameSpan);
+      else removePinIndicator(nameSpan);
+    }
+  });
 }
 
 function ensurePinObserver() {
@@ -681,19 +803,39 @@ function renderAbasList(data) {
 }
 
 function toggleContactInAba(abaId, chatName) {
-  loadAbasData().then(function(data) {
+  // Resolve JID via bridge (async). Se indisponivel, segue sem JID.
+  var jidPromise = window.ezapResolveJid
+    ? window.ezapResolveJid(chatName)
+    : Promise.resolve(null);
+
+  Promise.all([loadAbasData(), jidPromise]).then(function(pair) {
+    var data = pair[0];
+    var resolvedJid = pair[1];
     var tab = data.tabs.find(function(t) { return t.id === abaId; });
     if (!tab) return;
     if (!tab.contacts) tab.contacts = [];
+    if (!tab.contactJids) tab.contactJids = {};
 
-    var idx = tab.contacts.findIndex(function(c) {
-      return window.ezapMatchContact && window.ezapMatchContact(c, chatName);
-    });
+    // Match existing: primeiro por JID, depois por nome tolerante
+    var idx = -1;
+    if (resolvedJid) {
+      idx = tab.contacts.findIndex(function(c) {
+        return tab.contactJids[c] === resolvedJid;
+      });
+    }
+    if (idx < 0) {
+      idx = tab.contacts.findIndex(function(c) {
+        return window.ezapMatchContact && window.ezapMatchContact(c, chatName);
+      });
+    }
 
     if (idx >= 0) {
+      var removed = tab.contacts[idx];
       tab.contacts.splice(idx, 1);
+      delete tab.contactJids[removed];
     } else {
       tab.contacts.push(chatName);
+      if (resolvedJid) tab.contactJids[chatName] = resolvedJid;
     }
 
     saveAbasData(data).then(function() {
@@ -1155,11 +1297,23 @@ function updateSidebarButtonStates() {
   updateAbasDotIndicator();
 }
 
-function isContactInAnyAba(chatName) {
+// Verifica se chatName pertence a alguma aba. Aceita chatIndex opcional
+// pra fazer match por JID (mais robusto pra apelidos / pipe).
+function isContactInAnyAba(chatName, chatIndex) {
   if (!chatName) return false;
   var data = window._wcrmAbasCache || { tabs: [] };
+  // JID match (quando temos index)
+  var jid = (chatIndex && window.ezapFindJidInIndex) ? window.ezapFindJidInIndex(chatIndex, chatName) : null;
   for (var i = 0; i < data.tabs.length; i++) {
-    var contacts = data.tabs[i].contacts || [];
+    var tab = data.tabs[i];
+    var contacts = tab.contacts || [];
+    var jids = tab.contactJids || {};
+    if (jid) {
+      for (var k = 0; k < contacts.length; k++) {
+        if (jids[contacts[k]] === jid) return true;
+      }
+    }
+    // Fallback nome tolerante
     for (var j = 0; j < contacts.length; j++) {
       if (window.ezapMatchContact && window.ezapMatchContact(contacts[j], chatName)) return true;
     }
@@ -1177,11 +1331,20 @@ function updateAbasDotIndicator() {
 function updatePinButtonState(btn, chatName, theme, iconSz) {
   var t = theme || getTheme();
   var sz = iconSz || 20;
-  var pinned = window._wcrmPinned || {};
-  var isPinned = !!chatName && Object.keys(pinned).some(function(pn) {
-    return window.ezapMatchContact && window.ezapMatchContact(pn, chatName);
-  });
+  // Pass 1 (sync, fallback nome tolerante). Pass 2 refina com JID (async).
+  var isPinned = !!chatName && _isTitlePinned(chatName, null);
+  _paintPinBtn(btn, isPinned, t, sz);
 
+  if (chatName && window.ezapBuildChatIndex) {
+    window.ezapBuildChatIndex().then(function(idx) {
+      if (!idx) return;
+      var refined = _isTitlePinned(chatName, idx);
+      if (refined !== isPinned) _paintPinBtn(btn, refined, t, sz);
+    });
+  }
+  return;
+}
+function _paintPinBtn(btn, isPinned, t, sz) {
   if (isPinned) {
     btn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="#25d366"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>';
     btn.style.background = isDarkMode() ? '#25d36615' : '#25d36610';
@@ -1434,6 +1597,10 @@ function initAbas() {
       setTimeout(function() { applyPinnedOrder(); }, 2000);
     });
   }
+
+  // Tenta migrar JIDs assim que o store-bridge ficar pronto.
+  // (Pins e contatos de aba antigos nao tem JID - resolve preguicosamente.)
+  setTimeout(migrateJidsWhenStoreReady, 5000);
 
   var abasInterval = setInterval(function() {
     if (!isExtensionValid()) {

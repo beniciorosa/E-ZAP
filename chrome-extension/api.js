@@ -97,6 +97,115 @@
     return false;
   }
 
+  // ===== WA Store Bridge (ponte p/ store-bridge.js no MAIN world) =====
+  // A fonte da verdade pra "quem e quem" no WhatsApp vem do Store interno
+  // do WA Web (via store-bridge.js). Aqui no isolated world usamos
+  // postMessage pra consultar essa lista e resolver JID a partir de nome.
+  //
+  // ATENCAO ao virtual scroll: o DOM mostra so linhas visiveis, entao
+  // nunca confie em "nome do DOM" pra identificar contato de forma estavel.
+  // Sempre que possivel, casar por JID.
+  var _ezapRpcId = 0;
+  var _ezapRpcPending = {};
+  var _ezapChatCache = null;
+  var _ezapChatCacheAt = 0;
+  var CHAT_CACHE_TTL_MS = 8000;
+
+  window.addEventListener('message', function(event) {
+    if (!event.data || event.source !== window) return;
+    var d = event.data;
+    if (d.type === '_ezap_get_chats_res' || d.type === '_ezap_store_ready_res') {
+      var cb = _ezapRpcPending[d.id];
+      if (cb) { delete _ezapRpcPending[d.id]; cb(d); }
+    }
+  });
+
+  function _ezapRpc(reqType, timeoutMs) {
+    return new Promise(function(resolve) {
+      var id = ++_ezapRpcId;
+      var timer = setTimeout(function() {
+        delete _ezapRpcPending[id];
+        resolve(null);
+      }, timeoutMs || 3000);
+      _ezapRpcPending[id] = function(data) { clearTimeout(timer); resolve(data); };
+      try { window.postMessage({ type: reqType, id: id }, '*'); }
+      catch (e) { clearTimeout(timer); delete _ezapRpcPending[id]; resolve(null); }
+    });
+  }
+
+  // Retorna lista de chats do Store (com JID). null se bridge indisponivel.
+  function ezapGetAllChats(opts) {
+    var force = !!(opts && opts.force);
+    var now = Date.now();
+    if (!force && _ezapChatCache && (now - _ezapChatCacheAt) < CHAT_CACHE_TTL_MS) {
+      return Promise.resolve(_ezapChatCache);
+    }
+    return _ezapRpc('_ezap_get_chats_req', 3000).then(function(resp) {
+      if (!resp || !resp.ok || !resp.ready) return null;
+      _ezapChatCache = resp.chats || [];
+      _ezapChatCacheAt = Date.now();
+      return _ezapChatCache;
+    });
+  }
+
+  // Diz se o bridge ja conseguiu capturar window.Store
+  function ezapStoreReady() {
+    return _ezapRpc('_ezap_store_ready_req', 1500).then(function(resp) {
+      return !!(resp && resp.ready);
+    });
+  }
+
+  // Encontra o JID de um chat a partir do titulo (tolerante a pipe).
+  // Usa ezapMatchContact pra lidar com "Augusto" vs "Augusto | Thiago".
+  function ezapResolveJid(title) {
+    if (!title) return Promise.resolve(null);
+    return ezapGetAllChats().then(function(chats) {
+      if (!chats) return null;
+      var best = null;
+      for (var i = 0; i < chats.length; i++) {
+        var c = chats[i];
+        if (!c.name) continue;
+        if (ezapMatchContact(c.name, title)) {
+          // Preferencia: match exato > antes-do-pipe > prefix
+          if (ezapNormalizeName(c.name) === ezapNormalizeName(title)) return c.jid;
+          if (!best) best = c;
+        }
+      }
+      return best ? best.jid : null;
+    });
+  }
+
+  // Constroi lookup { jid -> {jid, name, isGroup} } e { normalizedName -> jid }
+  // para filtros/pin que precisam casar rows do DOM com JIDs em lote.
+  function ezapBuildChatIndex() {
+    return ezapGetAllChats().then(function(chats) {
+      if (!chats) return null;
+      var byJid = {};
+      var byName = {};
+      for (var i = 0; i < chats.length; i++) {
+        var c = chats[i];
+        byJid[c.jid] = c;
+        var n = ezapNormalizeName(c.name);
+        if (n) byName[n] = c.jid;
+      }
+      return { byJid: byJid, byName: byName, chats: chats };
+    });
+  }
+
+  // Dado um titulo do DOM, retorna o JID correspondente (match tolerante)
+  // usando um indice pre-construido (mais rapido em loops de filtro).
+  function ezapFindJidInIndex(index, title) {
+    if (!index || !title) return null;
+    var n = ezapNormalizeName(title);
+    if (index.byName[n]) return index.byName[n];
+    // Fallback: varre todos os nomes com ezapMatchContact
+    var chats = index.chats;
+    for (var i = 0; i < chats.length; i++) {
+      if (ezapMatchContact(chats[i].name, title)) return chats[i].jid;
+    }
+    return null;
+  }
+
   // Expoe no window para os demais scripts usarem
   window.ezapIsExtValid = ezapIsExtValid;
   window.ezapUserId = ezapUserId;
@@ -105,4 +214,9 @@
   window.ezapMatchContact = ezapMatchContact;
   window.ezapNormalizeName = ezapNormalizeName;
   window.ezapNameBeforePipe = ezapNameBeforePipe;
+  window.ezapGetAllChats = ezapGetAllChats;
+  window.ezapStoreReady = ezapStoreReady;
+  window.ezapResolveJid = ezapResolveJid;
+  window.ezapBuildChatIndex = ezapBuildChatIndex;
+  window.ezapFindJidInIndex = ezapFindJidInIndex;
 })();

@@ -252,6 +252,17 @@ function findChatListContainer() {
 
 // ===== Apply both SLICE + ABAS filters =====
 function applyConversationFilters() {
+  // Constroi o index do Store (JID por nome) antes de rodar o filtro sync.
+  // Se o store-bridge estiver pronto, casamos contatos por JID - assim o
+  // Augusto nao precisa estar visivel no virtual scroll pra aba detectar.
+  if (window.ezapBuildChatIndex) {
+    window.ezapBuildChatIndex().then(function(idx) { _runFiltersSync(idx); });
+  } else {
+    _runFiltersSync(null);
+  }
+}
+
+function _runFiltersSync(chatIndex) {
   injectFilterCSS();
 
   var container = findChatListContainer();
@@ -264,7 +275,7 @@ function applyConversationFilters() {
   var hasAbasFilter = typeof selectedAbaId !== 'undefined' && selectedAbaId !== null;
   var hasAnyFilter = hasSliceFilter || hasAbasFilter;
 
-  console.log("[WCRM FILTER] Applying. Rows:", container.children.length, "SLICE:", selectedMentor, "ABAS:", selectedAbaId);
+  console.log("[WCRM FILTER] Applying. Rows:", container.children.length, "SLICE:", selectedMentor, "ABAS:", selectedAbaId, "JID-index:", !!chatIndex);
 
   if (!hasAnyFilter) {
     // Remove all filter overrides — let WhatsApp restore normal layout
@@ -288,32 +299,45 @@ function applyConversationFilters() {
     return;
   }
 
-  // Debug: loga lista de contatos salvos na aba + titulos presentes no DOM
+  // Pre-computa JIDs do filtro ABAS pra matching sync no loop.
+  // Fonte da verdade: tab.contactJids (salvo ao adicionar) + resolucao
+  // lazy via chatIndex (pra contatos antigos sem JID).
+  var abaJidSet = null;
+  var abaNamesFallback = [];
   if (hasAbasFilter) {
-    var _abasContacts = getAbaContacts(selectedAbaId) || [];
-    var _visibleTitles = [];
-    for (var _vi = 0; _vi < container.children.length; _vi++) {
-      var _r = container.children[_vi];
-      var _ns = _r && _r.querySelector && _r.querySelector('span[title]');
-      if (_ns) _visibleTitles.push(_ns.getAttribute('title') || '');
-    }
-    console.log("[WCRM FILTER] ABAS stored contacts:", _abasContacts);
-    console.log("[WCRM FILTER] Visible chat titles (" + _visibleTitles.length + " rows):", _visibleTitles);
-    // Quais salvos NAO batem com nenhum titulo visivel
-    var _missing = _abasContacts.filter(function(c) {
-      return !_visibleTitles.some(function(t) { return window.ezapMatchContact && window.ezapMatchContact(c, t); });
+    var tabEntry = _getAbaTabEntry(selectedAbaId);
+    var tabContacts = (tabEntry && tabEntry.contacts) || [];
+    var tabJids = (tabEntry && tabEntry.contactJids) || {};
+    abaJidSet = {};
+    var resolvedCount = 0;
+    tabContacts.forEach(function(n) {
+      var jid = tabJids[n];
+      if (!jid && chatIndex && window.ezapFindJidInIndex) {
+        jid = window.ezapFindJidInIndex(chatIndex, n);
+      }
+      if (jid) { abaJidSet[jid] = true; resolvedCount++; }
+      else abaNamesFallback.push(n);
     });
-    if (_missing.length > 0) {
-      console.log("[WCRM FILTER] Saved contacts NOT found in visible rows:", _missing, "(role a lista para carregar mais conversas antes de filtrar)");
+
+    console.log("[WCRM FILTER] ABAS contacts:", tabContacts, "JIDs resolvidos:", resolvedCount + "/" + tabContacts.length);
+    if (chatIndex) console.log("[WCRM FILTER] Store bridge ready. Total no Store:", chatIndex.chats.length);
+    else console.log("[WCRM FILTER] Store bridge NAO pronto - match por nome (DOM-dependent)");
+    if (abaNamesFallback.length > 0) {
+      console.log("[WCRM FILTER] Contatos sem JID (usando match por nome):", abaNamesFallback);
     }
   }
+
+  // Pre-computa JIDs dos pins (mesma logica)
+  var pinJidSet = {};
+  var pinJids = window._wcrmPinnedJids || {};
+  Object.keys(pinJids).forEach(function(n) { if (pinJids[n]) pinJidSet[pinJids[n]] = true; });
+  var pinned = (typeof window._wcrmPinned !== 'undefined') ? window._wcrmPinned : {};
 
   // Enable filter mode: override virtual scroll to normal flow
   container.classList.add('wcrm-filter-active');
 
   var pinnedRows = [];
   var unpinnedRows = [];
-  var pinned = (typeof window._wcrmPinned !== 'undefined') ? window._wcrmPinned : {};
 
   for (var i = 0; i < container.children.length; i++) {
     var row = container.children[i];
@@ -326,6 +350,9 @@ function applyConversationFilters() {
 
     var title = nameSpan.getAttribute('title') || '';
     if (!title) { row.classList.add('wcrm-hidden'); continue; }
+
+    // Resolve JID da row (uma vez) via index
+    var rowJid = (chatIndex && window.ezapFindJidInIndex) ? window.ezapFindJidInIndex(chatIndex, title) : null;
 
     var show = true;
 
@@ -342,21 +369,21 @@ function applyConversationFilters() {
 
     // ABAS filter
     if (show && hasAbasFilter) {
-      var abasContacts = getAbaContacts(selectedAbaId);
-      if (abasContacts) {
-        var found = abasContacts.some(function(c) {
-          return window.ezapMatchContact(c, title);
-        });
-        if (!found) show = false;
-      } else {
-        show = false;
+      var found = false;
+      if (rowJid && abaJidSet[rowJid]) found = true;
+      if (!found && abaNamesFallback.length > 0) {
+        // Fallback nome tolerante (apenas contatos que nao tinham JID)
+        found = abaNamesFallback.some(function(c) { return window.ezapMatchContact(c, title); });
       }
+      if (!found) show = false;
     }
 
     if (show) {
       row.classList.remove('wcrm-hidden');
-      // Separate pinned and unpinned for reordering (tolerant match)
-      var isPinnedRow = Object.keys(pinned).some(function(pn) {
+      // Pin match: JID first, fallback nome tolerante
+      var isPinnedRow = false;
+      if (rowJid && pinJidSet[rowJid]) isPinnedRow = true;
+      else isPinnedRow = Object.keys(pinned).some(function(pn) {
         return window.ezapMatchContact(pn, title);
       });
       if (isPinnedRow) {
@@ -420,6 +447,13 @@ function getAbaContacts(abaId) {
   if (!data || !data.tabs) return null;
   var tab = data.tabs.find(function(t) { return t.id === abaId; });
   return tab ? tab.contacts : null;
+}
+
+// Retorna a tab completa (com contacts + contactJids), pra filtros fazerem JID-match
+function _getAbaTabEntry(abaId) {
+  var data = window._wcrmAbasCache;
+  if (!data || !data.tabs) return null;
+  return data.tabs.find(function(t) { return t.id === abaId; }) || null;
 }
 
 // ===== Init =====
