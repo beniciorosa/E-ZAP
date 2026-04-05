@@ -617,7 +617,7 @@ function assignLabel(name, color) {
 
 // ===== Storage (Supabase + chrome.storage cache) =====
 function getLabelUserId() {
-  return window.__wcrmAuth ? window.__wcrmAuth.userId : null;
+  return window.ezapUserId();
 }
 
 function loadLabelsData() {
@@ -862,30 +862,9 @@ function showLoadingBar(show) {
   }
 }
 
-// ===== HubSpot =====
+// ===== HubSpot (thin wrapper over api.js) =====
 function sendBgMessage(msg) {
-  return new Promise(function(resolve) {
-    // Timeout after 15s
-    var done = false;
-    var timer = setTimeout(function() {
-      if (!done) { done = true; resolve({ error: "Timeout - background worker nao respondeu" }); }
-    }, 15000);
-
-    try {
-      chrome.runtime.sendMessage(msg, function(response) {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        if (chrome.runtime.lastError) {
-          resolve({ error: chrome.runtime.lastError.message });
-        } else {
-          resolve(response || { error: "Sem resposta" });
-        }
-      });
-    } catch (e) {
-      if (!done) { done = true; clearTimeout(timer); resolve({ error: e.message }); }
-    }
-  });
+  return window.ezapSendBg(msg, { timeoutMs: 15000 });
 }
 
 // Validate if the HubSpot contact actually matches the chat name

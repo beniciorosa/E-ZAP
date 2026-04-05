@@ -44,28 +44,16 @@ function getTheme() {
 
 // ===== Extension Context Guard =====
 function isExtensionValid() {
-  try { return !!chrome.runtime && !!chrome.runtime.id; } catch(e) { return false; }
+  return window.ezapIsExtValid ? window.ezapIsExtValid() : false;
 }
 
-// ===== Supabase Helper =====
+// ===== Supabase Helper (thin wrapper over api.js) =====
 function supaRest(path, method, body, prefer) {
-  return new Promise(function(resolve) {
-    if (!isExtensionValid()) { resolve(null); return; }
-    try {
-      chrome.runtime.sendMessage({
-        action: "supabase_rest", path: path, method: method || "GET", body: body, prefer: prefer
-      }, function(resp) {
-        if (chrome.runtime.lastError) { resolve(null); return; }
-        resolve(resp);
-      });
-    } catch (e) {
-      resolve(null);
-    }
-  });
+  return window.ezapSupaRest(path, method, body, prefer);
 }
 
 function getUserId() {
-  return window.__wcrmAuth ? window.__wcrmAuth.userId : null;
+  return window.ezapUserId();
 }
 
 // ===== Load / Save ABAS (Supabase + chrome.storage cache) =====

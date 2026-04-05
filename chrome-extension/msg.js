@@ -7,25 +7,13 @@ let msgSidebarOpen = false;
 let msgEditing = null;
 let msgTempItems = [];
 
-// ===== Supabase Helper =====
+// ===== Supabase Helper (thin wrapper over api.js) =====
 function getMsgUserId() {
-  return window.__wcrmAuth ? window.__wcrmAuth.userId : null;
+  return window.ezapUserId();
 }
 
 function msgSupaRest(path, method, body, prefer) {
-  return new Promise(function(resolve) {
-    try {
-      if (!chrome.runtime || !chrome.runtime.id) { resolve(null); return; }
-      chrome.runtime.sendMessage({
-        action: "supabase_rest", path: path, method: method || "GET", body: body, prefer: prefer
-      }, function(resp) {
-        if (chrome.runtime.lastError) { resolve(null); return; }
-        resolve(resp);
-      });
-    } catch (e) {
-      resolve(null);
-    }
-  });
+  return window.ezapSupaRest(path, method, body, prefer);
 }
 
 function isValidUUID(str) {

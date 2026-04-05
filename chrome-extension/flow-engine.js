@@ -759,25 +759,9 @@
     };
   }
 
-  // ===== Helper: sendBg (mimics content.js sendBgMessage) =====
+  // ===== Helper: sendBg (thin wrapper over api.js) =====
   function sendBg(msg) {
-    return new Promise(function(resolve) {
-      var done = false;
-      var timer = setTimeout(function() {
-        if (!done) { done = true; resolve({ error: "Timeout" }); }
-      }, 20000);
-      try {
-        chrome.runtime.sendMessage(msg, function(res) {
-          if (done) return;
-          done = true;
-          clearTimeout(timer);
-          if (chrome.runtime.lastError) resolve({ error: chrome.runtime.lastError.message });
-          else resolve(res || { error: "Sem resposta" });
-        });
-      } catch (e) {
-        if (!done) { done = true; clearTimeout(timer); resolve({ error: e.message }); }
-      }
-    });
+    return window.ezapSendBg(msg, { timeoutMs: 20000 });
   }
 
   console.log("[EZAP Flow Engine] ready");
