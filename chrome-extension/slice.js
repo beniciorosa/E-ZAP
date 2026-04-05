@@ -221,11 +221,23 @@ function _runFiltersSync(chatIndex) {
     console.log("[WCRM FILTER] Adicionou", synthRows.length, "rows sinteticas (contatos fora do virtual scroll)");
   }
 
-  // Reorder: pinned contacts first
+  // Reorder: pinned contacts first.
+  // Usa DocumentFragment p/ mover todas as pinned rows atomicamente,
+  // preservando a ordem relativa entre elas. Isso e mais robusto que
+  // insertBefore em loop (que inverte ordem) e evita race com o
+  // virtual scroll do WA re-renderizando entre as inseerts.
   if (pinnedRows.length > 0) {
-    pinnedRows.forEach(function(row) {
-      container.insertBefore(row, container.firstChild);
-    });
+    var frag = document.createDocumentFragment();
+    pinnedRows.forEach(function(r) { frag.appendChild(r); });
+    container.insertBefore(frag, container.firstChild);
+    var firstName = '?';
+    try {
+      var firstEl = container.firstElementChild;
+      var ftitle = firstEl && firstEl.querySelector && firstEl.querySelector('span[title]');
+      if (ftitle) firstName = ftitle.getAttribute('title') || '?';
+      else if (firstEl && firstEl.getAttribute) firstName = firstEl.getAttribute('data-ezap-name') || '?';
+    } catch (e) {}
+    console.log("[WCRM FILTER] Moveu", pinnedRows.length, "pinned rows pro topo. Primeira row agora:", firstName);
   }
 
   setupFilterObserver();

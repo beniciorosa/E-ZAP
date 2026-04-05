@@ -441,8 +441,18 @@
     var store = match.store;
     var tried = [];
 
-    // Strategy 1: metodos no proprio chat model
-    var chatMethods = ['open', 'activate', 'select', 'click', 'onClick', 'openChat'];
+    // Enumera funcoes ANTES de tentar nada, pra poder retornar no diagnostico
+    var storeFns = [];
+    try { storeFns = Object.keys(store).filter(function(k){return typeof store[k]==='function';}); } catch(e) {}
+    var chatFns = [];
+    try { chatFns = Object.keys(target).filter(function(k){return typeof target[k]==='function';}); } catch(e) {}
+
+    console.log('[EZAP-OPEN] Tentando abrir chat:', jid);
+    console.log('[EZAP-OPEN] storeFns disponiveis (' + storeFns.length + '):', storeFns);
+    console.log('[EZAP-OPEN] chatFns disponiveis (' + chatFns.length + '):', chatFns);
+
+    // Strategy 1: metodos no proprio chat model (lista expandida)
+    var chatMethods = ['open', 'activate', 'select', 'click', 'onClick', 'openChat', 'setActive', 'focus'];
     for (var i = 0; i < chatMethods.length; i++) {
       var m = chatMethods[i];
       try {
@@ -453,39 +463,85 @@
       } catch (e) { tried.push('chat.' + m + ':' + (e && e.message)); }
     }
 
-    // Strategy 2: metodos no store (props do virtual-scroll-list)
-    var storeMethods = ['openChat', 'onChatClick', 'onChatPressed', 'handleChatClick', 'selectChat'];
+    // Strategy 2: metodos no store (lista expandida)
+    var storeMethods = [
+      'openChat', 'onChatClick', 'onChatPressed', 'handleChatClick', 'selectChat',
+      'onChatOpen', 'onOpenChat', 'chatSelect', 'onSelectChat', 'setActiveChat',
+      'onClick', 'onPress', 'onChatSelect', 'onItemClick', 'onItemPress'
+    ];
     for (var j = 0; j < storeMethods.length; j++) {
       var sm = storeMethods[j];
       try {
         if (typeof store[sm] === 'function') {
-          store[sm](target);
-          return { ok: true, via: 'store.' + sm + '(chat)' };
+          // Tenta com chat como argumento
+          try { store[sm](target); return { ok: true, via: 'store.' + sm + '(chat)' }; }
+          catch (e1) {
+            // Tenta com { chat } como argumento
+            try { store[sm]({ chat: target, id: target.id, jid: jid }); return { ok: true, via: 'store.' + sm + '({chat})' }; }
+            catch (e2) {
+              // Tenta com jid como argumento
+              try { store[sm](jid); return { ok: true, via: 'store.' + sm + '(jid)' }; }
+              catch (e3) { tried.push('store.' + sm + ': all args failed'); }
+            }
+          }
         }
       } catch (e) { tried.push('store.' + sm + ':' + (e && e.message)); }
     }
 
     // Strategy 3: escanea props do store por qualquer function com nome matching
     try {
-      var keys = Object.keys(store);
-      for (var k = 0; k < keys.length; k++) {
-        var key = keys[k];
-        if (/^(on|handle)?(chat)?(click|open|select|activate|press)/i.test(key)
-            && typeof store[key] === 'function') {
+      for (var k = 0; k < storeFns.length; k++) {
+        var key = storeFns[k];
+        if (/chat|open|select|activate|press|click|navigate|goto/i.test(key)) {
           try {
             store[key](target);
             return { ok: true, via: 'store.' + key + '(chat)' };
-          } catch (e) { tried.push('store.' + key + ':' + (e && e.message)); }
+          } catch (e) {
+            try { store[key](jid); return { ok: true, via: 'store.' + key + '(jid)' }; }
+            catch (e2) { tried.push('store.' + key + ': failed'); }
+          }
+        }
+      }
+    } catch (e) {}
+
+    // Strategy 4: procura metodo no chat model com nome relacionado
+    try {
+      for (var kk = 0; kk < chatFns.length; kk++) {
+        var ck = chatFns[kk];
+        if (/open|activate|select|focus|goto|navigate/i.test(ck)) {
+          try {
+            target[ck]();
+            return { ok: true, via: 'chat.' + ck + '()' };
+          } catch (e) { tried.push('chat.' + ck + ': failed'); }
+        }
+      }
+    } catch (e) {}
+
+    // Strategy 5: procura uma action/dispatch no store (Redux-like)
+    try {
+      if (typeof store.dispatch === 'function') {
+        var actions = [
+          { type: 'OPEN_CHAT', payload: { jid: jid } },
+          { type: 'chat/open', payload: target },
+          { type: 'SELECT_CHAT', chatId: jid }
+        ];
+        for (var a = 0; a < actions.length; a++) {
+          try { store.dispatch(actions[a]); return { ok: true, via: 'store.dispatch(' + actions[a].type + ')' }; }
+          catch (e) { tried.push('dispatch ' + actions[a].type + ': failed'); }
         }
       }
     } catch (e) {}
 
     // Diagnostico: retorna keys disponiveis pro caso de nada funcionar
-    var storeFns = [];
-    try { storeFns = Object.keys(store).filter(function(k){return typeof store[k]==='function';}); } catch(e) {}
-    var chatFns = [];
-    try { chatFns = Object.keys(target).filter(function(k){return typeof target[k]==='function';}).slice(0, 40); } catch(e) {}
-    return { ok: false, reason: 'no-method-worked', tried: tried, storeFns: storeFns, chatFns: chatFns };
+    return {
+      ok: false,
+      reason: 'no-method-worked',
+      tried: tried,
+      storeFns: storeFns,
+      chatFns: chatFns.slice(0, 60),
+      hasDispatch: typeof store.dispatch === 'function',
+      chatIdSerialized: (target.id && target.id._serialized) || null
+    };
   }
 
   // ===== RPC via postMessage =====
