@@ -123,9 +123,11 @@
     if (_initTries < INIT_MAX_TRIES) setTimeout(rescan, 2000);
   }
 
-  // Instala interceptors pros nomes conhecidos
-  installEarlyInterceptor('webpackChunkwhatsapp_web_client');
-  installEarlyInterceptor('webpackChunkbuild');
+  // NAO instalamos mais o early interceptor nos nomes conhecidos porque:
+  //   1) WA pode usar um nome DIFERENTE de webpackChunkwhatsapp_web_client
+  //   2) Nosso defineProperty parece confundir a bootstrap do WA neste build
+  //      (PIN nao carrega). Deixamos WA criar o chunk naturalmente e
+  //      detectamos via polling dinamico.
 
   // ===== PARASITE PUSH POLLING =====
   // Quando outra extensao (ex: WPPConnect/concorrente) rouba nosso descriptor
@@ -149,9 +151,14 @@
       var k = keys[i];
       var chunk;
       try { chunk = window[k]; } catch(e) { continue; }
-      if (!chunk || typeof chunk.push !== 'function') continue;
+      if (!chunk || typeof chunk.push !== 'function' || !Array.isArray(chunk)) continue;
+      // Wrap push (caso webpack ainda nao tenha replaced, vamos ver quando fizer)
+      if (!chunk._ezapWrapped) {
+        wrapArrayPush(chunk);
+        console.log('[EZAP-STORE] Wrapped push on', k, '(len=', chunk.length, 'native=', String(chunk.push).indexOf('[native code]')>=0, ')');
+      }
       var isNative = String(chunk.push).indexOf('[native code]') >= 0;
-      if (isNative) continue; // webpack ainda nao instalou jsonpCallback
+      if (isNative) continue; // webpack ainda nao instalou jsonpCallback, nao adianta parasite ainda
       if (_parasitePushed[k]) continue; // ja empurramos parasita nesse chunk
       try {
         var marker = '_ezap_' + Math.random().toString(36).slice(2);
@@ -385,5 +392,5 @@
     };
   };
 
-  console.log('[EZAP-STORE] Bridge started (v6 early interceptor + parasite poll). Call window._ezapDebugStore() for state.');
+  console.log('[EZAP-STORE] Bridge started (v7 polling only, no early interceptor). Call window._ezapDebugStore() for state.');
 })();
