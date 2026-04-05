@@ -564,6 +564,19 @@
     } catch (e) { return false; }
   }
 
+  // Poll ate achar o chat aberto (early-exit) ou timeout
+  function _waitChatOpenFor(nameHint, timeoutMs) {
+    return new Promise(function(resolve) {
+      var deadline = Date.now() + (timeoutMs || 1200);
+      var check = function() {
+        if (_isChatOpenFor(nameHint)) { resolve(true); return; }
+        if (Date.now() > deadline) { resolve(false); return; }
+        setTimeout(check, 80);
+      };
+      check();
+    });
+  }
+
   // Tenta abrir via store-bridge (Store.Chat direto, nao usa eventos DOM).
   // Mais confiavel que dispatchEvent/click (que o WA ignora).
   function _ezapOpenViaBridge(jid) {
@@ -592,15 +605,15 @@
         if (resolvedJid) {
           _ezapOpenViaBridge(resolvedJid).then(function(bridgeResult) {
             if (bridgeResult && bridgeResult.ok) {
-              // Verifica em 400ms se abriu
-              setTimeout(function() {
-                if (_isChatOpenFor(nameHint)) {
+              // Poll ate 1200ms pra WA renderizar o chat
+              _waitChatOpenFor(nameHint, 1200).then(function(opened) {
+                if (opened) {
                   resolve({ ok: true, via: 'bridge:' + bridgeResult.via });
                 } else {
-                  console.log('[EZAP-OPEN] bridge ok but chat not open, trying DOM');
+                  console.log('[EZAP-OPEN] bridge ok but chat not open after poll, trying DOM');
                   _fallbackDomThenSearch(jid, nameHint, resolve);
                 }
-              }, 400);
+              });
               return;
             }
             // Bridge falhou, tenta DOM
@@ -617,8 +630,8 @@
   // Fallback: DOM click + (se nao abrir) search bar
   function _fallbackDomThenSearch(jid, nameHint, resolve) {
     if (_tryDomClick(nameHint)) {
-      setTimeout(function() {
-        if (_isChatOpenFor(nameHint)) {
+      _waitChatOpenFor(nameHint, 800).then(function(opened) {
+        if (opened) {
           resolve({ ok: true, via: 'dom-click' });
         } else {
           console.log('[EZAP-DOM] click did not open chat, trying search');
@@ -626,7 +639,7 @@
             resolve(r && r.ok ? r : { ok: false, reason: 'all-failed', searchResult: r });
           });
         }
-      }, 600);
+      });
       return;
     }
     // Nao achou no DOM, vai direto pra search
