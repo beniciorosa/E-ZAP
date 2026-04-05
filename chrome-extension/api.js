@@ -148,50 +148,186 @@
     });
   }
 
-  // Abre um chat por JID usando o bridge. Antes de ir pro bridge,
-  // tenta achar a row na DOM e clicar nela — isso cobre os chats que
-  // ja estao renderizados pelo virtual scroll (caminho mais confiavel).
-  // Se a row nao esta na DOM, vai pro bridge que tenta chamar metodos
-  // do chat model / store props do React fiber.
+  // Clique direto na row se ela ja estiver no DOM (virtual scroll viewport).
+  // Mais rapido/reliable que search quando disponivel.
+  function _tryDomClick(nameHint) {
+    if (!nameHint) return false;
+    try {
+      var pane = document.getElementById('pane-side');
+      if (!pane) return false;
+      var rows = pane.querySelectorAll('[role="row"]');
+      for (var i = 0; i < rows.length; i++) {
+        var span = rows[i].querySelector('span[title]');
+        if (!span) continue;
+        var t = span.getAttribute('title') || '';
+        if (ezapMatchContact(nameHint, t)) {
+          var clickable = span.closest('[role="listitem"]') || span.closest('div[tabindex]') || rows[i];
+          if (!clickable) continue;
+          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Acha o campo de busca do WA (contenteditable no header de pane-side)
+  function _findWASearchField() {
+    var pane = document.getElementById('pane-side');
+    if (!pane) return null;
+    // WA usa varios seletores dependendo da versao
+    var field = pane.querySelector('div[contenteditable="true"][role="textbox"]') ||
+                pane.querySelector('[contenteditable="true"][data-tab]') ||
+                pane.querySelector('div[contenteditable="true"]');
+    return field;
+  }
+
+  function _clearSearchField(field) {
+    if (!field) return;
+    try {
+      field.focus();
+      // Seleciona tudo e deleta
+      document.execCommand('selectAll', false, null);
+      document.execCommand('delete', false, null);
+      // Fallback: dispara Escape pra fechar a busca
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+      field.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', keyCode: 27, bubbles: true }));
+    } catch (e) {}
+  }
+
+  // Espera ate achar uma row com titulo que casa com 'name' dentro de timeout
+  function _waitForSearchResult(name, timeoutMs) {
+    return new Promise(function(resolve) {
+      var deadline = Date.now() + (timeoutMs || 2000);
+      var pane = document.getElementById('pane-side');
+      if (!pane) { resolve(null); return; }
+      var attempt = function() {
+        // Evita contemplar rows dentro do nosso custom-list
+        var rows = pane.querySelectorAll('[role="row"], [role="listitem"]');
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].closest && rows[i].closest('#wcrm-custom-list')) continue;
+          var span = rows[i].querySelector('span[title]');
+          if (!span) continue;
+          var t = span.getAttribute('title') || '';
+          if (ezapMatchContact(name, t)) { resolve(rows[i]); return; }
+        }
+        if (Date.now() > deadline) { resolve(null); return; }
+        setTimeout(attempt, 80);
+      };
+      attempt();
+    });
+  }
+
+  // Abre o chat digitando o nome na search bar do WA.
+  // Funciona pra qualquer contato (mesmo fora do virtual scroll viewport)
+  // porque WA busca na lista completa quando digitamos.
+  function ezapOpenChatViaSearch(name) {
+    return new Promise(function(resolve) {
+      if (!name) { resolve({ ok: false, reason: 'no-name' }); return; }
+      var field = _findWASearchField();
+      if (!field) { resolve({ ok: false, reason: 'no-search-field' }); return; }
+
+      // Se a custom list esta visivel, ela pode estar cobrindo a area da
+      // lista do WA. Esconde temporariamente pra WA renderizar resultados.
+      var customList = document.getElementById('wcrm-custom-list');
+      var hiddenEl = document.querySelector('[data-ezap-hidden="1"]');
+      var customWasVisible = customList && customList.style.display !== 'none';
+      if (customWasVisible) {
+        customList.style.display = 'none';
+        if (hiddenEl) hiddenEl.style.display = hiddenEl.getAttribute('data-ezap-orig-display') || '';
+      }
+
+      var restore = function() {
+        if (customWasVisible) {
+          if (hiddenEl) hiddenEl.style.display = 'none';
+          customList.style.display = 'block';
+        }
+      };
+
+      // Foca, limpa, digita
+      try {
+        field.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('delete', false, null);
+        // Pega so nome antes de pipe pra buscar melhor
+        var searchTerm = (name.split(/\s*\|\s*/)[0] || name).trim();
+        // Digita (execCommand.insertText funciona com React contenteditable)
+        var inserted = document.execCommand('insertText', false, searchTerm);
+        if (!inserted) {
+          // Fallback manual
+          field.textContent = searchTerm;
+          field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: searchTerm }));
+        }
+      } catch (e) {
+        restore();
+        resolve({ ok: false, reason: 'type-failed', error: e.message });
+        return;
+      }
+
+      // Aguarda resultado aparecer
+      _waitForSearchResult(name, 2000).then(function(resultRow) {
+        if (!resultRow) {
+          _clearSearchField(field);
+          restore();
+          resolve({ ok: false, reason: 'no-search-match' });
+          return;
+        }
+        // Clica no resultado
+        try {
+          var clickable = resultRow.closest('[role="listitem"]') || resultRow;
+          clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          clickable.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        } catch (e) {
+          _clearSearchField(field);
+          restore();
+          resolve({ ok: false, reason: 'click-failed', error: e.message });
+          return;
+        }
+        // Limpa a busca e restaura custom list
+        setTimeout(function() {
+          _clearSearchField(field);
+          setTimeout(restore, 100);
+        }, 250);
+        resolve({ ok: true, via: 'search' });
+      });
+    });
+  }
+
+  // Abre um chat com varias estrategias em ordem de confiabilidade:
+  // 1) DOM click (row ja no viewport do virtual scroll) — instantaneo
+  // 2) Search bar do WA — funciona pra contatos fora do viewport
+  // 3) Bridge RPC (Store.Cmd via fiber) — fallback experimental
   function ezapOpenChat(jid, nameHint) {
     return new Promise(function(resolve) {
-      // Tenta clicar na row da DOM primeiro (caminho mais confiavel)
-      try {
-        var pane = document.getElementById('pane-side');
-        if (pane && nameHint) {
-          var rows = pane.querySelectorAll('[role="row"]');
-          for (var i = 0; i < rows.length; i++) {
-            var span = rows[i].querySelector('span[title]');
-            if (!span) continue;
-            var t = span.getAttribute('title') || '';
-            if (ezapMatchContact(nameHint, t)) {
-              // Simula click de usuario - WA listens on mousedown normalmente
-              var clickable = span.closest('[role="listitem"]') || span.closest('div[tabindex]') || rows[i];
-              if (clickable) {
-                try {
-                  clickable.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                  clickable.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                  clickable.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                  resolve({ ok: true, via: 'dom-click' });
-                  return;
-                } catch (e) {}
-              }
-            }
-          }
-        }
-      } catch (e) {}
-      // Fallback: bridge RPC
-      var id = ++_ezapRpcId;
-      var timer = setTimeout(function() {
-        delete _ezapRpcPending[id];
-        resolve({ ok: false, reason: 'timeout' });
-      }, 3000);
-      _ezapRpcPending[id] = function(data) {
-        clearTimeout(timer);
-        resolve(data && data.result ? data.result : { ok: false, reason: 'no-response' });
-      };
-      try { window.postMessage({ type: '_ezap_open_chat_req', id: id, jid: jid }, '*'); }
-      catch (e) { clearTimeout(timer); delete _ezapRpcPending[id]; resolve({ ok: false, reason: 'postmessage-failed' }); }
+      // Strategy 1: DOM click (so funciona se row esta no viewport E
+      // custom list nao esta cobrindo)
+      var customList = document.getElementById('wcrm-custom-list');
+      var customVisible = customList && customList.style.display !== 'none';
+      if (!customVisible && _tryDomClick(nameHint)) {
+        resolve({ ok: true, via: 'dom-click' });
+        return;
+      }
+
+      // Strategy 2: search bar (reliable pra qualquer contato)
+      ezapOpenChatViaSearch(nameHint).then(function(result) {
+        if (result && result.ok) { resolve(result); return; }
+
+        // Strategy 3: bridge RPC (fallback)
+        var id = ++_ezapRpcId;
+        var timer = setTimeout(function() {
+          delete _ezapRpcPending[id];
+          resolve({ ok: false, reason: 'all-strategies-failed', searchResult: result });
+        }, 3000);
+        _ezapRpcPending[id] = function(data) {
+          clearTimeout(timer);
+          resolve(data && data.result ? data.result : { ok: false, reason: 'no-response' });
+        };
+        try { window.postMessage({ type: '_ezap_open_chat_req', id: id, jid: jid }, '*'); }
+        catch (e) { clearTimeout(timer); delete _ezapRpcPending[id]; resolve({ ok: false, reason: 'postmessage-failed' }); }
+      });
     });
   }
 
@@ -267,4 +403,5 @@
   window.ezapBuildChatIndex = ezapBuildChatIndex;
   window.ezapFindJidInIndex = ezapFindJidInIndex;
   window.ezapOpenChat = ezapOpenChat;
+  window.ezapOpenChatViaSearch = ezapOpenChatViaSearch;
 })();

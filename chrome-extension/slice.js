@@ -48,13 +48,31 @@ function findChatListContainer() {
 
 // ===== Apply ABAS filter =====
 function applyConversationFilters() {
-  // Constroi o index do Store (JID por nome) antes de rodar o filtro sync.
-  // Se o store-bridge estiver pronto, casamos contatos por JID - assim
-  // contatos fora do virtual scroll viewport sao detectados pela aba.
+  // PLANO B: quando ABAS filter ativo, esconde a lista do WA e renderiza
+  // nossa propria lista (zero dependencia de virtual scroll). Fora do filtro,
+  // usa o caminho antigo (_runFiltersSync pra limpeza/restauracao).
+  var hasAbasFilter = typeof selectedAbaId !== 'undefined' && selectedAbaId !== null;
+  var runLegacy = function(idx) { _hideCustomAbaList(); _runFiltersSync(idx); };
+  var runCustom = function(idx) {
+    var tab = _getAbaTabEntry(selectedAbaId);
+    if (!tab) { runLegacy(idx); return; }
+    // Garante que a lista legacy esta em estado neutro antes de overlay
+    var container = findChatListContainer();
+    if (container) {
+      container.classList.remove('wcrm-filter-active');
+      var hidden = container.querySelectorAll('.wcrm-hidden');
+      for (var h = 0; h < hidden.length; h++) hidden[h].classList.remove('wcrm-hidden');
+      var synth = container.querySelectorAll('.wcrm-synth-row');
+      for (var s = 0; s < synth.length; s++) synth[s].parentNode.removeChild(synth[s]);
+    }
+    _showCustomAbaList(tab, idx);
+  };
   if (window.ezapBuildChatIndex) {
-    window.ezapBuildChatIndex().then(function(idx) { _runFiltersSync(idx); });
+    window.ezapBuildChatIndex().then(function(idx) {
+      if (hasAbasFilter) runCustom(idx); else runLegacy(idx);
+    });
   } else {
-    _runFiltersSync(null);
+    if (hasAbasFilter) runCustom(null); else runLegacy(null);
   }
 }
 
@@ -250,6 +268,195 @@ function _runFiltersSync(chatIndex) {
 
   setupFilterObserver();
 }
+
+// ===== PLANO B: Custom List (renderizacao propria, zero virtual scroll) =====
+// Quando a ABA esta ativa, a gente esconde a lista do WA e renderiza nossa
+// propria lista com os contatos da aba. Isso elimina TODOS os problemas
+// de virtual scroll (contatos nao carregados, scroll bugado, pin que nao sobe).
+//
+// Click nos cards abre o chat via search-bar do WA (ezapOpenChatViaSearch),
+// que funciona independente de viewport/scroll.
+
+function _ensureCustomListCSS() {
+  if (document.getElementById('wcrm-custom-list-css')) return;
+  var s = document.createElement('style');
+  s.id = 'wcrm-custom-list-css';
+  s.textContent = [
+    '#wcrm-custom-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; background: #111b21; color: #e9edef; }',
+    '.wcrm-custom-row { display: flex; align-items: center; padding: 10px 15px; min-height: 72px; box-sizing: border-box; border-bottom: 1px solid rgba(134,150,160,0.1); cursor: pointer; transition: background 0.15s; }',
+    '.wcrm-custom-row:hover { background: rgba(42,57,66,0.5); }',
+    '.wcrm-custom-row:active { background: rgba(42,57,66,0.8); }',
+    '.wcrm-custom-row.wcrm-row-loading { opacity: 0.5; pointer-events: none; }',
+    '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; background: #6b7c85; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 600; flex-shrink: 0; margin-right: 15px; }',
+    '.wcrm-custom-body { flex: 1; min-width: 0; display: flex; align-items: center; }',
+    '.wcrm-custom-name { color: #e9edef; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }',
+    '.wcrm-custom-pin { font-size: 12px; margin-left: 6px; flex-shrink: 0; }',
+    '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: #8696a0; font-size: 14px; }',
+    '.wcrm-custom-header { padding: 10px 15px; color: #8696a0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(134,150,160,0.2); background: #0b141a; position: sticky; top: 0; z-index: 1; }'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+
+// Acha o elemento que tem overflow scrollavel (parent do grid da lista)
+function _findScrollParent(startEl) {
+  var cur = startEl;
+  while (cur && cur !== document.body) {
+    try {
+      var cs = getComputedStyle(cur);
+      if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') return cur;
+    } catch (e) {}
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function _showCustomAbaList(abaTab, chatIndex) {
+  _ensureCustomListCSS();
+
+  var container = findChatListContainer();
+  if (!container) return false;
+
+  // Acha o container pai que e scrollavel (esse que vamos esconder)
+  var scrollParent = _findScrollParent(container) || container.parentElement;
+  if (!scrollParent) return false;
+
+  // Esconde a lista nativa do WA (preserva display original pra restaurar)
+  if (!scrollParent.hasAttribute('data-ezap-hidden')) {
+    scrollParent.setAttribute('data-ezap-hidden', '1');
+    scrollParent.setAttribute('data-ezap-orig-display', scrollParent.style.display || '');
+    scrollParent.style.display = 'none';
+  }
+
+  // Cria nossa lista custom (ou reusa)
+  var custom = document.getElementById('wcrm-custom-list');
+  if (!custom) {
+    custom = document.createElement('div');
+    custom.id = 'wcrm-custom-list';
+    // Insere no MESMO pai do scrollParent, logo depois dele
+    scrollParent.parentNode.insertBefore(custom, scrollParent.nextSibling);
+  }
+  custom.style.display = 'block';
+  custom.innerHTML = '';
+
+  // Resolve contatos da aba (nome + JID + pin status + nome de display)
+  var contacts = (abaTab && abaTab.contacts) || [];
+  var contactJids = (abaTab && abaTab.contactJids) || {};
+  var pinned = window._wcrmPinned || {};
+  var pinJids = window._wcrmPinnedJids || {};
+
+  if (contacts.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'wcrm-custom-empty';
+    empty.textContent = 'Nenhum contato nessa aba ainda';
+    custom.appendChild(empty);
+    console.log("[WCRM CUSTOM] Aba vazia");
+    return true;
+  }
+
+  var rows = contacts.map(function(n) {
+    var jid = contactJids[n];
+    if (!jid && chatIndex && window.ezapFindJidInIndex) {
+      jid = window.ezapFindJidInIndex(chatIndex, n);
+    }
+    var displayName = n;
+    if (jid && chatIndex && chatIndex.byJid && chatIndex.byJid[jid] && chatIndex.byJid[jid].name) {
+      displayName = chatIndex.byJid[jid].name;
+    }
+    var isPinned = !!pinned[n];
+    if (!isPinned && jid && pinJids) {
+      var pkeys = Object.keys(pinJids);
+      for (var pk = 0; pk < pkeys.length; pk++) {
+        if (pinJids[pkeys[pk]] === jid) { isPinned = true; break; }
+      }
+    }
+    return { name: n, displayName: displayName, jid: jid, isPinned: isPinned };
+  });
+
+  // Ordena: pinned primeiro, depois alfabetico
+  rows.sort(function(a, b) {
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+    return (a.displayName || '').localeCompare(b.displayName || '');
+  });
+
+  // Header com contagem
+  var header = document.createElement('div');
+  header.className = 'wcrm-custom-header';
+  var pinnedCount = rows.filter(function(r) { return r.isPinned; }).length;
+  header.textContent = rows.length + ' contato' + (rows.length !== 1 ? 's' : '') +
+    (pinnedCount > 0 ? ' · ' + pinnedCount + ' fixado' + (pinnedCount !== 1 ? 's' : '') : '');
+  custom.appendChild(header);
+
+  var frag = document.createDocumentFragment();
+  rows.forEach(function(r) { frag.appendChild(_createCustomRow(r)); });
+  custom.appendChild(frag);
+
+  console.log("[WCRM CUSTOM] Renderizou", rows.length, "contatos,", pinnedCount, "pinned");
+  return true;
+}
+
+function _createCustomRow(data) {
+  var row = document.createElement('div');
+  row.className = 'wcrm-custom-row';
+  row.setAttribute('data-ezap-jid', data.jid || '');
+  row.setAttribute('data-ezap-name', data.name || '');
+
+  var avatar = document.createElement('div');
+  avatar.className = 'wcrm-custom-avatar';
+  avatar.textContent = ((data.displayName || data.name || '?').trim().charAt(0) || '?').toUpperCase();
+  row.appendChild(avatar);
+
+  var body = document.createElement('div');
+  body.className = 'wcrm-custom-body';
+  var name = document.createElement('span');
+  name.className = 'wcrm-custom-name';
+  name.setAttribute('title', data.displayName || data.name || '');
+  name.textContent = data.displayName || data.name || '';
+  body.appendChild(name);
+  if (data.isPinned) {
+    var pin = document.createElement('span');
+    pin.className = 'wcrm-custom-pin';
+    pin.textContent = '📌';
+    body.appendChild(pin);
+  }
+  row.appendChild(body);
+
+  row.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.ezapOpenChat) {
+      console.warn("[WCRM CUSTOM] ezapOpenChat nao disponivel");
+      return;
+    }
+    var jid = row.getAttribute('data-ezap-jid');
+    var cname = row.getAttribute('data-ezap-name');
+    row.classList.add('wcrm-row-loading');
+    window.ezapOpenChat(jid, cname).then(function(result) {
+      console.log("[WCRM CUSTOM] openChat:", cname, "->", result);
+      row.classList.remove('wcrm-row-loading');
+    });
+  });
+
+  return row;
+}
+
+function _hideCustomAbaList() {
+  var custom = document.getElementById('wcrm-custom-list');
+  if (custom) {
+    custom.style.display = 'none';
+    custom.innerHTML = '';
+  }
+  var hidden = document.querySelector('[data-ezap-hidden="1"]');
+  if (hidden) {
+    var orig = hidden.getAttribute('data-ezap-orig-display') || '';
+    hidden.style.display = orig;
+    hidden.removeAttribute('data-ezap-hidden');
+    hidden.removeAttribute('data-ezap-orig-display');
+  }
+}
+
+// Expoe pra outras partes da extensao poderem esconder/mostrar manualmente
+window._wcrmHideCustomList = _hideCustomAbaList;
+window._wcrmShowCustomList = _showCustomAbaList;
 
 // Cria uma row sintetica pra contato que nao esta no virtual scroll.
 // Estilo visual aproximado de uma row do WA (avatar placeholder + nome).
