@@ -564,41 +564,74 @@
     } catch (e) { return false; }
   }
 
+  // Tenta abrir via store-bridge (Store.Chat direto, nao usa eventos DOM).
+  // Mais confiavel que dispatchEvent/click (que o WA ignora).
+  function _ezapOpenViaBridge(jid) {
+    return new Promise(function(resolve) {
+      if (!jid) { resolve(null); return; }
+      var id = ++_ezapRpcId;
+      var timer = setTimeout(function() {
+        delete _ezapRpcPending[id];
+        resolve(null);
+      }, 3000);
+      _ezapRpcPending[id] = function(data) {
+        clearTimeout(timer);
+        resolve(data && data.result ? data.result : null);
+      };
+      try { window.postMessage({ type: '_ezap_open_chat_req', id: id, jid: jid }, '*'); }
+      catch (e) { clearTimeout(timer); delete _ezapRpcPending[id]; resolve(null); }
+    });
+  }
+
   function ezapOpenChat(jid, nameHint) {
     return new Promise(function(resolve) {
-      // Strategy 1: DOM click (so funciona se row esta no viewport)
-      if (_tryDomClick(nameHint)) {
-        // Verifica em 600ms se a conversa realmente abriu
-        setTimeout(function() {
-          if (_isChatOpenFor(nameHint)) {
-            resolve({ ok: true, via: 'dom-click' });
-          } else {
-            console.log('[EZAP-DOM] click did not open chat, falling back to search');
-            ezapOpenChatViaSearch(nameHint).then(function(r) {
-              resolve(r && r.ok ? r : { ok: false, reason: 'dom-click-no-effect', searchResult: r });
-            });
-          }
-        }, 600);
-        return;
-      }
-
-      // Strategy 2: search bar (reliable pra qualquer contato)
-      ezapOpenChatViaSearch(nameHint).then(function(result) {
-        if (result && result.ok) { resolve(result); return; }
-
-        // Strategy 3: bridge RPC (fallback)
-        var id = ++_ezapRpcId;
-        var timer = setTimeout(function() {
-          delete _ezapRpcPending[id];
-          resolve({ ok: false, reason: 'all-strategies-failed', searchResult: result });
-        }, 3000);
-        _ezapRpcPending[id] = function(data) {
-          clearTimeout(timer);
-          resolve(data && data.result ? data.result : { ok: false, reason: 'no-response' });
-        };
-        try { window.postMessage({ type: '_ezap_open_chat_req', id: id, jid: jid }, '*'); }
-        catch (e) { clearTimeout(timer); delete _ezapRpcPending[id]; resolve({ ok: false, reason: 'postmessage-failed' }); }
+      // Strategy 1: store-bridge (Store.Chat direto, sem DOM events)
+      // Se nao tem JID, tenta resolver pelo nome.
+      var jidPromise = jid ? Promise.resolve(jid) : ezapResolveJid(nameHint);
+      jidPromise.then(function(resolvedJid) {
+        if (resolvedJid) {
+          _ezapOpenViaBridge(resolvedJid).then(function(bridgeResult) {
+            if (bridgeResult && bridgeResult.ok) {
+              // Verifica em 400ms se abriu
+              setTimeout(function() {
+                if (_isChatOpenFor(nameHint)) {
+                  resolve({ ok: true, via: 'bridge:' + bridgeResult.via });
+                } else {
+                  console.log('[EZAP-OPEN] bridge ok but chat not open, trying DOM');
+                  _fallbackDomThenSearch(jid, nameHint, resolve);
+                }
+              }, 400);
+              return;
+            }
+            // Bridge falhou, tenta DOM
+            console.log('[EZAP-OPEN] bridge failed:', bridgeResult && bridgeResult.reason);
+            _fallbackDomThenSearch(jid, nameHint, resolve);
+          });
+        } else {
+          _fallbackDomThenSearch(jid, nameHint, resolve);
+        }
       });
+    });
+  }
+
+  // Fallback: DOM click + (se nao abrir) search bar
+  function _fallbackDomThenSearch(jid, nameHint, resolve) {
+    if (_tryDomClick(nameHint)) {
+      setTimeout(function() {
+        if (_isChatOpenFor(nameHint)) {
+          resolve({ ok: true, via: 'dom-click' });
+        } else {
+          console.log('[EZAP-DOM] click did not open chat, trying search');
+          ezapOpenChatViaSearch(nameHint).then(function(r) {
+            resolve(r && r.ok ? r : { ok: false, reason: 'all-failed', searchResult: r });
+          });
+        }
+      }, 600);
+      return;
+    }
+    // Nao achou no DOM, vai direto pra search
+    ezapOpenChatViaSearch(nameHint).then(function(r) {
+      resolve(r && r.ok ? r : { ok: false, reason: 'all-failed', searchResult: r });
     });
   }
 
