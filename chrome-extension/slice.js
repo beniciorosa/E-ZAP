@@ -389,25 +389,34 @@ function _buildNativePreviewMap() {
       var title = titleSpan.getAttribute('title') || '';
       if (!title) continue;
 
-      // Encontra a "segunda linha" do row: o preview fica em spans ABAIXO
-      // do container do titulo. Busca spans que NAO contem o titulo e NAO
-      // sao icones/SVGs.
-      var titleParent = titleSpan.parentElement; // container da linha 1
-      if (!titleParent) continue;
-      var line2 = titleParent.nextElementSibling; // container da linha 2
-      if (!line2) continue;
+      // Usa innerText do row inteiro (ignora SVGs/hidden elements)
+      // e depois remove o titulo e timestamp pra sobrar o preview.
+      var rowText = '';
+      try { rowText = (rows[i].innerText || '').trim(); } catch (e2) {}
+      if (!rowText) continue;
 
-      // Pega innerText da linha 2 (ignora SVGs, icons, hidden elements)
-      var previewText = '';
-      try { previewText = (line2.innerText || '').trim(); } catch (e2) {}
-      if (!previewText) continue;
+      // Quebra em linhas e remove a que contem o titulo
+      var lines = rowText.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+      var previewParts = [];
+      for (var li = 0; li < lines.length; li++) {
+        var line = lines[li];
+        // Pula se e o titulo (ou parte dele)
+        if (line === title || title.indexOf(line) === 0 || line.indexOf(title) === 0) continue;
+        // Pula timestamps isolados
+        if (/^\d{1,2}:\d{2}$/.test(line)) continue;
+        if (/^(ontem|hoje)$/i.test(line)) continue;
+        if (/^(dom|seg|ter|qua|qui|sex|sab|segunda|terca|quarta|quinta|sexta|sabado|domingo)[\-\s]?.*$/i.test(line) && line.length < 15) continue;
+        if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(line)) continue;
+        // Pula badge numerico isolado
+        if (/^\d{1,3}\+?$/.test(line)) continue;
+        previewParts.push(line);
+      }
+      var preview = previewParts.join(' ').trim();
+      // Remove badge numerico no final
+      preview = preview.replace(/\s+\d{1,3}\+?\s*$/, '').trim();
 
-      // Limpa: remove badge numeros (1, 2, 99+) que podem estar no final
-      previewText = previewText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-      previewText = previewText.replace(/\s+\d{1,3}\+?\s*$/, '').trim();
-
-      if (previewText && previewText.length >= 2) {
-        map[title] = previewText;
+      if (preview && preview.length >= 2) {
+        map[title] = preview;
       }
     }
   } catch (e) {}
