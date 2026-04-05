@@ -557,10 +557,23 @@
     try {
       var main = document.getElementById('main');
       if (!main) return false;
-      var headerSpan = main.querySelector('header span[title]');
-      if (!headerSpan) return false;
-      var openedName = headerSpan.getAttribute('title') || '';
-      return ezapMatchContact(nameHint, openedName);
+      var header = main.querySelector('header');
+      if (!header) return false;
+      // Procura em TODOS os span[title] do header (pode ter varios)
+      var spans = header.querySelectorAll('span[title]');
+      for (var i = 0; i < spans.length; i++) {
+        var openedName = spans[i].getAttribute('title') || '';
+        if (!openedName) continue;
+        if (ezapMatchContact(nameHint, openedName)) return true;
+      }
+      // Tambem tenta div[title] e elementos com dir="auto" (nome do grupo as vezes)
+      var divs = header.querySelectorAll('div[title]');
+      for (var j = 0; j < divs.length; j++) {
+        var openedName2 = divs[j].getAttribute('title') || '';
+        if (!openedName2) continue;
+        if (ezapMatchContact(nameHint, openedName2)) return true;
+      }
+      return false;
     } catch (e) { return false; }
   }
 
@@ -605,18 +618,13 @@
         if (resolvedJid) {
           _ezapOpenViaBridge(resolvedJid).then(function(bridgeResult) {
             if (bridgeResult && bridgeResult.ok) {
-              // Poll ate 1200ms pra WA renderizar o chat
-              _waitChatOpenFor(nameHint, 1200).then(function(opened) {
-                if (opened) {
-                  resolve({ ok: true, via: 'bridge:' + bridgeResult.via });
-                } else {
-                  console.log('[EZAP-OPEN] bridge ok but chat not open after poll, trying DOM');
-                  _fallbackDomThenSearch(jid, nameHint, resolve);
-                }
-              });
+              // Bridge foi bem-sucedido - confia e retorna (sem verificacao,
+              // WA pode usar displayName diferente no header e matching falhar)
+              console.log('[EZAP-OPEN] bridge success via:', bridgeResult.via);
+              resolve({ ok: true, via: 'bridge:' + bridgeResult.via });
               return;
             }
-            // Bridge falhou, tenta DOM
+            // Bridge falhou (exception ou nenhum metodo funcionou), tenta DOM
             console.log('[EZAP-OPEN] bridge failed:', bridgeResult && bridgeResult.reason);
             _fallbackDomThenSearch(jid, nameHint, resolve);
           });
