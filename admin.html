@@ -1411,7 +1411,6 @@ var SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 var ALL_FEATURES = [
   { key: "crm", label: "CRM (Labels + HubSpot)", category: "sidebar", side: "right" },
   { key: "msg", label: "Mensagens (MSG)", category: "sidebar", side: "right" },
-  { key: "slice", label: "SLICE (Filtro Mentor)", category: "sidebar", side: "right" },
   { key: "abas", label: "ABAS (Grupos)", category: "sidebar", side: "right" },
   { key: "pin", label: "PIN (Fixar contatos)", category: "complementar" },
   { key: "transcribe", label: "Transcrição de Áudio", category: "complementar" },
@@ -2598,11 +2597,10 @@ function deleteProfile(idx) {
 var DEFAULT_BUTTON_CONFIG = {
   crm:   { label: "CRM",   bgColor: "#25d366", textColor: "#111b21", order: 1 },
   msg:   { label: "MSG",   bgColor: "#4d96ff", textColor: "#ffffff", order: 2 },
-  slice: { label: "SLICE", bgColor: "#ff922b", textColor: "#ffffff", order: 3 },
   abas:  { label: "ABAS",  bgColor: "#cc5de8", textColor: "#ffffff", order: 4 },
   geia:  { label: "GEIA",  bgColor: "#cc5de8", textColor: "#ffffff", order: 5 }
 };
-var BUTTON_KEYS = ["crm", "msg", "slice", "abas", "geia"];
+var BUTTON_KEYS = ["crm", "msg", "abas", "geia"];
 var BUTTON_PALETTE = ["#25d366","#4d96ff","#ff922b","#cc5de8","#ff6b6b","#ffd93d","#20c997","#f44336","#ff7a59","#748ffc","#8e44ad","#111b21"];
 var currentButtonConfig = JSON.parse(JSON.stringify(DEFAULT_BUTTON_CONFIG));
 

@@ -167,7 +167,6 @@ window.__ezapHasFeature = function(feature) {
 window.__ezapDefaultButtonConfig = {
   crm:   { label: "CRM",   bgColor: "#25d366", textColor: "#111b21", order: 1 },
   msg:   { label: "MSG",   bgColor: "#4d96ff", textColor: "#ffffff", order: 2 },
-  slice: { label: "SLICE", bgColor: "#ff922b", textColor: "#ffffff", order: 3 },
   abas:  { label: "ABAS",  bgColor: "#cc5de8", textColor: "#ffffff", order: 4 },
   geia:  { label: "GEIA",  bgColor: "#cc5de8", textColor: "#ffffff", order: 5 }
 };
@@ -211,7 +210,7 @@ function loadButtonConfig() {
       if (parsed && typeof parsed === "object") {
         // Merge with defaults (don't lose keys)
         var merged = {};
-        var keys = ["crm", "msg", "slice", "abas", "geia"];
+        var keys = ["crm", "msg", "abas", "geia"];
         for (var i = 0; i < keys.length; i++) {
           var k = keys[i];
           merged[k] = Object.assign({}, window.__ezapDefaultButtonConfig[k], parsed[k] || {});
@@ -234,7 +233,6 @@ function applyConfigToExistingButtons() {
   var map = {
     crm: "wcrm-toggle",
     msg: "wcrm-msg-toggle",
-    slice: "wcrm-slice-toggle",
     abas: "wcrm-abas-toggle",
     geia: "geia-toggle"
   };

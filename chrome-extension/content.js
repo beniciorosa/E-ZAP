@@ -204,7 +204,6 @@ function toggleSidebar() {
   // Close other sidebars if open
   if (tagSidebarOpen) toggleTagSidebar();
   if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
-  if (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) closeSliceSidebar();
   if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
 
   var sidebar = document.getElementById("wcrm-sidebar");
@@ -237,7 +236,6 @@ function updateFloatingButtons() {
   var container = document.getElementById("ezap-float-container");
   var anySidebarOpen = sidebarOpen || tagSidebarOpen ||
     (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) ||
-    (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) ||
     (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen);
   if (container) container.style.display = anySidebarOpen ? "none" : "flex";
 }
@@ -291,7 +289,6 @@ function toggleTagSidebar() {
   // Close other sidebars
   if (sidebarOpen) toggleSidebar();
   if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
-  if (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) closeSliceSidebar();
   if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
 
   createTagSidebar();
@@ -1976,12 +1973,7 @@ function detectCurrentChat() {
 
     console.log("[WCRM] Chat changed:", currentName, "->", currentPhone);
 
-    // Auto-switch from SLICE/ABAS to CRM when user clicks a contact
-    if (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) {
-      closeSliceSidebar();
-      if (!sidebarOpen) toggleSidebar();
-      return;
-    }
+    // Auto-switch from ABAS to CRM when user clicks a contact
     if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) {
       // Refresh ABAS contact toggles
       if (typeof renderAbasSidebar === 'function') renderAbasSidebar();

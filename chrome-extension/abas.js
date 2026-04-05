@@ -325,7 +325,7 @@ function togglePinContact(chatName) {
     savePinnedContacts(pinned, jids);
     updateHeaderButtons();
     applyPinnedOrder();
-    if (selectedAbaId || (typeof selectedMentor !== 'undefined' && selectedMentor)) {
+    if (selectedAbaId) {
       applyConversationFilters();
     }
   });
@@ -405,7 +405,7 @@ function removePinIndicator(nameSpan) {
 // wcrm-filter-active class) or using insertBefore fights WA's renderer and
 // causes rows to disappear and the scrollbar to glitch. The pin icon alone
 // is enough to identify pinned contacts. When a filter IS active
-// (slice/abas), applyConversationFilters already handles pin-at-top safely.
+// (abas), applyConversationFilters already handles pin-at-top safely.
 // Helper sync: retorna true se o title corresponde a algum pin,
 // comparando primeiro pelo JID (via chatIndex) e depois por nome tolerante.
 // chatIndex pode ser null — entao so usa match por nome.
@@ -442,8 +442,7 @@ function applyPinnedOrder() {
     if (container && container.classList.contains('wcrm-filter-active')) {
       // Make sure we never leave the virtual-scroll-breaking class hanging
       // around from an older version of the extension.
-      var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
-                      (typeof selectedMentor !== 'undefined' && !!selectedMentor);
+      var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
       if (!hasFilter) container.classList.remove('wcrm-filter-active');
     }
     return;
@@ -453,8 +452,7 @@ function applyPinnedOrder() {
 
   // If a filter is active, let applyConversationFilters own the DOM (it
   // handles pin-at-top because it's already overriding the virtual scroll).
-  var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
-                  (typeof selectedMentor !== 'undefined' && !!selectedMentor);
+  var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
   if (hasFilter) return;
 
   // Pin-only mode: visual indicator only, no reordering, no CSS override.
@@ -516,8 +514,7 @@ function _pinMutationIsOursOnly(mutations) {
 }
 
 function _reapplyPinIndicators() {
-  var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null) ||
-                  (typeof selectedMentor !== 'undefined' && !!selectedMentor);
+  var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
   if (hasFilter) return;
   var pinnedNames = Object.keys(window._wcrmPinned || {});
   if (pinnedNames.length === 0) return;
@@ -633,7 +630,6 @@ function createAbasSidebar() {
 function toggleAbasSidebar() {
   if (typeof sidebarOpen !== 'undefined' && sidebarOpen) toggleSidebar();
   if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
-  if (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) closeSliceSidebar();
 
   abasSidebarOpen = !abasSidebarOpen;
   document.getElementById("wcrm-abas-sidebar").style.display = abasSidebarOpen ? "flex" : "none";

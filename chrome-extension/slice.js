@@ -1,213 +1,9 @@
-// ===== WhatsApp CRM - SLICE (Mentor Filter) =====
-console.log("[WCRM SLICE] Loaded");
+// ===== WhatsApp CRM - Conversation Filter Engine =====
+// Shared filter engine used by ABAS (and historically SLICE).
+// Applies display filters to the WA Web chat list (virtual scroll aware).
+console.log("[WCRM FILTER] Loaded");
 
-var sliceSidebarOpen = false;
-var selectedMentor = null;
-var sliceFilterObserver = null;
-
-// ===== Button =====
-function createSliceButton() {
-  if (document.getElementById("wcrm-slice-toggle")) return;
-  var btn = document.createElement("button");
-  btn.id = "wcrm-slice-toggle";
-  btn.title = "Filtrar por Mentor";
-  btn.addEventListener("click", toggleSliceSidebar);
-  Object.assign(btn.style, {
-    width: "50px",
-    height: "50px",
-    borderRadius: "50%",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  });
-  if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "slice");
-  else { btn.textContent = "SLICE"; btn.style.background = "#ff922b"; btn.style.color = "#fff"; btn.style.fontSize = "9px"; }
-  var container = document.getElementById("ezap-float-container");
-  if (container) container.appendChild(btn);
-  else document.body.appendChild(btn);
-}
-
-// ===== Sidebar =====
-function createSliceSidebar() {
-  if (document.getElementById("wcrm-slice-sidebar")) return;
-
-  var sidebar = document.createElement("div");
-  sidebar.id = "wcrm-slice-sidebar";
-  Object.assign(sidebar.style, {
-    position: "fixed",
-    top: "0",
-    right: "0",
-    width: "320px",
-    height: "100vh",
-    background: "#111b21",
-    borderLeft: "1px solid #2a3942",
-    zIndex: "99999",
-    display: "none",
-    flexDirection: "column",
-    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-    color: "#e9edef",
-    fontSize: "13px",
-    overflow: "hidden",
-  });
-
-  sidebar.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">' +
-      '<h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">SLICE - Mentores</h3>' +
-      '<button id="wcrm-slice-close" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>' +
-    '</div>' +
-    '<div style="padding:12px 16px;flex:1;overflow-y:auto">' +
-      '<div id="wcrm-slice-active-filter" style="display:none;background:#ff922b20;border:1px solid #ff922b;border-radius:8px;padding:8px 12px;margin-bottom:12px;align-items:center;justify-content:space-between">' +
-        '<span style="color:#ff922b;font-size:12px;font-weight:600">Filtro: <span id="wcrm-slice-filter-name"></span></span>' +
-        '<button id="wcrm-slice-clear" style="background:none;border:none;color:#ff6b6b;font-size:11px;cursor:pointer;font-weight:600;padding:2px 6px">Limpar</button>' +
-      '</div>' +
-      '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">MENTORES DETECTADOS</div>' +
-      '<button id="wcrm-slice-refresh" style="width:100%;background:#2a3942;color:#8696a0;border:1px solid #3b4a54;border-radius:6px;padding:6px;font-size:11px;cursor:pointer;margin-bottom:10px">Atualizar lista</button>' +
-      '<div id="wcrm-slice-mentor-list"></div>' +
-    '</div>';
-
-  document.body.appendChild(sidebar);
-
-  document.getElementById("wcrm-slice-close").addEventListener("click", toggleSliceSidebar);
-  document.getElementById("wcrm-slice-clear").addEventListener("click", clearSliceFilter);
-  document.getElementById("wcrm-slice-refresh").addEventListener("click", scanMentors);
-}
-
-// ===== Toggle =====
-function toggleSliceSidebar() {
-  if (typeof sidebarOpen !== 'undefined' && sidebarOpen) toggleSidebar();
-  if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
-  if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
-
-  sliceSidebarOpen = !sliceSidebarOpen;
-  document.getElementById("wcrm-slice-sidebar").style.display = sliceSidebarOpen ? "flex" : "none";
-
-  var appEl = document.getElementById("app");
-  if (appEl) {
-    if (sliceSidebarOpen) {
-      appEl.style.width = "calc(100% - 320px)";
-      appEl.style.maxWidth = "calc(100% - 320px)";
-    } else {
-      appEl.style.width = "";
-      appEl.style.maxWidth = "";
-    }
-  }
-
-  if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
-
-  if (sliceSidebarOpen) {
-    scanMentors();
-  }
-}
-
-function closeSliceSidebar() {
-  if (!sliceSidebarOpen) return;
-  sliceSidebarOpen = false;
-  var sb = document.getElementById("wcrm-slice-sidebar");
-  if (sb) sb.style.display = "none";
-  if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
-}
-
-// ===== Scan Mentors from Chat List =====
-function scanMentors() {
-  var pane = document.getElementById("pane-side");
-  var list = document.getElementById("wcrm-slice-mentor-list");
-  if (!list) return;
-
-  if (!pane) {
-    list.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:16px;font-style:italic">Lista de conversas nao encontrada</div>';
-    return;
-  }
-
-  // Use the list container approach to find chat names
-  var container = findChatListContainer();
-  var mentors = {};
-
-  if (container) {
-    for (var i = 0; i < container.children.length; i++) {
-      var row = container.children[i];
-      var nameSpan = row.querySelector('span[title]');
-      if (!nameSpan) continue;
-      var title = nameSpan.getAttribute('title') || '';
-      if (title.includes('|')) {
-        var parts = title.split(/\s*\|\s*/);
-        if (parts.length >= 2) {
-          var mentor = parts[parts.length - 1].trim();
-          if (mentor && mentor.length > 1) {
-            if (!mentors[mentor]) mentors[mentor] = 0;
-            mentors[mentor]++;
-          }
-        }
-      }
-    }
-  }
-
-  var mentorNames = Object.keys(mentors).sort();
-  if (mentorNames.length === 0) {
-    list.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:16px;font-style:italic">Nenhum mentor encontrado. Role a lista de conversas e clique em Atualizar.</div>';
-    return;
-  }
-
-  var html = '';
-  mentorNames.forEach(function(name) {
-    var isSelected = selectedMentor === name;
-    var bgColor = isSelected ? '#ff922b30' : '#1a2730';
-    var borderColor = isSelected ? '#ff922b' : '#3b4a54';
-    var checkmark = isSelected ? ' <span style="color:#ff922b">&#10003;</span>' : '';
-    html += '<div class="wcrm-slice-mentor" data-mentor="' + name + '" style="background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:all 0.15s" onmouseover="this.style.background=\'' + (isSelected ? '#ff922b40' : '#243340') + '\'" onmouseout="this.style.background=\'' + bgColor + '\'">';
-    html += '<span style="font-size:13px;font-weight:500;color:#e9edef">' + name + checkmark + '</span>';
-    html += '<span style="color:#8696a0;font-size:11px">' + mentors[name] + '</span>';
-    html += '</div>';
-  });
-
-  list.innerHTML = html;
-
-  list.querySelectorAll('.wcrm-slice-mentor').forEach(function(el) {
-    el.addEventListener('click', function() {
-      var mentor = el.dataset.mentor;
-      if (selectedMentor === mentor) {
-        clearSliceFilter();
-      } else {
-        selectedMentor = mentor;
-        applyConversationFilters();
-        scanMentors();
-        updateSliceIndicator();
-      }
-    });
-  });
-
-  updateSliceIndicator();
-}
-
-function clearSliceFilter() {
-  selectedMentor = null;
-  applyConversationFilters();
-  scanMentors();
-  updateSliceIndicator();
-}
-
-function updateSliceIndicator() {
-  var indicator = document.getElementById("wcrm-slice-active-filter");
-  var nameEl = document.getElementById("wcrm-slice-filter-name");
-  if (indicator) {
-    if (selectedMentor) {
-      indicator.style.display = "flex";
-      if (nameEl) nameEl.textContent = selectedMentor;
-    } else {
-      indicator.style.display = "none";
-    }
-  }
-
-  var btn = document.getElementById("wcrm-slice-toggle");
-  if (btn) {
-    btn.style.boxShadow = selectedMentor
-      ? "0 0 0 3px #ff922b80, 0 4px 12px rgba(0,0,0,0.4)"
-      : "0 4px 12px rgba(0,0,0,0.4)";
-  }
-}
+var filterObserver = null;
 
 // ===== Inject CSS to override WhatsApp's virtual scroll positioning =====
 function injectFilterCSS() {
@@ -250,11 +46,11 @@ function findChatListContainer() {
   return bestCount > 2 ? best : null;
 }
 
-// ===== Apply both SLICE + ABAS filters =====
+// ===== Apply ABAS filter =====
 function applyConversationFilters() {
   // Constroi o index do Store (JID por nome) antes de rodar o filtro sync.
-  // Se o store-bridge estiver pronto, casamos contatos por JID - assim o
-  // Augusto nao precisa estar visivel no virtual scroll pra aba detectar.
+  // Se o store-bridge estiver pronto, casamos contatos por JID - assim
+  // contatos fora do virtual scroll viewport sao detectados pela aba.
   if (window.ezapBuildChatIndex) {
     window.ezapBuildChatIndex().then(function(idx) { _runFiltersSync(idx); });
   } else {
@@ -271,13 +67,11 @@ function _runFiltersSync(chatIndex) {
     return;
   }
 
-  var hasSliceFilter = !!selectedMentor;
   var hasAbasFilter = typeof selectedAbaId !== 'undefined' && selectedAbaId !== null;
-  var hasAnyFilter = hasSliceFilter || hasAbasFilter;
 
-  console.log("[WCRM FILTER] Applying. Rows:", container.children.length, "SLICE:", selectedMentor, "ABAS:", selectedAbaId, "JID-index:", !!chatIndex);
+  console.log("[WCRM FILTER] Applying. Rows:", container.children.length, "ABAS:", selectedAbaId, "JID-index:", !!chatIndex);
 
-  if (!hasAnyFilter) {
+  if (!hasAbasFilter) {
     // Remove all filter overrides — let WhatsApp restore normal layout
     container.classList.remove('wcrm-filter-active');
     var hiddenItems = container.querySelectorAll('.wcrm-hidden');
@@ -302,29 +96,26 @@ function _runFiltersSync(chatIndex) {
   // Pre-computa JIDs do filtro ABAS pra matching sync no loop.
   // Fonte da verdade: tab.contactJids (salvo ao adicionar) + resolucao
   // lazy via chatIndex (pra contatos antigos sem JID).
-  var abaJidSet = null;
+  var abaJidSet = {};
   var abaNamesFallback = [];
-  if (hasAbasFilter) {
-    var tabEntry = _getAbaTabEntry(selectedAbaId);
-    var tabContacts = (tabEntry && tabEntry.contacts) || [];
-    var tabJids = (tabEntry && tabEntry.contactJids) || {};
-    abaJidSet = {};
-    var resolvedCount = 0;
-    tabContacts.forEach(function(n) {
-      var jid = tabJids[n];
-      if (!jid && chatIndex && window.ezapFindJidInIndex) {
-        jid = window.ezapFindJidInIndex(chatIndex, n);
-      }
-      if (jid) { abaJidSet[jid] = true; resolvedCount++; }
-      else abaNamesFallback.push(n);
-    });
-
-    console.log("[WCRM FILTER] ABAS contacts:", tabContacts, "JIDs resolvidos:", resolvedCount + "/" + tabContacts.length);
-    if (chatIndex) console.log("[WCRM FILTER] Store bridge ready. Total no Store:", chatIndex.chats.length);
-    else console.log("[WCRM FILTER] Store bridge NAO pronto - match por nome (DOM-dependent)");
-    if (abaNamesFallback.length > 0) {
-      console.log("[WCRM FILTER] Contatos sem JID (usando match por nome):", abaNamesFallback);
+  var tabEntry = _getAbaTabEntry(selectedAbaId);
+  var tabContacts = (tabEntry && tabEntry.contacts) || [];
+  var tabJids = (tabEntry && tabEntry.contactJids) || {};
+  var resolvedCount = 0;
+  tabContacts.forEach(function(n) {
+    var jid = tabJids[n];
+    if (!jid && chatIndex && window.ezapFindJidInIndex) {
+      jid = window.ezapFindJidInIndex(chatIndex, n);
     }
+    if (jid) { abaJidSet[jid] = true; resolvedCount++; }
+    else abaNamesFallback.push(n);
+  });
+
+  console.log("[WCRM FILTER] ABAS contacts:", tabContacts, "JIDs resolvidos:", resolvedCount + "/" + tabContacts.length);
+  if (chatIndex) console.log("[WCRM FILTER] Store bridge ready. Total no Store:", chatIndex.chats.length);
+  else console.log("[WCRM FILTER] Store bridge NAO pronto - match por nome (DOM-dependent)");
+  if (abaNamesFallback.length > 0) {
+    console.log("[WCRM FILTER] Contatos sem JID (usando match por nome):", abaNamesFallback);
   }
 
   // Pre-computa JIDs dos pins (mesma logica)
@@ -356,27 +147,14 @@ function _runFiltersSync(chatIndex) {
 
     var show = true;
 
-    // SLICE filter
-    if (hasSliceFilter) {
-      if (title.includes('|')) {
-        var parts = title.split(/\s*\|\s*/);
-        var mentor = parts[parts.length - 1].trim();
-        if (mentor.toLowerCase() !== selectedMentor.toLowerCase()) show = false;
-      } else {
-        show = false;
-      }
-    }
-
     // ABAS filter
-    if (show && hasAbasFilter) {
-      var found = false;
-      if (rowJid && abaJidSet[rowJid]) found = true;
-      if (!found && abaNamesFallback.length > 0) {
-        // Fallback nome tolerante (apenas contatos que nao tinham JID)
-        found = abaNamesFallback.some(function(c) { return window.ezapMatchContact(c, title); });
-      }
-      if (!found) show = false;
+    var found = false;
+    if (rowJid && abaJidSet[rowJid]) found = true;
+    if (!found && abaNamesFallback.length > 0) {
+      // Fallback nome tolerante (apenas contatos que nao tinham JID)
+      found = abaNamesFallback.some(function(c) { return window.ezapMatchContact(c, title); });
     }
+    if (!found) show = false;
 
     if (show) {
       row.classList.remove('wcrm-hidden');
@@ -399,7 +177,7 @@ function _runFiltersSync(chatIndex) {
   }
 
   // Reorder: pinned contacts first
-  if (pinnedRows.length > 0 && hasAnyFilter) {
+  if (pinnedRows.length > 0) {
     pinnedRows.forEach(function(row) {
       container.insertBefore(row, container.firstChild);
     });
@@ -409,9 +187,9 @@ function _runFiltersSync(chatIndex) {
 }
 
 function setupFilterObserver() {
-  if (sliceFilterObserver) { try { sliceFilterObserver.disconnect(); } catch(e) {} sliceFilterObserver = null; }
+  if (filterObserver) { try { filterObserver.disconnect(); } catch(e) {} filterObserver = null; }
 
-  var hasAnyFilter = !!selectedMentor || (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
+  var hasAnyFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
   if (!hasAnyFilter) return;
 
   // CRITICAL: observe o container da lista (direct children only).
@@ -421,7 +199,7 @@ function setupFilterObserver() {
   var container = findChatListContainer();
   if (!container) return;
 
-  sliceFilterObserver = new MutationObserver(function(mutations) {
+  filterObserver = new MutationObserver(function(mutations) {
     // Ignora mutations que sao so nossas (wcrm-hidden / wcrm-filter-active)
     var ourClassesOnly = mutations.every(function(m) {
       if (m.type !== 'attributes') return false;
@@ -434,11 +212,11 @@ function setupFilterObserver() {
       return m.type === 'childList' && (m.addedNodes.length > 0 || m.removedNodes.length > 0);
     });
     if (!structural) return;
-    clearTimeout(sliceFilterObserver._debounce);
-    sliceFilterObserver._debounce = setTimeout(applyConversationFilters, 500);
+    clearTimeout(filterObserver._debounce);
+    filterObserver._debounce = setTimeout(applyConversationFilters, 500);
   });
 
-  sliceFilterObserver.observe(container, { childList: true, subtree: false });
+  filterObserver.observe(container, { childList: true, subtree: false });
 }
 
 // Helper for ABAS (defined here so it's available; abas.js populates the data)
@@ -455,19 +233,3 @@ function _getAbaTabEntry(abaId) {
   if (!data || !data.tabs) return null;
   return data.tabs.find(function(t) { return t.id === abaId; }) || null;
 }
-
-// ===== Init =====
-function initSlice() {
-  createSliceButton();
-  createSliceSidebar();
-}
-
-// Start after authentication (only if 'slice' feature is enabled)
-document.addEventListener("wcrm-auth-ready", function() {
-  if (window.__ezapHasFeature && window.__ezapHasFeature("slice")) {
-    setTimeout(initSlice, 600);
-  } else {
-    console.log("[WCRM SLICE] SLICE feature not enabled for this user");
-  }
-});
-if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("slice")) setTimeout(initSlice, 1000);

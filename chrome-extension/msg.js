@@ -181,7 +181,6 @@ function createMsgSidebar() {
 function toggleMsgSidebar() {
   // Close other sidebars if open
   if (typeof sidebarOpen !== 'undefined' && sidebarOpen) toggleSidebar();
-  if (typeof sliceSidebarOpen !== 'undefined' && sliceSidebarOpen) closeSliceSidebar();
   if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
 
   msgSidebarOpen = !msgSidebarOpen;
