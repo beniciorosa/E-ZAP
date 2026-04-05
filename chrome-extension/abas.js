@@ -430,18 +430,67 @@ function _isTitlePinned(title, chatIndex) {
 }
 window._wcrmIsTitlePinned = _isTitlePinned;
 
+// Injeta CSS do modo filter-active caso ainda nao esteja na pagina.
+// Copia o mesmo CSS usado em slice.js p/ casos em que applyPinnedOrder
+// roda antes do filter engine carregar.
+function _ensurePinCSS() {
+  if (document.getElementById('wcrm-filter-css')) return;
+  var style = document.createElement('style');
+  style.id = 'wcrm-filter-css';
+  style.textContent =
+    '.wcrm-filter-active { height: auto !important; }' +
+    '.wcrm-filter-active > * { position: relative !important; transform: none !important; top: auto !important; }' +
+    '.wcrm-filter-active > .wcrm-hidden { display: none !important; }';
+  document.head.appendChild(style);
+}
+
+// Percorre rows do container, aplica pin indicator e move pins pro topo
+// atomicamente via DocumentFragment. Compartilhado entre applyPinnedOrder
+// (trigger inicial) e _reapplyPinIndicators (trigger do observer).
+function _reorderPinsToTop(container, chatIndex) {
+  if (!container) return 0;
+  var pinnedRows = [];
+  for (var i = 0; i < container.children.length; i++) {
+    var row = container.children[i];
+    if (row.classList && row.classList.contains('wcrm-synth-row')) continue;
+    if (!row.querySelector) continue;
+    var nameSpan = row.querySelector('span[title]');
+    if (!nameSpan) continue;
+    var title = nameSpan.getAttribute('title') || '';
+    if (_isTitlePinned(title, chatIndex)) {
+      pinnedRows.push(row);
+      addPinIndicator(nameSpan);
+    } else {
+      removePinIndicator(nameSpan);
+    }
+  }
+  if (pinnedRows.length > 0) {
+    // Skip DOM move se pins ja estao nas primeiras posicoes (evita loop
+    // com o MutationObserver). Confere ordem exata entre pinnedRows e
+    // os primeiros N children do container.
+    var alreadyOrdered = true;
+    for (var p = 0; p < pinnedRows.length; p++) {
+      if (container.children[p] !== pinnedRows[p]) { alreadyOrdered = false; break; }
+    }
+    if (!alreadyOrdered) {
+      var frag = document.createDocumentFragment();
+      pinnedRows.forEach(function(r) { frag.appendChild(r); });
+      container.insertBefore(frag, container.firstChild);
+    }
+  }
+  return pinnedRows.length;
+}
+
 function applyPinnedOrder() {
   var pinned = window._wcrmPinned || {};
   var pinnedNames = Object.keys(pinned);
 
   var container = findChatListContainer();
 
-  // No pins: strip all indicators and exit.
+  // No pins: strip all indicators and clear filter class.
   if (pinnedNames.length === 0) {
     document.querySelectorAll('.wcrm-pin-icon').forEach(function(el) { el.remove(); });
     if (container && container.classList.contains('wcrm-filter-active')) {
-      // Make sure we never leave the virtual-scroll-breaking class hanging
-      // around from an older version of the extension.
       var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
       if (!hasFilter) container.classList.remove('wcrm-filter-active');
     }
@@ -450,35 +499,27 @@ function applyPinnedOrder() {
 
   if (!container) return;
 
-  // If a filter is active, let applyConversationFilters own the DOM (it
-  // handles pin-at-top because it's already overriding the virtual scroll).
+  // If a filter is active, let applyConversationFilters own the DOM
+  // (it already handles pin-at-top via wcrm-filter-active + fragment).
   var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
   if (hasFilter) return;
 
-  // Pin-only mode: visual indicator only, no reordering, no CSS override.
-  // Strip any stale wcrm-filter-active left over from previous behavior.
-  if (container.classList.contains('wcrm-filter-active')) {
-    container.classList.remove('wcrm-filter-active');
-    container.querySelectorAll('.wcrm-hidden').forEach(function(el) {
-      el.classList.remove('wcrm-hidden');
-    });
-  }
-  // Match JID-first (chatIndex do store bridge), fallback nome tolerante.
-  // Constroi o index uma vez e passa pro loop sync.
+  // Pin-only mode: habilita CSS filter-active p/ rows ficarem em DOM-order
+  // (position:relative), entao move pins pro topo com DocumentFragment.
+  // Tradeoff: o virtual scroll positioning do WA nao funciona mais — so
+  // rows que ja estao no DOM sao visiveis. Como WA recicla rows ao scrollar,
+  // nosso observer reaplica pin-at-top sempre que WA mexe no container.
+  _ensurePinCSS();
+  container.classList.add('wcrm-filter-active');
+
   var indexPromise = window.ezapBuildChatIndex
     ? window.ezapBuildChatIndex()
     : Promise.resolve(null);
   indexPromise.then(function(chatIndex) {
     var c2 = findChatListContainer();
     if (!c2) return;
-    for (var i = 0; i < c2.children.length; i++) {
-      var row = c2.children[i];
-      var nameSpan = row.querySelector('span[title]');
-      if (!nameSpan) continue;
-      var title = nameSpan.getAttribute('title') || '';
-      if (_isTitlePinned(title, chatIndex)) addPinIndicator(nameSpan);
-      else removePinIndicator(nameSpan);
-    }
+    var count = _reorderPinsToTop(c2, chatIndex);
+    if (count > 0) console.log("[WCRM PIN] Moveu", count, "pinned rows pro topo (pin-only mode)");
     ensurePinObserver();
   });
 }
@@ -520,6 +561,12 @@ function _reapplyPinIndicators() {
   if (pinnedNames.length === 0) return;
   var container = findChatListContainer();
   if (!container) return;
+  // Garante que o CSS e a classe filter-active estejam ativos pra
+  // o DOM-order positioning funcionar (igual ao applyPinnedOrder inicial).
+  _ensurePinCSS();
+  if (!container.classList.contains('wcrm-filter-active')) {
+    container.classList.add('wcrm-filter-active');
+  }
   // Usa chatIndex se disponivel (JID-match), senao fallback nome tolerante.
   var indexPromise = window.ezapBuildChatIndex
     ? window.ezapBuildChatIndex()
@@ -527,16 +574,7 @@ function _reapplyPinIndicators() {
   indexPromise.then(function(chatIndex) {
     var c2 = findChatListContainer();
     if (!c2) return;
-    var kids = c2.children;
-    for (var i = 0; i < kids.length; i++) {
-      var row = kids[i];
-      if (!row || typeof row.querySelector !== 'function') continue;
-      var nameSpan = row.querySelector('span[title]');
-      if (!nameSpan) continue;
-      var title = nameSpan.getAttribute('title') || '';
-      if (_isTitlePinned(title, chatIndex)) addPinIndicator(nameSpan);
-      else removePinIndicator(nameSpan);
-    }
+    _reorderPinsToTop(c2, chatIndex);
   });
 }
 

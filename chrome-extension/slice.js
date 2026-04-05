@@ -227,17 +227,25 @@ function _runFiltersSync(chatIndex) {
   // insertBefore em loop (que inverte ordem) e evita race com o
   // virtual scroll do WA re-renderizando entre as inseerts.
   if (pinnedRows.length > 0) {
-    var frag = document.createDocumentFragment();
-    pinnedRows.forEach(function(r) { frag.appendChild(r); });
-    container.insertBefore(frag, container.firstChild);
-    var firstName = '?';
-    try {
-      var firstEl = container.firstElementChild;
-      var ftitle = firstEl && firstEl.querySelector && firstEl.querySelector('span[title]');
-      if (ftitle) firstName = ftitle.getAttribute('title') || '?';
-      else if (firstEl && firstEl.getAttribute) firstName = firstEl.getAttribute('data-ezap-name') || '?';
-    } catch (e) {}
-    console.log("[WCRM FILTER] Moveu", pinnedRows.length, "pinned rows pro topo. Primeira row agora:", firstName);
+    // Skip DOM move se pins ja estao nas primeiras posicoes (evita loop
+    // com o MutationObserver).
+    var alreadyOrdered = true;
+    for (var po = 0; po < pinnedRows.length; po++) {
+      if (container.children[po] !== pinnedRows[po]) { alreadyOrdered = false; break; }
+    }
+    if (!alreadyOrdered) {
+      var frag = document.createDocumentFragment();
+      pinnedRows.forEach(function(r) { frag.appendChild(r); });
+      container.insertBefore(frag, container.firstChild);
+      var firstName = '?';
+      try {
+        var firstEl = container.firstElementChild;
+        var ftitle = firstEl && firstEl.querySelector && firstEl.querySelector('span[title]');
+        if (ftitle) firstName = ftitle.getAttribute('title') || '?';
+        else if (firstEl && firstEl.getAttribute) firstName = firstEl.getAttribute('data-ezap-name') || '?';
+      } catch (e) {}
+      console.log("[WCRM FILTER] Moveu", pinnedRows.length, "pinned rows pro topo. Primeira row agora:", firstName);
+    }
   }
 
   setupFilterObserver();
