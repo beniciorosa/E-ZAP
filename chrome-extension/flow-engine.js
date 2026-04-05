@@ -210,11 +210,20 @@
   // ===== Abre um chat usando a busca lateral do WhatsApp Web =====
   function openChatByName(name) {
     return new Promise(function(resolve, reject) {
-      // 1. Encontra o campo de pesquisa da sidebar
-      var searchBox = document.querySelector('#side div[contenteditable="true"][role="textbox"]')
-                   || document.querySelector('div[contenteditable="true"][role="textbox"]');
+      // 1. Encontra APENAS o campo de busca da sidebar (nao confundir com compose do chat)
+      var searchBox = document.querySelector('[aria-label="Caixa de texto de pesquisa"]')
+                   || document.querySelector('[aria-label*="Pesquisar"][contenteditable="true"]')
+                   || document.querySelector('[aria-label*="Search"][contenteditable="true"]')
+                   || document.querySelector('div[contenteditable="true"][data-tab="3"]')
+                   || document.querySelector('#side header div[contenteditable="true"][role="textbox"]')
+                   || document.querySelector('[aria-label="Lista de conversas"] div[contenteditable="true"][role="textbox"]');
       if (!searchBox) {
         reject(new Error("Campo de pesquisa do WhatsApp nao encontrado"));
+        return;
+      }
+      // Guarda: nao pode ser o compose do chat (#main) nem o footer
+      if (searchBox.closest("#main") || searchBox.closest("footer")) {
+        reject(new Error("Selector caiu no compose do chat, nao na busca lateral"));
         return;
       }
 
