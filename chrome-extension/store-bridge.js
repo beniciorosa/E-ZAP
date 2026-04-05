@@ -23,6 +23,106 @@
   var INIT_INTERVAL_MS = 500;
   var _initTries = 0;
   var _lastWebpackKey = null;
+  var _capturedVia = null;
+
+  // ===== EARLY INTERCEPTOR =====
+  // Intercepta window.webpackChunkwhatsapp_web_client ANTES do WA criar,
+  // usando Object.defineProperty. Quando webpack fizer a primeira push
+  // (que e quando __webpack_require__ fica disponivel dentro do runtime),
+  // capturamos pelo lado de dentro. Isto e necessario pois em alguns
+  // ambientes (ex: com outras extensoes rodando) o competitor ja roubou
+  // __webpack_require__ e restaurou push pro nativo antes da gente rodar.
+  function installEarlyInterceptor(chunkName) {
+    if (window[chunkName]) {
+      // Ja existe — chegamos tarde, tenta wrap direto
+      wrapArrayPush(window[chunkName]);
+      return;
+    }
+    var _value = null;
+    try {
+      Object.defineProperty(window, chunkName, {
+        configurable: true,
+        get: function() { return _value; },
+        set: function(v) {
+          _value = v;
+          if (Array.isArray(v)) {
+            wrapArrayPush(v);
+          }
+        }
+      });
+    } catch (e) {
+      console.log('[EZAP-STORE] defineProperty failed for', chunkName, ':', e && e.message);
+    }
+  }
+
+  function wrapArrayPush(arr) {
+    if (!arr || arr._ezapWrapped) return;
+    arr._ezapWrapped = true;
+    var _internalPush = arr.push;  // pode ser nativo ainda
+    // Intercepta quando webpack substituir push por jsonpCallback
+    try {
+      Object.defineProperty(arr, 'push', {
+        configurable: true,
+        get: function() { return _internalPush; },
+        set: function(newPush) {
+          // Webpack esta instalando seu proprio push (jsonpCallback).
+          // Envolvemos pra espionar entries antes de passar pra ele.
+          _internalPush = function() {
+            for (var i = 0; i < arguments.length; i++) {
+              var entry = arguments[i];
+              if (entry && entry[2] && typeof entry[2] === 'function' && !window._ezapWebpackRequire) {
+                var origRuntime = entry[2];
+                entry[2] = function(req) {
+                  if (!window._ezapWebpackRequire) {
+                    window._ezapWebpackRequire = req;
+                    _capturedVia = 'early-interceptor';
+                    console.log('[EZAP-STORE] Captured __webpack_require__ via early interceptor');
+                    try { onWebpackRequireReady(req); } catch (e) { console.log('[EZAP-STORE] onReady err:', e.message); }
+                  }
+                  return origRuntime.apply(this, arguments);
+                };
+              }
+            }
+            return newPush.apply(arr, arguments);
+          };
+        }
+      });
+    } catch (e) {
+      console.log('[EZAP-STORE] wrap push failed:', e && e.message);
+    }
+  }
+
+  function onWebpackRequireReady(req) {
+    var found = scanModules(req);
+    window._ezapStore = found;
+    window._ezapStoreReady = !!found.Chat;
+    console.log('[EZAP-STORE] First scan:', {
+      Chat: !!found.Chat, Contact: !!found.Contact,
+      GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid
+    });
+    if (!found.Chat) {
+      // Modulos ainda carregando, agenda rescans
+      setTimeout(rescan, 2000);
+    }
+  }
+
+  function rescan() {
+    var req = window._ezapWebpackRequire;
+    if (!req) return;
+    _initTries++;
+    var found = scanModules(req);
+    window._ezapStore = found;
+    window._ezapStoreReady = !!found.Chat;
+    if (found.Chat) {
+      console.log('[EZAP-STORE] Chat module loaded on rescan', _initTries);
+      return;
+    }
+    if (_initTries < INIT_MAX_TRIES) setTimeout(rescan, 2000);
+  }
+
+  // Instala interceptors pros nomes conhecidos
+  installEarlyInterceptor('webpackChunkwhatsapp_web_client');
+  installEarlyInterceptor('webpackChunkbuild');
 
   // Scan dinamico: WA pode mudar o nome da key (ex: webpackChunkwhatsapp_web_client,
   // webpackChunkbuild, webpackChunk_N_E_, etc). Procura qualquer chave webpackChunk*
@@ -109,69 +209,7 @@
     return found;
   }
 
-  // Captura __webpack_require__ via varias tecnicas.
-  var _webpackRequire = null;
-  var _pushHijacked = false;
-  var _pushDiag = '';
-
-  // TECNICA A: monkey-patch push pra interceptar proximas chunks do WA.
-  function hijackPush(chunk, onReady) {
-    if (_pushHijacked) return;
-    _pushHijacked = true;
-    try {
-      var originalPush = chunk.push;
-      _pushDiag = String(originalPush).substring(0, 120);
-      chunk.push = function() {
-        var args = arguments;
-        for (var i = 0; i < args.length; i++) {
-          var entry = args[i];
-          if (entry && entry[2] && typeof entry[2] === 'function' && !_webpackRequire) {
-            var orig = entry[2];
-            entry[2] = function(webpack_require) {
-              if (!_webpackRequire) {
-                _webpackRequire = webpack_require;
-                console.log('[EZAP-STORE] Captured via push hijack');
-                try { onReady(webpack_require); } catch(e) { console.log('[EZAP-STORE] onReady err:', e.message); }
-              }
-              return orig.apply(this, arguments);
-            };
-          }
-        }
-        return originalPush.apply(this, args);
-      };
-    } catch (e) {
-      console.log('[EZAP-STORE] hijack failed:', e && e.message);
-    }
-  }
-
-  // TECNICA B: push parasita (moduleRaid pattern)
-  function pushParasite(chunk, onReady) {
-    var parasiteId = 'ezap_p_' + Date.now() + '_' + _initTries;
-    try {
-      var moduleMap = {};
-      moduleMap[parasiteId] = function(module, exports, webpack_require) {
-        if (!_webpackRequire) {
-          _webpackRequire = webpack_require;
-          console.log('[EZAP-STORE] Captured via parasite');
-          onReady(webpack_require);
-        }
-        module.exports = {};
-      };
-      chunk.push([
-        [parasiteId],
-        moduleMap,
-        function(req) {
-          try { req(parasiteId); } catch (e) {}
-        }
-      ]);
-      return true;
-    } catch (e) {
-      console.log('[EZAP-STORE] push parasite failed:', e && e.message);
-      return false;
-    }
-  }
-
-  // TECNICA C: inspecionar chunks ja presentes no array
+  // Helper de diagnostico
   function scanExistingChunks(chunk) {
     var info = { total: chunk.length, withRuntime: 0 };
     for (var i = 0; i < chunk.length; i++) {
@@ -181,65 +219,6 @@
       }
     }
     return info;
-  }
-
-  function captureWebpackRequire(onReady) {
-    var chunk = findWebpackChunk();
-    if (!chunk) return false;
-    // A: hijack push pro futuro
-    hijackPush(chunk, onReady);
-    // B: parasita pra disparar callback imediato
-    pushParasite(chunk, onReady);
-    return true;
-  }
-
-  function tryInject() {
-    _initTries++;
-    var chunk = findWebpackChunk();
-    if (!chunk) {
-      if (_initTries < INIT_MAX_TRIES) setTimeout(tryInject, INIT_INTERVAL_MS);
-      else console.log('[EZAP-STORE] webpack chunk never appeared after', _initTries, 'tries — giving up');
-      return;
-    }
-
-    // Se ja capturamos __webpack_require__, apenas re-escaneia os modulos
-    if (_webpackRequire) {
-      var found = scanModules(_webpackRequire);
-      window._ezapStore = found;
-      window._ezapStoreReady = !!found.Chat;
-      if (_initTries <= 3 || found.Chat) {
-        console.log('[EZAP-STORE] Rescan try', _initTries, 'found:', {
-          Chat: !!found.Chat, Contact: !!found.Contact,
-          GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid
-        });
-      }
-      if (!found.Chat && _initTries < INIT_MAX_TRIES) {
-        setTimeout(tryInject, 2000);
-      } else if (found.Chat && _initTries > 3) {
-        console.log('[EZAP-STORE] Chat module finally loaded on try', _initTries);
-      }
-      return;
-    }
-
-    // Primeira captura: injeta parasita
-    var ok = captureWebpackRequire(function(req) {
-      console.log('[EZAP-STORE] Captured __webpack_require__ on try', _initTries, 'key:', _lastWebpackKey);
-      var found = scanModules(req);
-      window._ezapStore = found;
-      window._ezapStoreReady = !!found.Chat;
-      console.log('[EZAP-STORE] First scan found:', {
-        Chat: !!found.Chat, Contact: !!found.Contact,
-        GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid,
-        scanned: window._ezapDebug.lastScan.scanned,
-        errors: window._ezapDebug.lastScan.errors
-      });
-      if (!found.Chat && _initTries < INIT_MAX_TRIES) {
-        setTimeout(tryInject, 2000);
-      }
-    });
-    if (!ok && _initTries < INIT_MAX_TRIES) {
-      setTimeout(tryInject, 1000);
-    }
   }
 
   function getChatName(chat) {
@@ -314,9 +293,8 @@
       chunkLength: chunk ? chunk.length : null,
       chunksWithRuntime: chunk ? scanExistingChunks(chunk).withRuntime : null,
       pushIsNative: chunk ? /\[native code\]/.test(String(chunk.push)) : null,
-      pushDiag: _pushDiag,
-      pushHijacked: _pushHijacked,
-      webpackRequireCaptured: !!_webpackRequire,
+      capturedVia: _capturedVia,
+      webpackRequireCaptured: !!window._ezapWebpackRequire,
       store: window._ezapStore ? {
         Chat: !!window._ezapStore.Chat,
         Contact: !!window._ezapStore.Contact,
@@ -330,6 +308,5 @@
     };
   };
 
-  tryInject();
-  console.log('[EZAP-STORE] Bridge started (v2 robust scan). Call window._ezapDebugStore() for state.');
+  console.log('[EZAP-STORE] Bridge started (v5 early interceptor). Call window._ezapDebugStore() for state.');
 })();

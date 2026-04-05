@@ -170,6 +170,15 @@ Authorization: Bearer ezap_live_xxxxxxxxxxxxx
 - Rate limits configuraveis
 - Logs de uso (data, endpoint, status, IP)
 
+### Referencia de UX (concorrente WaSeller)
+Modal "Configurar API" com:
+1. Input de texto com token gerado (formato: `1775408386952-fbe3d2fd6b9aa63e560d4bfa381378fc` — timestamp-hash)
+2. Botao "Gerar Token" (regerar/revogar+criar novo) + botao copiar
+3. Toggle "Ativar/Desativar API"
+4. Botao "Abrir Documentacao" → abre swagger/redoc da API
+
+API publica deles: `https://api-whatsapp.wascript.com.br/api-docs/` (referencia de estudo — endpoints REST expondo mensagens/contatos/grupos).
+
 Schema sugerido (Supabase):
 ```sql
 CREATE TABLE api_keys (
