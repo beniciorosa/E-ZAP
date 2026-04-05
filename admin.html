@@ -1241,8 +1241,40 @@
           </div>
           <div style="flex:1"></div>
           <span id="flowSaveStatus" style="font-size:12px;color:var(--text-secondary);margin-right:8px"></span>
-          <button class="btn-secondary" onclick="testFlow()" style="padding:8px 14px;font-size:13px">Testar</button>
+          <button class="btn-secondary" onclick="testFlow()" style="padding:8px 14px;font-size:13px">Testar agora</button>
           <button class="btn-primary" onclick="saveCurrentFlow()" style="padding:8px 18px;font-size:13px">Salvar</button>
+        </div>
+
+        <!-- Scope + Trigger bar -->
+        <div id="flowScopeBar" style="display:flex;align-items:center;gap:20px;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--surface-dim);font-size:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:var(--on-surface-variant);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-size:10px">Escopo:</span>
+            <select id="flowScopeType" onchange="updateScopeType(this.value)" style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px;cursor:pointer">
+              <option value="all">Todos os chats</option>
+              <option value="dm">Apenas conversas (DMs)</option>
+              <option value="group">Apenas grupos</option>
+              <option value="label">Com etiqueta</option>
+              <option value="tab">Em aba</option>
+              <option value="chat_name">Nome contem</option>
+            </select>
+            <input type="text" id="flowScopeValue" placeholder="" oninput="updateScopeValue(this.value)" style="display:none;padding:6px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px;width:180px">
+          </div>
+
+          <div style="width:1px;height:24px;background:var(--border)"></div>
+
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:var(--on-surface-variant);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-size:10px">Disparar:</span>
+            <select id="flowTriggerType" onchange="updateTriggerType(this.value)" style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px;cursor:pointer">
+              <option value="manual">Manual (botao Testar)</option>
+              <option value="daily">Todo dia as HH:MM</option>
+              <option value="weekly">Dias da semana</option>
+              <option value="interval">A cada X horas</option>
+            </select>
+            <div id="flowTriggerConfig" style="display:flex;align-items:center;gap:6px"></div>
+          </div>
+
+          <div style="flex:1"></div>
+          <div id="flowNextRun" style="font-size:11px;color:var(--on-surface-variant)"></div>
         </div>
 
         <!-- Workspace -->
@@ -3542,6 +3574,9 @@ function openFlowEditor(flowId) {
   if (!Array.isArray(currentFlow.nodes)) currentFlow.nodes = [];
   if (!Array.isArray(currentFlow.edges)) currentFlow.edges = [];
   if (!currentFlow.viewport) currentFlow.viewport = { x: 0, y: 0, zoom: 1 };
+  if (!currentFlow.scope_config) currentFlow.scope_config = { type: "all" };
+  if (!currentFlow.trigger_type) currentFlow.trigger_type = "manual";
+  if (!currentFlow.trigger_config) currentFlow.trigger_config = {};
   flowEditorState.viewport = currentFlow.viewport;
   flowEditorState.selectedNodeId = null;
   flowEditorState.selectedEdgeId = null;
@@ -3556,6 +3591,8 @@ function openFlowEditor(flowId) {
   renderFlowPalette();
   renderFlowCanvas();
   renderFlowConfigPanel();
+  renderScopeBar();
+  renderTriggerBar();
   attachCanvasEvents();
 
   // Name input auto-save
@@ -3585,6 +3622,120 @@ function toggleFlowStatus() {
   scheduleAutoSave();
 }
 
+// ===== Scope =====
+function renderScopeBar() {
+  if (!currentFlow) return;
+  var sc = currentFlow.scope_config || { type: "all" };
+  var typeSel = document.getElementById("flowScopeType");
+  var valInp = document.getElementById("flowScopeValue");
+  if (!typeSel || !valInp) return;
+  typeSel.value = sc.type || "all";
+  var placeholders = { label: "Nome da etiqueta", tab: "Nome da aba", chat_name: "Texto no nome" };
+  if (sc.type === "label" || sc.type === "tab" || sc.type === "chat_name") {
+    valInp.style.display = "";
+    valInp.placeholder = placeholders[sc.type];
+    valInp.value = sc.value || "";
+  } else {
+    valInp.style.display = "none";
+    valInp.value = "";
+  }
+}
+
+function updateScopeType(type) {
+  if (!currentFlow) return;
+  if (!currentFlow.scope_config) currentFlow.scope_config = {};
+  currentFlow.scope_config.type = type;
+  if (type !== "label" && type !== "tab" && type !== "chat_name") currentFlow.scope_config.value = "";
+  renderScopeBar();
+  scheduleAutoSave();
+}
+
+function updateScopeValue(value) {
+  if (!currentFlow) return;
+  if (!currentFlow.scope_config) currentFlow.scope_config = { type: "all" };
+  currentFlow.scope_config.value = value;
+  scheduleAutoSave();
+}
+
+// ===== Trigger =====
+function renderTriggerBar() {
+  if (!currentFlow) return;
+  var tt = currentFlow.trigger_type || "manual";
+  var tc = currentFlow.trigger_config || {};
+  var typeSel = document.getElementById("flowTriggerType");
+  var cfgEl = document.getElementById("flowTriggerConfig");
+  var nextEl = document.getElementById("flowNextRun");
+  if (!typeSel || !cfgEl) return;
+  typeSel.value = tt;
+  var h = "";
+  var inp = "padding:6px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px";
+  if (tt === "daily") {
+    h += '<input type="time" value="' + (tc.time || "09:00") + '" oninput="updateTriggerConfig(\'time\',this.value)" style="' + inp + '">';
+  } else if (tt === "weekly") {
+    h += '<input type="time" value="' + (tc.time || "09:00") + '" oninput="updateTriggerConfig(\'time\',this.value)" style="' + inp + '">';
+    h += '<div style="display:flex;gap:3px;margin-left:6px">';
+    var days = ["D", "S", "T", "Q", "Q", "S", "S"];
+    var selected = tc.days || [];
+    days.forEach(function(d, i) {
+      var isSel = selected.indexOf(i) >= 0;
+      h += '<button onclick="toggleTriggerDay(' + i + ')" style="width:24px;height:24px;border-radius:4px;border:1px solid ' + (isSel ? "var(--primary)" : "var(--border)") + ';background:' + (isSel ? "var(--primary)" : "transparent") + ';color:' + (isSel ? "#000" : "var(--on-surface)") + ';cursor:pointer;font-size:10px;font-weight:600">' + d + '</button>';
+    });
+    h += '</div>';
+  } else if (tt === "interval") {
+    h += 'A cada <input type="number" min="1" value="' + (tc.hours || 1) + '" oninput="updateTriggerConfig(\'hours\',parseInt(this.value)||1)" style="' + inp + ';width:60px"> hora(s)';
+  } else {
+    h += '<span style="color:var(--on-surface-variant);font-size:11px">Clique em &quot;Testar agora&quot; para executar</span>';
+  }
+  cfgEl.innerHTML = h;
+  if (nextEl) nextEl.textContent = describeNextRun();
+}
+
+function updateTriggerType(type) {
+  if (!currentFlow) return;
+  currentFlow.trigger_type = type;
+  currentFlow.trigger_config = {};
+  if (type === "daily" || type === "weekly") currentFlow.trigger_config.time = "09:00";
+  if (type === "weekly") currentFlow.trigger_config.days = [1, 2, 3, 4, 5];
+  if (type === "interval") currentFlow.trigger_config.hours = 1;
+  renderTriggerBar();
+  scheduleAutoSave();
+}
+
+function updateTriggerConfig(key, value) {
+  if (!currentFlow) return;
+  if (!currentFlow.trigger_config) currentFlow.trigger_config = {};
+  currentFlow.trigger_config[key] = value;
+  var nextEl = document.getElementById("flowNextRun");
+  if (nextEl) nextEl.textContent = describeNextRun();
+  scheduleAutoSave();
+}
+
+function toggleTriggerDay(dayIdx) {
+  if (!currentFlow) return;
+  if (!currentFlow.trigger_config) currentFlow.trigger_config = {};
+  var days = currentFlow.trigger_config.days || [];
+  var i = days.indexOf(dayIdx);
+  if (i >= 0) days.splice(i, 1); else days.push(dayIdx);
+  currentFlow.trigger_config.days = days;
+  renderTriggerBar();
+  scheduleAutoSave();
+}
+
+function describeNextRun() {
+  if (!currentFlow || currentFlow.status !== "active") return "Ative o fluxo para agendar execucao";
+  var tt = currentFlow.trigger_type || "manual";
+  var tc = currentFlow.trigger_config || {};
+  if (tt === "manual") return "Apenas execucao manual";
+  if (tt === "daily") return "Proximo: amanha as " + (tc.time || "09:00");
+  if (tt === "weekly") {
+    var names = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
+    var days = (tc.days || []).map(function(i) { return names[i]; }).join(", ");
+    return "Roda em: " + (days || "nenhum dia") + " as " + (tc.time || "09:00");
+  }
+  if (tt === "interval") return "A cada " + (tc.hours || 1) + "h";
+  return "";
+}
+
 // ===== Save / Auto-save =====
 function scheduleAutoSave() {
   if (flowEditorState.autoSaveTimer) clearTimeout(flowEditorState.autoSaveTimer);
@@ -3604,7 +3755,10 @@ function saveCurrentFlow(silent) {
     status: currentFlow.status || "draft",
     nodes: currentFlow.nodes,
     edges: currentFlow.edges,
-    viewport: currentFlow.viewport
+    viewport: currentFlow.viewport,
+    scope_config: currentFlow.scope_config || { type: "all" },
+    trigger_type: currentFlow.trigger_type || "manual",
+    trigger_config: currentFlow.trigger_config || {}
   };
   supa("/rest/v1/flows?id=eq." + currentFlow.id, { method: "PATCH", body: body }).then(function() {
     if (status) status.textContent = "Salvo &#10003;";
@@ -3615,7 +3769,22 @@ function saveCurrentFlow(silent) {
 }
 
 function testFlow() {
-  alert("Execucao de teste sera implementada na proxima fase.");
+  if (!currentFlow) return;
+  var status = document.getElementById("flowSaveStatus");
+  // Salvar primeiro para garantir que a extensao pegue a versao atual
+  saveCurrentFlow(true);
+  setTimeout(function() {
+    if (status) status.textContent = "Enviando teste...";
+    supa("/rest/v1/flows?id=eq." + currentFlow.id, {
+      method: "PATCH",
+      body: { test_requested_at: new Date().toISOString(), test_processed_at: null }
+    }).then(function() {
+      if (status) status.textContent = "Teste enviado - abra o WhatsApp Web com um contato aberto";
+      setTimeout(function() { if (status) status.textContent = ""; }, 5000);
+    }).catch(function() {
+      if (status) status.textContent = "Erro ao enviar teste";
+    });
+  }, 300);
 }
 
 // ===== Palette =====
@@ -4090,16 +4259,7 @@ function renderNodeConfigForm(n) {
   var inp = 'width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px;margin-bottom:12px';
   switch (n.type) {
     case "start":
-      h += lbl("Tipo de gatilho");
-      h += '<select onchange="updateNodeData(\'' + n.id + '\',\'triggerType\',this.value)" style="' + inp + '">' +
-        '<option value="manual"' + (n.data.triggerType === "manual" ? " selected" : "") + '>Manual</option>' +
-        '<option value="schedule"' + (n.data.triggerType === "schedule" ? " selected" : "") + '>Agendado (intervalo)</option>' +
-        '<option value="event"' + (n.data.triggerType === "event" ? " selected" : "") + '>Evento</option>' +
-      '</select>';
-      if (n.data.triggerType === "schedule") {
-        h += lbl("Intervalo (ex: 1h, 30m, 1d)");
-        h += '<input type="text" value="' + esc(n.data.interval || "") + '" oninput="updateNodeData(\'' + n.id + '\',\'interval\',this.value)" style="' + inp + '">';
-      }
+      h += '<div style="font-size:12px;color:var(--on-surface-variant);line-height:1.5">Ponto de entrada do fluxo.<br><br>Escopo e disparo sao configurados na barra no topo do editor.</div>';
       break;
     case "end":
       h += '<div style="font-size:12px;color:var(--on-surface-variant)">Finaliza a execucao do fluxo.</div>';
