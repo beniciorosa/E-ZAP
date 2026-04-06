@@ -510,6 +510,15 @@ function _showCustomAbaList(abaTab, chatIndex) {
       if (meta.lastMsgText) lastMsgText = meta.lastMsgText;
       if (meta.lastMsgFromMe) lastMsgFromMe = meta.lastMsgFromMe;
     }
+    // Filtra fiber lastMsgText se eh so o nome do contato/grupo repetido
+    // (eventos de rename retornam o nome como body). Limpa ANTES do
+    // fallback pra nativePrevMap ter chance de rodar.
+    if (lastMsgText && _stripAlpha(lastMsgText) === _stripAlpha(displayName)) {
+      lastMsgText = '';
+    }
+    if (lastMsgText && n !== displayName && _stripAlpha(lastMsgText) === _stripAlpha(n)) {
+      lastMsgText = '';
+    }
     // Fallback: pega foto de perfil do DOM nativo do WA (mais confiavel)
     if (!picUrl && nativePicMap) {
       picUrl = nativePicMap[n] || nativePicMap[displayName] || '';
@@ -806,7 +815,7 @@ function _pollCustomListUpdates() {
   if (!custom || custom.style.display === 'none') { _stopCustomListPolling(); return; }
   if (!window.ezapBuildChatIndex) return;
 
-  window.ezapBuildChatIndex().then(function(idx) {
+  window.ezapBuildChatIndex({ force: true }).then(function(idx) {
     if (!idx || !idx.byJid) return;
     var rows = custom.querySelectorAll('.wcrm-custom-row');
     var nativePicMap = _buildNativePicMap();
@@ -821,6 +830,9 @@ function _pollCustomListUpdates() {
       if (!meta) continue;
       // Preview: fiber > native map > manter existente
       var msgText = meta.lastMsgText || '';
+      // Filtra fiber text se eh o nome do contato/grupo repetido
+      if (msgText && _stripAlpha(msgText) === _stripAlpha(meta.name || '')) msgText = '';
+      if (msgText && _stripAlpha(msgText) === _stripAlpha(cname)) msgText = '';
       if (!msgText && nativePrevMap) {
         msgText = nativePrevMap[meta.name] || nativePrevMap[cname] || '';
         if (!msgText && window.ezapMatchContact) {
