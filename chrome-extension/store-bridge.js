@@ -487,21 +487,20 @@
             // Tenta achar nome do contato que mandou
             var pJid = typeof participant === 'string' ? participant :
               (participant._serialized || participant.toString && participant.toString() || '');
-            // Busca nome no contact do participant
+            // Busca nome do sender: senderObj, notifyName, pushname
             var senderContact = lastMsg.senderObj || lastMsg.__x_senderObj;
             if (senderContact) {
               lastMsgSender = senderContact.pushname || senderContact.__x_pushname ||
                 senderContact.name || senderContact.__x_name ||
                 senderContact.shortName || senderContact.__x_shortName ||
-                senderContact.formattedName || '';
+                senderContact.formattedName || senderContact.verifiedName || '';
             }
-            // Fallback: numero do telefone (extrai do JID, formato simples)
-            if (!lastMsgSender && pJid) {
-              var phoneMatch = pJid.match(/^(\d+)@/);
-              if (phoneMatch) {
-                lastMsgSender = '+' + phoneMatch[1];
-              }
+            // Fallback: notifyName (pushname do sender na hora do envio)
+            if (!lastMsgSender) {
+              lastMsgSender = lastMsg.notifyName || lastMsg.__x_notifyName || '';
             }
+            // Sem nome resolvido? Nao mostra numero cru (pode ser ID interno do WA).
+            // Preview vai mostrar so a mensagem sem prefixo de sender.
           }
         }
       } catch (e) {}
