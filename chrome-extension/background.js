@@ -46,12 +46,13 @@ async function getIpInfo() {
   }
 }
 
-async function validateToken(token, deviceId, ipAddress, locationStr, userAgent) {
+async function validateToken(token, deviceId, ipAddress, locationStr, userAgent, skipLog) {
   const body = { p_token: token };
   if (deviceId) body.p_device_id = deviceId;
   if (ipAddress) body.p_ip_address = ipAddress;
   if (locationStr) body.p_location = locationStr;
   if (userAgent) body.p_user_agent = userAgent;
+  if (skipLog) body.p_skip_log = true;
 
   const resp = await fetch(AUTH_SUPA_URL + "/rest/v1/rpc/validate_token", {
     method: "POST",
@@ -312,7 +313,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // ===== Auth handlers =====
   if (request.action === "validate_token") {
-    handleAsync(() => validateToken(request.token, request.deviceId, request.ipAddress, request.location, request.userAgent), sendResponse);
+    handleAsync(() => validateToken(request.token, request.deviceId, request.ipAddress, request.location, request.userAgent, request.skipLog), sendResponse);
     return true;
   }
   if (request.action === "get_ip_info") {

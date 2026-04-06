@@ -492,6 +492,7 @@ function silentRevalidate(token) {
       action: "validate_token",
       token: token,
       deviceId: deviceId,
+      skipLog: true,
     }, function(response) {
       if (chrome.runtime.lastError) return;
       if (!response || !response.ok) {
