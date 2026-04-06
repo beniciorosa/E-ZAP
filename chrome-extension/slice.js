@@ -637,10 +637,13 @@ function _formatPreview(data) {
   } else if (data.lastMsgSender && !data.lastMsgFromMe && !isSystemEvent) {
     // Mostra nome/numero do sender em grupos (ex: "João: 🎤 0:10")
     var sender = data.lastMsgSender;
-    // Pega so primeiro nome pra ficar curto
-    var firstName = sender.split(/\s+/)[0];
-    if (firstName && !/^Voc[eê]/i.test(txt)) {
-      txt = firstName + ': ' + txt;
+    var senderLabel = sender;
+    // Se eh nome (nao comeca com +), pega primeiro nome pra ficar curto
+    if (sender.charAt(0) !== '+') {
+      senderLabel = sender.split(/\s+/)[0];
+    }
+    if (senderLabel && !/^Voc[eê]/i.test(txt)) {
+      txt = senderLabel + ': ' + txt;
     }
   }
   return txt;

@@ -495,12 +495,11 @@
                 senderContact.shortName || senderContact.__x_shortName ||
                 senderContact.formattedName || '';
             }
-            // Fallback: numero do telefone (extrai do JID)
+            // Fallback: numero do telefone (extrai do JID, formato simples)
             if (!lastMsgSender && pJid) {
               var phoneMatch = pJid.match(/^(\d+)@/);
               if (phoneMatch) {
-                var p = phoneMatch[1];
-                lastMsgSender = '+' + p.slice(0,2) + ' ' + p.slice(2,4) + ' ' + p.slice(4);
+                lastMsgSender = '+' + phoneMatch[1];
               }
             }
           }
