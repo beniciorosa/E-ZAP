@@ -695,6 +695,11 @@ chrome.runtime.onMessage.addListener(function(request) {
     window.__wcrmLogout();
   }
   if (request.action === "ezap_update_available") {
+    // Se force_replace, remove banner existente pra mostrar versao mais nova
+    if (request.force_replace) {
+      var oldBanner = document.getElementById("ezap-update-banner");
+      if (oldBanner) oldBanner.remove();
+    }
     showUpdateBanner(request.version, request.message, request.download_url);
   }
 });
@@ -706,6 +711,7 @@ function showUpdateBanner(version, message, downloadUrl) {
 
   var banner = document.createElement("div");
   banner.id = "ezap-update-banner";
+  banner.setAttribute("data-ezap-version", version);
   Object.assign(banner.style, {
     position: "fixed",
     top: "0",
@@ -767,8 +773,16 @@ function showUpdateBanner(version, message, downloadUrl) {
 function checkStoredUpdate() {
   chrome.storage.local.get(["ezap_update", "ezap_update_dismissed"], function(result) {
     if (result.ezap_update && result.ezap_update.version) {
-      // Don't show if user already dismissed this version
+      // Don't show if user already dismissed THIS EXACT version
       if (result.ezap_update_dismissed === result.ezap_update.version) return;
+      // Se banner existente mostra versao anterior, remove pra atualizar
+      var existing = document.getElementById("ezap-update-banner");
+      if (existing) {
+        var shownVer = existing.getAttribute("data-ezap-version") || "";
+        if (shownVer && shownVer !== result.ezap_update.version) {
+          existing.remove();
+        }
+      }
       showUpdateBanner(
         result.ezap_update.version,
         result.ezap_update.message,

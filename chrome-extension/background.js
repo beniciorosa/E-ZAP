@@ -202,24 +202,45 @@ async function checkForUpdate() {
 
     if (isNewerVersion(release.version, currentVersion)) {
       console.log("[EZAP BG] New version available:", release.version, "(current:", currentVersion + ")");
-      // Store update info so content scripts can show the banner
+
+      // Só notifica se release.json tem notify: true (admin controla no painel).
+      // Sem notify ou notify: false = versão silenciosa (só admin atualiza local).
+      if (!release.notify) {
+        console.log("[EZAP BG] Version", release.version, "has notify=false, skipping notification");
+        return;
+      }
+
+      // Guarda info do update. Se ja tinha um pendente de versao anterior,
+      // SOBRESCREVE com a versao mais nova (resolve problema de notificacao
+      // empilhada que ficava mostrando versao antiga).
+      const stored = await chrome.storage.local.get(["ezap_update", "ezap_update_dismissed"]);
+      const prevUpdate = stored.ezap_update;
+
+      // Se user dismissou uma versao ANTERIOR, limpa o dismiss pra que a
+      // nova versao seja exibida normalmente.
+      if (stored.ezap_update_dismissed && stored.ezap_update_dismissed !== release.version) {
+        await chrome.storage.local.remove("ezap_update_dismissed");
+      }
+
       await chrome.storage.local.set({
         ezap_update: {
           version: release.version,
-          message: release.message || "",
-          download_url: release.download_url || "",
+          message: release.message || release.notes || "",
+          download_url: release.download_url || release.url || "",
           published_at: release.published_at || "",
           checked_at: new Date().toISOString(),
         }
       });
-      // Notify all WhatsApp tabs
+
+      // Notifica todas as tabs do WhatsApp (com versao MAIS RECENTE)
       chrome.tabs.query({ url: "https://web.whatsapp.com/*" }, (tabs) => {
         tabs.forEach((tab) => {
           chrome.tabs.sendMessage(tab.id, {
             action: "ezap_update_available",
             version: release.version,
-            message: release.message || "",
-            download_url: release.download_url || "",
+            message: release.message || release.notes || "",
+            download_url: release.download_url || release.url || "",
+            force_replace: !!(prevUpdate && prevUpdate.version !== release.version),
           }).catch(() => {});
         });
       });

@@ -1437,8 +1437,9 @@
             <input type="text" id="releaseMessage" placeholder="Ex: Correções de segurança e melhorias">
           </div>
         </div>
-        <div style="display:flex;gap:10px;align-items:center">
-          <button class="btn-primary" onclick="publishRelease()" style="padding:8px 18px;font-size:12px">Publicar e Notificar</button>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn-primary" onclick="publishRelease(true)" style="padding:8px 18px;font-size:12px">Publicar e Notificar</button>
+          <button onclick="publishRelease(false)" style="padding:8px 18px;font-size:12px;background:var(--surface-container-high);color:var(--on-surface);border:1px solid var(--outline-variant);border-radius:var(--radius-sm);cursor:pointer">Publicar Silencioso</button>
           <span id="releaseStatus" style="font-size:12px;margin-left:8px"></span>
         </div>
       </div>
@@ -3386,9 +3387,12 @@ function loadCurrentRelease() {
 
     if (published && published.version) {
       var dateStr = published.published_at ? formatDate(published.published_at) : "-";
+      var notifyLabel = published.notify
+        ? '<span style="color:var(--primary-fixed-dim);font-size:11px;margin-left:6px">&#x1F514; Notificando</span>'
+        : '<span style="color:var(--on-surface-variant);font-size:11px;margin-left:6px">&#x1F515; Silencioso</span>';
       html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">' +
         '<div style="width:8px;height:8px;border-radius:50%;background:var(--primary-fixed-dim);flex-shrink:0"></div>' +
-        '<div><div style="color:var(--on-surface);font-weight:600">Versão publicada: <span style="color:var(--primary-fixed-dim)">' + esc(published.version) + '</span></div>' +
+        '<div><div style="color:var(--on-surface);font-weight:600">Versão publicada: <span style="color:var(--primary-fixed-dim)">' + esc(published.version) + '</span>' + notifyLabel + '</div>' +
         '<div style="font-size:11px;color:var(--on-surface-variant);margin-top:2px">' + dateStr + (published.message ? ' &mdash; ' + esc(published.message) : '') + '</div></div></div>';
     } else {
       html += '<div style="color:var(--warning);margin-bottom:8px">Nenhuma versão publicada ainda.</div>';
@@ -3428,21 +3432,25 @@ function isNewerSemver(vA, vB) {
   return false;
 }
 
-function publishRelease() {
+function publishRelease(notify) {
   var version = document.getElementById("releaseVersion").value.trim();
   var message = document.getElementById("releaseMessage").value.trim();
   var statusEl = document.getElementById("releaseStatus");
 
   if (!version) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Informe a versão"; return; }
   if (!/^\d+\.\d+\.\d+$/.test(version)) { statusEl.style.color = "var(--error)"; statusEl.textContent = "Formato inválido. Use X.Y.Z (ex: 1.4.0)"; return; }
-  if (!confirm("Publicar versão " + version + " e notificar todos os usuários?")) return;
+  var confirmMsg = notify
+    ? "Publicar versão " + version + " e NOTIFICAR todos os usuários?"
+    : "Publicar versão " + version + " silenciosamente (sem notificar)?";
+  if (!confirm(confirmMsg)) return;
 
   statusEl.style.color = "var(--on-surface-variant)"; statusEl.textContent = "Publicando...";
   var releaseData = {
     version: version, message: message || "",
     download_url: RELEASE_DOWNLOAD_URL,
     published_at: new Date().toISOString(),
-    published_by: currentAdmin.user_name || "admin"
+    published_by: currentAdmin.user_name || "admin",
+    notify: !!notify
   };
 
   fetch(RELEASE_UPLOAD_URL, {
@@ -3452,7 +3460,7 @@ function publishRelease() {
   }).then(function(r) {
     if (!r.ok) throw new Error("HTTP " + r.status);
     statusEl.style.color = "var(--primary-fixed-dim)";
-    statusEl.textContent = "Versao " + version + " publicada com sucesso!";
+    statusEl.textContent = "Versao " + version + (notify ? " publicada e notificada!" : " publicada (silencioso).");
     document.getElementById("releaseMessage").value = "";
     loadCurrentRelease();
     setTimeout(function() { statusEl.textContent = ""; }, 5000);
