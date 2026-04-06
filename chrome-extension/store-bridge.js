@@ -393,11 +393,13 @@
 
   function getFiberChatName(chat) {
     try {
-      if (typeof chat.name === 'string' && chat.name) return chat.name;
+      // Prioridade: formattedTitle/title() refletem o nome ATUAL do grupo
+      // (atualizado em tempo real). chat.name pode ficar stale apos rename.
+      if (chat.formattedTitle) return String(chat.formattedTitle);
+      if (chat.__x_formattedTitle) return String(chat.__x_formattedTitle);
       if (typeof chat.title === 'function') { var t = chat.title(); if (t) return String(t); }
       else if (typeof chat.title === 'string' && chat.title) return chat.title;
-      if (chat.__x_formattedTitle) return String(chat.__x_formattedTitle);
-      if (chat.formattedTitle) return String(chat.formattedTitle);
+      if (typeof chat.name === 'string' && chat.name) return chat.name;
       var ct = chat.contact;
       if (ct) {
         if (typeof ct.name === 'string' && ct.name) return ct.name;
