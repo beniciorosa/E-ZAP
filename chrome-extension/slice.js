@@ -281,34 +281,51 @@ function _runFiltersSync(chatIndex) {
 // propria lista com os contatos da aba. Zero dependencia de virtual scroll.
 // Polling de 3s atualiza unread/timestamp/preview de mensagem em tempo real.
 // Click abre conversa via store-bridge (Store.Chat) ou search bar fallback.
+// Guarda ultimo tema aplicado pra detectar mudanca
+var _wcrmLastThemeMode = null;
+
 function _ensureCustomListCSS() {
-  if (document.getElementById('wcrm-custom-list-css')) return;
+  var isDark = (typeof isDarkMode === 'function') ? isDarkMode() : true;
+  var themeMode = isDark ? 'dark' : 'light';
+  var existing = document.getElementById('wcrm-custom-list-css');
+  // Se CSS existe e tema nao mudou, nada a fazer
+  if (existing && _wcrmLastThemeMode === themeMode) return;
+  // Remove CSS antigo pra recriar com novo tema
+  if (existing) existing.parentNode.removeChild(existing);
+  _wcrmLastThemeMode = themeMode;
+
+  var t = (typeof getTheme === 'function') ? getTheme() : {
+    bg: '#111b21', bgSecondary: '#202c33', bgHover: '#2a3942',
+    text: '#e9edef', textSecondary: '#8696a0', border: '#2a3942',
+    headerBg: '#202c33'
+  };
+
   var s = document.createElement('style');
   s.id = 'wcrm-custom-list-css';
   s.textContent = [
-    '#wcrm-custom-list { overflow-y: auto; background: #111b21; color: #e9edef; font-family: "Segoe UI", Helvetica, "Helvetica Neue", Arial, sans-serif; }',
+    '#wcrm-custom-list { overflow-y: auto; background: ' + t.bg + '; color: ' + t.text + '; font-family: "Segoe UI", Helvetica, "Helvetica Neue", Arial, sans-serif; }',
     '.wcrm-custom-row { display: flex; align-items: stretch; padding: 0 15px; height: 72px; box-sizing: border-box; cursor: pointer; background: transparent; position: relative; }',
-    '.wcrm-custom-row:hover { background: #202c33; }',
-    '.wcrm-custom-row:active { background: #2a3942; }',
+    '.wcrm-custom-row:hover { background: ' + t.bgSecondary + '; }',
+    '.wcrm-custom-row:active { background: ' + t.bgHover + '; }',
     '.wcrm-custom-row.wcrm-row-loading { opacity: 0.6; pointer-events: none; }',
-    '.wcrm-custom-row.wcrm-row-active { background: #2a3942; }',
+    '.wcrm-custom-row.wcrm-row-active { background: ' + t.bgHover + '; }',
     '.wcrm-custom-row.wcrm-row-new-msg { animation: wcrmFlash 1.2s ease-out; }',
     '@keyframes wcrmFlash { 0% { background: rgba(0,168,132,0.35); } 100% { background: transparent; } }',
     '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 500; flex-shrink: 0; margin: 11px 15px 11px 0; overflow: hidden; align-self: center; }',
     '.wcrm-custom-avatar-has-img { background: transparent !important; }',
     '.wcrm-custom-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }',
-    '.wcrm-custom-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-right: 6px; border-top: 1px solid rgba(134,150,160,0.15); }',
+    '.wcrm-custom-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-right: 6px; border-top: 1px solid ' + t.border + '; }',
     '.wcrm-custom-row:first-child .wcrm-custom-meta { border-top: none; }',
     '.wcrm-custom-line1 { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }',
-    '.wcrm-custom-name { color: #e9edef; font-size: 17px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
-    '.wcrm-custom-time { color: #8696a0; font-size: 12px; flex-shrink: 0; }',
+    '.wcrm-custom-name { color: ' + t.text + '; font-size: 17px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
+    '.wcrm-custom-time { color: ' + t.textSecondary + '; font-size: 12px; flex-shrink: 0; }',
     '.wcrm-custom-time.wcrm-time-unread { color: #00a884; }',
     '.wcrm-custom-line2 { display: flex; align-items: center; gap: 6px; }',
-    '.wcrm-custom-preview { color: #8696a0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
-    '.wcrm-custom-pin { color: #8696a0; font-size: 14px; flex-shrink: 0; transform: rotate(45deg); }',
-    '.wcrm-custom-badge { background: #00a884; color: #111b21; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
-    '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: #8696a0; font-size: 14px; }',
-    '.wcrm-custom-header { padding: 10px 15px; color: #8696a0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; background: #0b141a; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid rgba(134,150,160,0.15); }'
+    '.wcrm-custom-preview { color: ' + t.textSecondary + '; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
+    '.wcrm-custom-pin { color: ' + t.textSecondary + '; font-size: 14px; flex-shrink: 0; transform: rotate(45deg); }',
+    '.wcrm-custom-badge { background: #00a884; color: ' + (isDark ? '#111b21' : '#ffffff') + '; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
+    '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: ' + t.textSecondary + '; font-size: 14px; }',
+    '.wcrm-custom-header { padding: 10px 15px; color: ' + t.textSecondary + '; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; background: ' + t.headerBg + '; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid ' + t.border + '; }'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -823,12 +840,16 @@ function _stopCustomListPolling() {
   if (_customListPollTimer) { clearInterval(_customListPollTimer); _customListPollTimer = null; }
 }
 
+var _pollThemeCheckCounter = 0;
 function _pollCustomListUpdates() {
   // Pausa se tab em background ou custom list escondida
   if (document.hidden) return;
   var custom = document.getElementById('wcrm-custom-list');
   if (!custom || custom.style.display === 'none') { _stopCustomListPolling(); return; }
   if (!window.ezapBuildChatIndex) return;
+  // A cada 10 ciclos (~30s), checa se tema mudou e re-aplica CSS
+  _pollThemeCheckCounter++;
+  if (_pollThemeCheckCounter % 10 === 0) _ensureCustomListCSS();
 
   window.ezapBuildChatIndex({ force: true }).then(function(idx) {
     if (!idx || !idx.byJid) return;
