@@ -284,12 +284,12 @@ function _runFiltersSync(chatIndex) {
 // Guarda ultimo tema aplicado pra detectar mudanca
 var _wcrmLastThemeMode = null;
 
-function _ensureCustomListCSS() {
+function _ensureCustomListCSS(force) {
   var isDark = (typeof isDarkMode === 'function') ? isDarkMode() : true;
   var themeMode = isDark ? 'dark' : 'light';
   var existing = document.getElementById('wcrm-custom-list-css');
-  // Se CSS existe e tema nao mudou, nada a fazer
-  if (existing && _wcrmLastThemeMode === themeMode) return;
+  // Se CSS existe e tema nao mudou (e nao e force), nada a fazer
+  if (existing && _wcrmLastThemeMode === themeMode && !force) return;
   // Remove CSS antigo pra recriar com novo tema
   if (existing) existing.parentNode.removeChild(existing);
   _wcrmLastThemeMode = themeMode;
@@ -302,6 +302,8 @@ function _ensureCustomListCSS() {
 
   var s = document.createElement('style');
   s.id = 'wcrm-custom-list-css';
+  var accent = t.accent || '#00a884';
+  var accentRgb = (typeof _hexToRgb === 'function') ? _hexToRgb(accent) : [0,168,132];
   s.textContent = [
     '#wcrm-custom-list { overflow-y: auto; background: ' + t.bg + '; color: ' + t.text + '; font-family: "Segoe UI", Helvetica, "Helvetica Neue", Arial, sans-serif; }',
     '.wcrm-custom-row { display: flex; align-items: stretch; padding: 0 15px; height: 72px; box-sizing: border-box; cursor: pointer; background: transparent; position: relative; }',
@@ -310,7 +312,7 @@ function _ensureCustomListCSS() {
     '.wcrm-custom-row.wcrm-row-loading { opacity: 0.6; pointer-events: none; }',
     '.wcrm-custom-row.wcrm-row-active { background: ' + t.bgHover + '; }',
     '.wcrm-custom-row.wcrm-row-new-msg { animation: wcrmFlash 1.2s ease-out; }',
-    '@keyframes wcrmFlash { 0% { background: rgba(0,168,132,0.35); } 100% { background: transparent; } }',
+    '@keyframes wcrmFlash { 0% { background: rgba(' + accentRgb.join(',') + ',0.35); } 100% { background: transparent; } }',
     '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 500; flex-shrink: 0; margin: 11px 15px 11px 0; overflow: hidden; align-self: center; }',
     '.wcrm-custom-avatar-has-img { background: transparent !important; }',
     '.wcrm-custom-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }',
@@ -319,11 +321,11 @@ function _ensureCustomListCSS() {
     '.wcrm-custom-line1 { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }',
     '.wcrm-custom-name { color: ' + t.text + '; font-size: 17px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
     '.wcrm-custom-time { color: ' + t.textSecondary + '; font-size: 12px; flex-shrink: 0; }',
-    '.wcrm-custom-time.wcrm-time-unread { color: #00a884; }',
+    '.wcrm-custom-time.wcrm-time-unread { color: ' + accent + '; }',
     '.wcrm-custom-line2 { display: flex; align-items: center; gap: 6px; }',
     '.wcrm-custom-preview { color: ' + t.textSecondary + '; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
     '.wcrm-custom-pin { color: ' + t.textSecondary + '; font-size: 14px; flex-shrink: 0; transform: rotate(45deg); }',
-    '.wcrm-custom-badge { background: #00a884; color: ' + (isDark ? '#111b21' : '#ffffff') + '; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
+    '.wcrm-custom-badge { background: ' + accent + '; color: ' + (isDark ? '#111b21' : '#ffffff') + '; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
     '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: ' + t.textSecondary + '; font-size: 14px; }',
     '.wcrm-custom-header { padding: 10px 15px; color: ' + t.textSecondary + '; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; background: ' + t.headerBg + '; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid ' + t.border + '; }'
   ].join('\n');

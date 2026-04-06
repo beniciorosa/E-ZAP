@@ -988,8 +988,8 @@
         GEIA
       </button>
       <button class="sidebar-nav-item" data-tab="buttons" onclick="switchTab('buttons')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
-        Botões e Widgets
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a4.5 4.5 0 0 0-3.18 7.68L2 16.5V22h5.5l6.82-6.82A4.5 4.5 0 0 0 12 2z"/><circle cx="12" cy="6.5" r="1"/></svg>
+        Customização
       </button>
       <button class="sidebar-nav-item" data-tab="fluxos" onclick="switchTab('fluxos')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 1 0-5 0V5H4c-1.1 0-2 .9-2 2v3.8h1.5a2.7 2.7 0 1 1 0 5.4H2V20c0 1.1.9 2 2 2h3.8v-1.5a2.7 2.7 0 1 1 5.4 0V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 1 0 0-5z"/></svg>
@@ -1149,10 +1149,58 @@
       </div>
     </div>
 
-    <!-- ===== BUTTONS & WIDGETS PANEL ===== -->
+    <!-- ===== CUSTOMIZATION PANEL ===== -->
     <div class="panel" id="panel-buttons">
       <div class="page-header">
-        <div class="page-title">Botões e Widgets</div>
+        <div class="page-title">Customização</div>
+      </div>
+
+      <!-- Tema da extensao -->
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(160,255,195,0.1)">
+            <span>&#127912;</span>
+          </div>
+          <div>
+            <div class="settings-card-title">Tema da extensão</div>
+            <div class="settings-card-desc">Escolha como a extensão se adapta visualmente ao WhatsApp</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:16px">
+          <label style="font-size:11px;color:var(--on-surface-variant);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Modo</label>
+          <div style="display:flex;gap:8px">
+            <div id="themeMode_responsive" onclick="setThemeMode('responsive')" style="flex:1;padding:14px;border-radius:10px;border:2px solid var(--border);cursor:pointer;transition:all 0.15s">
+              <div style="font-size:13px;font-weight:600;color:var(--on-surface);margin-bottom:4px">Responsivo</div>
+              <div style="font-size:11px;color:var(--on-surface-variant)">Adapta automaticamente ao tema claro/escuro do WhatsApp</div>
+            </div>
+            <div id="themeMode_custom" onclick="setThemeMode('custom')" style="flex:1;padding:14px;border-radius:10px;border:2px solid var(--border);cursor:pointer;transition:all 0.15s">
+              <div style="font-size:13px;font-weight:600;color:var(--on-surface);margin-bottom:4px">Customizado</div>
+              <div style="font-size:11px;color:var(--on-surface-variant)">Escolha sua cor primária personalizada</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="themeColorSection" style="margin-bottom:16px;display:none">
+          <label style="font-size:11px;color:var(--on-surface-variant);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Cor primária</label>
+          <div style="display:flex;align-items:center;gap:16px">
+            <div id="themeColorPalette" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="color" id="themeCustomColorPicker" value="#25d366" onchange="setThemePrimaryColor(this.value)" style="width:36px;height:36px;border:none;border-radius:8px;cursor:pointer;background:none;padding:0">
+              <span style="font-size:11px;color:var(--on-surface-variant)">Custom</span>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;align-items:center;gap:10px">
+            <div id="themePreviewBar" style="height:8px;border-radius:4px;flex:1;transition:background 0.2s"></div>
+            <span id="themePreviewLabel" style="font-size:11px;color:var(--on-surface-variant);font-family:monospace"></span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;margin-top:16px">
+          <button class="btn-primary" onclick="saveThemeConfig()" style="padding:8px 18px;font-size:12px">Salvar tema</button>
+          <button class="btn-secondary" onclick="resetThemeConfig()" style="padding:8px 18px;font-size:12px">Restaurar padrão</button>
+          <span id="themeConfigStatus" style="font-size:12px;margin-left:8px"></span>
+        </div>
       </div>
 
       <!-- Widgets do chat (Pin / Abas / Etiquetas) -->
@@ -1500,6 +1548,7 @@ function showApp() {
   loadSettings();
   loadGeiaPersonality();
   loadGeiaKnowledge();
+  loadThemeConfigAdmin();
   loadButtonConfig();
   loadWidgetConfigAdmin();
   loadFlows();
@@ -2738,6 +2787,114 @@ function resetButtonConfig() {
 }
 
 // ===== WIDGET CONFIG =====
+// ===== Theme config =====
+var THEME_PALETTE = ["#25d366","#4d96ff","#ff922b","#cc5de8","#ff6b6b","#ffd93d","#20c997","#f44336","#ff7a59","#748ffc","#8e44ad","#00b894"];
+var DEFAULT_THEME_CONFIG = { mode: "responsive", primaryColor: "#25d366" };
+var currentThemeConfig = JSON.parse(JSON.stringify(DEFAULT_THEME_CONFIG));
+
+function loadThemeConfigAdmin() {
+  supa("/rest/v1/app_settings?key=eq.theme_config&select=value").then(function(rows) {
+    if (rows && rows.length > 0 && rows[0].value) {
+      try {
+        var parsed = typeof rows[0].value === "string" ? JSON.parse(rows[0].value) : rows[0].value;
+        currentThemeConfig = {
+          mode: parsed.mode || DEFAULT_THEME_CONFIG.mode,
+          primaryColor: parsed.primaryColor || DEFAULT_THEME_CONFIG.primaryColor
+        };
+      } catch(e) { console.warn("theme_config parse error", e); }
+    }
+    renderThemeConfig();
+  }).catch(function() { renderThemeConfig(); });
+}
+
+function renderThemeConfig() {
+  var isCustom = currentThemeConfig.mode === "custom";
+
+  // Mode cards
+  var rEl = document.getElementById("themeMode_responsive");
+  var cEl = document.getElementById("themeMode_custom");
+  if (rEl) {
+    rEl.style.borderColor = !isCustom ? "var(--primary)" : "var(--border)";
+    rEl.style.background = !isCustom ? "rgba(160,255,195,0.05)" : "transparent";
+  }
+  if (cEl) {
+    cEl.style.borderColor = isCustom ? "var(--primary)" : "var(--border)";
+    cEl.style.background = isCustom ? "rgba(160,255,195,0.05)" : "transparent";
+  }
+
+  // Color section visibility
+  var colorSec = document.getElementById("themeColorSection");
+  if (colorSec) colorSec.style.display = isCustom ? "block" : "none";
+
+  // Palette
+  var palEl = document.getElementById("themeColorPalette");
+  if (palEl) {
+    palEl.innerHTML = THEME_PALETTE.map(function(c) {
+      var sel = currentThemeConfig.primaryColor === c;
+      return '<div onclick="setThemePrimaryColor(\'' + c + '\')" style="width:32px;height:32px;border-radius:8px;background:' + c + ';cursor:pointer;border:2px solid ' + (sel ? '#fff' : 'transparent') + ';box-shadow:' + (sel ? '0 0 0 2px var(--primary)' : 'none') + ';transition:all 0.15s"></div>';
+    }).join("");
+  }
+
+  // Color picker
+  var picker = document.getElementById("themeCustomColorPicker");
+  if (picker) picker.value = currentThemeConfig.primaryColor;
+
+  // Preview bar
+  var bar = document.getElementById("themePreviewBar");
+  if (bar) bar.style.background = isCustom ? currentThemeConfig.primaryColor : "linear-gradient(90deg,#25d366,#4d96ff)";
+  var label = document.getElementById("themePreviewLabel");
+  if (label) label.textContent = isCustom ? currentThemeConfig.primaryColor : "auto";
+}
+
+function setThemeMode(mode) {
+  currentThemeConfig.mode = mode;
+  renderThemeConfig();
+}
+
+function setThemePrimaryColor(color) {
+  currentThemeConfig.primaryColor = color;
+  renderThemeConfig();
+}
+
+function saveThemeConfig() {
+  var statusEl = document.getElementById("themeConfigStatus");
+  statusEl.textContent = "Salvando...";
+  statusEl.style.color = "var(--on-surface-variant)";
+
+  var payload = { value: JSON.stringify(currentThemeConfig), updated_at: new Date().toISOString() };
+
+  supa("/rest/v1/app_settings?key=eq.theme_config", {
+    method: "PATCH",
+    body: payload,
+    prefer: "return=representation"
+  }).then(function(data) {
+    if (Array.isArray(data) && data.length > 0) {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+      setTimeout(function() { statusEl.textContent = ""; }, 3000);
+      return;
+    }
+    return supa("/rest/v1/app_settings", {
+      method: "POST",
+      body: { key: "theme_config", value: JSON.stringify(currentThemeConfig), updated_at: new Date().toISOString() }
+    }).then(function() {
+      statusEl.textContent = "Salvo!";
+      statusEl.style.color = "var(--primary)";
+      setTimeout(function() { statusEl.textContent = ""; }, 3000);
+    });
+  }).catch(function(e) {
+    statusEl.textContent = "Erro ao salvar";
+    statusEl.style.color = "#ff6b6b";
+    console.error("saveThemeConfig error", e);
+  });
+}
+
+function resetThemeConfig() {
+  currentThemeConfig = JSON.parse(JSON.stringify(DEFAULT_THEME_CONFIG));
+  renderThemeConfig();
+}
+
+// ===== Widget config =====
 var DEFAULT_WIDGET_CONFIG = {
   position: "sidebar",
   style: "pill",

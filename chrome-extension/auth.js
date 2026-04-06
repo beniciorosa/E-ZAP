@@ -295,6 +295,43 @@ window.__ezapReloadWidgetConfig = loadWidgetConfig;
 loadWidgetConfig();
 setInterval(loadWidgetConfig, 2 * 60 * 1000);
 
+// ===== Theme config (responsive vs custom accent color) =====
+window.__ezapDefaultThemeConfig = { mode: "responsive", primaryColor: "#25d366" };
+window.__ezapThemeConfig = JSON.parse(JSON.stringify(window.__ezapDefaultThemeConfig));
+
+function loadThemeConfig() {
+  chrome.runtime.sendMessage({
+    action: "supabase_rest",
+    path: "/rest/v1/app_settings?key=eq.theme_config&select=value",
+    method: "GET"
+  }, function(resp) {
+    if (chrome.runtime.lastError) return;
+    if (!resp || !Array.isArray(resp) || resp.length === 0) return;
+    try {
+      var val = resp[0].value;
+      var parsed = typeof val === "string" ? JSON.parse(val) : val;
+      if (parsed && typeof parsed === "object") {
+        var prev = JSON.stringify(window.__ezapThemeConfig);
+        window.__ezapThemeConfig = {
+          mode: parsed.mode || window.__ezapDefaultThemeConfig.mode,
+          primaryColor: parsed.primaryColor || window.__ezapDefaultThemeConfig.primaryColor
+        };
+        if (prev !== JSON.stringify(window.__ezapThemeConfig)) {
+          console.log("[EZAP AUTH] Theme config loaded", window.__ezapThemeConfig);
+          // Notify abas/slice to re-apply theme
+          if (typeof window.__ezapRefreshTheme === "function") window.__ezapRefreshTheme();
+        }
+      }
+    } catch (e) {
+      console.warn("[EZAP AUTH] Failed to parse theme_config", e);
+    }
+  });
+}
+
+window.__ezapReloadThemeConfig = loadThemeConfig;
+loadThemeConfig();
+setInterval(loadThemeConfig, 2 * 60 * 1000);
+
 // ===== Dispatch auth ready event =====
 function dispatchAuthReady() {
   console.log("[EZAP AUTH] Authenticated as:", window.__wcrmAuth.userName,

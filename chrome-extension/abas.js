@@ -43,9 +43,48 @@ function _readColor(selector, prop, fallback) {
   } catch (e) { return fallback; }
 }
 
+// Converte hex pra RGB array
+function _hexToRgb(hex) {
+  hex = hex.replace('#', '');
+  return [parseInt(hex.substr(0,2),16), parseInt(hex.substr(2,2),16), parseInt(hex.substr(4,2),16)];
+}
+
+// Escurece/clareia uma cor hex por um fator (-1 a 1)
+function _adjustColor(hex, factor) {
+  var rgb = _hexToRgb(hex);
+  var adjusted = rgb.map(function(c) {
+    if (factor > 0) return Math.min(255, Math.round(c + (255 - c) * factor));
+    return Math.max(0, Math.round(c * (1 + factor)));
+  });
+  return '#' + adjusted.map(function(c) { return ('0' + c.toString(16)).slice(-2); }).join('');
+}
+
 function getTheme() {
   var dark = isDarkMode();
-  // Le cores REAIS do WA DOM pra combinar exatamente
+  var cfg = window.__ezapThemeConfig || { mode: "responsive" };
+
+  // Modo customizado: deriva cores a partir da cor primaria
+  if (cfg.mode === "custom" && cfg.primaryColor) {
+    var pc = cfg.primaryColor;
+    var pcRgb = _hexToRgb(pc);
+    // Determina se a cor primaria e clara ou escura pra adaptar textos
+    var pcBrightness = (pcRgb[0] + pcRgb[1] + pcRgb[2]) / 3;
+    return {
+      bg: dark ? '#111b21' : '#ffffff',
+      bgSecondary: dark ? '#202c33' : '#f0f2f5',
+      bgHover: _adjustColor(pc, dark ? -0.7 : 0.85),
+      bgItem: dark ? '#1a2730' : '#ffffff',
+      border: _adjustColor(pc, dark ? -0.6 : 0.7),
+      borderLight: _adjustColor(pc, dark ? -0.4 : 0.5),
+      text: dark ? '#e9edef' : '#111b21',
+      textSecondary: dark ? '#8696a0' : '#667781',
+      headerBg: _adjustColor(pc, dark ? -0.75 : 0.9),
+      iconColor: pc,
+      accent: pc,
+    };
+  }
+
+  // Modo responsivo: le cores REAIS do WA DOM pra combinar exatamente
   var paneSide = document.getElementById('pane-side');
   var header = paneSide && paneSide.querySelector('header');
   var realBg = _readColor(paneSide, 'backgroundColor', dark ? '#111b21' : '#ffffff');
@@ -63,6 +102,12 @@ function getTheme() {
     iconColor: dark ? '#aebac1' : '#54656f',
   };
 }
+
+// Callback pra auth.js notificar mudanca de theme_config
+window.__ezapRefreshTheme = function() {
+  console.log("[WCRM ABAS] Theme config changed, re-applying CSS");
+  if (typeof _ensureCustomListCSS === 'function') _ensureCustomListCSS(true);
+};
 
 // ===== Extension Context Guard =====
 function isExtensionValid() {
