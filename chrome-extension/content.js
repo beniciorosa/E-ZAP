@@ -946,7 +946,7 @@ function preloadHubSpotData() {
       window._wcrmContactData = {
         nome: firstName,
         nomeCompleto: fullName,
-        consultor: consultorName,
+        consultor: ticket && ticket.properties._ownerName ? ticket.properties._ownerName : "",
         empresa: consultorName,
         email: (ticket && ticket.properties.contrato__e_mail) ? ticket.properties.contrato__e_mail : (contactMatches && contactProps.email ? contactProps.email : ""),
         telefone: contactMatches && contactProps.phone ? contactProps.phone : (currentPhone || ""),
@@ -1093,7 +1093,7 @@ function fetchHubSpotData() {
       window._wcrmContactData = {
         nome: firstName,
         nomeCompleto: fullName,
-        consultor: consultorName,
+        consultor: ticket && ticket.properties._ownerName ? ticket.properties._ownerName : "",
         empresa: consultorName,
         email: (ticket && ticket.properties.contrato__e_mail) ? ticket.properties.contrato__e_mail : (contactMatches && contactProps.email ? contactProps.email : ""),
         telefone: contactMatches && contactProps.phone ? contactProps.phone : (currentPhone || ""),
@@ -1104,8 +1104,8 @@ function fetchHubSpotData() {
         status: ticket && ticket.properties._stageName ? ticket.properties._stageName : "",
       };
 
-      // Mentor name: extract from ticket subject (part after "|")
-      var mentorName = consultorName || "";
+      // Mentor name: from HubSpot owner (proprietario do ticket)
+      var mentorName = (ticket && ticket.properties._ownerName) ? ticket.properties._ownerName : "";
 
       {
         // Build the card
@@ -1131,7 +1131,7 @@ function fetchHubSpotData() {
           var yyyy = ticketDate.getFullYear();
           html += row("Criado em", dd + "/" + mm + "/" + yyyy);
         }
-        // Mentor (from ticket subject after "|")
+        // Mentor (from HubSpot owner)
         if (mentorName) html += row("Mentor", mentorName);
         // E-mail from ticket [CONTRATO] E-mail
         if (ticketEmail) html += row("E-mail", ticketEmail);
