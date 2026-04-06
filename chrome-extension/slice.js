@@ -446,13 +446,18 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var overlayParent = scrollParent.parentNode;
   if (!overlayParent) return false;
 
-  // Marca scrollParent pra referencia (mesmo nao sendo escondido)
+  // Congela scroll do scrollParent pra WA nao ficar reciclando rows
   if (!scrollParent.hasAttribute('data-ezap-hidden')) {
     scrollParent.setAttribute('data-ezap-hidden', '1');
     scrollParent.setAttribute('data-ezap-orig-display', scrollParent.style.display || '');
+    scrollParent.setAttribute('data-ezap-orig-overflow', scrollParent.style.overflow || '');
+    scrollParent.setAttribute('data-ezap-orig-pointerevents', scrollParent.style.pointerEvents || '');
   }
-  // Scroll nativo ao topo pra primeiras rows carregarem no virtual scroll
+  // Scroll ao topo ANTES de congelar pra capturar rows do topo
   try { if (scrollParent.scrollTop > 0) scrollParent.scrollTop = 0; } catch(e) {}
+  // Congela: sem scroll, sem pointer events, sem visibilidade
+  scrollParent.style.overflow = 'hidden';
+  scrollParent.style.pointerEvents = 'none';
 
   // Garante position:relative no parent pro overlay absolute funcionar
   var parentPos = getComputedStyle(overlayParent).position;
@@ -924,16 +929,25 @@ function _hideCustomAbaList() {
   }
   var hidden = document.querySelector('[data-ezap-hidden="1"]');
   if (hidden) {
-    // Nao precisamos mais restaurar display (nao esta mais em none),
-    // so removemos os marcadores
+    // Restaura overflow e pointer-events do scrollParent
+    hidden.style.overflow = hidden.getAttribute('data-ezap-orig-overflow') || '';
+    hidden.style.pointerEvents = hidden.getAttribute('data-ezap-orig-pointerevents') || '';
     hidden.removeAttribute('data-ezap-hidden');
     hidden.removeAttribute('data-ezap-orig-display');
+    hidden.removeAttribute('data-ezap-orig-overflow');
+    hidden.removeAttribute('data-ezap-orig-pointerevents');
     // Restaura position do parent se mudamos
     var parent = hidden.parentNode;
     if (parent && parent.hasAttribute('data-ezap-orig-pos')) {
       parent.style.position = parent.getAttribute('data-ezap-orig-pos');
       parent.removeAttribute('data-ezap-orig-pos');
     }
+    // Nudge scroll pra WA re-renderizar virtual scroll
+    try {
+      var pos = hidden.scrollTop;
+      hidden.scrollTop = pos + 1;
+      setTimeout(function() { hidden.scrollTop = pos; }, 50);
+    } catch(e) {}
   }
 }
 
