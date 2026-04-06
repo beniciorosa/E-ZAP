@@ -397,16 +397,18 @@ function _buildNativePreviewMap() {
 
       // Quebra em linhas e remove a que contem o titulo
       var lines = rowText.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; });
-      // Normaliza titulo pra comparacao (espaços ao redor de pipe, trim)
-      var titleNorm = title.replace(/\s*\|\s*/g, '|').replace(/\s+/g, ' ').trim().toLowerCase();
+      // Normaliza agressivamente: remove TUDO exceto alfanumerico
+      function _stripToAlpha(s) { return (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase(); }
+      var titleStripped = _stripToAlpha(title);
       var previewParts = [];
       for (var li = 0; li < lines.length; li++) {
         var line = lines[li];
-        var lineNorm = line.replace(/\s*\|\s*/g, '|').replace(/\s+/g, ' ').trim().toLowerCase();
-        // Pula se e o titulo (normalizado, ignora diferença de espaço)
-        if (lineNorm === titleNorm) continue;
-        // Pula se e substring inicial do titulo truncado
-        if (titleNorm.indexOf(lineNorm) === 0 && lineNorm.length > 5) continue;
+        var lineStripped = _stripToAlpha(line);
+        // Pula se e o titulo (ignora QUALQUER diferenca de formatacao/espacos/unicode)
+        if (lineStripped === titleStripped) continue;
+        // Pula se e substring do titulo ou titulo e substring da linha
+        if (titleStripped.indexOf(lineStripped) >= 0 && lineStripped.length > 8) continue;
+        if (lineStripped.indexOf(titleStripped) >= 0 && titleStripped.length > 8) continue;
         // Pula timestamps isolados
         if (/^\d{1,2}:\d{2}$/.test(line)) continue;
         if (/^(ontem|hoje)$/i.test(line)) continue;
