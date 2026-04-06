@@ -953,6 +953,8 @@ function preloadHubSpotData() {
         lifecycle: contactMatches && contactProps.lifecyclestage ? contactProps.lifecyclestage : "",
         reunioes: ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ ? ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ : "",
         ticket: ticketSubject,
+        proprietario: ticket && ticket.properties._ownerName ? ticket.properties._ownerName : "",
+        status: ticket && ticket.properties._stageName ? ticket.properties._stageName : "",
       };
       if (ticket) window._wcrmTicketId = ticket.id;
       console.log("[WCRM] Pre-loaded contact data:", window._wcrmContactData);
@@ -1098,6 +1100,8 @@ function fetchHubSpotData() {
         lifecycle: contactMatches && contactProps.lifecyclestage ? contactProps.lifecyclestage : "",
         reunioes: ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ ? ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_ : "",
         ticket: ticketSubject,
+        proprietario: ticket && ticket.properties._ownerName ? ticket.properties._ownerName : "",
+        status: ticket && ticket.properties._stageName ? ticket.properties._stageName : "",
       };
 
       // Mentor name: extract from ticket subject (part after "|")
