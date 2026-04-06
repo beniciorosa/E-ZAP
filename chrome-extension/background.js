@@ -880,11 +880,28 @@ async function getHubSpotMeetings(ticketId, contactId) {
 }
 
 // ===== Ticket properties list (reusable) =====
-const TICKET_PROPS = "subject,hs_pipeline,hs_pipeline_stage,hs_ticket_priority,createdate," +
+const TICKET_PROPS = "subject,hs_pipeline,hs_pipeline_stage,hs_ticket_priority,createdate,closedate," +
+  "hubspot_owner_id," +
   "nm__total_de_calls_adquiridas__starter__pro__business_,nm__calls_restantes," +
   "nova_mentoria__calls_meli_realizadas,nova_mentoria__total_de_calls_especificas_realizadas," +
   "data_de_inicio_dos_blocos,data_de_termino_do_2o_bloco,data_de_termino_do_1o_bloco," +
   "modelo_de_mentoria,cust_id_unico,nickname,contrato__e_mail";
+
+// ===== Owner cache: resolve hubspot_owner_id -> name =====
+var _ownerCache = {};
+async function resolveOwnerName(ownerId) {
+  if (!ownerId) return "";
+  if (_ownerCache[ownerId]) return _ownerCache[ownerId];
+  try {
+    const data = await hubFetch("/crm/v3/owners/" + ownerId);
+    var name = [data.firstName, data.lastName].filter(Boolean).join(" ") || data.email || "";
+    _ownerCache[ownerId] = name;
+    return name;
+  } catch (e) {
+    console.log("[WCRM BG] Failed to resolve owner " + ownerId + ":", e.message);
+    return "";
+  }
+}
 
 // ===== Filter: only tickets from mentoria pipeline =====
 // Mentoria tickets always have "Cliente | Consultor" format in the subject
@@ -1024,12 +1041,16 @@ async function searchTicketsByName(chatName) {
       return matchCount >= nameLower.length;
     });
 
-    // Add stage info
-    matched.forEach(function(ticket) {
+    // Add stage info + resolve owner
+    for (var mi = 0; mi < matched.length; mi++) {
+      const ticket = matched[mi];
       const stageInfo = getStageName("ticket", ticket.properties.hs_pipeline_stage);
       ticket.properties._stageName = stageInfo.label;
       ticket.properties._pipelineName = stageInfo.pipeline;
-    });
+      if (ticket.properties.hubspot_owner_id) {
+        ticket.properties._ownerName = await resolveOwnerName(ticket.properties.hubspot_owner_id);
+      }
+    }
 
     // Only keep mentoria pipeline tickets
     const result = { tickets: matched.filter(isMentoriaPipeline).slice(0, 5) };
@@ -1064,12 +1085,16 @@ async function getHubSpotTickets(contactId) {
       }),
     });
 
-    var tickets = (batchResult.results || []).map(function(ticket) {
+    var tickets = batchResult.results || [];
+    for (var ti = 0; ti < tickets.length; ti++) {
+      const ticket = tickets[ti];
       const stageInfo = getStageName("ticket", ticket.properties.hs_pipeline_stage);
       ticket.properties._stageName = stageInfo.label;
       ticket.properties._pipelineName = stageInfo.pipeline;
-      return ticket;
-    });
+      if (ticket.properties.hubspot_owner_id) {
+        ticket.properties._ownerName = await resolveOwnerName(ticket.properties.hubspot_owner_id);
+      }
+    }
 
     // Only keep mentoria pipeline tickets
     const result = { tickets: tickets.filter(isMentoriaPipeline) };
