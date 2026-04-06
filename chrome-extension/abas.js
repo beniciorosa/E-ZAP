@@ -1792,10 +1792,17 @@ function injectQuickAbaSelector() {
       '<button class="wcrm-quick-aba-arrow wcrm-quick-aba-arrow-right" style="' + arrowBtnStyle + '">&#9654;</button>' +
     '</div>';
 
+  // Preserve scroll position across re-renders
+  var savedScroll = 0;
   if (existing) {
+    var oldScroll = existing.querySelector('.wcrm-quick-aba-scroll');
+    if (oldScroll) savedScroll = oldScroll.scrollLeft;
     existing.innerHTML = barHtml;
     existing.style.background = t.headerBg;
     existing.style.borderBottom = '1px solid ' + t.border;
+    // Restore scroll position
+    var newScroll = existing.querySelector('.wcrm-quick-aba-scroll');
+    if (newScroll && savedScroll > 0) newScroll.scrollLeft = savedScroll;
   } else {
     var bar = document.createElement('div');
     bar.id = 'wcrm-quick-aba-bar';
