@@ -611,9 +611,15 @@ function _wcrmFormatTime(ts) {
   return dd + '/' + mo + '/' + String(d.getFullYear()).slice(-2);
 }
 
+function _stripAlpha(s) { return (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase(); }
+
 function _formatPreview(data) {
   var txt = data.lastMsgText || '';
   if (!txt) return '';
+  // Filtra se o preview eh basicamente o nome do contato/grupo
+  // (eventos de rename retornam o nome novo como body da msg)
+  var nameRef = data.displayName || data.name || '';
+  if (nameRef && _stripAlpha(txt) === _stripAlpha(nameRef)) return '';
   // Nao adiciona "Voce:" se:
   // 1. Texto ja comeca com Voce/Você
   // 2. Texto eh evento de sistema (saiu, entrou, adicionou, removeu, criou)
@@ -832,7 +838,8 @@ function _pollCustomListUpdates() {
         lastMsgText: msgText,
         lastMsgFromMe: !!meta.lastMsgFromMe,
         abaName: row.getAttribute('data-ezap-abaname') || '',
-        displayName: meta.name || ''
+        displayName: meta.name || '',
+        name: cname
       };
       var changed = _updateCustomRow(row, data);
       if (changed) anyReordered = true;
