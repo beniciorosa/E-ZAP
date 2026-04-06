@@ -1021,6 +1021,27 @@ function fetchHubSpotData() {
       var contactMatches = validateContactMatch(contactProps, chatName);
       console.log("[WCRM] Contact matches chat name:", contactMatches, "| Ticket found:", !!ticket);
 
+      // === DEBUG: Full data dump for analysis ===
+      if (contactResult.contact) {
+        console.log("[WCRM] === CONTACT DATA (all properties) ===");
+        console.log("[WCRM] Contact ID:", contactResult.contact.id);
+        console.log("[WCRM] Contact Properties:", JSON.parse(JSON.stringify(contactProps)));
+      } else {
+        console.log("[WCRM] === NO CONTACT FOUND ===");
+      }
+      if (ticket) {
+        console.log("[WCRM] === TICKET DATA (all properties) ===");
+        console.log("[WCRM] Ticket ID:", ticket.id);
+        console.log("[WCRM] Ticket Properties:", JSON.parse(JSON.stringify(ticket.properties)));
+      }
+      if (allTickets.length > 1) {
+        console.log("[WCRM] === ALL TICKETS (" + allTickets.length + ") ===");
+        allTickets.forEach(function(t, i) {
+          console.log("[WCRM] Ticket[" + i + "] ID:" + t.id + " Subject:" + (t.properties.subject || "N/A") + " Stage:" + (t.properties._stageName || t.properties.hs_pipeline_stage || "N/A"));
+        });
+      }
+      console.log("[WCRM] ================================");
+
       // Determine display name:
       // - If chat name has "|" (mentoria format), ALWAYS use it
       // - If ticket found, use ticket subject
