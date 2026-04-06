@@ -868,18 +868,27 @@ function checkAdminNotifications() {
       }
     }
 
-    // If no active pin, find first unread regular notification
+    // If no active pin, show ONLY the most recent unread notification.
+    // Older unread ones are auto-marked as read so new users don't get
+    // a flood of old messages one after another.
     if (!pinnedNotif) {
       chrome.storage.local.get("ezap_notif_dismissed", function(stored) {
         var localDismissed = (stored && stored.ezap_notif_dismissed) || {};
+        var olderToAutoRead = [];
         for (var i = 0; i < ready.length; i++) {
           var n = ready[i];
-          if (n.is_pinned) continue; // skip pins that aren't active
-          if (!readSet[n.id] && !localDismissed[n.id]) {
-            regularNotif = n;
-            break;
+          if (n.is_pinned) continue;
+          if (readSet[n.id] || localDismissed[n.id]) continue;
+          if (!regularNotif) {
+            regularNotif = n; // primeira (mais recente, query ja ordena desc)
+          } else {
+            olderToAutoRead.push(n.id); // mais antigas: marca como lida
           }
         }
+        // Auto-marca as mais antigas como lidas (silencioso, sem banner)
+        olderToAutoRead.forEach(function(msgId) {
+          markNotificationRead(msgId, userId);
+        });
         if (regularNotif) {
           showNotificationBanner(regularNotif, userId, false);
         }
