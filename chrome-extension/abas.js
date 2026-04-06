@@ -1806,7 +1806,7 @@ function injectQuickAbaSelector() {
   } else {
     var bar = document.createElement('div');
     bar.id = 'wcrm-quick-aba-bar';
-    bar.style.cssText = 'background:' + t.headerBg + ';border-bottom:1px solid ' + t.border + ';z-index:10;';
+    bar.style.cssText = 'background:' + t.headerBg + ';border-bottom:1px solid ' + t.border + ';z-index:10;position:sticky;top:0;';
     bar.innerHTML = barHtml;
 
     // Inject before the scrollable chat list container
