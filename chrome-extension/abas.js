@@ -26,10 +26,32 @@ function isDarkMode() {
   return brightness < 128;
 }
 
+// Le cor computada de um elemento do DOM (retorna hex ou fallback)
+function _readColor(selector, prop, fallback) {
+  try {
+    var el = typeof selector === 'string' ? document.querySelector(selector) : selector;
+    if (!el) return fallback;
+    var val = getComputedStyle(el)[prop || 'backgroundColor'];
+    if (!val || val === 'transparent' || val === 'rgba(0, 0, 0, 0)') return fallback;
+    // Converte rgb(r,g,b) pra hex
+    var match = val.match(/\d+/g);
+    if (!match || match.length < 3) return fallback;
+    var hex = '#' + match.slice(0,3).map(function(c) {
+      return ('0' + parseInt(c).toString(16)).slice(-2);
+    }).join('');
+    return hex;
+  } catch (e) { return fallback; }
+}
+
 function getTheme() {
   var dark = isDarkMode();
+  // Le cores REAIS do WA DOM pra combinar exatamente
+  var paneSide = document.getElementById('pane-side');
+  var header = paneSide && paneSide.querySelector('header');
+  var realBg = _readColor(paneSide, 'backgroundColor', dark ? '#111b21' : '#ffffff');
+  var realHeaderBg = _readColor(header, 'backgroundColor', dark ? '#202c33' : '#f0f2f5');
   return {
-    bg: dark ? '#111b21' : '#ffffff',
+    bg: realBg,
     bgSecondary: dark ? '#202c33' : '#f0f2f5',
     bgHover: dark ? '#2a3942' : '#e9edef',
     bgItem: dark ? '#1a2730' : '#ffffff',
@@ -37,7 +59,7 @@ function getTheme() {
     borderLight: dark ? '#3b4a54' : '#d1d7db',
     text: dark ? '#e9edef' : '#111b21',
     textSecondary: dark ? '#8696a0' : '#667781',
-    headerBg: dark ? '#202c33' : '#f0f2f5',
+    headerBg: realHeaderBg,
     iconColor: dark ? '#aebac1' : '#54656f',
   };
 }
