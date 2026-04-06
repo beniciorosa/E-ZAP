@@ -206,13 +206,15 @@
     .light-theme .pagination button.active {
       background: linear-gradient(135deg, #0d9f4f, #0a8a43); color: #fff;
     }
-    .light-theme .log-date-header { background: #ffffff; }
-    .light-theme .log-date-header:hover { background: #f7f8fa; }
-    .light-theme .log-date-header .log-date-count { background: #0d9f4f; color: #fff; }
-    .light-theme .log-item { background: #ffffff; }
-    .light-theme .log-item:hover { background: #f7f8fa; }
+    .light-theme .sec-date-item { background: #ffffff; border-color: #e0e0e0; }
+    .light-theme .sec-date-item:hover { background: #f7f8fa; }
+    .light-theme .sec-date-item.active { background: rgba(13,159,79,0.06); border-color: #0d9f4f; }
+    .light-theme .sec-detail-header { background: #ffffff; border-color: #e0e0e0; }
+    .light-theme .log-item { background: #ffffff; border-color: #e0e0e0; }
+    .light-theme .log-item:hover { background: #f7f8fa; border-color: #ccc; }
     .light-theme .log-item.blocked::before { background: #dc3545; }
     .light-theme .log-item.ok::before { background: #0d9f4f; }
+    .light-theme .sec-timeline { background: #0d9f4f; }
     .light-theme .msg-card { background: #ffffff; }
     .light-theme .msg-card:hover { background: #f7f8fa; }
     .light-theme .msg-card-notif-badge.info { background: rgba(43,125,224,0.08); color: #2b7de0; }
@@ -757,43 +759,115 @@
     }
 
     /* ===== SECURITY LOG ===== */
-    /* Date group accordion */
-    .log-date-group { margin-bottom: 12px; }
-    .log-date-header {
-      display: flex; align-items: center; gap: 12px;
-      padding: 12px 18px; cursor: pointer; user-select: none;
-      background: var(--surface-container); border-radius: var(--radius-md);
-      box-shadow: var(--shadow-card); transition: background 0.15s;
+    /* ===== SECURITY TWO-COLUMN LAYOUT ===== */
+    .sec-layout {
+      display: flex; gap: 0; min-height: 500px;
     }
-    .log-date-header:hover { background: var(--surface-container-high); }
-    .log-date-header .log-date-arrow {
-      font-size: 12px; transition: transform 0.2s; color: var(--on-surface-variant);
-      flex-shrink: 0; width: 18px; text-align: center;
+    .sec-sidebar {
+      width: 280px; min-width: 280px; position: relative;
     }
-    .log-date-group.open .log-date-arrow { transform: rotate(90deg); }
-    .log-date-header .log-date-label {
-      font-size: 14px; font-weight: 700; color: var(--on-surface); flex: 1;
+    .sec-sidebar-inner {
+      position: sticky; top: 80px;
+      max-height: calc(100vh - 120px); overflow-y: auto;
+      padding-right: 20px;
+      scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
     }
-    .log-date-header .log-date-count {
-      font-size: 11px; font-weight: 600; padding: 2px 10px;
-      border-radius: 10px; background: var(--primary-fixed-dim); color: var(--surface);
-    }
-    .log-date-header .log-date-blocked {
-      font-size: 11px; font-weight: 600; padding: 2px 10px;
-      border-radius: 10px; background: var(--error); color: #fff; margin-left: 4px;
-    }
-    .log-date-items {
-      display: none; padding: 8px 0 0 0;
-    }
-    .log-date-group.open .log-date-items { display: block; }
+    .sec-sidebar-inner::-webkit-scrollbar { width: 4px; }
+    .sec-sidebar-inner::-webkit-scrollbar-track { background: transparent; }
+    .sec-sidebar-inner::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 4px; }
 
+    .sec-date-item {
+      background: var(--surface-container); border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-md); padding: 12px 14px;
+      margin-bottom: 6px; cursor: pointer; transition: all 0.2s;
+    }
+    .sec-date-item:hover {
+      background: var(--surface-container-high); border-color: var(--outline);
+    }
+    .sec-date-item.active {
+      background: var(--primary-fixed-dim); background: rgba(13,159,79,0.08);
+      border-color: var(--primary-fixed-dim);
+    }
+    .sec-date-item-header {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .sec-date-item-label {
+      font-size: 14px; font-weight: 700; color: var(--on-surface);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sec-date-item-label svg { width: 14px; height: 14px; opacity: 0.5; }
+    .sec-date-item.active .sec-date-item-label { color: var(--primary-fixed-dim); }
+    .sec-date-item-badges {
+      display: flex; gap: 4px; align-items: center;
+    }
+    .sec-date-badge {
+      font-size: 10px; font-weight: 700; padding: 2px 8px;
+      border-radius: 10px; letter-spacing: 0.3px;
+    }
+    .sec-date-badge.total {
+      background: var(--primary-fixed-dim); color: var(--surface);
+    }
+    .sec-date-badge.blocked {
+      background: var(--error); color: #fff;
+    }
+    .sec-date-item-sub {
+      font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .sec-date-item-sub svg { width: 11px; height: 11px; opacity: 0.5; }
+
+    /* Timeline line */
+    .sec-timeline {
+      width: 3px; background: var(--primary-fixed-dim);
+      border-radius: 3px; flex-shrink: 0; opacity: 0.3;
+    }
+
+    /* Detail panel */
+    .sec-detail {
+      flex: 1; padding-left: 24px; min-width: 0;
+    }
+    .sec-detail-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 300px; gap: 12px; color: var(--on-surface-variant); font-size: 14px;
+    }
+
+    /* Detail header */
+    .sec-detail-header {
+      background: var(--surface-container); border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-md); padding: 16px 20px; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .sec-detail-header-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--primary-fixed-dim); display: flex;
+      align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .sec-detail-header-icon svg { width: 20px; height: 20px; stroke: #fff; fill: none; }
+    .sec-detail-header-info h3 {
+      font-size: 18px; font-weight: 700; color: var(--on-surface); margin: 0;
+    }
+    .sec-detail-header-meta {
+      font-size: 12px; color: var(--on-surface-variant); margin-top: 2px;
+      display: flex; gap: 12px;
+    }
+    .sec-detail-header-stat {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .sec-detail-header-stat .dot-ok {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--primary-fixed-dim);
+    }
+    .sec-detail-header-stat .dot-blocked {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--error);
+    }
+
+    /* Log items */
     .log-item {
       display: flex; align-items: center; gap: 14px;
       background: var(--surface-container);
-      border-radius: var(--radius-md); padding: 14px 18px;
-      margin-bottom: 8px; box-shadow: var(--shadow-card);
-      transition: background 0.15s; position: relative;
-      padding-left: 22px;
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-md); padding: 12px 16px;
+      margin-bottom: 6px; transition: all 0.15s; position: relative;
+      padding-left: 20px;
     }
     .log-item::before {
       content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
@@ -801,13 +875,26 @@
     }
     .log-item.blocked::before { background: var(--error); }
     .log-item.ok::before { background: var(--primary-fixed-dim); }
-    .log-item:hover { background: var(--surface-container-high); }
-    .log-icon { font-size: 20px; flex-shrink: 0; }
+    .log-item:hover { background: var(--surface-container-high); border-color: var(--outline); }
+    .log-icon { font-size: 18px; flex-shrink: 0; }
     .log-details { flex: 1; }
-    .log-details .log-name { font-size: 13px; font-weight: 600; }
+    .log-details .log-name { font-size: 13px; font-weight: 600; color: var(--on-surface); }
     .log-details .log-meta { font-size: 11px; color: var(--on-surface-variant); margin-top: 2px; }
-    .log-details .log-reason { font-size: 11px; color: var(--error); margin-top: 2px; }
+    .log-details .log-reason { font-size: 11px; color: var(--error); margin-top: 2px; font-weight: 500; }
     .log-time { font-size: 11px; color: var(--on-surface-variant); opacity: 0.6; text-align: right; white-space: nowrap; }
+
+    @media (max-width: 860px) {
+      .sec-layout { flex-direction: column; }
+      .sec-sidebar { width: 100%; min-width: 0; }
+      .sec-sidebar-inner {
+        position: static; max-height: none; overflow-y: visible;
+        padding-right: 0; display: flex; gap: 6px; overflow-x: auto;
+        padding-bottom: 12px;
+      }
+      .sec-date-item { min-width: 150px; flex-shrink: 0; margin-bottom: 0; }
+      .sec-timeline { display: none; }
+      .sec-detail { padding-left: 0; }
+    }
 
     /* ===== PROFILE CARDS ===== */
     .profile-card {
@@ -1081,8 +1168,19 @@
           </button>
         </div>
       </div>
-      <div id="securityLog">
-        <div class="empty-state">Carregando...</div>
+      <div class="sec-layout" id="securityLog">
+        <div class="sec-sidebar">
+          <div class="sec-sidebar-inner" id="secDateList">
+            <div class="empty-state">Carregando...</div>
+          </div>
+        </div>
+        <div class="sec-timeline"></div>
+        <div class="sec-detail" id="secDetailPanel">
+          <div class="sec-detail-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--on-surface-variant)" stroke-width="1" opacity="0.3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <p>Selecione uma data para ver os registros</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -3212,9 +3310,9 @@ function saveEditKnowledge(id) {
 
 // ===== SECURITY LOG =====
 function loadSecurityLog() {
-  supa("/rest/v1/token_attempts?select=*,users(name,email)&order=attempted_at.desc&limit=100").then(function(logs) {
+  supa("/rest/v1/token_attempts?select=*,users(name,email)&order=attempted_at.desc&limit=500").then(function(logs) {
     if (!Array.isArray(logs)) {
-      document.getElementById("securityLog").innerHTML = '<div class="empty-state">Nenhum registro encontrado. Execute a migration_003 primeiro.</div>';
+      document.getElementById("secDateList").innerHTML = '<div class="empty-state">Nenhum registro encontrado. Execute a migration_003 primeiro.</div>';
       return;
     }
     renderSecurityLog(logs);
@@ -3225,79 +3323,156 @@ function loadSecurityLog() {
   });
 }
 
+// Security log state
+var _secGroups = {};
+var _secGroupOrder = [];
+var _secSelectedDate = null;
+
 function renderSecurityLog(logs) {
-  var container = document.getElementById("securityLog");
   if (logs.length === 0) {
-    container.innerHTML = '<div class="empty-state">Nenhum registro de acesso ainda.</div>';
+    document.getElementById("secDateList").innerHTML = '<div class="empty-state">Nenhum registro de acesso ainda.</div>';
+    document.getElementById("secDetailPanel").innerHTML = '<div class="sec-detail-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--on-surface-variant)" stroke-width="1" opacity="0.3"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><p>Nenhum registro encontrado</p></div>';
     return;
   }
 
   // Group logs by date
-  var groups = {};
-  var groupOrder = [];
+  _secGroups = {};
+  _secGroupOrder = [];
   logs.forEach(function(l) {
     var dt = new Date(l.attempted_at);
     var dateKey = String(dt.getDate()).padStart(2, "0") + "/" + String(dt.getMonth() + 1).padStart(2, "0") + "/" + dt.getFullYear();
-    if (!groups[dateKey]) {
-      groups[dateKey] = [];
-      groupOrder.push(dateKey);
+    if (!_secGroups[dateKey]) {
+      _secGroups[dateKey] = [];
+      _secGroupOrder.push(dateKey);
     }
-    groups[dateKey].push(l);
+    _secGroups[dateKey].push(l);
   });
 
-  var html = "";
-  groupOrder.forEach(function(dateKey, idx) {
-    var items = groups[dateKey];
-    var blockedCount = items.filter(function(l) { return l.blocked; }).length;
-    var totalCount = items.length;
+  renderSecDateList();
+  // Auto-select first date
+  if (_secGroupOrder.length > 0) {
+    selectSecDate(_secGroupOrder[0]);
+  }
+}
 
-    html += '<div class="log-date-group" id="logGroup' + idx + '">';
-    html += '<div class="log-date-header" onclick="toggleLogGroup(' + idx + ')">';
-    html += '<span class="log-date-arrow">&#9654;</span>';
-    html += '<span class="log-date-label">' + dateKey + '</span>';
-    html += '<span class="log-date-count">' + totalCount + ' acesso' + (totalCount > 1 ? 's' : '') + '</span>';
+function renderSecDateList() {
+  var container = document.getElementById("secDateList");
+  var clockSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+  var html = "";
+
+  _secGroupOrder.forEach(function(dateKey) {
+    var items = _secGroups[dateKey];
+    var blockedCount = items.filter(function(l) { return l.blocked; }).length;
+    var okCount = items.length - blockedCount;
+    var activeClass = _secSelectedDate === dateKey ? " active" : "";
+
+    // Get unique users for subtitle
+    var userNames = {};
+    items.forEach(function(l) {
+      var name = l.users ? l.users.name : "Desconhecido";
+      userNames[name] = true;
+    });
+    var uniqueUsers = Object.keys(userNames).length;
+
+    html += '<div class="sec-date-item' + activeClass + '" onclick="selectSecDate(\'' + dateKey + '\')">';
+    html += '<div class="sec-date-item-header">';
+    html += '<span class="sec-date-item-label">' + clockSvg + ' ' + dateKey + '</span>';
+    html += '<div class="sec-date-item-badges">';
+    html += '<span class="sec-date-badge total">' + items.length + '</span>';
     if (blockedCount > 0) {
-      html += '<span class="log-date-blocked">' + blockedCount + ' bloqueado' + (blockedCount > 1 ? 's' : '') + '</span>';
+      html += '<span class="sec-date-badge blocked">' + blockedCount + '</span>';
     }
     html += '</div>';
-    html += '<div class="log-date-items">';
-
-    items.forEach(function(l) {
-      var isBlocked = l.blocked;
-      var userName = l.users ? l.users.name : "Desconhecido";
-      var icon = isBlocked ? "&#128683;" : "&#9989;";
-      var cls = isBlocked ? "blocked" : "ok";
-      var reasonText = "";
-      if (l.reason === "device_mismatch") reasonText = "Dispositivo diferente tentou usar o token";
-      else if (l.reason === "phone_mismatch") reasonText = "Número WhatsApp não corresponde ao cadastrado (detectado: +" + esc(l.token_used) + ")";
-      else if (isBlocked) reasonText = "Acesso bloqueado";
-
-      var time = new Date(l.attempted_at);
-      var timeStr = String(time.getHours()).padStart(2, "0") + ":" + String(time.getMinutes()).padStart(2, "0");
-
-      html += '<div class="log-item ' + cls + '">';
-      html += '<div class="log-icon">' + icon + '</div>';
-      html += '<div class="log-details">';
-      html += '<div class="log-name">' + esc(userName) + '</div>';
-      html += '<div class="log-meta">';
-      if (l.ip_address) html += 'IP: <strong>' + esc(l.ip_address) + '</strong>';
-      if (l.location) html += ' &mdash; ' + esc(l.location);
-      html += '</div>';
-      if (reasonText) html += '<div class="log-reason">' + reasonText + '</div>';
-      html += '</div>';
-      html += '<div class="log-time">' + timeStr + '</div>';
-      html += '</div>';
-    });
-
-    html += '</div></div>';
+    html += '</div>';
+    html += '<div class="sec-date-item-sub">';
+    html += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+    html += uniqueUsers + ' usuário' + (uniqueUsers > 1 ? 's' : '');
+    if (okCount > 0) html += ' · ' + okCount + ' ok';
+    if (blockedCount > 0) html += ' · ' + blockedCount + ' bloqueado' + (blockedCount > 1 ? 's' : '');
+    html += '</div>';
+    html += '</div>';
   });
 
   container.innerHTML = html;
 }
 
-function toggleLogGroup(idx) {
-  var group = document.getElementById("logGroup" + idx);
-  if (group) group.classList.toggle("open");
+function selectSecDate(dateKey) {
+  _secSelectedDate = dateKey;
+
+  // Update sidebar active state
+  var items = document.querySelectorAll(".sec-date-item");
+  for (var i = 0; i < items.length; i++) {
+    items[i].classList.remove("active");
+  }
+  // Find and activate the clicked item
+  var allItems = document.querySelectorAll(".sec-date-item");
+  for (var i = 0; i < _secGroupOrder.length; i++) {
+    if (_secGroupOrder[i] === dateKey && allItems[i]) {
+      allItems[i].classList.add("active");
+      break;
+    }
+  }
+
+  renderSecDetail(dateKey);
+}
+
+function renderSecDetail(dateKey) {
+  var container = document.getElementById("secDetailPanel");
+  var items = _secGroups[dateKey];
+  if (!items || items.length === 0) {
+    container.innerHTML = '<div class="sec-detail-empty"><p>Nenhum registro nesta data</p></div>';
+    return;
+  }
+
+  var blockedCount = items.filter(function(l) { return l.blocked; }).length;
+  var okCount = items.length - blockedCount;
+
+  var html = '';
+
+  // Header
+  html += '<div class="sec-detail-header">';
+  html += '<div class="sec-detail-header-icon"><svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>';
+  html += '<div style="flex:1">';
+  html += '<h3>' + dateKey + '</h3>';
+  html += '<div class="sec-detail-header-meta">';
+  html += '<span class="sec-detail-header-stat"><span class="dot-ok"></span> ' + okCount + ' aprovado' + (okCount > 1 ? 's' : '') + '</span>';
+  if (blockedCount > 0) {
+    html += '<span class="sec-detail-header-stat"><span class="dot-blocked"></span> ' + blockedCount + ' bloqueado' + (blockedCount > 1 ? 's' : '') + '</span>';
+  }
+  html += '<span>' + items.length + ' total</span>';
+  html += '</div>';
+  html += '</div>';
+  html += '</div>';
+
+  // Log items
+  items.forEach(function(l) {
+    var isBlocked = l.blocked;
+    var userName = l.users ? l.users.name : "Desconhecido";
+    var icon = isBlocked ? "&#128683;" : "&#9989;";
+    var cls = isBlocked ? "blocked" : "ok";
+    var reasonText = "";
+    if (l.reason === "device_mismatch") reasonText = "Dispositivo diferente tentou usar o token";
+    else if (l.reason === "phone_mismatch") reasonText = "Número WhatsApp não corresponde ao cadastrado (detectado: +" + esc(l.token_used) + ")";
+    else if (isBlocked) reasonText = "Acesso bloqueado";
+
+    var time = new Date(l.attempted_at);
+    var timeStr = String(time.getHours()).padStart(2, "0") + ":" + String(time.getMinutes()).padStart(2, "0");
+
+    html += '<div class="log-item ' + cls + '">';
+    html += '<div class="log-icon">' + icon + '</div>';
+    html += '<div class="log-details">';
+    html += '<div class="log-name">' + esc(userName) + '</div>';
+    html += '<div class="log-meta">';
+    if (l.ip_address) html += 'IP: <strong>' + esc(l.ip_address) + '</strong>';
+    if (l.location) html += ' &mdash; ' + esc(l.location);
+    html += '</div>';
+    if (reasonText) html += '<div class="log-reason">' + reasonText + '</div>';
+    html += '</div>';
+    html += '<div class="log-time">' + timeStr + '</div>';
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
 }
 
 // ===== SETTINGS =====
