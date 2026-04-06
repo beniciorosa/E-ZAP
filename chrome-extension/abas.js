@@ -1719,13 +1719,18 @@ function deleteAba(abaId) {
 }
 
 // ===== Quick Aba Selector (injected above WA chat list) =====
+function _truncateAbaName(name, max) {
+  max = max || 15;
+  if (!name || name.length <= max) return name;
+  return name.substring(0, max).replace(/\s+$/, '') + '...';
+}
+
 function injectQuickAbaSelector() {
   var pane = document.getElementById('pane-side');
   if (!pane) return;
 
   var data = window._wcrmAbasCache || { tabs: [] };
   if (!data.tabs || data.tabs.length === 0) {
-    // No tabs — remove selector if it exists
     var old = document.getElementById('wcrm-quick-aba-bar');
     if (old) old.remove();
     return;
@@ -1737,9 +1742,6 @@ function injectQuickAbaSelector() {
     headerBg: '#202c33'
   };
 
-  // Find the container we want to insert above: the scrollable chat list area
-  // We'll look for WA's native filter buttons row (Tudo, Nao lidas, etc.)
-  // and place our bar right after it, or before the chat list
   var existing = document.getElementById('wcrm-quick-aba-bar');
 
   // Build html for aba pills
@@ -1750,29 +1752,41 @@ function injectQuickAbaSelector() {
     var bgColor = isActive ? tab.color : 'transparent';
     var textColor = isActive ? '#fff' : t.textSecondary;
     var borderCol = isActive ? tab.color : t.border;
+    var displayName = _truncateAbaName(tab.name, 15);
     pillsHtml +=
-      '<button class="wcrm-quick-aba-pill" data-aba-id="' + tab.id + '" style="' +
-        'display:flex;align-items:center;gap:5px;' +
+      '<button class="wcrm-quick-aba-pill" data-aba-id="' + tab.id + '" title="' + tab.name + '" style="' +
+        'display:inline-flex;align-items:center;gap:4px;' +
         'background:' + bgColor + ';' +
         'color:' + textColor + ';' +
         'border:1px solid ' + borderCol + ';' +
         'border-radius:20px;' +
-        'padding:4px 12px;' +
-        'font-size:12px;font-weight:500;' +
+        'padding:3px 10px;' +
+        'font-size:11px;font-weight:500;' +
         'cursor:pointer;white-space:nowrap;' +
         'font-family:inherit;' +
         'transition:all 0.15s;' +
+        'flex-shrink:0;' +
       '">' +
-        '<span style="width:8px;height:8px;border-radius:50%;background:' + (isActive ? '#fff' : tab.color) + ';flex-shrink:0"></span>' +
-        '<span>' + tab.name + '</span>' +
+        '<span style="width:7px;height:7px;border-radius:50%;background:' + (isActive ? '#fff' : tab.color) + ';flex-shrink:0"></span>' +
+        '<span>' + displayName + '</span>' +
         '<span style="font-size:10px;opacity:0.7">' + count + '</span>' +
       '</button>';
   });
 
+  // Fade gradient color (matches header bg)
+  var fadeColor = t.headerBg || '#202c33';
+  // Convert hex to rgba for transparent gradient stop
+  var fadeRgb = (typeof _hexToRgb === 'function') ? _hexToRgb(fadeColor) : [32,44,51];
+  var fadeTransparent = 'rgba(' + fadeRgb[0] + ',' + fadeRgb[1] + ',' + fadeRgb[2] + ',0)';
+  var fadeSolid = 'rgba(' + fadeRgb[0] + ',' + fadeRgb[1] + ',' + fadeRgb[2] + ',1)';
+
   var barHtml =
-    '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;flex-shrink:0">' +
-      '<span style="color:' + t.textSecondary + ';font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;flex-shrink:0">Abas</span>' +
-      pillsHtml +
+    '<div style="position:relative;overflow:hidden">' +
+      '<div class="wcrm-quick-aba-scroll" style="display:flex;align-items:center;gap:5px;padding:5px 12px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-ms-overflow-style:none">' +
+        '<span style="color:' + t.textSecondary + ';font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;flex-shrink:0">Abas</span>' +
+        pillsHtml +
+      '</div>' +
+      '<div class="wcrm-quick-aba-fade" style="position:absolute;top:0;right:0;bottom:0;width:28px;pointer-events:none;background:linear-gradient(to right,' + fadeTransparent + ',' + fadeSolid + ');display:none"></div>' +
     '</div>';
 
   if (existing) {
@@ -1783,17 +1797,12 @@ function injectQuickAbaSelector() {
     var bar = document.createElement('div');
     bar.id = 'wcrm-quick-aba-bar';
     bar.style.cssText = 'background:' + t.headerBg + ';border-bottom:1px solid ' + t.border + ';z-index:10;';
-
     bar.innerHTML = barHtml;
 
-    // Inject: find the best insertion point
-    // Strategy: insert before the scrollable list container, after WA's header/filter area
-    // The chat list is usually inside a scrollable div inside pane-side
+    // Inject before the scrollable chat list container
     var chatContainer = null;
-    // Look for the role="grid" or role="list" element's scrollable parent
     var grid = pane.querySelector('[role="grid"]') || pane.querySelector('[role="list"]') || pane.querySelector('[role="listbox"]');
     if (grid) {
-      // Walk up to find the scrollable container
       var cur = grid;
       while (cur && cur !== pane) {
         try {
@@ -1810,10 +1819,8 @@ function injectQuickAbaSelector() {
     if (chatContainer && chatContainer.parentNode) {
       chatContainer.parentNode.insertBefore(bar, chatContainer);
     } else {
-      // Fallback: append as first child of pane-side's first child
       var firstChild = pane.querySelector('div');
       if (firstChild) {
-        // Try to find header end — look for the last header/filter area
         var headers = pane.querySelectorAll('header');
         var lastHeader = headers.length > 0 ? headers[headers.length - 1] : null;
         if (lastHeader && lastHeader.parentNode) {
@@ -1826,8 +1833,20 @@ function injectQuickAbaSelector() {
       }
     }
 
-    // Hide scrollbar on the inner scroll container
     _injectQuickAbaCSS();
+  }
+
+  // Show/hide fade gradient based on overflow
+  var scrollContainer = document.querySelector('#wcrm-quick-aba-bar .wcrm-quick-aba-scroll');
+  var fadeEl = document.querySelector('#wcrm-quick-aba-bar .wcrm-quick-aba-fade');
+  if (scrollContainer && fadeEl) {
+    var _updateFade = function() {
+      var hasOverflow = scrollContainer.scrollWidth > scrollContainer.clientWidth;
+      var atEnd = scrollContainer.scrollLeft + scrollContainer.clientWidth >= scrollContainer.scrollWidth - 4;
+      fadeEl.style.display = (hasOverflow && !atEnd) ? 'block' : 'none';
+    };
+    _updateFade();
+    scrollContainer.addEventListener('scroll', _updateFade);
   }
 
   // Bind click events
@@ -1837,7 +1856,6 @@ function injectQuickAbaSelector() {
       e.stopPropagation();
       var abaId = pill.dataset.abaId;
       if (selectedAbaId === abaId) {
-        // Toggle off
         clearAbasFilter();
       } else {
         selectedAbaId = abaId;
@@ -1845,7 +1863,6 @@ function injectQuickAbaSelector() {
         if (abasSidebarOpen) renderAbasSidebar();
         updateAbasIndicator();
       }
-      // Re-render the quick selector to update active states
       injectQuickAbaSelector();
     });
   });
@@ -1856,7 +1873,7 @@ function _injectQuickAbaCSS() {
   var style = document.createElement('style');
   style.id = 'wcrm-quick-aba-css';
   style.textContent = [
-    '#wcrm-quick-aba-bar > div::-webkit-scrollbar { display: none; }',
+    '.wcrm-quick-aba-scroll::-webkit-scrollbar { display: none; }',
     '.wcrm-quick-aba-pill:hover { filter: brightness(1.2); }'
   ].join('\n');
   document.head.appendChild(style);
