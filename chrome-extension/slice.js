@@ -507,7 +507,22 @@ function _showCustomAbaList(abaTab, chatIndex) {
   if (contacts.length === 0) {
     var empty = document.createElement('div');
     empty.className = 'wcrm-custom-empty';
-    empty.textContent = 'Nenhum contato nessa aba ainda';
+
+    var emptyText = document.createElement('div');
+    emptyText.textContent = 'Nenhum contato nessa aba ainda';
+    empty.appendChild(emptyText);
+
+    var emptyBtn = document.createElement('button');
+    emptyBtn.textContent = 'Limpar filtro';
+    emptyBtn.style.cssText = 'margin-top:16px;background:none;border:1px solid #ff6b6b40;color:#ff6b6b;font-size:13px;cursor:pointer;font-weight:600;padding:8px 20px;border-radius:8px;font-family:inherit;';
+    emptyBtn.addEventListener('mouseenter', function() { emptyBtn.style.background = '#ff6b6b20'; });
+    emptyBtn.addEventListener('mouseleave', function() { emptyBtn.style.background = 'none'; });
+    emptyBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (typeof clearAbasFilter === 'function') clearAbasFilter();
+    });
+    empty.appendChild(emptyBtn);
+
     custom.appendChild(empty);
     console.log("[WCRM CUSTOM] Aba vazia");
     return true;

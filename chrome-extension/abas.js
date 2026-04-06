@@ -1722,7 +1722,7 @@ function deleteAba(abaId) {
 function _truncateAbaName(name, max) {
   max = max || 15;
   if (!name || name.length <= max) return name;
-  return name.substring(0, max).replace(/\s+$/, '') + '...';
+  return name.substring(0, max).replace(/\s+$/, '') + '\u2026';
 }
 
 function injectQuickAbaSelector() {
@@ -1744,7 +1744,7 @@ function injectQuickAbaSelector() {
 
   var existing = document.getElementById('wcrm-quick-aba-bar');
 
-  // Build html for aba pills
+  // Build pills HTML
   var pillsHtml = '';
   data.tabs.forEach(function(tab) {
     var isActive = selectedAbaId === tab.id;
@@ -1773,20 +1773,23 @@ function injectQuickAbaSelector() {
       '</button>';
   });
 
-  // Fade gradient color (matches header bg)
-  var fadeColor = t.headerBg || '#202c33';
-  // Convert hex to rgba for transparent gradient stop
-  var fadeRgb = (typeof _hexToRgb === 'function') ? _hexToRgb(fadeColor) : [32,44,51];
-  var fadeTransparent = 'rgba(' + fadeRgb[0] + ',' + fadeRgb[1] + ',' + fadeRgb[2] + ',0)';
-  var fadeSolid = 'rgba(' + fadeRgb[0] + ',' + fadeRgb[1] + ',' + fadeRgb[2] + ',1)';
+  // Arrow button style
+  var arrowBtnStyle =
+    'display:none;align-items:center;justify-content:center;' +
+    'background:' + t.headerBg + ';' +
+    'border:none;color:' + t.textSecondary + ';' +
+    'cursor:pointer;padding:0 4px;font-size:14px;' +
+    'flex-shrink:0;height:100%;min-width:20px;' +
+    'font-family:inherit;';
 
   var barHtml =
-    '<div style="position:relative;overflow:hidden">' +
-      '<div class="wcrm-quick-aba-scroll" style="display:flex;align-items:center;gap:5px;padding:5px 12px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-ms-overflow-style:none">' +
+    '<div style="display:flex;align-items:center;position:relative">' +
+      '<button class="wcrm-quick-aba-arrow wcrm-quick-aba-arrow-left" style="' + arrowBtnStyle + '">&#9664;</button>' +
+      '<div class="wcrm-quick-aba-scroll" style="display:flex;align-items:center;gap:5px;padding:5px 8px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-ms-overflow-style:none;flex:1;min-width:0">' +
         '<span style="color:' + t.textSecondary + ';font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;flex-shrink:0">Abas</span>' +
         pillsHtml +
       '</div>' +
-      '<div class="wcrm-quick-aba-fade" style="position:absolute;top:0;right:0;bottom:0;width:28px;pointer-events:none;background:linear-gradient(to right,' + fadeTransparent + ',' + fadeSolid + ');display:none"></div>' +
+      '<button class="wcrm-quick-aba-arrow wcrm-quick-aba-arrow-right" style="' + arrowBtnStyle + '">&#9654;</button>' +
     '</div>';
 
   if (existing) {
@@ -1836,20 +1839,33 @@ function injectQuickAbaSelector() {
     _injectQuickAbaCSS();
   }
 
-  // Show/hide fade gradient based on overflow
-  var scrollContainer = document.querySelector('#wcrm-quick-aba-bar .wcrm-quick-aba-scroll');
-  var fadeEl = document.querySelector('#wcrm-quick-aba-bar .wcrm-quick-aba-fade');
-  if (scrollContainer && fadeEl) {
-    var _updateFade = function() {
-      var hasOverflow = scrollContainer.scrollWidth > scrollContainer.clientWidth;
-      var atEnd = scrollContainer.scrollLeft + scrollContainer.clientWidth >= scrollContainer.scrollWidth - 4;
-      fadeEl.style.display = (hasOverflow && !atEnd) ? 'block' : 'none';
+  // Arrow navigation + visibility
+  var scrollEl = document.querySelector('#wcrm-quick-aba-bar .wcrm-quick-aba-scroll');
+  var arrowLeft = document.querySelector('#wcrm-quick-aba-bar .wcrm-quick-aba-arrow-left');
+  var arrowRight = document.querySelector('#wcrm-quick-aba-bar .wcrm-quick-aba-arrow-right');
+
+  if (scrollEl && arrowLeft && arrowRight) {
+    var _updateArrows = function() {
+      var hasOverflow = scrollEl.scrollWidth > scrollEl.clientWidth + 2;
+      var atStart = scrollEl.scrollLeft <= 2;
+      var atEnd = scrollEl.scrollLeft + scrollEl.clientWidth >= scrollEl.scrollWidth - 2;
+      arrowLeft.style.display = (hasOverflow && !atStart) ? 'flex' : 'none';
+      arrowRight.style.display = (hasOverflow && !atEnd) ? 'flex' : 'none';
     };
-    _updateFade();
-    scrollContainer.addEventListener('scroll', _updateFade);
+    _updateArrows();
+    scrollEl.addEventListener('scroll', _updateArrows);
+
+    arrowLeft.addEventListener('click', function(e) {
+      e.stopPropagation();
+      scrollEl.scrollBy({ left: -120, behavior: 'smooth' });
+    });
+    arrowRight.addEventListener('click', function(e) {
+      e.stopPropagation();
+      scrollEl.scrollBy({ left: 120, behavior: 'smooth' });
+    });
   }
 
-  // Bind click events
+  // Bind pill click events
   var pills = document.querySelectorAll('#wcrm-quick-aba-bar .wcrm-quick-aba-pill');
   pills.forEach(function(pill) {
     pill.addEventListener('click', function(e) {
@@ -1874,7 +1890,8 @@ function _injectQuickAbaCSS() {
   style.id = 'wcrm-quick-aba-css';
   style.textContent = [
     '.wcrm-quick-aba-scroll::-webkit-scrollbar { display: none; }',
-    '.wcrm-quick-aba-pill:hover { filter: brightness(1.2); }'
+    '.wcrm-quick-aba-pill:hover { filter: brightness(1.2); }',
+    '.wcrm-quick-aba-arrow:hover { color: #e9edef !important; background: rgba(134,150,160,0.15) !important; }'
   ].join('\n');
   document.head.appendChild(style);
 }
