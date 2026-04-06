@@ -486,6 +486,9 @@ function showPhoneBlockOverlay(message) {
 }
 
 // ===== Silent re-validation =====
+var _silentFailCount = 0;
+var SILENT_FAIL_MAX = 3; // Only logout after 3 consecutive failures
+
 function silentRevalidate(token) {
   getDeviceId(function(deviceId) {
     chrome.runtime.sendMessage({
@@ -496,19 +499,41 @@ function silentRevalidate(token) {
     }, function(response) {
       if (chrome.runtime.lastError) return;
       if (!response || !response.ok) {
+        // Security blocks — always immediate, no retries
         if (response && response.blocked) {
-          // Device mismatch — blocked
           showPhoneBlockOverlay(response.error || "Token bloqueado em outro dispositivo.");
           chrome.storage.local.remove(AUTH_STORAGE_KEY);
           return;
         }
-        // Token revoked/deactivated
-        console.log("[EZAP AUTH] Token revoked, logging out");
+
+        // Check if this is an API/network error (not a definitive token rejection)
+        // API errors come as { error: "Supabase error: ..." } without ok/blocked
+        // Token invalid/deactivated comes as { ok: false, error: "Token invalido..." }
+        var isApiError = response && response.error &&
+          (response.error.indexOf("Supabase error") !== -1 ||
+           response.error.indexOf("NetworkError") !== -1 ||
+           response.error.indexOf("Failed to fetch") !== -1 ||
+           response.error.indexOf("PGRST") !== -1);
+
+        if (isApiError) {
+          // Transient error — tolerate up to SILENT_FAIL_MAX consecutive failures
+          _silentFailCount++;
+          console.log("[EZAP AUTH] Silent revalidation transient error (" + _silentFailCount + "/" + SILENT_FAIL_MAX + "):", response.error);
+          if (_silentFailCount < SILENT_FAIL_MAX) return; // Wait for next cycle
+          console.log("[EZAP AUTH] Max transient failures reached, logging out");
+        }
+
+        // Token revoked/deactivated OR max retries exceeded
+        console.log("[EZAP AUTH] Token revoked or unreachable, logging out");
+        _silentFailCount = 0;
         chrome.storage.local.remove(AUTH_STORAGE_KEY, function() {
           window.__wcrmAuth = null;
           location.reload();
         });
       } else if (response.data) {
+        // Success — reset fail counter
+        _silentFailCount = 0;
+
         // Update features and allowed phones from server
         var saved = {};
         saved[AUTH_STORAGE_KEY] = {
