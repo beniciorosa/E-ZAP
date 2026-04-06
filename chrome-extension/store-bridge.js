@@ -452,7 +452,15 @@
         }
         if (lastMsg) {
           lastMsgFromMe = !!(lastMsg.id && lastMsg.id.fromMe) || !!lastMsg.__x_isSentByMe;
-          var body = lastMsg.body || lastMsg.__x_body || lastMsg.caption || lastMsg.__x_caption || '';
+          // Prefere caption (legenda) sobre body pra midia (body pode ser base64 thumbnail)
+          var body = lastMsg.caption || lastMsg.__x_caption || '';
+          if (!body) {
+            var rawBody = lastMsg.body || lastMsg.__x_body || '';
+            // Filtra base64 e dados binarios (thumbnails de video/imagem)
+            if (rawBody && rawBody.length < 200 && !/^\/9j\/|^data:|^[A-Za-z0-9+\/]{50,}/.test(rawBody)) {
+              body = rawBody;
+            }
+          }
           if (!body) {
             // Tipos nao-texto: mostra label
             var type = lastMsg.type || lastMsg.__x_type || '';
