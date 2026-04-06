@@ -3,284 +3,708 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>E-ZAP — Changelog</title>
+  <title>E-ZAP — Novidades e Atualizacoes</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #111b21;
+      background: #0b1014;
       color: #e9edef;
       min-height: 100vh;
     }
 
-    .header {
-      background: #202c33;
-      border-bottom: 1px solid #2a3942;
-      padding: 32px 24px;
-      text-align: center;
-    }
-
-    .header .logo {
-      width: 64px;
-      height: 64px;
-      border-radius: 50%;
-      background: #25d366;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 16px;
-    }
-
-    .header .logo svg { width: 32px; height: 32px; fill: #111b21; }
-
-    .header h1 {
-      font-size: 28px;
-      font-weight: 800;
-      color: #e9edef;
-      letter-spacing: -0.5px;
-    }
-
-    .header p {
-      font-size: 14px;
-      color: #8696a0;
-      margin-top: 6px;
-    }
-
-    .container {
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 32px 24px 64px;
-    }
-
-    .section-title {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      color: #8696a0;
-      font-weight: 600;
-      margin-bottom: 16px;
-    }
-
-    /* Version card */
-    .version-card {
-      background: #202c33;
-      border: 1px solid #2a3942;
-      border-radius: 12px;
-      margin-bottom: 12px;
-      overflow: hidden;
-      transition: border-color 0.2s;
-    }
-
-    .version-card:hover { border-color: #3b4a54; }
-
-    .version-header {
-      padding: 16px 20px;
-      cursor: pointer;
+    /* ===== TOP BAR ===== */
+    .topbar {
+      background: #111b21;
+      border-bottom: 1px solid #1e2d36;
+      padding: 14px 32px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      user-select: none;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
 
-    .version-header:hover { background: #2a394220; }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
 
-    .version-left {
+    .topbar-logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px #25d36640;
+    }
+
+    .topbar-logo svg { width: 22px; height: 22px; fill: #fff; }
+
+    .topbar-brand {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e9edef;
+      letter-spacing: -0.3px;
+    }
+
+    .topbar-brand span {
+      color: #8696a0;
+      font-weight: 400;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+
+    .topbar-right {
       display: flex;
       align-items: center;
       gap: 12px;
     }
 
-    .version-badge {
-      background: #25d366;
-      color: #111b21;
-      font-size: 14px;
-      font-weight: 700;
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      letter-spacing: 0.5px;
-    }
-
-    .version-badge.current {
-      background: #25d366;
-      box-shadow: 0 0 0 3px #25d36630;
-    }
-
-    .version-badge.old {
-      background: #3b4a54;
+    .topbar-btn {
+      background: #1e2d36;
+      border: 1px solid #2a3942;
       color: #8696a0;
-    }
-
-    .version-date {
-      font-size: 13px;
-      color: #8696a0;
-    }
-
-    .version-arrow {
-      font-size: 14px;
-      color: #8696a0;
-      transition: transform 0.2s;
-    }
-
-    .version-card.open .version-arrow {
-      transform: rotate(180deg);
-    }
-
-    .version-body {
-      display: none;
-      padding: 0 20px 20px;
-      border-top: 1px solid #2a3942;
-    }
-
-    .version-card.open .version-body {
-      display: block;
-    }
-
-    .change-group {
-      margin-top: 14px;
-    }
-
-    .change-group-title {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      font-weight: 700;
-      margin-bottom: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
       display: flex;
       align-items: center;
       gap: 6px;
+      font-size: 13px;
+      transition: all 0.2s;
     }
 
-    .change-group-title.feat { color: #25d366; }
-    .change-group-title.fix { color: #ff922b; }
-    .change-group-title.infra { color: #4d96ff; }
-    .change-group-title.breaking { color: #ff6b6b; }
+    .topbar-btn:hover {
+      background: #2a3942;
+      color: #e9edef;
+    }
 
-    .change-group-title .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
+    .topbar-btn svg { width: 16px; height: 16px; }
+
+    /* ===== PAGE TITLE ===== */
+    .page-title-section {
+      padding: 32px 40px 24px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    .page-title-section h1 {
+      font-size: 26px;
+      font-weight: 700;
+      color: #e9edef;
+      letter-spacing: -0.5px;
+    }
+
+    .page-title-section p {
+      font-size: 14px;
+      color: #8696a0;
+      margin-top: 6px;
+    }
+
+    /* ===== MAIN LAYOUT ===== */
+    .changelog-layout {
+      display: flex;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 40px 64px;
+      gap: 0;
+      min-height: calc(100vh - 180px);
+    }
+
+    /* ===== LEFT SIDEBAR — VERSION LIST ===== */
+    .version-sidebar {
+      width: 300px;
+      min-width: 300px;
+      padding-right: 0;
+      position: relative;
+    }
+
+    .version-sidebar-inner {
+      position: sticky;
+      top: 80px;
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+      padding-right: 24px;
+      scrollbar-width: thin;
+      scrollbar-color: #2a3942 transparent;
+    }
+
+    .version-sidebar-inner::-webkit-scrollbar { width: 4px; }
+    .version-sidebar-inner::-webkit-scrollbar-track { background: transparent; }
+    .version-sidebar-inner::-webkit-scrollbar-thumb { background: #2a3942; border-radius: 4px; }
+
+    .version-item {
+      background: #111b21;
+      border: 1px solid #1e2d36;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .version-item:hover {
+      background: #1a2730;
+      border-color: #2a3942;
+    }
+
+    .version-item.active {
+      background: #12291f;
+      border-color: #25d36650;
+    }
+
+    .version-item-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .version-item-badge {
+      display: inline-block;
+      background: #1e2d36;
+      color: #e9edef;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      letter-spacing: 0.3px;
+    }
+
+    .version-item.active .version-item-badge,
+    .version-item.current .version-item-badge {
+      background: #25d36620;
+      color: #25d366;
+    }
+
+    .version-item-current {
+      display: none;
+      color: #25d366;
+    }
+
+    .version-item-current svg { width: 18px; height: 18px; }
+
+    .version-item.current .version-item-current {
+      display: block;
+    }
+
+    .version-item-label {
+      display: none;
+      font-size: 11px;
+      font-weight: 600;
+      color: #25d366;
+      margin-left: 4px;
+    }
+
+    .version-item.current .version-item-label {
+      display: inline;
+    }
+
+    .version-item-date {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: #8696a0;
+      margin-top: 6px;
+    }
+
+    .version-item-date svg { width: 12px; height: 12px; opacity: 0.6; }
+
+    /* ===== TIMELINE LINE ===== */
+    .timeline-line {
+      width: 3px;
+      background: linear-gradient(180deg, #25d366 0%, #128c7e 30%, #0d6b5a 100%);
+      border-radius: 3px;
+      margin: 0 0;
+      flex-shrink: 0;
+      opacity: 0.6;
+    }
+
+    /* ===== RIGHT CONTENT ===== */
+    .version-detail {
+      flex: 1;
+      padding-left: 32px;
+      min-width: 0;
+    }
+
+    .detail-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 300px;
+      color: #8696a0;
+      font-size: 15px;
+    }
+
+    /* Version detail header */
+    .detail-header {
+      background: #111b21;
+      border: 1px solid #1e2d36;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .detail-header-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .detail-header-icon svg { width: 22px; height: 22px; fill: #fff; stroke: none; }
+
+    .detail-header-info h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #e9edef;
+      letter-spacing: -0.3px;
+    }
+
+    .detail-header-date {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 13px;
+      color: #8696a0;
+      margin-top: 3px;
+    }
+
+    .detail-header-date svg { width: 14px; height: 14px; opacity: 0.6; }
+
+    .detail-current-badge {
+      display: none;
+      background: #25d36620;
+      color: #25d366;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 6px;
+      margin-left: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    .detail-header.is-current .detail-current-badge {
       display: inline-block;
     }
 
-    .change-group-title.feat .dot { background: #25d366; }
-    .change-group-title.fix .dot { background: #ff922b; }
-    .change-group-title.infra .dot { background: #4d96ff; }
-    .change-group-title.breaking .dot { background: #ff6b6b; }
-
-    .change-list {
-      list-style: none;
-      padding: 0;
+    /* Category sections */
+    .category-section {
+      margin-bottom: 24px;
     }
 
-    .change-list li {
-      font-size: 13px;
+    .category-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 12px;
       color: #e9edef;
-      padding: 5px 0;
-      padding-left: 16px;
-      position: relative;
+    }
+
+    .category-title .cat-icon {
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .category-title.cat-feat { color: #25d366; }
+    .category-title.cat-fix { color: #ff922b; }
+    .category-title.cat-improve { color: #4dabf7; }
+    .category-title.cat-infra { color: #9775fa; }
+    .category-title.cat-breaking { color: #ff6b6b; }
+
+    /* Change cards */
+    .change-card {
+      background: #111b21;
+      border: 1px solid #1e2d36;
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 8px;
+      transition: border-color 0.2s;
+    }
+
+    .change-card:hover {
+      border-color: #2a3942;
+    }
+
+    .change-card-title {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #e9edef;
       line-height: 1.5;
     }
 
-    .change-list li::before {
-      content: '';
-      width: 4px;
-      height: 4px;
+    .change-card-dot {
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
-      background: #8696a0;
-      position: absolute;
-      left: 0;
-      top: 12px;
+      margin-top: 6px;
+      flex-shrink: 0;
     }
 
-    .current-label {
-      font-size: 10px;
-      background: #25d36625;
-      color: #25d366;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 600;
-      margin-left: 8px;
+    .cat-feat .change-card-dot { background: #25d366; }
+    .cat-fix .change-card-dot { background: #ff922b; }
+    .cat-improve .change-card-dot { background: #4dabf7; }
+    .cat-infra .change-card-dot { background: #9775fa; }
+    .cat-breaking .change-card-dot { background: #ff6b6b; }
+
+    .change-card-desc {
+      font-size: 13px;
+      color: #8696a0;
+      line-height: 1.5;
+      margin-top: 4px;
+      padding-left: 18px;
     }
 
+    /* ===== FOOTER ===== */
     .footer {
       text-align: center;
-      padding: 32px 24px;
-      border-top: 1px solid #2a3942;
+      padding: 24px;
+      border-top: 1px solid #1e2d36;
       font-size: 12px;
       color: #3b4a54;
     }
 
-    @media (max-width: 600px) {
-      .header h1 { font-size: 22px; }
-      .version-header { padding: 14px 16px; }
-      .version-body { padding: 0 16px 16px; }
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 860px) {
+      .changelog-layout {
+        flex-direction: column;
+        padding: 0 16px 48px;
+      }
+
+      .version-sidebar {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .version-sidebar-inner {
+        position: static;
+        max-height: none;
+        overflow-y: visible;
+        padding-right: 0;
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 16px;
+        scrollbar-width: thin;
+      }
+
+      .version-item {
+        min-width: 140px;
+        flex-shrink: 0;
+        margin-bottom: 0;
+      }
+
+      .timeline-line {
+        display: none;
+      }
+
+      .version-detail {
+        padding-left: 0;
+      }
+
+      .page-title-section {
+        padding: 24px 16px 16px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .topbar { padding: 12px 16px; }
+      .topbar-brand span { display: none; }
+      .detail-header { padding: 16px; }
+      .detail-header-info h2 { font-size: 18px; }
     }
   </style>
 </head>
 <body>
 
-  <div class="header">
-    <div class="logo">
-      <svg viewBox="0 0 24 24"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-logo">
+        <svg viewBox="0 0 24 24"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>
+      </div>
+      <div class="topbar-brand">
+        E-ZAP
+        <span>Gestao WhatsApp Business</span>
+      </div>
     </div>
-    <h1>E-ZAP</h1>
-    <p>Changelog &mdash; Historico de versoes</p>
+    <div class="topbar-right">
+      <a href="admin.html" class="topbar-btn" style="text-decoration:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Painel Admin
+      </a>
+    </div>
   </div>
 
-  <div class="container">
-    <div class="section-title">Versoes</div>
-
-    <div id="changelog"></div>
+  <!-- PAGE TITLE -->
+  <div class="page-title-section">
+    <h1>Novidades e Atualizacoes</h1>
+    <p>Acompanhe todas as melhorias e novidades do sistema</p>
   </div>
 
+  <!-- MAIN LAYOUT -->
+  <div class="changelog-layout">
+    <!-- LEFT — VERSION LIST -->
+    <div class="version-sidebar">
+      <div class="version-sidebar-inner" id="versionList"></div>
+    </div>
+
+    <!-- TIMELINE LINE -->
+    <div class="timeline-line"></div>
+
+    <!-- RIGHT — VERSION DETAIL -->
+    <div class="version-detail" id="versionDetail">
+      <div class="detail-empty">Selecione uma versao para ver os detalhes</div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
   <div class="footer">
     E-ZAP &copy; 2025 Grupo Escalada. Todos os direitos reservados.
   </div>
 
   <script>
+    // ===== SVG ICONS FOR CATEGORIES =====
+    var CAT_ICONS = {
+      feat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+      fix: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
+      improve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+      infra: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
+      breaking: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    };
+
+    var CAT_LABELS = {
+      feat: "Novidades",
+      fix: "Correcoes",
+      improve: "Melhorias",
+      infra: "Infraestrutura",
+      breaking: "Alteracoes Importantes"
+    };
+
+    var CAT_CLASSES = {
+      feat: "cat-feat",
+      fix: "cat-fix",
+      improve: "cat-improve",
+      infra: "cat-infra",
+      breaking: "cat-breaking"
+    };
+
+    // ===== CLOCK ICON =====
+    var CLOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+    var CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="#25d366" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+    var TAG_ICON = '<svg viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7.01" stroke="#fff" stroke-width="2" fill="none"/></svg>';
+
     // ===== CHANGELOG DATA =====
-    // Add new versions at the TOP of this array.
-    // When releasing a new version, just add a new entry here.
+    // Each item can be a string (title only) or { title: "...", desc: "..." }
     var VERSIONS = [
       {
-        version: "1.3.0",
-        date: "01/04/2026",
+        version: "1.8.57",
+        date: "06/04/2026",
         current: true,
         changes: [
           {
             type: "feat",
             title: "Novidades",
             items: [
-              "Controle de funcionalidades por usuario — admin escolhe quais features cada usuario acessa (CRM, MSG, SLICE, ABAS, PIN)",
-              "Token de uso unico — token fica vinculado a um unico dispositivo na primeira utilizacao",
-              "Validacao de numero WhatsApp — extensao so funciona se o numero do WhatsApp Web bater com o cadastrado",
-              "Admin pode cadastrar multiplos numeros de WhatsApp por usuario",
-              "Rastreamento de IP e localizacao ao resgatar token (cidade, estado, pais)",
-              "Log de tentativas de acesso bloqueadas (dispositivo diferente ou numero incorreto)",
-              "Aba Seguranca no painel admin com historico de acessos e alertas",
-              "Botao Editar usuario no painel admin (nome, email, telefone, features, numeros WhatsApp)",
-              "Botao Reset Dispositivo — admin desvincula o token da maquina para permitir novo acesso",
-              "Coluna Features na tabela de usuarios mostrando funcionalidades ativas",
-              "Coluna Dispositivo mostrando IP, localizacao e data de resgate do token",
+              { title: "Notificacoes controladas pelo admin", desc: "Usuarios so recebem aviso de atualizacao quando o admin clica em 'Publicar e Notificar'" },
+              { title: "Publicar Silencioso", desc: "Nova opcao no admin para subir versao sem notificar usuarios — ideal para testes internos" },
+              { title: "Banner de atualizacao sobreposto", desc: "Quando uma versao mais recente e publicada, o banner antigo e substituido automaticamente" }
             ]
           },
           {
             type: "fix",
             title: "Correcoes",
             items: [
-              "Supabase REST agora usa service role key (corrige operacoes de dados bloqueadas por RLS)",
+              { title: "Cascata de notificacoes para novos usuarios", desc: "Novos usuarios agora recebem apenas a mensagem mais recente, sem inundacao de mensagens antigas" },
+              { title: "Banner preso em versao antiga", desc: "Corrigido bug onde o banner ficava mostrando a primeira versao mesmo apos novas publicacoes" }
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.8.55",
+        date: "05/04/2026",
+        current: false,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              { title: "Painel de customizacao do admin", desc: "Configuracao de temas e aparencia direto pelo painel administrativo" },
+              { title: "Tema nativo do WhatsApp", desc: "Leitura automatica das cores reais do DOM do WhatsApp para match perfeito (claro e escuro)" },
+              { title: "Suporte completo a modo claro", desc: "Lista customizada se adapta automaticamente ao tema do WhatsApp" }
+            ]
+          },
+          {
+            type: "improve",
+            title: "Melhorias",
+            items: [
+              { title: "Preview de mensagens aprimorado", desc: "Sender name em grupos, duracao de audio, filtro de thumbnails base64 e prefixo 'Voce:' correto" },
+              { title: "Nomes de grupos em tempo real", desc: "Prioridade para formattedTitle sobre chat.name, atualizacao ao vivo" },
+              { title: "Pin-only mode refinado", desc: "Modo apenas icones, sem reordenacao, scroll congelado durante lista customizada" }
+            ]
+          },
+          {
+            type: "fix",
+            title: "Correcoes",
+            items: [
+              { title: "Preview duplicando nome do contato", desc: "Filtro agressivo alpha-only para remover nome duplicado no preview" },
+              { title: "Preview com lixo de SVG/icones", desc: "Extracao robusta via innerText + line splitting em vez de textContent" },
+              { title: "Telefone truncado no prefix do sender", desc: "Corrigido display de numeros cortados nas previews de grupo" }
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.8.33",
+        date: "04/04/2026",
+        current: false,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              { title: "Fotos de perfil reais na lista customizada", desc: "Fotos extraidas via React Fiber do WhatsApp, com fallback para avatar colorido" },
+              { title: "Lista customizada como overlay", desc: "Lista de ABAS renderizada sobre o scroll nativo sem esconde-lo — corrige abertura de chats" },
+              { title: "Store Bridge via React Fiber", desc: "Acesso direto ao store do WhatsApp via webpack chunk injection (parasite push)" }
+            ]
+          },
+          {
+            type: "improve",
+            title: "Melhorias",
+            items: [
+              { title: "Click-to-open robusto", desc: "Cadeia de fallback: bridge RPC > React fiber onClick > DOM click > search bar" },
+              { title: "Verificacao de chat aberto", desc: "Poll com ate 3 tentativas para confirmar que o chat foi aberto corretamente" },
+              { title: "onItemClick prioritario", desc: "5 assinaturas de argumentos testadas, skip automatico de onStartMultiSelect e metodos irrelevantes" }
             ]
           },
           {
             type: "infra",
             title: "Infraestrutura",
             items: [
-              "Migration 003: tabela token_attempts, colunas features/allowed_phones/device em users",
-              "RPCs: reset_user_device, update_user_features, update_user_phones, log_phone_mismatch",
-              "Device fingerprint (UUID unico por instalacao do Chrome) salvo em chrome.storage",
-              "Deteccao automatica de IP via ipapi.co no background service worker",
+              { title: "Store Bridge v2-v8", desc: "Evolucao do modulo de acesso ao store: moduleRaid, defineProperty, polling e finalmente React Fiber" },
+              { title: "Migracao para JID", desc: "Matching de contatos por JID (identificador unico) em vez de nome no DOM" },
+              { title: "Refactor api.js", desc: "Helpers unificados de Supabase e background em modulo centralizado" }
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.7.8",
+        date: "03/04/2026",
+        current: false,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              { title: "Fluxos de automacao (Flow Builder)", desc: "Editor visual de fluxos com nos de condicao, acao e espera" },
+              { title: "Botao Testar Agora nos fluxos", desc: "Executa o fluxo no chat aberto para teste imediato" },
+              { title: "Catalogo de variaveis", desc: "Operadores type-aware para nos If/Else no editor de fluxos" },
+              { title: "Widget flutuante de chat", desc: "4 estilos disponiveis: pill, glass, minimal e solid" },
+              { title: "Botoes flutuantes customizaveis", desc: "Admin define label, cores e ordem dos botoes" },
+              { title: "GEIA — Modulo de IA", desc: "Resumo de conversa, sugestoes de resposta e base de conhecimento com integracao OpenAI" }
+            ]
+          },
+          {
+            type: "improve",
+            title: "Melhorias",
+            items: [
+              { title: "Revalidacao de features a cada 2min", desc: "Sincronizacao em tempo real das permissoes do usuario" },
+              { title: "Propagacao de perfil para usuarios", desc: "Mudancas de features no perfil sao aplicadas a todos os usuarios vinculados" },
+              { title: "Reload automatico ao mudar features", desc: "WhatsApp recarrega automaticamente quando admin altera permissoes do usuario" }
+            ]
+          },
+          {
+            type: "fix",
+            title: "Correcoes",
+            items: [
+              { title: "Versao dinamica no popup", desc: "Popup exibe versao do manifest + charset UTF-8 para acentos" },
+              { title: "Alinhamento do botao CRM", desc: "Removidos conflitos de CSS do sidebar" },
+              { title: "Botao de teste de API key", desc: "Validacao de formato (CORS impede chamadas diretas do browser)" }
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.5.6",
+        date: "02/04/2026",
+        current: false,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              { title: "Container de botoes flexivel", desc: "Layout adaptativo para os botoes da extensao" },
+              { title: "Drag-and-drop de permissoes", desc: "Reordene permissoes arrastando no painel admin" }
+            ]
+          },
+          {
+            type: "fix",
+            title: "Correcoes",
+            items: [
+              { title: "Acentos no popup", desc: "Charset corrigido para exibir caracteres especiais" }
+            ]
+          }
+        ]
+      },
+      {
+        version: "1.3.0",
+        date: "01/04/2026",
+        current: false,
+        changes: [
+          {
+            type: "feat",
+            title: "Novidades",
+            items: [
+              { title: "Controle de funcionalidades por usuario", desc: "Admin escolhe quais features cada usuario acessa (CRM, MSG, SLICE, ABAS, PIN)" },
+              { title: "Token de uso unico", desc: "Token fica vinculado a um unico dispositivo na primeira utilizacao" },
+              { title: "Validacao de numero WhatsApp", desc: "Extensao so funciona se o numero do WhatsApp Web bater com o cadastrado" },
+              { title: "Multiplos numeros de WhatsApp por usuario", desc: "Admin pode cadastrar diversos numeros para um mesmo usuario" },
+              { title: "Rastreamento de IP e localizacao", desc: "IP, cidade, estado e pais sao registrados ao resgatar o token" },
+              { title: "Log de tentativas bloqueadas", desc: "Registro de acessos com dispositivo diferente ou numero incorreto" },
+              { title: "Aba Seguranca no painel admin", desc: "Historico completo de acessos e alertas de seguranca" },
+              { title: "Edicao de usuario no admin", desc: "Altere nome, email, telefone, features e numeros WhatsApp" },
+              { title: "Reset de dispositivo", desc: "Admin pode desvincular o token da maquina para permitir novo acesso" }
+            ]
+          },
+          {
+            type: "fix",
+            title: "Correcoes",
+            items: [
+              { title: "Supabase REST com service role key", desc: "Corrige operacoes de dados que eram bloqueadas por RLS" }
+            ]
+          },
+          {
+            type: "infra",
+            title: "Infraestrutura",
+            items: [
+              { title: "Migration 003", desc: "Tabela token_attempts, colunas features/allowed_phones/device em users" },
+              { title: "Novas RPCs", desc: "reset_user_device, update_user_features, update_user_phones, log_phone_mismatch" },
+              { title: "Device fingerprint", desc: "UUID unico por instalacao do Chrome salvo em chrome.storage" }
             ]
           }
         ]
@@ -294,20 +718,18 @@
             type: "feat",
             title: "Novidades",
             items: [
-              "Painel Admin web para gestao de usuarios e mensagens globais",
-              "Criar, ativar, desativar e excluir usuarios com geracao automatica de token",
-              "Copiar token com um clique para enviar ao usuario",
-              "Mensagens globais — admin cria mensagens padrao visiveis para toda a equipe",
-              "Dashboard com estatisticas: total de usuarios, ativos, inativos, admins",
-              "Login do admin com validacao de perfil (somente role=admin)",
-              "Auto-login com revalidacao silenciosa no painel admin",
+              { title: "Painel Admin web", desc: "Gestao completa de usuarios e mensagens globais" },
+              { title: "CRUD de usuarios", desc: "Criar, ativar, desativar e excluir usuarios com geracao automatica de token" },
+              { title: "Mensagens globais", desc: "Admin cria mensagens padrao visiveis para toda a equipe" },
+              { title: "Dashboard com estatisticas", desc: "Total de usuarios, ativos, inativos e admins" },
+              { title: "Auto-login com revalidacao", desc: "Sessao persistente com revalidacao silenciosa" }
             ]
           },
           {
             type: "fix",
             title: "Correcoes",
             items: [
-              "Token de acesso nao e mais convertido para maiusculo (corrige login com tokens case-sensitive)",
+              { title: "Token case-sensitive", desc: "Token de acesso nao e mais convertido para maiusculo, corrigindo falhas de login" }
             ]
           }
         ]
@@ -321,31 +743,20 @@
             type: "feat",
             title: "Novidades",
             items: [
-              "Sistema de login por token — cada usuario tem seu proprio acesso",
-              "Banco de dados Supabase com 13 tabelas para persistencia de dados",
-              "Funcoes helper: validate_token, generate_token, get_team_overview, get_user_daily_stats",
-              "Pagina de changelog para acompanhar atualizacoes",
-              "Botoes Pin e ABAS movidos para o sidebar esquerdo do WhatsApp (posicao fixa)",
-              "Popup da extensao agora mostra usuario logado com opcao de logout",
-            ]
-          },
-          {
-            type: "fix",
-            title: "Correcoes",
-            items: [
-              "Token de acesso nao e mais forcado para maiusculo (corrige validacao case-sensitive)",
-              "Botoes Pin/ABAS nao mudam mais de posicao ao redimensionar a janela",
-              "Nome da ferramenta alterado para E-ZAP",
+              { title: "Sistema de login por token", desc: "Cada usuario tem seu proprio acesso individual" },
+              { title: "Banco de dados Supabase", desc: "13 tabelas para persistencia completa de dados" },
+              { title: "Pagina de changelog", desc: "Historico de atualizacoes acessivel para todos" },
+              { title: "Botoes Pin e ABAS reposicionados", desc: "Movidos para o sidebar esquerdo do WhatsApp em posicao fixa" },
+              { title: "Popup com usuario logado", desc: "Mostra usuario logado com opcao de logout" }
             ]
           },
           {
             type: "infra",
             title: "Infraestrutura",
             items: [
-              "Supabase configurado com Row Level Security (RLS) em todas as tabelas",
-              "Background service worker com handler de autenticacao",
-              "Repositorio Git integrado com Vercel para deploy automatico",
-              "Usuario admin Dhiego Rosa criado no banco de dados",
+              { title: "Row Level Security (RLS)", desc: "Configurado em todas as tabelas do Supabase" },
+              { title: "Background service worker", desc: "Handler de autenticacao implementado" },
+              { title: "Deploy automatico via Vercel", desc: "Repositorio Git integrado com deploy automatico" }
             ]
           }
         ]
@@ -357,69 +768,143 @@
         changes: [
           {
             type: "feat",
-            title: "Lancamento inicial",
+            title: "Lancamento Inicial",
             items: [
-              "Extensao Chrome (Manifest V3) para WhatsApp Web Business",
-              "Etiquetas coloridas personalizadas por contato",
-              "Integracao com HubSpot CRM (contatos, deals, tickets, reunioes)",
-              "Editor de observacoes rich text por contato",
-              "Sistema MSG — sequencias de mensagens automatizadas",
-              "Filtro SLICE — filtragem de conversas por mentor",
-              "ABAS — grupos de contatos personalizados com cores",
-              "Fixar contatos (Pin) no topo da lista de conversas",
-              "Indicador visual de contato fixado na lista",
-              "Deteccao automatica de tema claro/escuro",
-              "Protecao contra Extension Context Invalidated",
-              "Sistema anti-contaminacao de dados entre contatos (loadId)",
-              "Barra de progresso ao carregar dados do CRM",
+              { title: "Extensao Chrome (Manifest V3)", desc: "Para WhatsApp Web Business" },
+              { title: "Etiquetas coloridas", desc: "Personalizaveis por contato" },
+              { title: "Integracao com HubSpot CRM", desc: "Contatos, deals, tickets e reunioes" },
+              { title: "Editor de observacoes rich text", desc: "Notas detalhadas por contato" },
+              { title: "Sistema MSG", desc: "Sequencias de mensagens automatizadas" },
+              { title: "Filtro SLICE", desc: "Filtragem de conversas por mentor" },
+              { title: "ABAS", desc: "Grupos de contatos personalizados com cores" },
+              { title: "Fixar contatos (Pin)", desc: "Mantenha contatos importantes no topo da lista" },
+              { title: "Tema claro/escuro automatico", desc: "Detecta o tema do WhatsApp e se adapta" },
+              { title: "Anti-contaminacao de dados", desc: "Sistema loadId impede dados de um contato aparecerem em outro" },
+              { title: "Barra de progresso CRM", desc: "Feedback visual ao carregar dados do HubSpot" }
             ]
           }
         ]
       }
     ];
 
-    // ===== RENDER =====
-    function renderChangelog() {
-      var container = document.getElementById("changelog");
+    // ===== STATE =====
+    var selectedIdx = 0;
+
+    // ===== RENDER VERSION LIST =====
+    function renderVersionList() {
+      var container = document.getElementById("versionList");
       var html = "";
 
-      VERSIONS.forEach(function(v, idx) {
-        var isOpen = idx === 0 ? " open" : "";
-        var badgeClass = v.current ? "current" : "old";
-        var currentLabel = v.current ? '<span class="current-label">ATUAL</span>' : "";
+      for (var i = 0; i < VERSIONS.length; i++) {
+        var v = VERSIONS[i];
+        var activeClass = i === selectedIdx ? " active" : "";
+        var currentClass = v.current ? " current" : "";
 
-        html += '<div class="version-card' + isOpen + '" data-idx="' + idx + '">';
-        html += '<div class="version-header" onclick="toggleVersion(' + idx + ')">';
-        html += '<div class="version-left">';
-        html += '<span class="version-badge ' + badgeClass + '">v' + v.version + '</span>';
-        html += '<span class="version-date">' + v.date + currentLabel + '</span>';
+        html += '<div class="version-item' + activeClass + currentClass + '" data-idx="' + i + '" onclick="selectVersion(' + i + ')">';
+        html += '<div class="version-item-header">';
+        html += '<div>';
+        html += '<span class="version-item-badge">v' + v.version + '</span>';
+        html += '<span class="version-item-label">Versao Atual</span>';
         html += '</div>';
-        html += '<span class="version-arrow">&#9660;</span>';
+        html += '<span class="version-item-current">' + CHECK_ICON + '</span>';
         html += '</div>';
-        html += '<div class="version-body">';
-
-        v.changes.forEach(function(group) {
-          html += '<div class="change-group">';
-          html += '<div class="change-group-title ' + group.type + '"><span class="dot"></span> ' + group.title + '</div>';
-          html += '<ul class="change-list">';
-          group.items.forEach(function(item) {
-            html += '<li>' + item + '</li>';
-          });
-          html += '</ul></div>';
-        });
-
-        html += '</div></div>';
-      });
+        html += '<div class="version-item-date">' + CLOCK_ICON + ' ' + v.date + '</div>';
+        html += '</div>';
+      }
 
       container.innerHTML = html;
     }
 
-    function toggleVersion(idx) {
-      var card = document.querySelector('.version-card[data-idx="' + idx + '"]');
-      if (card) card.classList.toggle("open");
+    // ===== RENDER VERSION DETAIL =====
+    function renderVersionDetail(idx) {
+      var container = document.getElementById("versionDetail");
+      var v = VERSIONS[idx];
+
+      if (!v) {
+        container.innerHTML = '<div class="detail-empty">Selecione uma versao</div>';
+        return;
+      }
+
+      var currentClass = v.current ? " is-current" : "";
+      var html = '';
+
+      // Header
+      html += '<div class="detail-header' + currentClass + '">';
+      html += '<div class="detail-header-icon">' + TAG_ICON + '</div>';
+      html += '<div class="detail-header-info">';
+      html += '<h2>v' + v.version + '<span class="detail-current-badge">ATUAL</span></h2>';
+      html += '<div class="detail-header-date">' + CLOCK_ICON + ' ' + v.date + '</div>';
+      html += '</div>';
+      html += '</div>';
+
+      // Category sections
+      for (var c = 0; c < v.changes.length; c++) {
+        var group = v.changes[c];
+        var catClass = CAT_CLASSES[group.type] || "cat-feat";
+        var catIcon = CAT_ICONS[group.type] || CAT_ICONS.feat;
+        var catLabel = group.title || CAT_LABELS[group.type] || "Outros";
+
+        html += '<div class="category-section ' + catClass + '">';
+        html += '<div class="category-title ' + catClass + '">';
+        html += '<span class="cat-icon">' + catIcon + '</span>';
+        html += catLabel;
+        html += '</div>';
+
+        for (var j = 0; j < group.items.length; j++) {
+          var item = group.items[j];
+          var itemTitle = "";
+          var itemDesc = "";
+
+          if (typeof item === "string") {
+            // Legacy format: just a string
+            var dashIdx = item.indexOf(" — ");
+            if (dashIdx > -1) {
+              itemTitle = item.substring(0, dashIdx);
+              itemDesc = item.substring(dashIdx + 3);
+            } else {
+              itemTitle = item;
+            }
+          } else {
+            itemTitle = item.title || "";
+            itemDesc = item.desc || "";
+          }
+
+          html += '<div class="change-card">';
+          html += '<div class="change-card-title">';
+          html += '<span class="change-card-dot"></span>';
+          html += '<span>' + itemTitle + '</span>';
+          html += '</div>';
+          if (itemDesc) {
+            html += '<div class="change-card-desc">' + itemDesc + '</div>';
+          }
+          html += '</div>';
+        }
+
+        html += '</div>';
+      }
+
+      container.innerHTML = html;
     }
 
-    renderChangelog();
+    // ===== SELECT VERSION =====
+    function selectVersion(idx) {
+      selectedIdx = idx;
+
+      // Update sidebar active state
+      var items = document.querySelectorAll(".version-item");
+      for (var i = 0; i < items.length; i++) {
+        items[i].classList.remove("active");
+      }
+      var target = document.querySelector('.version-item[data-idx="' + idx + '"]');
+      if (target) target.classList.add("active");
+
+      // Render detail
+      renderVersionDetail(idx);
+    }
+
+    // ===== INIT =====
+    renderVersionList();
+    renderVersionDetail(0);
   </script>
 </body>
 </html>
