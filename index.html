@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>E-ZAP — Novidades e Atualizacoes</title>
+  <title>E-ZAP — Novidades e Atualizações</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -448,7 +448,7 @@
       </div>
       <div class="topbar-brand">
         E-ZAP
-        <span>Gestao WhatsApp Business</span>
+        <span>Gestão WhatsApp Business</span>
       </div>
     </div>
     <div class="topbar-right">
@@ -461,7 +461,7 @@
 
   <!-- PAGE TITLE -->
   <div class="page-title-section">
-    <h1>Novidades e Atualizacoes</h1>
+    <h1>Novidades e Atualizações</h1>
     <p>Acompanhe todas as melhorias e novidades do sistema</p>
   </div>
 
@@ -477,7 +477,7 @@
 
     <!-- RIGHT — VERSION DETAIL -->
     <div class="version-detail" id="versionDetail">
-      <div class="detail-empty">Selecione uma versao para ver os detalhes</div>
+      <div class="detail-empty">Selecione uma versão para ver os detalhes</div>
     </div>
   </div>
 
@@ -498,10 +498,10 @@
 
     var CAT_LABELS = {
       feat: "Novidades",
-      fix: "Correcoes",
+      fix: "Correções",
       improve: "Melhorias",
       infra: "Infraestrutura",
-      breaking: "Alteracoes Importantes"
+      breaking: "Alterações Importantes"
     };
 
     var CAT_CLASSES = {
@@ -529,17 +529,17 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Notificacoes controladas pelo admin", desc: "Usuarios so recebem aviso de atualizacao quando o admin clica em 'Publicar e Notificar'" },
-              { title: "Publicar Silencioso", desc: "Nova opcao no admin para subir versao sem notificar usuarios — ideal para testes internos" },
-              { title: "Banner de atualizacao sobreposto", desc: "Quando uma versao mais recente e publicada, o banner antigo e substituido automaticamente" }
+              { title: "Notificações controladas pelo admin", desc: "Usuários só recebem aviso de atualização quando o admin clica em 'Publicar e Notificar'" },
+              { title: "Publicar Silencioso", desc: "Nova opção no admin para subir versão sem notificar usuários — ideal para testes internos" },
+              { title: "Banner de atualização sobreposto", desc: "Quando uma versão mais recente é publicada, o banner antigo é substituído automaticamente" }
             ]
           },
           {
             type: "fix",
-            title: "Correcoes",
+            title: "Correções",
             items: [
-              { title: "Cascata de notificacoes para novos usuarios", desc: "Novos usuarios agora recebem apenas a mensagem mais recente, sem inundacao de mensagens antigas" },
-              { title: "Banner preso em versao antiga", desc: "Corrigido bug onde o banner ficava mostrando a primeira versao mesmo apos novas publicacoes" }
+              { title: "Cascata de notificações para novos usuários", desc: "Novos usuários agora recebem apenas a mensagem mais recente, sem inundação de mensagens antigas" },
+              { title: "Banner preso em versão antiga", desc: "Corrigido bug onde o banner ficava mostrando a primeira versão mesmo após novas publicações" }
             ]
           }
         ]
@@ -553,8 +553,8 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Painel de customizacao do admin", desc: "Configuracao de temas e aparencia direto pelo painel administrativo" },
-              { title: "Tema nativo do WhatsApp", desc: "Leitura automatica das cores reais do DOM do WhatsApp para match perfeito (claro e escuro)" },
+              { title: "Painel de customização do admin", desc: "Configuração de temas e aparência direto pelo painel administrativo" },
+              { title: "Tema nativo do WhatsApp", desc: "Leitura automática das cores reais do DOM do WhatsApp para match perfeito (claro e escuro)" },
               { title: "Suporte completo a modo claro", desc: "Lista customizada se adapta automaticamente ao tema do WhatsApp" }
             ]
           },
@@ -562,18 +562,18 @@
             type: "improve",
             title: "Melhorias",
             items: [
-              { title: "Preview de mensagens aprimorado", desc: "Sender name em grupos, duracao de audio, filtro de thumbnails base64 e prefixo 'Voce:' correto" },
-              { title: "Nomes de grupos em tempo real", desc: "Prioridade para formattedTitle sobre chat.name, atualizacao ao vivo" },
-              { title: "Pin-only mode refinado", desc: "Modo apenas icones, sem reordenacao, scroll congelado durante lista customizada" }
+              { title: "Preview de mensagens aprimorado", desc: "Nome do remetente em grupos, duração de áudio, filtro de thumbnails base64 e prefixo 'Você:' correto" },
+              { title: "Nomes de grupos em tempo real", desc: "Prioridade para formattedTitle sobre chat.name, atualização ao vivo" },
+              { title: "Pin-only mode refinado", desc: "Modo apenas ícones, sem reordenação, scroll congelado durante lista customizada" }
             ]
           },
           {
             type: "fix",
-            title: "Correcoes",
+            title: "Correções",
             items: [
               { title: "Preview duplicando nome do contato", desc: "Filtro agressivo alpha-only para remover nome duplicado no preview" },
-              { title: "Preview com lixo de SVG/icones", desc: "Extracao robusta via innerText + line splitting em vez de textContent" },
-              { title: "Telefone truncado no prefix do sender", desc: "Corrigido display de numeros cortados nas previews de grupo" }
+              { title: "Preview com lixo de SVG/ícones", desc: "Extração robusta via innerText + line splitting em vez de textContent" },
+              { title: "Telefone truncado no prefixo do remetente", desc: "Corrigido display de números cortados nas previews de grupo" }
             ]
           }
         ]
@@ -587,8 +587,8 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Fotos de perfil reais na lista customizada", desc: "Fotos extraidas via React Fiber do WhatsApp, com fallback para avatar colorido" },
-              { title: "Lista customizada como overlay", desc: "Lista de ABAS renderizada sobre o scroll nativo sem esconde-lo — corrige abertura de chats" },
+              { title: "Fotos de perfil reais na lista customizada", desc: "Fotos extraídas via React Fiber do WhatsApp, com fallback para avatar colorido" },
+              { title: "Lista customizada como overlay", desc: "Lista de ABAS renderizada sobre o scroll nativo sem escondê-lo — corrige abertura de chats" },
               { title: "Store Bridge via React Fiber", desc: "Acesso direto ao store do WhatsApp via webpack chunk injection (parasite push)" }
             ]
           },
@@ -597,17 +597,17 @@
             title: "Melhorias",
             items: [
               { title: "Click-to-open robusto", desc: "Cadeia de fallback: bridge RPC > React fiber onClick > DOM click > search bar" },
-              { title: "Verificacao de chat aberto", desc: "Poll com ate 3 tentativas para confirmar que o chat foi aberto corretamente" },
-              { title: "onItemClick prioritario", desc: "5 assinaturas de argumentos testadas, skip automatico de onStartMultiSelect e metodos irrelevantes" }
+              { title: "Verificação de chat aberto", desc: "Poll com até 3 tentativas para confirmar que o chat foi aberto corretamente" },
+              { title: "onItemClick prioritário", desc: "5 assinaturas de argumentos testadas, skip automático de onStartMultiSelect e métodos irrelevantes" }
             ]
           },
           {
             type: "infra",
             title: "Infraestrutura",
             items: [
-              { title: "Store Bridge v2-v8", desc: "Evolucao do modulo de acesso ao store: moduleRaid, defineProperty, polling e finalmente React Fiber" },
-              { title: "Migracao para JID", desc: "Matching de contatos por JID (identificador unico) em vez de nome no DOM" },
-              { title: "Refactor api.js", desc: "Helpers unificados de Supabase e background em modulo centralizado" }
+              { title: "Store Bridge v2-v8", desc: "Evolução do módulo de acesso ao store: moduleRaid, defineProperty, polling e finalmente React Fiber" },
+              { title: "Migração para JID", desc: "Matching de contatos por JID (identificador único) em vez de nome no DOM" },
+              { title: "Refactor api.js", desc: "Helpers unificados de Supabase e background em módulo centralizado" }
             ]
           }
         ]
@@ -621,30 +621,30 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Fluxos de automacao (Flow Builder)", desc: "Editor visual de fluxos com nos de condicao, acao e espera" },
-              { title: "Botao Testar Agora nos fluxos", desc: "Executa o fluxo no chat aberto para teste imediato" },
-              { title: "Catalogo de variaveis", desc: "Operadores type-aware para nos If/Else no editor de fluxos" },
-              { title: "Widget flutuante de chat", desc: "4 estilos disponiveis: pill, glass, minimal e solid" },
-              { title: "Botoes flutuantes customizaveis", desc: "Admin define label, cores e ordem dos botoes" },
-              { title: "GEIA — Modulo de IA", desc: "Resumo de conversa, sugestoes de resposta e base de conhecimento com integracao OpenAI" }
+              { title: "Fluxos de automação (Flow Builder)", desc: "Editor visual de fluxos com nós de condição, ação e espera" },
+              { title: "Botão Testar Agora nos fluxos", desc: "Executa o fluxo no chat aberto para teste imediato" },
+              { title: "Catálogo de variáveis", desc: "Operadores type-aware para nós If/Else no editor de fluxos" },
+              { title: "Widget flutuante de chat", desc: "4 estilos disponíveis: pill, glass, minimal e solid" },
+              { title: "Botões flutuantes customizáveis", desc: "Admin define label, cores e ordem dos botões" },
+              { title: "GEIA — Módulo de IA", desc: "Resumo de conversa, sugestões de resposta e base de conhecimento com integração OpenAI" }
             ]
           },
           {
             type: "improve",
             title: "Melhorias",
             items: [
-              { title: "Revalidacao de features a cada 2min", desc: "Sincronizacao em tempo real das permissoes do usuario" },
-              { title: "Propagacao de perfil para usuarios", desc: "Mudancas de features no perfil sao aplicadas a todos os usuarios vinculados" },
-              { title: "Reload automatico ao mudar features", desc: "WhatsApp recarrega automaticamente quando admin altera permissoes do usuario" }
+              { title: "Revalidação de features a cada 2min", desc: "Sincronização em tempo real das permissões do usuário" },
+              { title: "Propagação de perfil para usuários", desc: "Mudanças de features no perfil são aplicadas a todos os usuários vinculados" },
+              { title: "Reload automático ao mudar features", desc: "WhatsApp recarrega automaticamente quando admin altera permissões do usuário" }
             ]
           },
           {
             type: "fix",
-            title: "Correcoes",
+            title: "Correções",
             items: [
-              { title: "Versao dinamica no popup", desc: "Popup exibe versao do manifest + charset UTF-8 para acentos" },
-              { title: "Alinhamento do botao CRM", desc: "Removidos conflitos de CSS do sidebar" },
-              { title: "Botao de teste de API key", desc: "Validacao de formato (CORS impede chamadas diretas do browser)" }
+              { title: "Versão dinâmica no popup", desc: "Popup exibe versão do manifest + charset UTF-8 para acentos" },
+              { title: "Alinhamento do botão CRM", desc: "Removidos conflitos de CSS do sidebar" },
+              { title: "Botão de teste de API key", desc: "Validação de formato (CORS impede chamadas diretas do browser)" }
             ]
           }
         ]
@@ -658,13 +658,13 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Container de botoes flexivel", desc: "Layout adaptativo para os botoes da extensao" },
-              { title: "Drag-and-drop de permissoes", desc: "Reordene permissoes arrastando no painel admin" }
+              { title: "Container de botões flexível", desc: "Layout adaptativo para os botões da extensão" },
+              { title: "Drag-and-drop de permissões", desc: "Reordene permissões arrastando no painel admin" }
             ]
           },
           {
             type: "fix",
-            title: "Correcoes",
+            title: "Correções",
             items: [
               { title: "Acentos no popup", desc: "Charset corrigido para exibir caracteres especiais" }
             ]
@@ -680,22 +680,22 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Controle de funcionalidades por usuario", desc: "Admin escolhe quais features cada usuario acessa (CRM, MSG, SLICE, ABAS, PIN)" },
-              { title: "Token de uso unico", desc: "Token fica vinculado a um unico dispositivo na primeira utilizacao" },
-              { title: "Validacao de numero WhatsApp", desc: "Extensao so funciona se o numero do WhatsApp Web bater com o cadastrado" },
-              { title: "Multiplos numeros de WhatsApp por usuario", desc: "Admin pode cadastrar diversos numeros para um mesmo usuario" },
-              { title: "Rastreamento de IP e localizacao", desc: "IP, cidade, estado e pais sao registrados ao resgatar o token" },
-              { title: "Log de tentativas bloqueadas", desc: "Registro de acessos com dispositivo diferente ou numero incorreto" },
-              { title: "Aba Seguranca no painel admin", desc: "Historico completo de acessos e alertas de seguranca" },
-              { title: "Edicao de usuario no admin", desc: "Altere nome, email, telefone, features e numeros WhatsApp" },
-              { title: "Reset de dispositivo", desc: "Admin pode desvincular o token da maquina para permitir novo acesso" }
+              { title: "Controle de funcionalidades por usuário", desc: "Admin escolhe quais features cada usuário acessa (CRM, MSG, SLICE, ABAS, PIN)" },
+              { title: "Token de uso único", desc: "Token fica vinculado a um único dispositivo na primeira utilização" },
+              { title: "Validação de número WhatsApp", desc: "Extensão só funciona se o número do WhatsApp Web bater com o cadastrado" },
+              { title: "Múltiplos números de WhatsApp por usuário", desc: "Admin pode cadastrar diversos números para um mesmo usuário" },
+              { title: "Rastreamento de IP e localização", desc: "IP, cidade, estado e país são registrados ao resgatar o token" },
+              { title: "Log de tentativas bloqueadas", desc: "Registro de acessos com dispositivo diferente ou número incorreto" },
+              { title: "Aba Segurança no painel admin", desc: "Histórico completo de acessos e alertas de segurança" },
+              { title: "Edição de usuário no admin", desc: "Altere nome, email, telefone, features e números WhatsApp" },
+              { title: "Reset de dispositivo", desc: "Admin pode desvincular o token da máquina para permitir novo acesso" }
             ]
           },
           {
             type: "fix",
-            title: "Correcoes",
+            title: "Correções",
             items: [
-              { title: "Supabase REST com service role key", desc: "Corrige operacoes de dados que eram bloqueadas por RLS" }
+              { title: "Supabase REST com service role key", desc: "Corrige operações de dados que eram bloqueadas por RLS" }
             ]
           },
           {
@@ -704,7 +704,7 @@
             items: [
               { title: "Migration 003", desc: "Tabela token_attempts, colunas features/allowed_phones/device em users" },
               { title: "Novas RPCs", desc: "reset_user_device, update_user_features, update_user_phones, log_phone_mismatch" },
-              { title: "Device fingerprint", desc: "UUID unico por instalacao do Chrome salvo em chrome.storage" }
+              { title: "Device fingerprint", desc: "UUID único por instalação do Chrome salvo em chrome.storage" }
             ]
           }
         ]
@@ -718,18 +718,18 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Painel Admin web", desc: "Gestao completa de usuarios e mensagens globais" },
-              { title: "CRUD de usuarios", desc: "Criar, ativar, desativar e excluir usuarios com geracao automatica de token" },
-              { title: "Mensagens globais", desc: "Admin cria mensagens padrao visiveis para toda a equipe" },
-              { title: "Dashboard com estatisticas", desc: "Total de usuarios, ativos, inativos e admins" },
-              { title: "Auto-login com revalidacao", desc: "Sessao persistente com revalidacao silenciosa" }
+              { title: "Painel Admin web", desc: "Gestão completa de usuários e mensagens globais" },
+              { title: "CRUD de usuários", desc: "Criar, ativar, desativar e excluir usuários com geração automática de token" },
+              { title: "Mensagens globais", desc: "Admin cria mensagens padrão visíveis para toda a equipe" },
+              { title: "Dashboard com estatísticas", desc: "Total de usuários, ativos, inativos e admins" },
+              { title: "Auto-login com revalidação", desc: "Sessão persistente com revalidação silenciosa" }
             ]
           },
           {
             type: "fix",
-            title: "Correcoes",
+            title: "Correções",
             items: [
-              { title: "Token case-sensitive", desc: "Token de acesso nao e mais convertido para maiusculo, corrigindo falhas de login" }
+              { title: "Token case-sensitive", desc: "Token de acesso não é mais convertido para maiúsculo, corrigindo falhas de login" }
             ]
           }
         ]
@@ -743,11 +743,11 @@
             type: "feat",
             title: "Novidades",
             items: [
-              { title: "Sistema de login por token", desc: "Cada usuario tem seu proprio acesso individual" },
-              { title: "Banco de dados Supabase", desc: "13 tabelas para persistencia completa de dados" },
-              { title: "Pagina de changelog", desc: "Historico de atualizacoes acessivel para todos" },
-              { title: "Botoes Pin e ABAS reposicionados", desc: "Movidos para o sidebar esquerdo do WhatsApp em posicao fixa" },
-              { title: "Popup com usuario logado", desc: "Mostra usuario logado com opcao de logout" }
+              { title: "Sistema de login por token", desc: "Cada usuário tem seu próprio acesso individual" },
+              { title: "Banco de dados Supabase", desc: "13 tabelas para persistência completa de dados" },
+              { title: "Página de changelog", desc: "Histórico de atualizações acessível para todos" },
+              { title: "Botões Pin e ABAS reposicionados", desc: "Movidos para o sidebar esquerdo do WhatsApp em posição fixa" },
+              { title: "Popup com usuário logado", desc: "Mostra usuário logado com opção de logout" }
             ]
           },
           {
@@ -755,8 +755,8 @@
             title: "Infraestrutura",
             items: [
               { title: "Row Level Security (RLS)", desc: "Configurado em todas as tabelas do Supabase" },
-              { title: "Background service worker", desc: "Handler de autenticacao implementado" },
-              { title: "Deploy automatico via Vercel", desc: "Repositorio Git integrado com deploy automatico" }
+              { title: "Background service worker", desc: "Handler de autenticação implementado" },
+              { title: "Deploy automático via Vercel", desc: "Repositório Git integrado com deploy automático" }
             ]
           }
         ]
@@ -768,18 +768,18 @@
         changes: [
           {
             type: "feat",
-            title: "Lancamento Inicial",
+            title: "Lançamento Inicial",
             items: [
-              { title: "Extensao Chrome (Manifest V3)", desc: "Para WhatsApp Web Business" },
-              { title: "Etiquetas coloridas", desc: "Personalizaveis por contato" },
-              { title: "Integracao com HubSpot CRM", desc: "Contatos, deals, tickets e reunioes" },
-              { title: "Editor de observacoes rich text", desc: "Notas detalhadas por contato" },
-              { title: "Sistema MSG", desc: "Sequencias de mensagens automatizadas" },
+              { title: "Extensão Chrome (Manifest V3)", desc: "Para WhatsApp Web Business" },
+              { title: "Etiquetas coloridas", desc: "Personalizáveis por contato" },
+              { title: "Integração com HubSpot CRM", desc: "Contatos, deals, tickets e reuniões" },
+              { title: "Editor de observações rich text", desc: "Notas detalhadas por contato" },
+              { title: "Sistema MSG", desc: "Sequências de mensagens automatizadas" },
               { title: "Filtro SLICE", desc: "Filtragem de conversas por mentor" },
               { title: "ABAS", desc: "Grupos de contatos personalizados com cores" },
               { title: "Fixar contatos (Pin)", desc: "Mantenha contatos importantes no topo da lista" },
-              { title: "Tema claro/escuro automatico", desc: "Detecta o tema do WhatsApp e se adapta" },
-              { title: "Anti-contaminacao de dados", desc: "Sistema loadId impede dados de um contato aparecerem em outro" },
+              { title: "Tema claro/escuro automático", desc: "Detecta o tema do WhatsApp e se adapta" },
+              { title: "Anti-contaminação de dados", desc: "Sistema loadId impede dados de um contato aparecerem em outro" },
               { title: "Barra de progresso CRM", desc: "Feedback visual ao carregar dados do HubSpot" }
             ]
           }
@@ -804,7 +804,7 @@
         html += '<div class="version-item-header">';
         html += '<div>';
         html += '<span class="version-item-badge">v' + v.version + '</span>';
-        html += '<span class="version-item-label">Versao Atual</span>';
+        html += '<span class="version-item-label">Versão Atual</span>';
         html += '</div>';
         html += '<span class="version-item-current">' + CHECK_ICON + '</span>';
         html += '</div>';
@@ -821,7 +821,7 @@
       var v = VERSIONS[idx];
 
       if (!v) {
-        container.innerHTML = '<div class="detail-empty">Selecione uma versao</div>';
+        container.innerHTML = '<div class="detail-empty">Selecione uma versão</div>';
         return;
       }
 
