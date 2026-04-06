@@ -462,17 +462,48 @@
             }
           }
           if (!body) {
-            // Tipos nao-texto: mostra label
+            // Tipos nao-texto: mostra label com duracao quando disponivel
             var type = lastMsg.type || lastMsg.__x_type || '';
+            var duration = Number(lastMsg.duration || lastMsg.__x_duration || 0);
+            var durStr = duration > 0 ? ' ' + Math.floor(duration / 60) + ':' + ('0' + (duration % 60)).slice(-2) : '';
             if (type === 'image') body = '📷 Foto';
-            else if (type === 'video') body = '🎥 Video';
-            else if (type === 'audio' || type === 'ptt') body = '🎤 Audio';
+            else if (type === 'video') body = '🎥 Video' + durStr;
+            else if (type === 'audio' || type === 'ptt') body = '🎤' + durStr;
             else if (type === 'document') body = '📄 Documento';
             else if (type === 'sticker') body = '🖼️ Sticker';
             else if (type === 'location') body = '📍 Localizacao';
             else if (type === 'vcard' || type === 'multi_vcard') body = '👤 Contato';
           }
           lastMsgText = String(body || '').slice(0, 80);
+        }
+      } catch (e) {}
+      // Resolve sender name pra grupos (exibe quem mandou a ultima msg)
+      var lastMsgSender = '';
+      try {
+        if (lastMsg && isGroup && !lastMsgFromMe) {
+          var participant = lastMsg.author || lastMsg.__x_author ||
+            (lastMsg.id && (lastMsg.id.participant || lastMsg.id._serialized)) || '';
+          if (participant) {
+            // Tenta achar nome do contato que mandou
+            var pJid = typeof participant === 'string' ? participant :
+              (participant._serialized || participant.toString && participant.toString() || '');
+            // Busca nome no contact do participant
+            var senderContact = lastMsg.senderObj || lastMsg.__x_senderObj;
+            if (senderContact) {
+              lastMsgSender = senderContact.pushname || senderContact.__x_pushname ||
+                senderContact.name || senderContact.__x_name ||
+                senderContact.shortName || senderContact.__x_shortName ||
+                senderContact.formattedName || '';
+            }
+            // Fallback: numero do telefone (extrai do JID)
+            if (!lastMsgSender && pJid) {
+              var phoneMatch = pJid.match(/^(\d+)@/);
+              if (phoneMatch) {
+                var p = phoneMatch[1];
+                lastMsgSender = '+' + p.slice(0,2) + ' ' + p.slice(2,4) + ' ' + p.slice(4);
+              }
+            }
+          }
         }
       } catch (e) {}
       out.push({
@@ -485,7 +516,8 @@
         lastTs: lastTs,
         unread: unread,
         lastMsgText: lastMsgText,
-        lastMsgFromMe: lastMsgFromMe
+        lastMsgFromMe: lastMsgFromMe,
+        lastMsgSender: lastMsgSender
       });
     }
     return out;

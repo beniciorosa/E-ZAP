@@ -501,6 +501,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     var unread = 0;
     var lastMsgText = '';
     var lastMsgFromMe = false;
+    var lastMsgSender = '';
     if (jid && chatIndex && chatIndex.byJid && chatIndex.byJid[jid]) {
       var meta = chatIndex.byJid[jid];
       if (meta.name) displayName = meta.name;
@@ -509,6 +510,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
       if (meta.unread) unread = meta.unread;
       if (meta.lastMsgText) lastMsgText = meta.lastMsgText;
       if (meta.lastMsgFromMe) lastMsgFromMe = meta.lastMsgFromMe;
+      if (meta.lastMsgSender) lastMsgSender = meta.lastMsgSender;
     }
     // Filtra fiber lastMsgText se eh so o nome do contato/grupo repetido
     // (eventos de rename retornam o nome como body). Limpa ANTES do
@@ -556,7 +558,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     return {
       name: n, displayName: displayName, jid: jid, isPinned: isPinned,
       picUrl: picUrl, lastTs: lastTs, unread: unread, abaName: abaName,
-      lastMsgText: lastMsgText, lastMsgFromMe: lastMsgFromMe
+      lastMsgText: lastMsgText, lastMsgFromMe: lastMsgFromMe, lastMsgSender: lastMsgSender
     };
   });
 
@@ -626,15 +628,20 @@ function _formatPreview(data) {
   var txt = data.lastMsgText || '';
   if (!txt) return '';
   // Filtra se o preview eh basicamente o nome do contato/grupo
-  // (eventos de rename retornam o nome novo como body da msg)
   var nameRef = data.displayName || data.name || '';
   if (nameRef && _stripAlpha(txt) === _stripAlpha(nameRef)) return '';
-  // Nao adiciona "Voce:" se:
-  // 1. Texto ja comeca com Voce/Você
-  // 2. Texto eh evento de sistema (saiu, entrou, adicionou, removeu, criou)
+  // Prefixo de quem mandou
   var isSystemEvent = /saiu|entrou|adicionou|removeu|criou o grupo|mudou o/i.test(txt);
   if (data.lastMsgFromMe && !isSystemEvent && !/^Voc[eê]:?\s/i.test(txt)) {
     txt = 'Voc\u00ea: ' + txt;
+  } else if (data.lastMsgSender && !data.lastMsgFromMe && !isSystemEvent) {
+    // Mostra nome/numero do sender em grupos (ex: "João: 🎤 0:10")
+    var sender = data.lastMsgSender;
+    // Pega so primeiro nome pra ficar curto
+    var firstName = sender.split(/\s+/)[0];
+    if (firstName && !/^Voc[eê]/i.test(txt)) {
+      txt = firstName + ': ' + txt;
+    }
   }
   return txt;
 }
@@ -849,6 +856,7 @@ function _pollCustomListUpdates() {
         unread: meta.unread || 0,
         lastMsgText: msgText,
         lastMsgFromMe: !!meta.lastMsgFromMe,
+        lastMsgSender: meta.lastMsgSender || '',
         abaName: row.getAttribute('data-ezap-abaname') || '',
         displayName: meta.name || '',
         name: cname
