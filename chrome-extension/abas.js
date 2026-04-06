@@ -527,22 +527,28 @@ function applyPinnedOrder() {
   var hasFilter = (typeof selectedAbaId !== 'undefined' && selectedAbaId !== null);
   if (hasFilter) return;
 
-  // Pin-only mode: habilita CSS filter-active p/ rows ficarem em DOM-order
-  // (position:relative), entao move pins pro topo com DocumentFragment.
-  // Tradeoff: o virtual scroll positioning do WA nao funciona mais — so
-  // rows que ja estao no DOM sao visiveis. Como WA recicla rows ao scrollar,
-  // nosso observer reaplica pin-at-top sempre que WA mexe no container.
-  _ensurePinCSS();
-  container.classList.add('wcrm-filter-active');
-
+  // Pin-only mode (sem ABA ativa): NAO reordena rows porque
+  // wcrm-filter-active (position:relative) briga com o virtual scroll
+  // do WA e causa tremor na lista. Apenas adiciona icone 📌 nos pinned.
   var indexPromise = window.ezapBuildChatIndex
     ? window.ezapBuildChatIndex()
     : Promise.resolve(null);
   indexPromise.then(function(chatIndex) {
     var c2 = findChatListContainer();
     if (!c2) return;
-    var count = _reorderPinsToTop(c2, chatIndex);
-    if (count > 0) console.log("[WCRM PIN] Moveu", count, "pinned rows pro topo (pin-only mode)");
+    // So adiciona icones, sem mover rows
+    for (var pi = 0; pi < c2.children.length; pi++) {
+      var row = c2.children[pi];
+      if (!row.querySelector) continue;
+      var nameSpan = row.querySelector('span[title]');
+      if (!nameSpan) continue;
+      var title = nameSpan.getAttribute('title') || '';
+      if (_isTitlePinned(title, chatIndex)) {
+        addPinIndicator(nameSpan);
+      } else {
+        removePinIndicator(nameSpan);
+      }
+    }
   });
 }
 
@@ -583,20 +589,25 @@ function _reapplyPinIndicators() {
   if (pinnedNames.length === 0) return;
   var container = findChatListContainer();
   if (!container) return;
-  // Garante que o CSS e a classe filter-active estejam ativos pra
-  // o DOM-order positioning funcionar (igual ao applyPinnedOrder inicial).
-  _ensurePinCSS();
-  if (!container.classList.contains('wcrm-filter-active')) {
-    container.classList.add('wcrm-filter-active');
-  }
-  // Usa chatIndex se disponivel (JID-match), senao fallback nome tolerante.
+  // Pin-only mode: so aplica icones, NAO reordena (virtual scroll briga)
   var indexPromise = window.ezapBuildChatIndex
     ? window.ezapBuildChatIndex()
     : Promise.resolve(null);
   indexPromise.then(function(chatIndex) {
     var c2 = findChatListContainer();
     if (!c2) return;
-    _reorderPinsToTop(c2, chatIndex);
+    for (var i = 0; i < c2.children.length; i++) {
+      var row = c2.children[i];
+      if (!row.querySelector) continue;
+      var nameSpan = row.querySelector('span[title]');
+      if (!nameSpan) continue;
+      var title = nameSpan.getAttribute('title') || '';
+      if (_isTitlePinned(title, chatIndex)) {
+        addPinIndicator(nameSpan);
+      } else {
+        removePinIndicator(nameSpan);
+      }
+    }
   });
 }
 
