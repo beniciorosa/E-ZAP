@@ -1131,6 +1131,7 @@ function clearAbasFilter() {
   applyConversationFilters();
   if (abasSidebarOpen) renderAbasSidebar();
   updateAbasIndicator();
+  injectQuickAbaSelector();
 }
 
 function updateAbasIndicator() {
@@ -1153,6 +1154,9 @@ function updateAbasIndicator() {
       ? "0 0 0 3px #cc5de880, 0 4px 12px rgba(0,0,0,0.4)"
       : "0 4px 12px rgba(0,0,0,0.4)";
   }
+
+  // Update quick aba selector active states
+  injectQuickAbaSelector();
 }
 
 // ===== Sidebar Buttons (Pin + ABAS) — injected into WhatsApp's left nav sidebar =====
@@ -1714,6 +1718,150 @@ function deleteAba(abaId) {
   });
 }
 
+// ===== Quick Aba Selector (injected above WA chat list) =====
+function injectQuickAbaSelector() {
+  var pane = document.getElementById('pane-side');
+  if (!pane) return;
+
+  var data = window._wcrmAbasCache || { tabs: [] };
+  if (!data.tabs || data.tabs.length === 0) {
+    // No tabs — remove selector if it exists
+    var old = document.getElementById('wcrm-quick-aba-bar');
+    if (old) old.remove();
+    return;
+  }
+
+  var t = (typeof getTheme === 'function') ? getTheme() : {
+    bg: '#111b21', bgSecondary: '#202c33', bgHover: '#2a3942',
+    text: '#e9edef', textSecondary: '#8696a0', border: '#2a3942',
+    headerBg: '#202c33'
+  };
+
+  // Find the container we want to insert above: the scrollable chat list area
+  // We'll look for WA's native filter buttons row (Tudo, Nao lidas, etc.)
+  // and place our bar right after it, or before the chat list
+  var existing = document.getElementById('wcrm-quick-aba-bar');
+
+  // Build html for aba pills
+  var pillsHtml = '';
+  data.tabs.forEach(function(tab) {
+    var isActive = selectedAbaId === tab.id;
+    var count = (tab.contacts || []).length;
+    var bgColor = isActive ? tab.color : 'transparent';
+    var textColor = isActive ? '#fff' : t.textSecondary;
+    var borderCol = isActive ? tab.color : t.border;
+    pillsHtml +=
+      '<button class="wcrm-quick-aba-pill" data-aba-id="' + tab.id + '" style="' +
+        'display:flex;align-items:center;gap:5px;' +
+        'background:' + bgColor + ';' +
+        'color:' + textColor + ';' +
+        'border:1px solid ' + borderCol + ';' +
+        'border-radius:20px;' +
+        'padding:4px 12px;' +
+        'font-size:12px;font-weight:500;' +
+        'cursor:pointer;white-space:nowrap;' +
+        'font-family:inherit;' +
+        'transition:all 0.15s;' +
+      '">' +
+        '<span style="width:8px;height:8px;border-radius:50%;background:' + (isActive ? '#fff' : tab.color) + ';flex-shrink:0"></span>' +
+        '<span>' + tab.name + '</span>' +
+        '<span style="font-size:10px;opacity:0.7">' + count + '</span>' +
+      '</button>';
+  });
+
+  var barHtml =
+    '<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;flex-shrink:0">' +
+      '<span style="color:' + t.textSecondary + ';font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;flex-shrink:0">Abas</span>' +
+      pillsHtml +
+    '</div>';
+
+  if (existing) {
+    existing.innerHTML = barHtml;
+    existing.style.background = t.headerBg;
+    existing.style.borderBottom = '1px solid ' + t.border;
+  } else {
+    var bar = document.createElement('div');
+    bar.id = 'wcrm-quick-aba-bar';
+    bar.style.cssText = 'background:' + t.headerBg + ';border-bottom:1px solid ' + t.border + ';z-index:10;';
+
+    bar.innerHTML = barHtml;
+
+    // Inject: find the best insertion point
+    // Strategy: insert before the scrollable list container, after WA's header/filter area
+    // The chat list is usually inside a scrollable div inside pane-side
+    var chatContainer = null;
+    // Look for the role="grid" or role="list" element's scrollable parent
+    var grid = pane.querySelector('[role="grid"]') || pane.querySelector('[role="list"]') || pane.querySelector('[role="listbox"]');
+    if (grid) {
+      // Walk up to find the scrollable container
+      var cur = grid;
+      while (cur && cur !== pane) {
+        try {
+          var cs = getComputedStyle(cur);
+          if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') {
+            chatContainer = cur;
+            break;
+          }
+        } catch(e) {}
+        cur = cur.parentElement;
+      }
+    }
+
+    if (chatContainer && chatContainer.parentNode) {
+      chatContainer.parentNode.insertBefore(bar, chatContainer);
+    } else {
+      // Fallback: append as first child of pane-side's first child
+      var firstChild = pane.querySelector('div');
+      if (firstChild) {
+        // Try to find header end — look for the last header/filter area
+        var headers = pane.querySelectorAll('header');
+        var lastHeader = headers.length > 0 ? headers[headers.length - 1] : null;
+        if (lastHeader && lastHeader.parentNode) {
+          lastHeader.parentNode.insertBefore(bar, lastHeader.nextSibling);
+        } else {
+          pane.insertBefore(bar, pane.firstChild);
+        }
+      } else {
+        pane.appendChild(bar);
+      }
+    }
+
+    // Hide scrollbar on the inner scroll container
+    _injectQuickAbaCSS();
+  }
+
+  // Bind click events
+  var pills = document.querySelectorAll('#wcrm-quick-aba-bar .wcrm-quick-aba-pill');
+  pills.forEach(function(pill) {
+    pill.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var abaId = pill.dataset.abaId;
+      if (selectedAbaId === abaId) {
+        // Toggle off
+        clearAbasFilter();
+      } else {
+        selectedAbaId = abaId;
+        applyConversationFilters();
+        if (abasSidebarOpen) renderAbasSidebar();
+        updateAbasIndicator();
+      }
+      // Re-render the quick selector to update active states
+      injectQuickAbaSelector();
+    });
+  });
+}
+
+function _injectQuickAbaCSS() {
+  if (document.getElementById('wcrm-quick-aba-css')) return;
+  var style = document.createElement('style');
+  style.id = 'wcrm-quick-aba-css';
+  style.textContent = [
+    '#wcrm-quick-aba-bar > div::-webkit-scrollbar { display: none; }',
+    '.wcrm-quick-aba-pill:hover { filter: brightness(1.2); }'
+  ].join('\n');
+  document.head.appendChild(style);
+}
+
 // ===== Boot Pin Retry Loop =====
 // Tenta aplicar pins ate 8x a cada 1200ms. Garante que o observer fique
 // vivo mesmo se container demorar a existir ou pins nao estiverem no viewport.
@@ -1765,7 +1913,10 @@ function initAbas() {
   if (abasEnabled) {
     createAbasButton();
     createAbasSidebar();
-    loadAbasData();
+    loadAbasData().then(function() {
+      // Inject quick selector after data is loaded
+      injectQuickAbaSelector();
+    });
     loadKnownContacts();
   }
 
@@ -1787,6 +1938,7 @@ function initAbas() {
     }
     if (abasEnabled) scanAndStoreContacts();
     injectSidebarButtons();
+    if (abasEnabled) injectQuickAbaSelector();
   }, 3000);
 }
 

@@ -594,12 +594,42 @@ function _showCustomAbaList(abaTab, chatIndex) {
     return (a.displayName || '').localeCompare(b.displayName || '');
   });
 
-  // Header com contagem
+  // Header com contagem + botao limpar
   var header = document.createElement('div');
   header.className = 'wcrm-custom-header';
+  header.style.display = 'flex';
+  header.style.alignItems = 'center';
+  header.style.justifyContent = 'space-between';
+
   var pinnedCount = rows.filter(function(r) { return r.isPinned; }).length;
-  header.textContent = rows.length + ' contato' + (rows.length !== 1 ? 's' : '') +
+
+  var headerLeft = document.createElement('span');
+  headerLeft.textContent = rows.length + ' contato' + (rows.length !== 1 ? 's' : '') +
     (pinnedCount > 0 ? ' · ' + pinnedCount + ' fixado' + (pinnedCount !== 1 ? 's' : '') : '');
+  header.appendChild(headerLeft);
+
+  var headerRight = document.createElement('span');
+  headerRight.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+  // Nome da aba ativa
+  var abaLabel = document.createElement('span');
+  abaLabel.style.cssText = 'font-size:11px;font-weight:600;color:' + (abaTab && abaTab.color ? abaTab.color : '#cc5de8') + ';text-transform:none;letter-spacing:0;';
+  abaLabel.textContent = abaTab ? abaTab.name : '';
+  headerRight.appendChild(abaLabel);
+
+  // Botao Limpar
+  var clearBtn = document.createElement('button');
+  clearBtn.textContent = 'Limpar';
+  clearBtn.style.cssText = 'background:none;border:1px solid #ff6b6b40;color:#ff6b6b;font-size:11px;cursor:pointer;font-weight:600;padding:2px 8px;border-radius:4px;text-transform:none;letter-spacing:0;';
+  clearBtn.addEventListener('mouseenter', function() { clearBtn.style.background = '#ff6b6b20'; });
+  clearBtn.addEventListener('mouseleave', function() { clearBtn.style.background = 'none'; });
+  clearBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (typeof clearAbasFilter === 'function') clearAbasFilter();
+  });
+  headerRight.appendChild(clearBtn);
+
+  header.appendChild(headerRight);
   custom.appendChild(header);
 
   var frag = document.createDocumentFragment();
