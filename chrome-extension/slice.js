@@ -1352,15 +1352,13 @@ function _stripAlpha(s) { return (s || '').replace(/[^a-z0-9]/gi, '').toLowerCas
 
 // SVGs inline estilo WhatsApp nativo (14px, inline com texto)
 var _waIcons = {
-  ptt: '<svg viewBox="0 0 12 20" width="12" height="14" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M6 11.745a2 2 0 0 0 2-2V4a2 2 0 0 0-4 0v5.745a2 2 0 0 0 2 2zm3.495-2.001c0 1.927-1.568 3.495-3.495 3.495S2.505 11.671 2.505 9.744H1.5c0 2.316 1.75 4.236 4 4.472V16.5h1v-2.284c2.25-.236 4-2.156 4-4.472h-1.005z"/></svg>',
-  camera: '<svg viewBox="0 0 16 14" width="14" height="12" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M11 0H5L3.5 2H1a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-2.5L11 0zM8 11a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm0-1.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
-  video: '<svg viewBox="0 0 16 14" width="14" height="12" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M15 3.5l-4 2.5V3a1 1 0 0 0-1-1H1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V8l4 2.5v-7z"/></svg>',
-  doc: '<svg viewBox="0 0 13 16" width="11" height="14" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M0 1.5A1.5 1.5 0 0 1 1.5 0h6.379a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 12.5 4.622V14.5a1.5 1.5 0 0 1-1.5 1.5H1.5A1.5 1.5 0 0 1 0 14.5v-13zM1.5 1a.5.5 0 0 0-.5.5v13a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5H8.5A1.5 1.5 0 0 1 7 3.5V1H1.5zM8 1.293V3.5a.5.5 0 0 0 .5.5h2.207L8 1.293z"/></svg>',
-  sticker: '<svg viewBox="0 0 16 16" width="13" height="13" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm2.5 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm-5 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm6.03 5.5a.5.5 0 0 1-.68.18A6.98 6.98 0 0 1 8 12a6.98 6.98 0 0 1-2.85-1.32.5.5 0 1 1 .5-.86A5.97 5.97 0 0 0 8 11c.87 0 1.71-.24 2.35-.68a.5.5 0 0 1 .68.18z"/></svg>',
-  location: '<svg viewBox="0 0 12 17" width="11" height="14" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M6 0C2.69 0 0 2.69 0 6c0 4.5 6 11 6 11s6-6.5 6-11c0-3.31-2.69-6-6-6zm0 8.5A2.5 2.5 0 1 1 6 3.5a2.5 2.5 0 0 1 0 5z"/></svg>',
-  contact: '<svg viewBox="0 0 16 16" width="13" height="13" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M8 7a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1c-3.3 0-6 2-6 4.5V14h12v-1.5C14 10 11.3 8 8 8z"/></svg>',
-  dblcheck: '<svg viewBox="0 0 16 11" width="16" height="11" style="vertical-align:middle;margin-right:2px"><path fill="#53bdeb" d="M11.07 0L5.96 5.11 4.36 3.51 3.3 4.56l2.67 2.67 6.17-6.17L11.07 0zM7.83 7.23L8.89 6.17l4.24-4.24L12.07.87 7.83 5.11 6.77 4.05 5.71 5.11l2.12 2.12z"/></svg>',
-  check: '<svg viewBox="0 0 12 11" width="12" height="11" style="vertical-align:middle;margin-right:2px"><path fill="#8696a0" d="M11.07 0L5.96 5.11 4.36 3.51 3.3 4.56l2.67 2.67 6.17-6.17L11.07 0z"/></svg>',
+  ptt: '<svg viewBox="0 0 12 20" width="16" height="18" style="vertical-align:middle;margin-right:3px"><path fill="#8696a0" d="M6 11.745a2 2 0 0 0 2-2V4a2 2 0 0 0-4 0v5.745a2 2 0 0 0 2 2zm3.495-2.001c0 1.927-1.568 3.495-3.495 3.495S2.505 11.671 2.505 9.744H1.5c0 2.316 1.75 4.236 4 4.472V16.5h1v-2.284c2.25-.236 4-2.156 4-4.472h-1.005z"/></svg>',
+  camera: '<svg viewBox="0 0 16 14" width="18" height="16" style="vertical-align:middle;margin-right:3px"><path fill="#8696a0" d="M11 0H5L3.5 2H1a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-2.5L11 0zM8 11a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm0-1.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
+  video: '<svg viewBox="0 0 16 14" width="18" height="16" style="vertical-align:middle;margin-right:3px"><path fill="#8696a0" d="M15 3.5l-4 2.5V3a1 1 0 0 0-1-1H1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V8l4 2.5v-7z"/></svg>',
+  doc: '<svg viewBox="0 0 13 16" width="15" height="18" style="vertical-align:middle;margin-right:3px"><path fill="#8696a0" d="M0 1.5A1.5 1.5 0 0 1 1.5 0h6.379a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 12.5 4.622V14.5a1.5 1.5 0 0 1-1.5 1.5H1.5A1.5 1.5 0 0 1 0 14.5v-13zM1.5 1a.5.5 0 0 0-.5.5v13a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5H8.5A1.5 1.5 0 0 1 7 3.5V1H1.5zM8 1.293V3.5a.5.5 0 0 0 .5.5h2.207L8 1.293z"/></svg>',
+  sticker: '<svg viewBox="0 0 16 16" width="17" height="17" style="vertical-align:middle;margin-right:3px"><path fill="#8696a0" d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm2.5 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm-5 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm6.03 5.5a.5.5 0 0 1-.68.18A6.98 6.98 0 0 1 8 12a6.98 6.98 0 0 1-2.85-1.32.5.5 0 1 1 .5-.86A5.97 5.97 0 0 0 8 11c.87 0 1.71-.24 2.35-.68a.5.5 0 0 1 .68.18z"/></svg>',
+  location: '<svg viewBox="0 0 12 17" width="15" height="18" style="vertical-align:middle;margin-right:3px"><path fill="#8696a0" d="M6 0C2.69 0 0 2.69 0 6c0 4.5 6 11 6 11s6-6.5 6-11c0-3.31-2.69-6-6-6zm0 8.5A2.5 2.5 0 1 1 6 3.5a2.5 2.5 0 0 1 0 5z"/></svg>',
+  contact: '<svg viewBox="0 0 16 16" width="17" height="17" style="vertical-align:middle;margin-right:3px"><path fill="#8696a0" d="M8 7a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1c-3.3 0-6 2-6 4.5V14h12v-1.5C14 10 11.3 8 8 8z"/></svg>',
   pin: '<svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align:middle"><path fill="#8696a0" d="M17.28 5.04l1.68-1.68L17.64 2.04 15.96 3.72 12.6 2.52 7.08 8.04 5.4 6.36 4.08 7.68l4.2 4.2-4.56 4.56 1.32 1.32 4.56-4.56 4.2 4.2 1.32-1.32-1.68-1.68 5.52-5.52z"/></svg>',
   muted: '<svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align:middle"><path fill="#8696a0" d="M12 4.5c-1.2 0-2.3.5-3.1 1.3L3.5 12.2 12 20.5V4.5zm7.5 7.7l-2.1-2.1-1.4 1.4 2.1 2.1-2.1 2.1 1.4 1.4 2.1-2.1 2.1 2.1 1.4-1.4-2.1-2.1 2.1-2.1-1.4-1.4-2.1 2.1z"/></svg>'
 };
@@ -1378,9 +1376,6 @@ function _previewToHTML(txt) {
   safe = safe.replace(/🖼️|🖼/g, _waIcons.sticker);
   safe = safe.replace(/📍/g, _waIcons.location);
   safe = safe.replace(/👤/g, _waIcons.contact);
-  // Check marks para "Voce:" (duplo azul = lido, simples cinza = enviado)
-  safe = safe.replace(/✓✓|✔✔/g, _waIcons.dblcheck);
-  safe = safe.replace(/✓|✔/g, _waIcons.check);
   return safe;
 }
 
@@ -1393,7 +1388,7 @@ function _formatPreview(data) {
   // Prefixo de quem mandou
   var isSystemEvent = /saiu|entrou|adicionou|removeu|criou o grupo|mudou o/i.test(txt);
   if (data.lastMsgFromMe && !isSystemEvent && !/^Voc[eê]:?\s/i.test(txt)) {
-    txt = '\u2713\u2713 ' + txt;
+    txt = 'Voce: ' + txt;
   } else if (data.lastMsgSender && !data.lastMsgFromMe && !isSystemEvent) {
     var sender = data.lastMsgSender;
     var senderLabel = sender;
