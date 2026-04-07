@@ -1261,52 +1261,32 @@
       }
     } else if (d.type === '_ezap_get_msgs_req') {
       // Return recent messages from all chats for capture
-      console.log('[EZAP-CAPTURE-BRIDGE] Received msgs request, id:', d.id);
-      // DEBUG: inspect msgs structure of first chat
-      try {
-        var debugChats = getAllChatsFromFiber();
-        if (!debugChats) { try { if (window._ezapStore && window._ezapStore.Chat) debugChats = window._ezapStore.Chat.getModelsArray(); } catch(e){} }
-        if (debugChats && debugChats.length) {
-          for (var dci = 0; dci < Math.min(debugChats.length, 3); dci++) {
-            var dc = debugChats[dci];
-            var dMsgs = dc.msgs || dc.__x_msgs;
-            var dcJid = dc.id ? (dc.id._serialized || '') : '';
-            console.log('[EZAP-CAPTURE-BRIDGE] Chat[' + dci + '] jid=' + dcJid.substring(0,15) + '.. msgs type=' + typeof dMsgs,
-              'isArray=' + Array.isArray(dMsgs),
-              'keys=' + (dMsgs ? Object.keys(dMsgs).slice(0,12).join(',') : 'null'),
-              'has _models=' + !!(dMsgs && dMsgs._models),
-              'has last=' + !!(dMsgs && typeof dMsgs.last === 'function'),
-              'has getModelsArray=' + !!(dMsgs && typeof dMsgs.getModelsArray === 'function'),
-              'has length=' + !!(dMsgs && dMsgs.length !== undefined),
-              'length=' + (dMsgs ? (dMsgs.length || (dMsgs._models ? dMsgs._models.length : '?')) : 0)
-            );
-            // Try all access patterns
-            if (dMsgs) {
-              var testArr = null;
-              if (typeof dMsgs.last === 'function') { try { var lm = dMsgs.last(); console.log('[EZAP-CAPTURE-BRIDGE] .last() =', lm ? (lm.type || lm.__x_type || 'obj') : 'null'); } catch(e) { console.log('[EZAP-CAPTURE-BRIDGE] .last() err:', e.message); } }
-              if (typeof dMsgs.getModelsArray === 'function') { try { testArr = dMsgs.getModelsArray(); console.log('[EZAP-CAPTURE-BRIDGE] .getModelsArray() len=', testArr ? testArr.length : 0); } catch(e) { console.log('[EZAP-CAPTURE-BRIDGE] .getModelsArray() err:', e.message); } }
-              if (dMsgs._models) { console.log('[EZAP-CAPTURE-BRIDGE] ._models len=', dMsgs._models.length); }
-              // Check for forEach / toArray / values
-              if (typeof dMsgs.forEach === 'function') console.log('[EZAP-CAPTURE-BRIDGE] has .forEach');
-              if (typeof dMsgs.toArray === 'function') { try { testArr = dMsgs.toArray(); console.log('[EZAP-CAPTURE-BRIDGE] .toArray() len=', testArr.length); } catch(e){} }
-              if (typeof dMsgs.getAll === 'function') { try { testArr = dMsgs.getAll(); console.log('[EZAP-CAPTURE-BRIDGE] .getAll() len=', testArr.length); } catch(e){} }
-              if (typeof dMsgs.values === 'function') { try { testArr = Array.from(dMsgs.values()); console.log('[EZAP-CAPTURE-BRIDGE] .values() len=', testArr.length); } catch(e){} }
-              if (typeof dMsgs[Symbol.iterator] === 'function') console.log('[EZAP-CAPTURE-BRIDGE] is iterable');
-            }
-          }
-        }
-      } catch(e) { console.log('[EZAP-CAPTURE-BRIDGE] debug err:', e.message); }
+      // IMPORTANT: We need RAW chat model objects (which have .msgs collections),
+      // NOT the processed output of getAllChatsFromFiber() (which strips msgs away).
+      // Strategy: 1) Fiber Store raw chats, 2) Webpack Store models
       var sinceTs = d.sinceTs || {};  // { chatJid: lastTimestamp } map
       var maxPerChat = d.maxPerChat || 30;
       var initialMax = d.initialMax || 50;
-      var msgChats = getAllChatsFromFiber();
+      var msgChats = null;
+      var chatSource = 'none';
+      // Strategy 1: Raw Fiber Store chats (have .msgs on each chat)
+      try {
+        var fiberStore = findFiberStore();
+        if (fiberStore && Array.isArray(fiberStore.chats) && fiberStore.chats.length) {
+          msgChats = fiberStore.chats;
+          chatSource = 'fiber';
+        }
+      } catch(e) {}
+      // Strategy 2: Webpack Store Chat collection (also has .msgs on models)
       if (!msgChats || !msgChats.length) {
         try {
           if (window._ezapStore && window._ezapStore.Chat) {
             msgChats = window._ezapStore.Chat.getModelsArray();
+            chatSource = 'webpack';
           }
         } catch(e) {}
       }
+      console.log('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0);
       var allMsgEvents = [];
       if (msgChats && msgChats.length) {
         for (var mci = 0; mci < msgChats.length; mci++) {
@@ -1394,7 +1374,18 @@
           }
         }
       }
-      console.log('[EZAP-CAPTURE-BRIDGE] Responding with', allMsgEvents.length, 'events from', (msgChats ? msgChats.length : 0), 'chats');
+      // Log first chat with msgs info for diagnostics
+      if (msgChats && msgChats.length && allMsgEvents.length === 0) {
+        try {
+          var dbgC = msgChats[0];
+          var dbgM = dbgC ? (dbgC.msgs || dbgC.__x_msgs) : null;
+          console.log('[EZAP-CAPTURE-BRIDGE] 0 events debug: chat[0] has msgs=' + !!dbgM,
+            'type=' + typeof dbgM,
+            'has _models=' + !!(dbgM && dbgM._models),
+            'has getModelsArray=' + !!(dbgM && typeof dbgM.getModelsArray === 'function'));
+        } catch(e) {}
+      }
+      console.log('[EZAP-CAPTURE-BRIDGE] Responding with', allMsgEvents.length, 'events from', (msgChats ? msgChats.length : 0), 'chats (source:', chatSource, ')');
       window.postMessage({
         type: '_ezap_get_msgs_res',
         id: d.id,
