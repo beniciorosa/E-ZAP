@@ -2122,7 +2122,7 @@ function renderUsersTable(users) {
   var pageUsers = users.slice(start, start + usersPerPage);
 
   var html = '<table class="data-table"><thead><tr>' +
-    '<th>Usuário</th><th>Status</th><th>Perfil</th><th>Telefone</th><th>Último Acesso</th><th>Ações</th>' +
+    '<th>Usuário</th><th>Status</th><th>Perfil</th><th>Telefone</th><th>Último Acesso</th><th>Versão</th><th>Ações</th>' +
     '</tr></thead><tbody>';
 
   pageUsers.forEach(function(u) {
@@ -2174,6 +2174,8 @@ function renderUsersTable(users) {
     html += '<td><span class="badge ' + roleClass + '">' + roleLabel + '</span></td>';
     html += '<td>' + phoneDisplay + '</td>';
     html += '<td style="font-size:12px;color:var(--on-surface-variant)">' + lastActive + '</td>';
+    var extVer = u.ext_version || '-';
+    html += '<td><span style="font-size:11px;color:var(--on-surface-variant);font-family:monospace">' + esc(extVer) + '</span></td>';
     html += '<td><div class="table-actions" onclick="event.stopPropagation()">' + actHtml + '</div></td>';
     html += '</tr>';
   });
