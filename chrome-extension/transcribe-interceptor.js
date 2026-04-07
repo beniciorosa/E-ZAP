@@ -8,6 +8,95 @@
   function store(blob, source) {
     window._ezapCaptured.push({ blob: blob, time: Date.now(), source: source });
     if (window._ezapCaptured.length > 30) window._ezapCaptured.shift();
+
+    // Auto-transcription: notify content script about new audio blob
+    // Only for audio blobs larger than 2KB (skip tiny sounds/notifications)
+    if (blob.size > 2000 && isAudioBlob(blob, source)) {
+      notifyAutoTranscribe(blob, source);
+    }
+  }
+
+  function isAudioBlob(blob, source) {
+    var type = (blob.type || '').toLowerCase();
+    if (type.indexOf('audio') >= 0 || type.indexOf('ogg') >= 0 || type.indexOf('opus') >= 0) return true;
+    // createObjectURL blobs from WhatsApp are often audio even without proper MIME
+    if (source.indexOf('play:') === 0 || source.indexOf('decodeAudio') === 0) return true;
+    if (source.indexOf('srcSet:') === 0) return true;
+    // Large blobs from createObjectURL are likely media
+    if (source.indexOf('createObjectURL') === 0 && blob.size > 5000) return true;
+    return false;
+  }
+
+  // Find the currently playing audio message WID from the DOM
+  function findPlayingMsgWid() {
+    // Look for playing/paused audio elements and trace back to msg row
+    var audioEls = document.querySelectorAll('audio, video, [data-testid="audio-play"], span[data-icon="audio-pause"], span[data-icon="ptt-pause"]');
+    for (var i = 0; i < audioEls.length; i++) {
+      try {
+        // Walk up to find the message row with data-id
+        var el = audioEls[i];
+        for (var j = 0; j < 20; j++) {
+          if (!el) break;
+          var dataId = el.getAttribute('data-id');
+          if (dataId && dataId.indexOf('@') >= 0) return dataId;
+          el = el.parentElement;
+        }
+      } catch(e) {}
+    }
+    // Also check for recently active audio rows
+    try {
+      var rows = document.querySelectorAll('div[data-id]');
+      for (var r = rows.length - 1; r >= 0 && r >= rows.length - 50; r--) {
+        var row = rows[r];
+        var id = row.getAttribute('data-id');
+        if (!id || id.indexOf('@') < 0) continue;
+        // Check if this row has an audio element
+        if (row.querySelector('span[data-icon*="ptt"], span[data-icon*="audio"], [data-testid*="ptt"], [data-testid*="audio"]')) {
+          return id;
+        }
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  var _autoTrSent = {}; // Track which WIDs we already sent for auto-transcription
+  var _autoTrDebounce = null;
+
+  function notifyAutoTranscribe(blob, source) {
+    // Debounce: wait 500ms to let the DOM update with the playing state
+    clearTimeout(_autoTrDebounce);
+    _autoTrDebounce = setTimeout(function() {
+      try {
+        var wid = findPlayingMsgWid();
+        if (!wid) {
+          console.log('[EZAP-TR-AUTO] Audio captured but no playing WID found, source:', source);
+          return;
+        }
+        if (_autoTrSent[wid]) return; // Already sent
+        _autoTrSent[wid] = true;
+
+        // Convert blob to base64 and notify content script
+        var reader = new FileReader();
+        reader.onload = function() {
+          var b64 = reader.result.split(',')[1];
+          window.postMessage({
+            type: '_ezap_auto_transcribe',
+            wid: wid,
+            base64: b64,
+            mimeType: blob.type || 'audio/ogg',
+            size: blob.size,
+            source: source
+          }, '*');
+          console.log('[EZAP-TR-AUTO] Sent for auto-transcription:', wid, 'size:', blob.size, 'source:', source);
+        };
+        reader.onerror = function() {
+          delete _autoTrSent[wid]; // Allow retry
+        };
+        reader.readAsDataURL(blob);
+      } catch(e) {
+        console.warn('[EZAP-TR-AUTO] Error:', e.message);
+      }
+    }, 500);
   }
 
   // === 1. Intercept URL.createObjectURL — capture ALL blobs (not just audio-typed) ===

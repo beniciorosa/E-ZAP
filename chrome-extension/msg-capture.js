@@ -464,8 +464,56 @@
       }, TR_QUEUE_INTERVAL_MS);
     }
 
+    // Listen for auto-transcription events from interceptor (MAIN world)
+    if (_trEnabled) {
+      window.addEventListener('message', function(event) {
+        if (!event.data || event.source !== window) return;
+        if (event.data.type !== '_ezap_auto_transcribe') return;
+        handleAutoTranscribe(event.data);
+      });
+      console.log("[EZAP-CAPTURE] Auto-transcribe listener active");
+    }
+
     // First scan after a short delay (let Store populate)
     setTimeout(requestMessages, 5000);
+  }
+
+  // Handle auto-transcription from interceptor (audio played or sent)
+  var _autoTrProcessing = false;
+  var _autoTrDone = {};
+
+  function handleAutoTranscribe(data) {
+    if (!data.wid || !data.base64) return;
+    if (!_trEnabled || !isExtValid()) return;
+    if (_autoTrDone[data.wid]) return;
+
+    _autoTrDone[data.wid] = true;
+    console.log("[EZAP-CAPTURE] Auto-transcribe received:", data.wid, "size:", data.size, "source:", data.source);
+
+    // Send directly to background for transcription + save (no download needed!)
+    try {
+      chrome.runtime.sendMessage({
+        action: 'transcribe_and_save',
+        base64: data.base64,
+        contentType: data.mimeType || 'audio/ogg',
+        messageWid: data.wid,
+        userId: getUserId()
+      }, function(resp) {
+        if (chrome.runtime.lastError) {
+          console.warn("[EZAP-CAPTURE] Auto-transcribe send error:", chrome.runtime.lastError.message);
+          delete _autoTrDone[data.wid]; // Allow retry
+          return;
+        }
+        if (resp && resp.error) {
+          console.warn("[EZAP-CAPTURE] Auto-transcribe error:", data.wid, resp.error);
+        } else {
+          console.log("[EZAP-CAPTURE] Auto-transcribed:", data.wid, "=>", (resp && resp.text || '').substring(0, 60));
+        }
+      });
+    } catch(e) {
+      console.warn("[EZAP-CAPTURE] Auto-transcribe exception:", e.message);
+      delete _autoTrDone[data.wid];
+    }
   }
 
   function stop() {
