@@ -114,7 +114,7 @@
   window.addEventListener('message', function(event) {
     if (!event.data || event.source !== window) return;
     var d = event.data;
-    if (d.type === '_ezap_get_chats_res' || d.type === '_ezap_store_ready_res' || d.type === '_ezap_open_chat_res') {
+    if (d.type === '_ezap_get_chats_res' || d.type === '_ezap_store_ready_res' || d.type === '_ezap_open_chat_res' || d.type === '_ezap_get_profile_pics_res' || d.type === '_ezap_chat_action_res') {
       var cb = _ezapRpcPending[d.id];
       if (cb) { delete _ezapRpcPending[d.id]; cb(d); }
     }
@@ -714,6 +714,51 @@
     return null;
   }
 
+  // Executa acao no chat (archive, mute, pin, etc) via store-bridge
+  function ezapChatAction(jid, action) {
+    return new Promise(function(resolve) {
+      var id = ++_ezapRpcId;
+      var timer = setTimeout(function() {
+        delete _ezapRpcPending[id];
+        resolve({ ok: false, reason: 'timeout' });
+      }, 5000);
+      _ezapRpcPending[id] = function(data) {
+        clearTimeout(timer);
+        resolve(data.result || { ok: false });
+      };
+      try {
+        window.postMessage({ type: '_ezap_chat_action_req', id: id, jid: jid, action: action }, '*');
+      } catch (e) {
+        clearTimeout(timer);
+        delete _ezapRpcPending[id];
+        resolve({ ok: false, reason: 'postMessage-error' });
+      }
+    });
+  }
+
+  // Busca fotos de perfil sob demanda (batch) via store-bridge
+  function ezapFetchProfilePics(jids) {
+    return new Promise(function(resolve) {
+      if (!jids || !jids.length) { resolve([]); return; }
+      var id = ++_ezapRpcId;
+      var timer = setTimeout(function() {
+        delete _ezapRpcPending[id];
+        resolve([]);
+      }, 5000);
+      _ezapRpcPending[id] = function(data) {
+        clearTimeout(timer);
+        resolve(data.results || []);
+      };
+      try {
+        window.postMessage({ type: '_ezap_get_profile_pics_req', id: id, jids: jids }, '*');
+      } catch (e) {
+        clearTimeout(timer);
+        delete _ezapRpcPending[id];
+        resolve([]);
+      }
+    });
+  }
+
   // Expoe no window para os demais scripts usarem
   window.ezapIsExtValid = ezapIsExtValid;
   window.ezapUserId = ezapUserId;
@@ -729,4 +774,6 @@
   window.ezapFindJidInIndex = ezapFindJidInIndex;
   window.ezapOpenChat = ezapOpenChat;
   window.ezapOpenChatViaSearch = ezapOpenChatViaSearch;
+  window.ezapFetchProfilePics = ezapFetchProfilePics;
+  window.ezapChatAction = ezapChatAction;
 })();

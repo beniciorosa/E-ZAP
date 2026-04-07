@@ -197,47 +197,32 @@ function createSidebar() {
   document.getElementById("wcrm-save-note-btn").addEventListener("click", saveNote);
 
   console.log("[WCRM] Sidebar created");
+
+  // Register with sidebar manager
+  if (window.ezapSidebar) {
+    window.ezapSidebar.register('crm', {
+      show: function() { sidebarOpen = true; document.getElementById("wcrm-sidebar").style.display = "flex"; },
+      hide: function() { sidebarOpen = false; document.getElementById("wcrm-sidebar").style.display = "none"; },
+      onOpen: function() { if (currentPhone) renderContactInfo(); }
+    });
+  }
 }
 
 // ===== Toggle =====
 function toggleSidebar() {
-  // Close other sidebars if open
-  if (tagSidebarOpen) toggleTagSidebar();
-  if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
-  if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
-
+  if (window.ezapSidebar) { ezapSidebar.toggle('crm'); return; }
+  // Fallback (shouldn't happen — sidebar-manager loads before content.js)
   var sidebar = document.getElementById("wcrm-sidebar");
   sidebarOpen = !sidebarOpen;
   sidebar.style.display = sidebarOpen ? "flex" : "none";
-
-  // Shrink WhatsApp app to make room for sidebar
-  var appEl = document.getElementById("app");
-  if (appEl) {
-    if (sidebarOpen) {
-      appEl.style.width = "calc(100% - 320px)";
-      appEl.style.maxWidth = "calc(100% - 320px)";
-      appEl.style.marginRight = "0";
-    } else {
-      appEl.style.width = "";
-      appEl.style.maxWidth = "";
-      appEl.style.marginRight = "";
-    }
-  }
-
-  // Hide/show floating buttons
-  updateFloatingButtons();
-
-  if (sidebarOpen && currentPhone) {
-    renderContactInfo();
-  }
 }
 
 function updateFloatingButtons() {
+  // Now handled by sidebar manager — kept for backward compatibility
+  if (window.ezapSidebar) return; // Manager handles repositioning
   var container = document.getElementById("ezap-float-container");
-  var anySidebarOpen = sidebarOpen || tagSidebarOpen ||
-    (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) ||
-    (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen);
-  if (container) container.style.display = anySidebarOpen ? "none" : "flex";
+  if (!container) return;
+  container.style.display = "flex";
 }
 
 // ===== TAG Sidebar (Label Management) =====
@@ -283,36 +268,24 @@ function createTagSidebar() {
     if (e.key === "Enter") addLabelTemplate();
   });
   renderTagColorPicker();
+
+  // Register with sidebar manager
+  if (window.ezapSidebar) {
+    window.ezapSidebar.register('tag', {
+      show: function() { tagSidebarOpen = true; document.getElementById("wcrm-tag-sidebar").style.display = "flex"; },
+      hide: function() { tagSidebarOpen = false; document.getElementById("wcrm-tag-sidebar").style.display = "none"; },
+      onOpen: function() { renderTagList(); renderTagContactSection(); }
+    });
+  }
 }
 
 function toggleTagSidebar() {
-  // Close other sidebars
-  if (sidebarOpen) toggleSidebar();
-  if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
-  if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
-
   createTagSidebar();
+  if (window.ezapSidebar) { ezapSidebar.toggle('tag'); return; }
+  // Fallback
   var sidebar = document.getElementById("wcrm-tag-sidebar");
   tagSidebarOpen = !tagSidebarOpen;
   sidebar.style.display = tagSidebarOpen ? "flex" : "none";
-
-  var appEl = document.getElementById("app");
-  if (appEl) {
-    if (tagSidebarOpen) {
-      appEl.style.width = "calc(100% - 320px)";
-      appEl.style.maxWidth = "calc(100% - 320px)";
-      appEl.style.marginRight = "0";
-    } else {
-      appEl.style.width = "";
-      appEl.style.maxWidth = "";
-      appEl.style.marginRight = "";
-    }
-  }
-  updateFloatingButtons();
-  if (tagSidebarOpen) {
-    renderTagList();
-    renderTagContactSection();
-  }
 }
 
 // ===== Header Tag Dropdown (floating widget) =====
@@ -778,7 +751,7 @@ function renderContactInfo() {
   window._wcrmFuturasExpanded = false;
   window._wcrmRealizadasExpanded = false;
   window._wcrmEditingHsId = null;
-  window._wcrmContactData = null; // HubSpot contact/ticket data for message variables
+  // _wcrmContactData is managed by preloadHubSpotData() — don't clear here
   window._wcrmLoadId = Date.now(); // Unique ID to prevent stale async responses
 
   // Show only the client name (before "|"), not the mentor name
@@ -2004,12 +1977,11 @@ function detectCurrentChat() {
       if (typeof renderAbasSidebar === 'function') renderAbasSidebar();
     }
 
+    // Always preload in background (warms cache for faster sidebar render)
+    preloadHubSpotData();
+
     if (sidebarOpen) {
       renderContactInfo();
-    } else {
-      // Pre-load HubSpot data in background even with sidebar closed
-      // This populates window._wcrmContactData for @variable replacement
-      preloadHubSpotData();
     }
   } catch (e) {
     console.error("[WCRM] Error detecting chat:", e);

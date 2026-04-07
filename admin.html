@@ -1408,10 +1408,11 @@
         <input type="date" id="dashDateFrom">
         <span style="font-size:12px;color:var(--on-surface-variant)">ate</span>
         <input type="date" id="dashDateTo">
+        <button class="btn-sm" onclick="dashSetRange(0)">Hoje</button>
         <button class="btn-sm" onclick="dashSetRange(7)">7d</button>
         <button class="btn-sm active" onclick="dashSetRange(30)">30d</button>
         <button class="btn-sm" onclick="dashSetRange(90)">90d</button>
-        <button class="btn-sm" onclick="loadDashboard()">Atualizar</button>
+        <button class="btn-sm" onclick="dashApplyCustomRange()">Aplicar</button>
       </div>
 
       <div class="dash-stats-grid" id="dashStatsGrid">
@@ -5464,10 +5465,15 @@ function dashSetRange(days) {
   document.getElementById("dashDateFrom").value = from.toISOString().split("T")[0];
   document.getElementById("dashDateTo").value = to.toISOString().split("T")[0];
   document.querySelectorAll(".dash-period .btn-sm").forEach(function(b) { b.classList.remove("active"); });
-  var labels = {"7": "7d", "30": "30d", "90": "90d"};
+  var labels = {"0": "Hoje", "7": "7d", "30": "30d", "90": "90d"};
   document.querySelectorAll(".dash-period .btn-sm").forEach(function(b) {
     if (b.textContent.trim() === labels[String(days)]) b.classList.add("active");
   });
+  loadDashboard();
+}
+
+function dashApplyCustomRange() {
+  document.querySelectorAll(".dash-period .btn-sm").forEach(function(b) { b.classList.remove("active"); });
   loadDashboard();
 }
 

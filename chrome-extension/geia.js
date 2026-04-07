@@ -8,17 +8,8 @@ var geiaConfigLoaded = false;
 
 // ===== Helpers =====
 function geiaSupaRest(path, method, body) {
-  return new Promise(function(resolve) {
-    try {
-      if (!chrome.runtime || !chrome.runtime.id) { resolve(null); return; }
-      chrome.runtime.sendMessage({
-        action: "supabase_rest", path: path, method: method || "GET", body: body
-      }, function(resp) {
-        if (chrome.runtime.lastError) { resolve(null); return; }
-        resolve(resp);
-      });
-    } catch (e) { resolve(null); }
-  });
+  // Delegates to shared api.js helper (eliminates duplicate wrapper)
+  return window.ezapSupaRest ? window.ezapSupaRest(path, method, body) : Promise.resolve(null);
 }
 
 function geiaChat(messages, maxTokens) {
@@ -119,6 +110,8 @@ function extractConversationMessages(maxMessages) {
 
 // ===== Get current contact name =====
 function getContactName() {
+  // Prefer currentName from content.js (has proper chat/group name)
+  if (typeof currentName !== 'undefined' && currentName) return currentName;
   var header = document.querySelector('header span[title]');
   return header ? header.getAttribute("title") : "Contato";
 }
@@ -183,6 +176,8 @@ function toggleGeiaSidebar() {
     createGeiaSidebar();
     sidebar = document.getElementById("geia-sidebar");
   }
+  if (window.ezapSidebar) { ezapSidebar.toggle('geia'); return; }
+  // Fallback
   geiaSidebarOpen = !geiaSidebarOpen;
   var floatContainer = document.getElementById("ezap-float-container");
   if (geiaSidebarOpen) {
@@ -205,7 +200,7 @@ function createGeiaSidebar() {
     position: "fixed",
     top: "0",
     right: "0",
-    width: "360px",
+    width: "320px",
     height: "100vh",
     background: "#111b21",
     borderLeft: "1px solid #2a3942",
@@ -241,6 +236,25 @@ function createGeiaSidebar() {
   sidebar.appendChild(contentDiv);
 
   document.body.appendChild(sidebar);
+
+  // Register with sidebar manager (overlay mode — doesn't shrink app or close others)
+  if (window.ezapSidebar) {
+    window.ezapSidebar.register('geia', {
+      show: function() {
+        geiaSidebarOpen = true;
+        var sb = document.getElementById("geia-sidebar");
+        if (sb) sb.classList.add("open");
+      },
+      hide: function() {
+        geiaSidebarOpen = false;
+        var sb = document.getElementById("geia-sidebar");
+        if (sb) sb.classList.remove("open");
+      },
+      onOpen: function() { updateGeiaContent(); },
+      shrinkApp: false,
+      closesOthers: false,
+    });
+  }
 }
 
 // ===== Update sidebar content =====

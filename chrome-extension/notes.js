@@ -123,12 +123,13 @@
 
   // ===== Get WID from a message row =====
   function getRowWid(row) {
-    // data-id may be on the row itself or on a child element
+    // data-id may be on the row itself or on a child/descendant element
     var id = row.getAttribute('data-id');
     if (id && id.indexOf('@') >= 0) return id;
-    var child = row.querySelector('[data-id]');
-    if (child) {
-      id = child.getAttribute('data-id');
+    // Search ALL descendants — some message types (link, image) nest data-id deeper
+    var children = row.querySelectorAll('[data-id]');
+    for (var i = 0; i < children.length; i++) {
+      id = children[i].getAttribute('data-id');
       if (id && id.indexOf('@') >= 0) return id;
     }
     return null;
@@ -164,27 +165,26 @@
     });
   }
 
-  // Find the visual message bubble inside a row
+  // Find the visual message bubble inside a row (same strategy as GEIA)
   function findBubble(row) {
-    // Strategy 1: msg-container (most reliable)
-    var container = row.querySelector('[data-testid="msg-container"]');
-    if (container) return container;
-
-    // Strategy 2: find element with background color (the bubble)
-    var dataIdEl = row.querySelector('[data-id]');
-    var startEl = dataIdEl || row;
-    var children = startEl.querySelectorAll('div');
-    for (var i = 0; i < children.length; i++) {
-      try {
-        var bg = window.getComputedStyle(children[i]).backgroundColor;
-        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' &&
-            children[i].offsetWidth > 60 && children[i].offsetWidth < 700) {
-          return children[i];
-        }
-      } catch(e) {}
+    // Strategy 1: walk UP from copyable-text to find colored bubble (GEIA pattern)
+    var copyText = row.querySelector('[class*="copyable-text"]');
+    if (copyText) {
+      var el = copyText;
+      for (var i = 0; i < 10; i++) {
+        if (!el.parentElement || el.parentElement === row) break;
+        el = el.parentElement;
+        try {
+          var bg = window.getComputedStyle(el).backgroundColor;
+          if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' && el.offsetWidth > 100) {
+            return el;
+          }
+        } catch(e) {}
+      }
     }
 
-    return row;
+    // Strategy 2: msg-container fallback
+    return row.querySelector('[data-testid="msg-container"]') || row;
   }
 
   function injectNoteIcon(row, wid, hasNote) {
@@ -200,15 +200,17 @@
       onNoteClick(row, wid, btn);
     });
 
-    // Position the button on the LEFT side of the row, below the avatar
-    // Use the row itself as anchor — the button is positioned via CSS
-    row.style.position = 'relative';
-    row.setAttribute('data-ezap-note-row', '1');
-    row.appendChild(btn);
-
-    // Mark the bubble for editor/note attachment
+    // Find bubble using same strategy as GEIA
     var bubble = findBubble(row);
+    bubble.style.position = 'relative';
     bubble.setAttribute('data-ezap-note-bubble', '1');
+    row.setAttribute('data-ezap-note-row', '1');
+
+    // If GEIA or transcribe button exists, shift note button further right
+    var hasOtherBtn = bubble.querySelector('.geia-suggest-btn') || bubble.querySelector('.ezap-tr-btn');
+    if (hasOtherBtn) btn.classList.add('ezap-note-btn-shift');
+
+    bubble.appendChild(btn);
 
     // If note exists, show it immediately
     if (hasNote) {
@@ -342,14 +344,8 @@
       }
     });
 
-    // Re-focus if WhatsApp steals it
-    textarea.addEventListener('blur', function() {
-      if (editor.parentElement) {
-        setTimeout(function() {
-          if (editor.parentElement) textarea.focus();
-        }, 50);
-      }
-    });
+    // No blur re-focus — it causes the yellow border to flicker.
+    // stopImmediatePropagation on key events is enough to keep input working.
   }
 
   // ===== Render saved note =====

@@ -35,6 +35,7 @@
   var _totalCaptured = 0;
   var _totalSynced = 0;
   var _pendingReqId = null;
+  var _warmupScans = 0;            // Don't filter by timestamp during warmup (partial-load fix)
 
   // ===== TRANSCRIPTION STATE =====
   var _trDoneWids = {};            // wid -> true (already transcribed or attempted)
@@ -70,10 +71,14 @@
 
     var reqId = "cap_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
     _pendingReqId = reqId;
+    // During warmup (first 4 scans), don't filter by timestamp.
+    // Fiber Store loads messages partially — first scan may get only a few msgs per chat,
+    // setting _chatLastTs too high and filtering out messages that load later.
+    var useTs = _warmupScans >= 4 ? _chatLastTs : {};
     window.postMessage({
       type: "_ezap_get_msgs_req",
       id: reqId,
-      sinceTs: _chatLastTs,
+      sinceTs: useTs,
       maxPerChat: 30,
       initialMax: 50
     }, "*");
@@ -91,15 +96,15 @@
     if (event.data.id !== _pendingReqId) return;
 
     _pendingReqId = null;
+    _warmupScans++;
     var d = event.data;
-    // Bridge response received
+    console.log('[EZAP-CAPTURE] Response received: ok=' + d.ok + ', events=' + (d.events ? d.events.length : 0) + ', warmup=' + _warmupScans);
 
     if (!d.ok || !d.events || !d.events.length) return;
 
     var userId = getUserId();
-    // mentorPhone: prefer allowedPhones (real number), bridge may return LID
     var mentorPhone = getMentorPhone() || (d.events.length && d.events[0].mentorPhone) || '';
-    if (!userId) return;
+    if (!userId) { console.warn('[EZAP-CAPTURE] No userId, skipping'); return; }
 
     var events = d.events;
     var newCount = 0;
@@ -108,13 +113,13 @@
       var e = events[i];
       if (!e.wid) continue;
 
-      // Dedup
+      // Dedup by WID (handles warmup duplicates)
       if (_knownWids[e.wid]) continue;
       _knownWids[e.wid] = true;
       _knownWidsCount++;
 
-      // Track newest timestamp per chat
-      if (!_chatLastTs[e.chatJid] || e.timestamp > _chatLastTs[e.chatJid]) {
+      // Track newest timestamp per chat (only after warmup to avoid partial-load issue)
+      if (_warmupScans >= 4 && (!_chatLastTs[e.chatJid] || e.timestamp > _chatLastTs[e.chatJid])) {
         _chatLastTs[e.chatJid] = e.timestamp;
       }
 
@@ -146,7 +151,9 @@
     }
 
     if (newCount > 0) {
-      console.log("[EZAP-CAPTURE] Captured", newCount, "new messages (buffer:", _buffer.length, ")");
+      console.log("[EZAP-CAPTURE] Captured", newCount, "new messages (buffer:", _buffer.length, ", known:", _knownWidsCount, ")");
+    } else {
+      console.log("[EZAP-CAPTURE] 0 new (all", events.length, "deduplicated, known:", _knownWidsCount, ")");
     }
 
     // Sync LID->phone mappings if any were discovered
@@ -223,10 +230,11 @@
 
   // ===== SYNC TO SUPABASE =====
   function syncBuffer() {
-    if (_syncInProgress) return;
+    console.log('[EZAP-CAPTURE] syncBuffer() called — buffer=' + _buffer.length + ', inProgress=' + _syncInProgress + ', userId=' + !!getUserId() + ', extValid=' + isExtValid());
+    if (_syncInProgress) { console.log('[EZAP-CAPTURE] syncBuffer SKIP: _syncInProgress=true'); return; }
     if (_buffer.length === 0) return;
-    if (!getUserId()) return;
-    if (!isExtValid()) return;
+    if (!getUserId()) { console.log('[EZAP-CAPTURE] syncBuffer SKIP: no userId'); return; }
+    if (!isExtValid()) { console.log('[EZAP-CAPTURE] syncBuffer SKIP: ext invalid'); return; }
 
     _syncInProgress = true;
     var batch = _buffer.splice(0, 50);  // Max 50 per request
@@ -249,15 +257,17 @@
       }
     }
 
+    console.log('[EZAP-CAPTURE] Sending batch of', batch.length, 'to Supabase...');
     try {
       chrome.runtime.sendMessage({
         action: "supabase_rest",
-        path: "/rest/v1/message_events",
+        path: "/rest/v1/message_events?on_conflict=user_id,message_wid",
         method: "POST",
         body: batch,
         prefer: "resolution=ignore-duplicates,return=minimal"
       }, function(resp) {
         _syncInProgress = false;
+        console.log('[EZAP-CAPTURE] Sync callback fired — lastError:', chrome.runtime.lastError ? chrome.runtime.lastError.message : 'none', ', resp:', JSON.stringify(resp).substring(0, 200));
         if (chrome.runtime.lastError) {
           console.warn("[EZAP-CAPTURE] Sync error:", chrome.runtime.lastError.message);
           _buffer = batch.concat(_buffer);
@@ -265,7 +275,7 @@
         }
         if (resp && (resp.error || resp.message)) {
           var errStr = String(resp.error || resp.message || "");
-          if (errStr.indexOf("duplicate") >= 0 || errStr.indexOf("unique") >= 0) {
+          if (errStr.indexOf("duplicate") >= 0 || errStr.indexOf("unique") >= 0 || errStr.indexOf("already exists") >= 0 || errStr.indexOf("23505") >= 0) {
             // Duplicates are normal — count as synced
             _totalSynced += batch.length;
           } else {
@@ -283,6 +293,7 @@
         }
       });
     } catch (e) {
+      console.error('[EZAP-CAPTURE] syncBuffer EXCEPTION:', e.message);
       _syncInProgress = false;
       _buffer = batch.concat(_buffer);
     }

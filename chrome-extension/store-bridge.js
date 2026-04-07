@@ -1272,20 +1272,20 @@
       var initialMax = d.initialMax || 50;
       var msgChats = null;
       var chatSource = 'none';
-      // Strategy 1: Raw Fiber Store chats (have .msgs on each chat)
+      // Strategy 1: Webpack Store (LIVE models — msgs update in real-time)
       try {
-        var fiberStore = findFiberStore();
-        if (fiberStore && Array.isArray(fiberStore.chats) && fiberStore.chats.length) {
-          msgChats = fiberStore.chats;
-          chatSource = 'fiber';
+        if (window._ezapStore && window._ezapStore.Chat) {
+          msgChats = window._ezapStore.Chat.getModelsArray();
+          chatSource = 'webpack';
         }
       } catch(e) {}
-      // Strategy 2: Webpack Store Chat collection (also has .msgs on models)
+      // Strategy 2: Fiber Store fallback (may have stale msgs)
       if (!msgChats || !msgChats.length) {
         try {
-          if (window._ezapStore && window._ezapStore.Chat) {
-            msgChats = window._ezapStore.Chat.getModelsArray();
-            chatSource = 'webpack';
+          var fiberStore = findFiberStore();
+          if (fiberStore && Array.isArray(fiberStore.chats) && fiberStore.chats.length) {
+            msgChats = fiberStore.chats;
+            chatSource = 'fiber';
           }
         } catch(e) {}
       }
@@ -1312,15 +1312,18 @@
         }
 
         // Strategy C: Fiber store contacts (may be array or collection)
-        if (!mentorPhone && fiberStore && fiberStore.contacts) {
+        if (!mentorPhone) {
           try {
-            var fContacts = Array.isArray(fiberStore.contacts) ? fiberStore.contacts :
-              (typeof fiberStore.contacts.getModelsArray === 'function' ? fiberStore.contacts.getModelsArray() : []);
-            for (var ci = 0; ci < fContacts.length; ci++) {
-              var fc = fContacts[ci];
-              if (fc && (fc.isMe || fc.__x_isMe) && fc.id) {
-                mentorPhone = (fc.id._serialized || (fc.id.toString ? fc.id.toString() : '')).split('@')[0].replace(/[^0-9]/g, '');
-                if (mentorPhone) break;
+            var _fs = findFiberStore();
+            if (_fs && _fs.contacts) {
+              var fContacts = Array.isArray(_fs.contacts) ? _fs.contacts :
+                (typeof _fs.contacts.getModelsArray === 'function' ? _fs.contacts.getModelsArray() : []);
+              for (var ci = 0; ci < fContacts.length; ci++) {
+                var fc = fContacts[ci];
+                if (fc && (fc.isMe || fc.__x_isMe) && fc.id) {
+                  mentorPhone = (fc.id._serialized || (fc.id.toString ? fc.id.toString() : '')).split('@')[0].replace(/[^0-9]/g, '');
+                  if (mentorPhone) break;
+                }
               }
             }
           } catch(e) {}
@@ -1329,9 +1332,10 @@
       // Strategy D (deferred): extract from fromMe messages in groups during iteration
       // Will be done after the loop if mentorPhone is still empty
       var _mentorPhoneFromMsg = '';
-      _slog('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0);
+      console.log('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0);
       var allMsgEvents = [];
       var _lidMappings = [];  // LID -> phone mappings discovered during iteration
+      var _debugEmptyChats = 0;
       if (msgChats && msgChats.length) {
         for (var mci = 0; mci < msgChats.length; mci++) {
           var mc = msgChats[mci];
@@ -1340,7 +1344,7 @@
           try {
             mcJid = mc.id._serialized || (typeof mc.id === 'string' ? mc.id : (mc.id.toString ? mc.id.toString() : ''));
           } catch(e) { continue; }
-          if (!mcJid || mcJid === 'status@broadcast' || mcJid.indexOf('@lid') >= 0) continue;
+          if (!mcJid || mcJid === 'status@broadcast') continue;
           var mcMsgs = mc.msgs || mc.__x_msgs;
           var mcArr = [];
           if (mcMsgs) {
@@ -1348,7 +1352,20 @@
             else if (Array.isArray(mcMsgs)) mcArr = mcMsgs;
             else if (typeof mcMsgs.getModelsArray === 'function') { try { mcArr = mcMsgs.getModelsArray() || []; } catch(e){} }
           }
-          if (!mcArr.length) continue;
+          // Debug: log chats with empty msgs to diagnose capture issues
+          if (!mcArr.length) {
+            _debugEmptyChats++;
+            if (mcJid.indexOf('120363421413012192') >= 0) {
+              console.warn('[EZAP-CAPTURE-BRIDGE] Vergamini chat has EMPTY msgs! mcMsgs type:', typeof mcMsgs, 'mcMsgs:', mcMsgs);
+            }
+            continue;
+          }
+          // Debug: log Vergamini chat specifically
+          if (mcJid.indexOf('120363421413012192') >= 0) {
+            var _lastMsg = mcArr[mcArr.length - 1];
+            var _lastTs = _lastMsg ? Number(_lastMsg.t || _lastMsg.__x_t || 0) : 0;
+            console.log('[EZAP-CAPTURE-BRIDGE] Vergamini:', mcArr.length, 'msgs, lastTs:', _lastTs, '(' + new Date(_lastTs * 1000).toISOString() + '), sinceTs:', sinceTs[mcJid] || 0);
+          }
           var mcIsGroup = mcJid.indexOf('@g.us') >= 0;
           var mcName = getFiberChatName(mc) || getChatName(mc);
           var mcLastTs = sinceTs[mcJid] || 0;
@@ -1434,6 +1451,22 @@
             var mmClientPhone = '';
             if (!mcIsGroup && mcJid.indexOf('@c.us') >= 0) {
               mmClientPhone = mcJid.split('@')[0].replace(/[^0-9]/g, '');
+            } else if (!mcIsGroup && mcJid.indexOf('@lid') >= 0) {
+              // LID chat: try to get phone from contact model
+              try {
+                var lidContact = mc.contact || mc.__x_contact;
+                if (lidContact) {
+                  var lidPh = '';
+                  if (lidContact.userid) lidPh = String(lidContact.userid).split('@')[0];
+                  else if (lidContact.phoneNumber) lidPh = String(lidContact.phoneNumber);
+                  lidPh = lidPh.replace(/[^0-9]/g, '');
+                  if (lidPh && lidPh.length >= 10) {
+                    mmClientPhone = lidPh;
+                    // Also save LID mapping
+                    _lidMappings.push({ lid: mcJid, phone: lidPh, contact_name: mcName || null });
+                  }
+                }
+              } catch(e) {}
             } else if (mcIsGroup && !mmSent && mmParticipant) {
               // Received msg in group: participant is the client who sent it
               mmClientPhone = mmParticipant.replace(/[^0-9]/g, '');
@@ -1471,7 +1504,7 @@
           if (!allMsgEvents[bfi].mentorPhone) allMsgEvents[bfi].mentorPhone = mentorPhone;
         }
       }
-      _slog('[EZAP-CAPTURE-BRIDGE]', allMsgEvents.length, 'events from', (msgChats ? msgChats.length : 0), 'chats');
+      console.log('[EZAP-CAPTURE-BRIDGE]', allMsgEvents.length, 'events from', (msgChats ? msgChats.length : 0), 'chats (', _debugEmptyChats, 'empty)');
       // Dedup LID mappings before sending
       var _lidMap = {};
       for (var li = 0; li < _lidMappings.length; li++) {
@@ -1619,13 +1652,18 @@
               }
             } catch(e) {}
             console.log('[EZAP-BRIDGE] mediaData keys after download:', mdKeys.join(', '));
+            var xMediaBlob = md2.__x_mediaBlob;
+            var regMediaBlob = md2.mediaBlob;
             console.log('[EZAP-BRIDGE] mediaData state:',
               'getBlob:', typeof md2.getBlob,
               'localUrl:', md2.localUrl || md2.__x_localUrl || 'none',
               'objectUrl:', md2.objectUrl || md2.__x_objectUrl || 'none',
               'directPath:', md2.directPath || md2.__x_directPath || 'none',
               'filehash:', md2.filehash || md2.__x_filehash || 'none',
-              'mediaBlob:', typeof md2.mediaBlob,
+              '__x_mediaBlob:', xMediaBlob === null ? 'NULL' : typeof xMediaBlob,
+              'mediaBlob:', regMediaBlob === null ? 'NULL' : typeof regMediaBlob,
+              'mediaStage:', md2.__x_mediaStage || md2.mediaStage || 'none',
+              'size:', md2.__x_size || md2.size || 'none',
               'type:', md2.type || md2.__x_type || 'none'
             );
           }
@@ -1770,9 +1808,27 @@
                     resolve(downloadResult);
                     return;
                   }
-                  extractBlobAfterDownload(msg, resolve, function(m, md2, res) {
-                    tryMediaDataDownload(m, md2, res);
-                  });
+                  // Try immediately first
+                  var md2 = msg.mediaData || msg.__x_mediaData;
+                  var immediateBlob = md2 && (md2.__x_mediaBlob || md2.mediaBlob);
+                  if (immediateBlob && immediateBlob instanceof Blob && immediateBlob.size > 500) {
+                    console.log('[EZAP-BRIDGE] Got blob immediately after downloadMedia, size:', immediateBlob.size);
+                    resolve(immediateBlob);
+                    return;
+                  }
+                  // Wait 2s for async download to complete, then try again
+                  console.log('[EZAP-BRIDGE] Blob not ready, waiting 2s for async download...');
+                  setTimeout(function() {
+                    extractBlobAfterDownload(msg, resolve, function(m, md3, res) {
+                      // Still no blob - try one more wait of 3s
+                      console.log('[EZAP-BRIDGE] Still no blob, waiting 3s more...');
+                      setTimeout(function() {
+                        extractBlobAfterDownload(m, res, function(m2, md4, res2) {
+                          tryMediaDataDownload(m2, md4, res2);
+                        });
+                      }, 3000);
+                    });
+                  }, 2000);
                 }).catch(function(err) {
                   console.warn('[EZAP-BRIDGE] downloadMedia failed:', err && err.message || err);
                   tryMediaDataDownload(msg, md, resolve);

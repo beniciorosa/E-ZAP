@@ -176,37 +176,29 @@ function createMsgSidebar() {
     resetMsgEditor();
     openMsgModal();
   });
+
+  // Register with sidebar manager
+  if (window.ezapSidebar) {
+    window.ezapSidebar.register('msg', {
+      show: function() { msgSidebarOpen = true; document.getElementById("wcrm-msg-sidebar").style.display = "flex"; },
+      hide: function() { msgSidebarOpen = false; var sb = document.getElementById("wcrm-msg-sidebar"); if (sb) sb.style.display = "none"; },
+      onOpen: function() { renderSavedSequences(); }
+    });
+  }
 }
 
 function toggleMsgSidebar() {
-  // Close other sidebars if open
-  if (typeof sidebarOpen !== 'undefined' && sidebarOpen) toggleSidebar();
-  if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) closeAbasSidebar();
-
+  if (window.ezapSidebar) { ezapSidebar.toggle('msg'); return; }
+  // Fallback
   msgSidebarOpen = !msgSidebarOpen;
   document.getElementById("wcrm-msg-sidebar").style.display = msgSidebarOpen ? "flex" : "none";
-
-  var appEl = document.getElementById("app");
-  if (appEl) {
-    if (msgSidebarOpen) {
-      appEl.style.width = "calc(100% - 320px)";
-      appEl.style.maxWidth = "calc(100% - 320px)";
-    } else {
-      appEl.style.width = "";
-      appEl.style.maxWidth = "";
-    }
-  }
-
-  // Hide/show floating buttons
   if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
-
-  if (msgSidebarOpen) {
-    renderSavedSequences();
-  }
+  if (msgSidebarOpen) renderSavedSequences();
 }
 
-// Called from content.js when CRM sidebar opens
+// Called from content.js when CRM sidebar opens (now handled by sidebar manager)
 function closeMsgSidebar() {
+  if (window.ezapSidebar) { ezapSidebar.close('msg'); return; }
   if (!msgSidebarOpen) return;
   msgSidebarOpen = false;
   var sb = document.getElementById("wcrm-msg-sidebar");

@@ -428,37 +428,43 @@
 
 /* ===== Message Notes ===== */
 .ezap-note-btn {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: rgba(134, 150, 160, 0.18);
+  background: #1a2a1a;
   color: #8696a0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   cursor: pointer;
   position: absolute;
-  left: 50px;
+  right: -34px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 10;
-  transition: background 0.2s, color 0.2s, opacity 0.2s;
+  transition: background 0.2s, transform 0.15s;
   user-select: none;
   border: none;
   line-height: 1;
-  opacity: 0;
+  font-size: 13px;
 }
-/* Show on hover over the row */
-div[data-ezap-note-row]:hover > .ezap-note-btn {
-  display: flex;
-  opacity: 1;
+.ezap-note-btn:hover {
+  background: #2a3a2a;
+  transform: translateY(-50%) scale(1.12);
 }
-/* Always show if note exists */
+/* Shift right when another button (GEIA/transcribe) exists */
+.ezap-note-btn-shift {
+  right: -66px;
+}
+/* Has note: yellow highlight */
 .ezap-note-has {
-  display: flex !important;
-  opacity: 1 !important;
-  background: rgba(251, 191, 36, 0.25);
+  background: #2a2a1a;
   color: #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.35);
+}
+.ezap-note-has:hover {
+  background: #3a3a1a;
 }
 .ezap-note-btn:hover {
   background: rgba(134, 150, 160, 0.35);
@@ -493,13 +499,14 @@ div[data-ezap-note-row]:hover > .ezap-note-btn {
   margin-top: 4px;
   border-top: 1px solid rgba(251, 191, 36, 0.2);
   box-sizing: border-box;
+  max-width: 100%;
 }
 .ezap-note-input {
   width: 100%;
   min-height: 36px;
   max-height: 100px;
   padding: 6px 10px;
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  border: 1px solid #fbbf24;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.25);
   color: inherit;
@@ -508,10 +515,6 @@ div[data-ezap-note-row]:hover > .ezap-note-btn {
   resize: vertical;
   outline: none;
   box-sizing: border-box;
-}
-.ezap-note-input:focus {
-  border-color: #fbbf24;
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.3);
 }
 .ezap-note-input::placeholder {
   color: rgba(134, 150, 160, 0.5);
