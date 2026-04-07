@@ -25,6 +25,9 @@
   var _lastWebpackKey = null;
   var _capturedVia = null;
 
+  // Debug logging: disabled in production. Enable in devtools: window._ezapStoreDebug = true
+  function _slog() { if (window._ezapStoreDebug) console.log.apply(console, arguments); }
+
   // ===== EARLY INTERCEPTOR =====
   // Intercepta window.webpackChunkwhatsapp_web_client ANTES do WA criar,
   // usando Object.defineProperty. Quando webpack fizer a primeira push
@@ -47,14 +50,14 @@
         set: function(v) {
           _value = v;
           if (Array.isArray(v)) {
-            console.log('[EZAP-STORE] Intercepted array assignment for', chunkName);
+            _slog('[EZAP-STORE] Intercepted array assignment for', chunkName);
             wrapArrayPush(v);
           }
         }
       });
-      console.log('[EZAP-STORE] Early interceptor installed for', chunkName);
+      _slog('[EZAP-STORE] Early interceptor installed for', chunkName);
     } catch (e) {
-      console.log('[EZAP-STORE] defineProperty failed for', chunkName, ':', e && e.message);
+      _slog('[EZAP-STORE] defineProperty failed for', chunkName, ':', e && e.message);
     }
   }
 
@@ -79,8 +82,8 @@
                   if (!window._ezapWebpackRequire) {
                     window._ezapWebpackRequire = req;
                     _capturedVia = 'early-interceptor';
-                    console.log('[EZAP-STORE] Captured __webpack_require__ via early interceptor');
-                    try { onWebpackRequireReady(req); } catch (e) { console.log('[EZAP-STORE] onReady err:', e.message); }
+                    _slog('[EZAP-STORE] Captured __webpack_require__ via early interceptor');
+                    try { onWebpackRequireReady(req); } catch (e) { _slog('[EZAP-STORE] onReady err:', e.message); }
                   }
                   return origRuntime.apply(this, arguments);
                 };
@@ -91,7 +94,7 @@
         }
       });
     } catch (e) {
-      console.log('[EZAP-STORE] wrap push failed:', e && e.message);
+      _slog('[EZAP-STORE] wrap push failed:', e && e.message);
     }
   }
 
@@ -99,7 +102,7 @@
     var found = scanModules(req);
     window._ezapStore = found;
     window._ezapStoreReady = !!found.Chat;
-    console.log('[EZAP-STORE] First scan:', {
+    _slog('[EZAP-STORE] First scan:', {
       Chat: !!found.Chat, Contact: !!found.Contact,
       GroupMetadata: !!found.GroupMetadata, Wid: !!found.Wid,
       ProfilePicThumb: !!found.ProfilePicThumb
@@ -118,7 +121,7 @@
     window._ezapStore = found;
     window._ezapStoreReady = !!found.Chat;
     if (found.Chat) {
-      console.log('[EZAP-STORE] Chat module loaded on rescan', _initTries);
+      _slog('[EZAP-STORE] Chat module loaded on rescan', _initTries);
       return;
     }
     if (_initTries < INIT_MAX_TRIES) setTimeout(rescan, 2000);
@@ -156,7 +159,7 @@
       // Wrap push (caso webpack ainda nao tenha replaced, vamos ver quando fizer)
       if (!chunk._ezapWrapped) {
         wrapArrayPush(chunk);
-        console.log('[EZAP-STORE] Wrapped push on', k, '(len=', chunk.length, 'native=', String(chunk.push).indexOf('[native code]')>=0, ')');
+        _slog('[EZAP-STORE] Wrapped push on', k, '(len=', chunk.length, 'native=', String(chunk.push).indexOf('[native code]')>=0, ')');
       }
       var isNative = String(chunk.push).indexOf('[native code]') >= 0;
       if (isNative) continue; // webpack ainda nao instalou jsonpCallback, nao adianta parasite ainda
@@ -172,15 +175,15 @@
               window._ezapWebpackRequire = req;
               _capturedVia = 'parasite-poll:' + keyRef;
               _lastWebpackKey = keyRef;
-              console.log('[EZAP-STORE] Captured __webpack_require__ via parasite poll on', keyRef);
-              try { onWebpackRequireReady(req); } catch(e) { console.log('[EZAP-STORE] onReady err:', e && e.message); }
+              _slog('[EZAP-STORE] Captured __webpack_require__ via parasite poll on', keyRef);
+              try { onWebpackRequireReady(req); } catch(e) { _slog('[EZAP-STORE] onReady err:', e && e.message); }
             }
           }
         ]);
         _parasitePushed[k] = true;
-        console.log('[EZAP-STORE] Parasite pushed to', k, '(len=', chunk.length, ')');
+        _slog('[EZAP-STORE] Parasite pushed to', k, '(len=', chunk.length, ')');
       } catch(e) {
-        console.log('[EZAP-STORE] parasite push failed on', k, ':', e && e.message);
+        _slog('[EZAP-STORE] parasite push failed on', k, ':', e && e.message);
       }
     }
     return !!window._ezapWebpackRequire;
@@ -276,7 +279,7 @@
               // ProfilePicThumb model tem: tag, eurl, img, stale, id
               if (pm && ('tag' in pm || 'stale' in pm) && (pm.eurl || pm.__x_eurl || pm.img || pm.__x_img)) {
                 found.ProfilePicThumb = obj;
-                console.log('[EZAP-STORE] Found ProfilePicThumb store with', pModels.length, 'entries');
+                _slog('[EZAP-STORE] Found ProfilePicThumb store with', pModels.length, 'entries');
               }
             }
           } catch(e) {}
@@ -376,7 +379,7 @@
         }
       }
     } catch (e) {
-      console.log('[EZAP-STORE] findFiberStore err:', e && e.message);
+      _slog('[EZAP-STORE] findFiberStore err:', e && e.message);
     }
     return null;
   }
@@ -1326,8 +1329,9 @@
       // Strategy D (deferred): extract from fromMe messages in groups during iteration
       // Will be done after the loop if mentorPhone is still empty
       var _mentorPhoneFromMsg = '';
-      console.log('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0, 'mentorPhone:', mentorPhone || '(will detect from msgs)');
+      _slog('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0);
       var allMsgEvents = [];
+      var _lidMappings = [];  // LID -> phone mappings discovered during iteration
       if (msgChats && msgChats.length) {
         for (var mci = 0; mci < msgChats.length; mci++) {
           var mc = msgChats[mci];
@@ -1380,13 +1384,14 @@
             var mmParticipant = '';
             if (mcIsGroup) {
               var mmAuth = mm.author || mm.__x_author;
+              var mmAuthFull = '';  // Full JID for LID detection
               if (mmAuth) {
-                mmParticipant = typeof mmAuth === 'string' ? mmAuth.split('@')[0] :
-                  (mmAuth._serialized ? mmAuth._serialized.split('@')[0] : '');
+                mmAuthFull = typeof mmAuth === 'string' ? mmAuth : (mmAuth._serialized || '');
+                mmParticipant = mmAuthFull.split('@')[0];
               } else if (mm.id && mm.id.participant) {
                 var mmP = mm.id.participant;
-                mmParticipant = typeof mmP === 'string' ? mmP.split('@')[0] :
-                  (mmP._serialized ? mmP._serialized.split('@')[0] : '');
+                mmAuthFull = typeof mmP === 'string' ? mmP : (mmP._serialized || '');
+                mmParticipant = mmAuthFull.split('@')[0];
               }
               // Strategy D: if this is MY sent message in a group, the participant IS my phone
               if (mmSent && mmParticipant && !_mentorPhoneFromMsg) {
@@ -1394,6 +1399,29 @@
                 if (candidatePhone.length >= 10 && candidatePhone.length <= 15) {
                   _mentorPhoneFromMsg = candidatePhone;
                 }
+              }
+              // LID mapping: if participant is a LID, try to find phone from senderObj
+              if (mmAuthFull && mmAuthFull.indexOf('@lid') >= 0) {
+                try {
+                  var sObjLid = mm.senderObj || mm.__x_senderObj;
+                  if (sObjLid) {
+                    var lidPhone = '';
+                    // Try various properties that might contain phone
+                    if (sObjLid.userid) lidPhone = String(sObjLid.userid).split('@')[0];
+                    else if (sObjLid.phoneNumber) lidPhone = String(sObjLid.phoneNumber);
+                    else if (sObjLid.id && sObjLid.id._serialized && sObjLid.id._serialized.indexOf('@c.us') >= 0) {
+                      lidPhone = sObjLid.id._serialized.split('@')[0];
+                    }
+                    lidPhone = lidPhone.replace(/[^0-9]/g, '');
+                    if (lidPhone && lidPhone.length >= 10) {
+                      _lidMappings.push({
+                        lid: mmAuthFull,
+                        phone: lidPhone,
+                        contact_name: mmSender || null
+                      });
+                    }
+                  }
+                } catch(e) {}
               }
             }
             var mmDuration = Number(mm.duration || mm.__x_duration || 0);
@@ -1435,7 +1463,7 @@
       // Apply mentor phone from messages fallback (Strategy D)
       if (!mentorPhone && _mentorPhoneFromMsg) {
         mentorPhone = _mentorPhoneFromMsg;
-        console.log('[EZAP-CAPTURE-BRIDGE] Mentor phone detected from sent group msg:', mentorPhone);
+        _slog('[EZAP-CAPTURE-BRIDGE] Mentor phone from msg:', mentorPhone);
       }
       // Backfill mentorPhone in events that were added before Strategy D resolved
       if (mentorPhone) {
@@ -1443,24 +1471,23 @@
           if (!allMsgEvents[bfi].mentorPhone) allMsgEvents[bfi].mentorPhone = mentorPhone;
         }
       }
-      // Log first chat with msgs info for diagnostics
-      if (msgChats && msgChats.length && allMsgEvents.length === 0) {
-        try {
-          var dbgC = msgChats[0];
-          var dbgM = dbgC ? (dbgC.msgs || dbgC.__x_msgs) : null;
-          console.log('[EZAP-CAPTURE-BRIDGE] 0 events debug: chat[0] has msgs=' + !!dbgM,
-            'type=' + typeof dbgM,
-            'has _models=' + !!(dbgM && dbgM._models),
-            'has getModelsArray=' + !!(dbgM && typeof dbgM.getModelsArray === 'function'));
-        } catch(e) {}
+      _slog('[EZAP-CAPTURE-BRIDGE]', allMsgEvents.length, 'events from', (msgChats ? msgChats.length : 0), 'chats');
+      // Dedup LID mappings before sending
+      var _lidMap = {};
+      for (var li = 0; li < _lidMappings.length; li++) {
+        var lm = _lidMappings[li];
+        if (!_lidMap[lm.lid]) _lidMap[lm.lid] = lm;
       }
-      console.log('[EZAP-CAPTURE-BRIDGE] Responding with', allMsgEvents.length, 'events from', (msgChats ? msgChats.length : 0), 'chats (source:', chatSource, ')');
+      var _lidMapArr = [];
+      for (var lk in _lidMap) { if (_lidMap.hasOwnProperty(lk)) _lidMapArr.push(_lidMap[lk]); }
+
       window.postMessage({
         type: '_ezap_get_msgs_res',
         id: d.id,
         ok: allMsgEvents.length > 0,
         events: allMsgEvents,
-        chatCount: msgChats ? msgChats.length : 0
+        chatCount: msgChats ? msgChats.length : 0,
+        lidMappings: _lidMapArr.length > 0 ? _lidMapArr : null
       }, '*');
     } else if (d.type === '_ezap_download_audio_req') {
       // Download audio blob for a specific message by WID
@@ -1733,5 +1760,5 @@
     };
   };
 
-  console.log('[EZAP-STORE] Bridge started (v8 React fiber primary, webpack fallback). Call window._ezapDebugStore() for state.');
+  _slog('[EZAP-STORE] Bridge started (v8 React fiber primary, webpack fallback). Call window._ezapDebugStore() for state.');
 })();

@@ -126,11 +126,11 @@ async function tryVersionUpgradeBypass(token, newDeviceId) {
 
     // Only allow if current version is strictly newer
     if (!isNewerSemver(currentVersion, storedVersion)) {
-      console.log("[EZAP BG] Same or older version, device change blocked. Current:", currentVersion, "Stored:", storedVersion);
+      // Same or older version, device change blocked
       return false;
     }
 
-    console.log("[EZAP BG] Version upgrade detected:", storedVersion, "→", currentVersion, "— re-binding device");
+    // Version upgrade detected — re-binding device
 
     // Update device_fingerprint + ext_version for this user
     const patchResp = await fetch(
@@ -152,7 +152,7 @@ async function tryVersionUpgradeBypass(token, newDeviceId) {
     );
     return patchResp.ok;
   } catch (e) {
-    console.log("[EZAP BG] Version upgrade bypass error:", e.message);
+    console.warn("[EZAP BG] Version bypass error:", e.message);
     return false;
   }
 }
@@ -202,12 +202,12 @@ async function checkForUpdate() {
     const currentVersion = manifest.version;
 
     if (isNewerVersion(release.version, currentVersion)) {
-      console.log("[EZAP BG] New version available:", release.version, "(current:", currentVersion + ")");
+      // New version available
 
       // Só notifica se release.json tem notify: true (admin controla no painel).
       // Sem notify ou notify: false = versão silenciosa (só admin atualiza local).
       if (!release.notify) {
-        console.log("[EZAP BG] Version", release.version, "has notify=false, skipping notification");
+        // Silent version, skip notification
         return;
       }
 
@@ -270,7 +270,7 @@ function isNewerVersion(remoteVer, localVer) {
 // Sync HubSpot key from Supabase on startup, then pre-load pipeline stages
 syncHubSpotKey().then(function() {
   loadStageCache().catch(function() {
-    console.log("[EZAP BG] Pre-load stages deferred (key not ready yet)");
+    // Pre-load stages deferred (key not ready)
   });
 });
 
@@ -483,7 +483,7 @@ async function syncHubSpotKey() {
     const rows = await resp.json();
     if (rows && rows.length > 0 && rows[0].value) {
       await chrome.storage.local.set({ hubspot_api_key: rows[0].value });
-      console.log("[EZAP BG] HubSpot key synced from Supabase");
+      // HubSpot key synced
     }
   } catch (e) {
     console.log("[EZAP BG] Could not sync HubSpot key:", e.message);
@@ -872,13 +872,13 @@ async function getHubSpotMeetings(ticketId, contactId) {
     const assocPromises = [];
     if (ticketId) assocPromises.push(
       hubFetch("/crm/v4/objects/tickets/" + ticketId + "/associations/meetings").catch(function(e) {
-        console.log("[EZAP BG] Ticket->meetings assoc error:", e.message);
+        // Ticket->meetings assoc error (non-critical)
         return { results: [] };
       })
     );
     if (contactId) assocPromises.push(
       hubFetch("/crm/v4/objects/contacts/" + contactId + "/associations/meetings").catch(function(e) {
-        console.log("[EZAP BG] Contact->meetings assoc error:", e.message);
+        // Contact->meetings assoc error (non-critical)
         return { results: [] };
       })
     );
@@ -1340,7 +1340,7 @@ async function transcribeAudio(base64, contentType) {
     formData.append("model", "whisper-1");
     formData.append("language", "pt");
 
-    console.log("[EZAP BG] Transcribing audio:", Math.round(blob.size / 1024) + "KB", contentType);
+    // Transcribing audio
 
     const apiKey = await getOpenAIKey();
     if (!apiKey) throw new Error("OpenAI API key não configurada");
@@ -1358,7 +1358,7 @@ async function transcribeAudio(base64, contentType) {
     }
 
     const data = await resp.json();
-    console.log("[EZAP BG] Transcription done:", (data.text || "").substring(0, 80) + "...");
+    // Transcription complete
     return { text: data.text || "" };
   } catch (err) {
     console.error("[EZAP BG] Transcription error:", err);
@@ -1409,7 +1409,7 @@ async function transcribeAndSave(base64, contentType, messageWid, userId) {
       "return=minimal"
     );
 
-    console.log("[EZAP BG] Auto-transcribe saved:", messageWid, "=>", text.substring(0, 60) + "...");
+    // Auto-transcribe saved
     return { text: text, saved: true };
   } catch (err) {
     console.error("[EZAP BG] transcribeAndSave error:", err);

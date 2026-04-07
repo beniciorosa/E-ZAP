@@ -13,11 +13,11 @@
   "use strict";
 
   // ===== CONFIG =====
-  var SCAN_INTERVAL_MS = 12000;    // Request messages every 12s
-  var SYNC_INTERVAL_MS = 15000;    // Sync buffer to Supabase every 15s
+  var SCAN_INTERVAL_MS = 15000;    // Request messages every 15s
+  var SYNC_INTERVAL_MS = 20000;    // Sync buffer to Supabase every 20s
   var MAX_BUFFER_SIZE = 200;       // Max buffered events before forced sync
   var DEDUP_CACHE_MAX = 15000;     // Max known message IDs in memory
-  var TR_QUEUE_INTERVAL_MS = 20000; // Process transcription queue every 20s
+  var TR_QUEUE_INTERVAL_MS = 25000; // Process transcription queue every 25s
   var TR_MAX_DURATION = 300;       // Max audio duration to transcribe (5 min)
   var TR_DELAY_BETWEEN_MS = 3000;  // Delay between transcriptions
 
@@ -67,14 +67,12 @@
 
   // ===== BRIDGE: Request messages from MAIN world =====
   function requestMessages() {
-    if (!getUserId()) { console.log("[EZAP-CAPTURE] Skip scan: no userId"); return; }
+    if (!getUserId()) return;
     if (document.hidden) return;
-    if (_pendingReqId) { console.log("[EZAP-CAPTURE] Skip scan: pending request"); return; }
+    if (_pendingReqId) return;
 
     var reqId = "cap_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
     _pendingReqId = reqId;
-
-    console.log("[EZAP-CAPTURE] Requesting messages via bridge (id:", reqId, ")");
     window.postMessage({
       type: "_ezap_get_msgs_req",
       id: reqId,
@@ -97,7 +95,7 @@
 
     _pendingReqId = null;
     var d = event.data;
-    console.log("[EZAP-CAPTURE] Bridge response: ok=" + d.ok + ", events=" + (d.events ? d.events.length : 0) + ", chats=" + d.chatCount);
+    // Bridge response received
 
     if (!d.ok || !d.events || !d.events.length) return;
 
@@ -161,6 +159,11 @@
     // Queue audio messages for transcription
     if (_trEnabled && events.length > 0) {
       queueForTranscription(events);
+    }
+
+    // Sync LID->phone mappings if any were discovered
+    if (d.lidMappings && d.lidMappings.length > 0) {
+      syncLidMappings(d.lidMappings);
     }
 
     // Prevent memory bloat on dedup cache
@@ -317,6 +320,56 @@
         }
       }, 15000);
     });
+  }
+
+  // ===== LID -> PHONE MAPPING SYNC =====
+  var _lidSyncedCache = {};  // Prevent re-syncing same LIDs
+  var _lidSyncedCount = 0;
+
+  function syncLidMappings(mappings) {
+    if (!isExtValid() || !mappings || !mappings.length) return;
+
+    // Filter out already synced LIDs
+    var toSync = [];
+    for (var i = 0; i < mappings.length; i++) {
+      var m = mappings[i];
+      if (m.lid && m.phone && !_lidSyncedCache[m.lid]) {
+        toSync.push({
+          lid: m.lid,
+          phone: m.phone,
+          contact_name: m.contact_name || null,
+          updated_at: new Date().toISOString()
+        });
+        _lidSyncedCache[m.lid] = true;
+        _lidSyncedCount++;
+      }
+    }
+
+    if (!toSync.length) return;
+
+    try {
+      chrome.runtime.sendMessage({
+        action: "supabase_rest",
+        path: "/rest/v1/lid_phone_map",
+        method: "POST",
+        body: toSync,
+        prefer: "resolution=merge-duplicates,return=minimal"
+      }, function(resp) {
+        if (chrome.runtime.lastError) {
+          // Revert cache on error so we retry next time
+          for (var j = 0; j < toSync.length; j++) {
+            delete _lidSyncedCache[toSync[j].lid];
+            _lidSyncedCount--;
+          }
+        }
+      });
+    } catch(e) {}
+
+    // Prevent cache bloat
+    if (_lidSyncedCount > 2000) {
+      _lidSyncedCache = {};
+      _lidSyncedCount = 0;
+    }
   }
 
   // ===== SYNC TO SUPABASE =====
