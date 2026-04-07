@@ -482,6 +482,9 @@
   var _autoTrProcessing = false;
   var _autoTrDone = {};
 
+  // Store pending transcriptions for messages not yet in DB
+  var _pendingTranscripts = {}; // wid -> { text, timestamp }
+
   function handleAutoTranscribe(data) {
     if (!data.wid || !data.base64) return;
     if (!_trEnabled || !isExtValid()) return;
@@ -490,31 +493,105 @@
     _autoTrDone[data.wid] = true;
     console.log("[EZAP-CAPTURE] Auto-transcribe received:", data.wid, "size:", data.size, "source:", data.source);
 
-    // Send directly to background for transcription + save (no download needed!)
+    // Step 1: Transcribe via Whisper (just transcribe, don't save yet)
     try {
       chrome.runtime.sendMessage({
-        action: 'transcribe_and_save',
+        action: 'transcribe_audio',
         base64: data.base64,
-        contentType: data.mimeType || 'audio/ogg',
-        messageWid: data.wid,
-        userId: getUserId()
+        contentType: data.mimeType || 'audio/ogg'
       }, function(resp) {
         if (chrome.runtime.lastError) {
           console.warn("[EZAP-CAPTURE] Auto-transcribe send error:", chrome.runtime.lastError.message);
-          delete _autoTrDone[data.wid]; // Allow retry
+          delete _autoTrDone[data.wid];
           return;
         }
         if (resp && resp.error) {
-          console.warn("[EZAP-CAPTURE] Auto-transcribe error:", data.wid, resp.error);
-        } else {
-          console.log("[EZAP-CAPTURE] Auto-transcribed:", data.wid, "=>", (resp && resp.text || '').substring(0, 60));
+          console.warn("[EZAP-CAPTURE] Auto-transcribe Whisper error:", data.wid, resp.error);
+          return;
         }
+        var text = (resp && resp.text || '').trim();
+        if (!text) {
+          console.warn("[EZAP-CAPTURE] Auto-transcribe empty result:", data.wid);
+          return;
+        }
+        console.log("[EZAP-CAPTURE] Auto-transcribed:", data.wid, "=>", text.substring(0, 80));
+
+        // Step 2: Apply transcript to buffer row if still pending, or save to DB
+        applyTranscript(data.wid, text);
       });
     } catch(e) {
       console.warn("[EZAP-CAPTURE] Auto-transcribe exception:", e.message);
       delete _autoTrDone[data.wid];
     }
   }
+
+  function applyTranscript(wid, text) {
+    // Check if message is still in our local buffer (not yet synced to DB)
+    var foundInBuffer = false;
+    for (var i = 0; i < _buffer.length; i++) {
+      if (_buffer[i].message_wid === wid) {
+        _buffer[i].transcript = text;
+        _buffer[i].transcription_status = 'done';
+        foundInBuffer = true;
+        console.log("[EZAP-CAPTURE] Transcript applied to buffer row:", wid);
+        break;
+      }
+    }
+
+    if (foundInBuffer) return; // Will be saved with next buffer sync
+
+    // Message already in DB — PATCH directly
+    try {
+      chrome.runtime.sendMessage({
+        action: "supabase_rest",
+        path: "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(wid),
+        method: "PATCH",
+        body: { transcript: text, transcription_status: "done" },
+        prefer: "return=minimal"
+      }, function(resp) {
+        if (chrome.runtime.lastError) {
+          // DB save failed, store for retry
+          _pendingTranscripts[wid] = { text: text, ts: Date.now() };
+          console.warn("[EZAP-CAPTURE] Transcript DB save failed, stored for retry:", wid);
+          return;
+        }
+        console.log("[EZAP-CAPTURE] Transcript saved to DB:", wid);
+      });
+    } catch(e) {
+      _pendingTranscripts[wid] = { text: text, ts: Date.now() };
+    }
+
+    // Also mark as done in transcription queue
+    _trDoneWids[wid] = true;
+  }
+
+  // Retry pending transcripts periodically (for race condition cases)
+  setInterval(function() {
+    var wids = Object.keys(_pendingTranscripts);
+    if (wids.length === 0 || !isExtValid()) return;
+    for (var i = 0; i < wids.length; i++) {
+      var w = wids[i];
+      var p = _pendingTranscripts[w];
+      // Retry if older than 10 seconds
+      if (Date.now() - p.ts < 10000) continue;
+      try {
+        (function(wid, text) {
+          chrome.runtime.sendMessage({
+            action: "supabase_rest",
+            path: "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(wid),
+            method: "PATCH",
+            body: { transcript: text, transcription_status: "done" },
+            prefer: "return=minimal"
+          }, function(resp) {
+            if (!chrome.runtime.lastError) {
+              delete _pendingTranscripts[wid];
+              console.log("[EZAP-CAPTURE] Pending transcript saved:", wid);
+            }
+          });
+        })(w, p.text);
+      } catch(e) {}
+    }
+  }, 15000);
 
   function stop() {
     if (_scanTimer) { clearInterval(_scanTimer); _scanTimer = null; }
