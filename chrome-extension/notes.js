@@ -200,11 +200,15 @@
       onNoteClick(row, wid, btn);
     });
 
-    // Attach to the bubble itself
+    // Position the button on the LEFT side of the row, below the avatar
+    // Use the row itself as anchor — the button is positioned via CSS
+    row.style.position = 'relative';
+    row.setAttribute('data-ezap-note-row', '1');
+    row.appendChild(btn);
+
+    // Mark the bubble for editor/note attachment
     var bubble = findBubble(row);
-    bubble.style.position = 'relative';
     bubble.setAttribute('data-ezap-note-bubble', '1');
-    bubble.appendChild(btn);
 
     // If note exists, show it immediately
     if (hasNote) {
@@ -278,6 +282,9 @@
       editor.remove();
     });
 
+    // Salvar first (left), then delete (if exists), then cancel
+    actions.appendChild(saveBtn);
+
     // Delete button (only if note exists)
     if (existingText) {
       var delBtn = document.createElement('button');
@@ -300,15 +307,30 @@
     }
 
     actions.appendChild(cancelBtn);
-    actions.appendChild(saveBtn);
     editor.appendChild(actions);
 
-    // Insert editor inside the bubble
+    // Insert editor below the bubble
     var bubble = row.querySelector('[data-ezap-note-bubble]') || findBubble(row);
     bubble.appendChild(editor);
 
-    // Auto-focus and handle Ctrl+Enter
-    setTimeout(function() { textarea.focus(); }, 50);
+    // Aggressive focus capture — WhatsApp steals focus from normal focus()
+    setTimeout(function() {
+      textarea.focus();
+      // Move cursor to end
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }, 100);
+
+    // Block ALL key events from reaching WhatsApp
+    function stopWa(e) {
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }
+    textarea.addEventListener('keydown', stopWa, true);
+    textarea.addEventListener('keyup', stopWa, true);
+    textarea.addEventListener('keypress', stopWa, true);
+    textarea.addEventListener('input', stopWa, true);
+
+    // Handle shortcuts
     textarea.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -318,8 +340,15 @@
         e.preventDefault();
         editor.remove();
       }
-      // Stop propagation to prevent WhatsApp from intercepting keys
-      e.stopPropagation();
+    });
+
+    // Re-focus if WhatsApp steals it
+    textarea.addEventListener('blur', function() {
+      if (editor.parentElement) {
+        setTimeout(function() {
+          if (editor.parentElement) textarea.focus();
+        }, 50);
+      }
     });
   }
 

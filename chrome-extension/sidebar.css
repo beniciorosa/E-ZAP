@@ -438,8 +438,9 @@
   color: #8696a0;
   cursor: pointer;
   position: absolute;
-  right: 4px;
-  top: 2px;
+  left: 50px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 10;
   transition: background 0.2s, color 0.2s, opacity 0.2s;
   user-select: none;
@@ -447,8 +448,8 @@
   line-height: 1;
   opacity: 0;
 }
-/* Show on hover over the bubble */
-[data-ezap-note-bubble]:hover .ezap-note-btn {
+/* Show on hover over the row */
+div[data-ezap-note-row]:hover > .ezap-note-btn {
   display: flex;
   opacity: 1;
 }
@@ -456,7 +457,7 @@
 .ezap-note-has {
   display: flex !important;
   opacity: 1 !important;
-  background: rgba(251, 191, 36, 0.2);
+  background: rgba(251, 191, 36, 0.25);
   color: #fbbf24;
 }
 .ezap-note-btn:hover {
@@ -464,7 +465,7 @@
   color: #d1d7db;
 }
 .ezap-note-has:hover {
-  background: rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.4);
   color: #fde68a;
 }
 
@@ -491,24 +492,26 @@
   padding: 6px 8px;
   margin-top: 4px;
   border-top: 1px solid rgba(251, 191, 36, 0.2);
+  box-sizing: border-box;
 }
 .ezap-note-input {
   width: 100%;
-  min-height: 40px;
-  max-height: 120px;
-  padding: 8px 10px;
+  min-height: 36px;
+  max-height: 100px;
+  padding: 6px 10px;
   border: 1px solid rgba(251, 191, 36, 0.3);
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.25);
   color: inherit;
   font-size: 13px;
   font-family: inherit;
   resize: vertical;
   outline: none;
+  box-sizing: border-box;
 }
 .ezap-note-input:focus {
   border-color: #fbbf24;
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.3);
 }
 .ezap-note-input::placeholder {
   color: rgba(134, 150, 160, 0.5);
@@ -516,8 +519,8 @@
 .ezap-note-editor-actions {
   display: flex;
   gap: 8px;
-  margin-top: 6px;
-  justify-content: flex-end;
+  margin-top: 5px;
+  justify-content: flex-start;
 }
 .ezap-note-editor-actions button {
   padding: 4px 14px;
