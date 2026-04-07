@@ -368,6 +368,15 @@
   color: #00a884;
   background: #1a2a28;
 }
+/* Cached transcript available (green glow) */
+.ezap-tr-cached {
+  background: #0d4f2b;
+  color: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.35);
+}
+.ezap-tr-cached:hover {
+  background: #15803d;
+}
 
 /* Spinner */
 .ezap-tr-spin {

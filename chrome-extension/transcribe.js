@@ -6,8 +6,82 @@
 
   var cache = {};  // rowId -> transcription text
   var busy = {};   // rowId -> true while processing
+  var _dbCache = {}; // wid -> transcript text (from DB)
+  var _dbChecked = {}; // wid -> true (already checked DB)
+
+  // ===== Check DB for existing transcripts (batch) =====
+  function checkDbTranscripts(wids) {
+    if (!wids.length) return Promise.resolve({});
+    // Filter out already checked WIDs
+    var toCheck = [];
+    for (var i = 0; i < wids.length; i++) {
+      if (!_dbChecked[wids[i]]) toCheck.push(wids[i]);
+    }
+    if (!toCheck.length) return Promise.resolve({});
+
+    return new Promise(function(resolve) {
+      // Build OR filter for PostgREST: message_wid=in.(wid1,wid2,...)
+      // Only check messages that have transcription_status=done
+      var widList = toCheck.map(function(w) { return '"' + w.replace(/"/g, '') + '"'; }).join(',');
+      var path = "/rest/v1/message_events?message_wid=in.(" + widList + ")&transcription_status=eq.done&select=message_wid,transcript";
+
+      try {
+        chrome.runtime.sendMessage({
+          action: "supabase_rest",
+          path: path,
+          method: "GET"
+        }, function(resp) {
+          if (chrome.runtime.lastError) {
+            console.warn("[EZAP-TR] DB check error:", chrome.runtime.lastError.message);
+            resolve({});
+            return;
+          }
+          var result = {};
+          if (Array.isArray(resp)) {
+            for (var r = 0; r < resp.length; r++) {
+              if (resp[r].transcript) {
+                result[resp[r].message_wid] = resp[r].transcript;
+                _dbCache[resp[r].message_wid] = resp[r].transcript;
+              }
+            }
+          }
+          // Mark all as checked (even if no transcript found)
+          for (var c = 0; c < toCheck.length; c++) {
+            _dbChecked[toCheck[c]] = true;
+          }
+          resolve(result);
+        });
+      } catch(e) {
+        resolve({});
+      }
+    });
+  }
+
+  // Check DB for a single WID
+  function getTranscriptFromDb(wid) {
+    if (_dbCache[wid]) return Promise.resolve(_dbCache[wid]);
+    return new Promise(function(resolve) {
+      var path = "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(wid) + "&transcription_status=eq.done&select=transcript";
+      try {
+        chrome.runtime.sendMessage({
+          action: "supabase_rest",
+          path: path,
+          method: "GET"
+        }, function(resp) {
+          if (chrome.runtime.lastError) { resolve(null); return; }
+          if (Array.isArray(resp) && resp.length > 0 && resp[0].transcript) {
+            _dbCache[wid] = resp[0].transcript;
+            resolve(resp[0].transcript);
+          } else {
+            resolve(null);
+          }
+        });
+      } catch(e) { resolve(null); }
+    });
+  }
 
   // ===== Scan for audio messages and inject buttons =====
+  var _scanDebounce = null;
   function scan() {
     var selectors = [
       'span[data-icon="ptt"]', 'span[data-icon="ptt-out"]',
@@ -18,20 +92,40 @@
       'button[aria-label*="Play"]'
     ];
     var found = document.querySelectorAll(selectors.join(','));
+    var newRows = [];
+    var newWids = [];
+
     for (var i = 0; i < found.length; i++) {
       var msgRow = found[i].closest('div[role="row"]') ||
                    found[i].closest('div[data-id]');
       if (msgRow && !msgRow.querySelector('.ezap-tr-btn')) {
-        injectButton(msgRow, found[i]);
+        newRows.push({ row: msgRow, indicator: found[i] });
+        var wid = getRowId(msgRow);
+        if (wid) newWids.push(wid);
       }
     }
+
+    if (newRows.length === 0) return;
+
+    // Check DB for existing transcripts in batch
+    checkDbTranscripts(newWids).then(function(dbResults) {
+      for (var j = 0; j < newRows.length; j++) {
+        // Double-check it wasn't injected while we waited for DB
+        if (!newRows[j].row.querySelector('.ezap-tr-btn')) {
+          var wid = getRowId(newRows[j].row);
+          var hasTranscript = !!(dbResults[wid] || _dbCache[wid]);
+          injectButton(newRows[j].row, newRows[j].indicator, hasTranscript);
+        }
+      }
+    });
   }
 
-  function injectButton(msgRow, audioIndicator) {
+  function injectButton(msgRow, audioIndicator, hasTranscript) {
     var btn = document.createElement('div');
     btn.className = 'ezap-tr-btn';
+    if (hasTranscript) btn.classList.add('ezap-tr-cached');
     btn.innerHTML = 'Aa';
-    btn.title = 'Transcrever audio';
+    btn.title = hasTranscript ? 'Ver transcricao (salva)' : 'Transcrever audio';
     btn.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -39,7 +133,6 @@
     });
 
     // Find the actual audio bubble (the colored rounded container)
-    // Walk up from the audio indicator and find the element with a visible background
     var bubble = null;
     var el = audioIndicator;
     for (var i = 0; i < 12; i++) {
@@ -59,7 +152,6 @@
       bubble = msgRow.querySelector('[data-testid="msg-container"]') || msgRow;
     }
 
-    // Mark the bubble so we can find it later for the transcript
     bubble.setAttribute('data-ezap-bubble', '1');
     bubble.style.position = 'relative';
     bubble.appendChild(btn);
@@ -69,6 +161,7 @@
   function onTranscribeClick(row, btn) {
     var id = getRowId(row);
 
+    // Check local cache first
     if (cache[id]) {
       var existing = row.querySelector('.ezap-tr-box');
       if (existing) {
@@ -94,6 +187,7 @@
         renderTranscript(row, text);
         btn.innerHTML = 'Aa';
         btn.classList.add('ezap-tr-done');
+        btn.classList.add('ezap-tr-cached');
       })
       .catch(function(err) {
         console.error('[EZAP-TR]', err);
@@ -108,11 +202,19 @@
 
   // ===== Core transcription flow =====
   async function doTranscribe(row) {
+    var messageWid = getRowId(row);
+
+    // Step 1: Check DB for existing transcript (instant, no Whisper cost)
+    var dbText = await getTranscriptFromDb(messageWid);
+    if (dbText && dbText.trim()) {
+      console.log('[EZAP-TR] Found transcript in DB, skipping Whisper:', messageWid);
+      return dbText.trim();
+    }
+
+    // Step 2: No transcript in DB — do the full flow (play + Whisper + save)
     var b64 = await getAudioBase64(row);
     if (!b64) throw new Error('Audio nao encontrado');
 
-    // Get message WID and userId for saving to database
-    var messageWid = getRowId(row);
     var userId = (window.__wcrmAuth && window.__wcrmAuth.userId) || null;
 
     var result = await new Promise(function(resolve) {
@@ -129,7 +231,12 @@
 
     if (result.error) throw new Error(result.error);
     if (!result.text || !result.text.trim()) throw new Error('Transcricao vazia');
-    return result.text.trim();
+
+    // Cache locally and in DB cache
+    var text = result.text.trim();
+    _dbCache[messageWid] = text;
+
+    return text;
   }
 
   // ===== Audio extraction (via main world interceptor) =====
