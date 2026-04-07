@@ -5814,8 +5814,15 @@ function renderChatMessages(msgs, chatName) {
     html += '<div class="chat-msg ' + dir + '">';
 
     // Sender name for groups
-    if (m.is_group && m.direction === 'received' && m.sender_name) {
-      html += '<div class="msg-sender">' + esc(m.sender_name) + '</div>';
+    if (m.is_group && m.direction === 'received') {
+      var senderLabel = m.sender_name || m.group_participant || '';
+      if (senderLabel) {
+        // Format phone number if it's just digits
+        if (/^\d+$/.test(senderLabel) && senderLabel.length >= 10) {
+          senderLabel = '+' + senderLabel.substring(0, 2) + ' ' + senderLabel.substring(2, 4) + ' ' + senderLabel.substring(4);
+        }
+        html += '<div class="msg-sender">' + esc(senderLabel) + '</div>';
+      }
     }
 
     // Message type badge (non-text)
