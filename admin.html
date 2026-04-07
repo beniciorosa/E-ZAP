@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>E-ZAP — Painel Admin</title>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <style>
     /* ===== RESET & BASE ===== */
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1124,6 +1125,93 @@
     }
     .switch input:checked + .slider { background-color: var(--primary) !important; }
     .switch input:checked + .slider:before { transform: translateX(20px); }
+
+    /* ===== DASHBOARD / PERFORMANCE ===== */
+    .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+    .dash-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .dash-card {
+      background: var(--surface-container); border-radius: var(--radius-lg);
+      padding: 24px; box-shadow: var(--shadow-card);
+    }
+    .dash-card-title {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--on-surface-variant); font-weight: 600; margin-bottom: 16px;
+    }
+    .dash-card.full { grid-column: 1 / -1; }
+    .dash-stats-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 14px; margin-bottom: 24px;
+    }
+    .dash-stat {
+      background: var(--surface-container); border-radius: var(--radius-md);
+      padding: 18px; box-shadow: var(--shadow-card); text-align: center;
+    }
+    .dash-stat .ds-value {
+      font-family: var(--font-display); font-size: 26px; font-weight: 800; color: var(--on-surface);
+    }
+    .dash-stat .ds-label {
+      font-size: 10px; color: var(--on-surface-variant); text-transform: uppercase;
+      letter-spacing: 0.05em; font-weight: 600; margin-top: 4px;
+    }
+    .dash-stat .ds-value.green { color: var(--primary-fixed-dim); }
+    .dash-stat .ds-value.blue { color: var(--secondary); }
+    .dash-stat .ds-value.orange { color: var(--warning); }
+    .dash-stat .ds-value.red { color: var(--error); }
+    .dash-period {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .dash-period input[type="date"] {
+      background: var(--surface-container-high); color: var(--on-surface);
+      border: 1px solid var(--outline-variant); border-radius: var(--radius-sm);
+      padding: 7px 12px; font-size: 13px; font-family: var(--font-body);
+    }
+    .dash-period .btn-sm {
+      padding: 7px 16px; font-size: 12px; border-radius: var(--radius-sm);
+      cursor: pointer; border: 1px solid var(--outline-variant);
+      background: var(--surface-container-high); color: var(--on-surface);
+      font-family: var(--font-body); font-weight: 500; transition: background .15s;
+    }
+    .dash-period .btn-sm:hover { background: var(--surface-container-highest); }
+    .dash-period .btn-sm.active { background: var(--primary); color: #000; border-color: var(--primary); font-weight: 700; }
+    .dash-top-table {
+      width: 100%; border-collapse: collapse; font-size: 13px;
+    }
+    .dash-top-table th {
+      text-align: left; padding: 8px 10px; font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--on-surface-variant); font-weight: 600;
+      border-bottom: 1px solid var(--outline-variant);
+    }
+    .dash-top-table td {
+      padding: 8px 10px; color: var(--on-surface); border-bottom: 1px solid var(--outline-variant);
+    }
+    .dash-top-table tbody tr:hover { background: var(--surface-container-high); }
+    .dash-response-bar {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .dash-response-bar .bar {
+      flex: 1; height: 6px; background: var(--surface-container-highest); border-radius: 3px; overflow: hidden;
+    }
+    .dash-response-bar .bar-fill {
+      height: 100%; border-radius: 3px; background: var(--primary);
+    }
+    .dash-response-bar .bar-pct { font-size: 11px; color: var(--on-surface-variant); min-width: 36px; text-align: right; }
+    .dash-user-row {
+      display: flex; align-items: center; gap: 10px; padding: 10px 0;
+      border-bottom: 1px solid var(--outline-variant);
+    }
+    .dash-user-row:last-child { border-bottom: none; }
+    .dash-user-avatar {
+      width: 32px; height: 32px; border-radius: 50%; background: var(--secondary-container);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: var(--on-secondary-container);
+    }
+    .dash-user-info { flex: 1; }
+    .dash-user-name { font-size: 13px; font-weight: 600; color: var(--on-surface); }
+    .dash-user-sub { font-size: 11px; color: var(--on-surface-variant); }
+    .dash-user-stat { text-align: right; }
+    .dash-user-stat .val { font-size: 16px; font-weight: 700; font-family: var(--font-display); color: var(--on-surface); }
+    .dash-user-stat .lbl { font-size: 10px; color: var(--on-surface-variant); text-transform: uppercase; }
+    @media (max-width: 1100px) { .dash-grid { grid-template-columns: 1fr; } .dash-grid.cols-3 { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -1160,6 +1248,10 @@
     </div>
 
     <nav class="sidebar-nav">
+      <button class="sidebar-nav-item" data-tab="dashboard" onclick="switchTab('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>
+        Dashboard
+      </button>
       <button class="sidebar-nav-item active" data-tab="users" onclick="switchTab('users')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         Usuários
@@ -1221,6 +1313,64 @@
 
   <!-- Main Content -->
   <main class="main-content">
+
+    <!-- ===== DASHBOARD PANEL ===== -->
+    <div class="panel" id="panel-dashboard">
+      <div class="page-header">
+        <div class="page-title">Dashboard de Performance</div>
+      </div>
+
+      <div class="dash-period">
+        <span style="font-size:12px;color:var(--on-surface-variant);font-weight:600">Periodo:</span>
+        <input type="date" id="dashDateFrom">
+        <span style="font-size:12px;color:var(--on-surface-variant)">ate</span>
+        <input type="date" id="dashDateTo">
+        <button class="btn-sm" onclick="dashSetRange(7)">7d</button>
+        <button class="btn-sm active" onclick="dashSetRange(30)">30d</button>
+        <button class="btn-sm" onclick="dashSetRange(90)">90d</button>
+        <button class="btn-sm" onclick="loadDashboard()">Atualizar</button>
+      </div>
+
+      <div class="dash-stats-grid" id="dashStatsGrid">
+        <div class="dash-stat"><div class="ds-value">-</div><div class="ds-label">Carregando...</div></div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="dash-card full">
+          <div class="dash-card-title">Mensagens por dia</div>
+          <canvas id="chartDaily" height="80"></canvas>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="dash-card">
+          <div class="dash-card-title">Atividade por hora</div>
+          <canvas id="chartHourly" height="120"></canvas>
+        </div>
+        <div class="dash-card">
+          <div class="dash-card-title">Tipos de mensagem</div>
+          <canvas id="chartTypes" height="120"></canvas>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="dash-card">
+          <div class="dash-card-title">Top 15 Conversas</div>
+          <div id="dashTopChats" style="max-height:400px;overflow-y:auto"></div>
+        </div>
+        <div class="dash-card">
+          <div class="dash-card-title">Tempo de Resposta</div>
+          <div id="dashResponseTimes"></div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="dash-card full">
+          <div class="dash-card-title">Visao por Usuario (Admin)</div>
+          <div id="dashAdminOverview"></div>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== USERS PANEL ===== -->
     <div class="panel active" id="panel-users">
@@ -1827,6 +1977,7 @@ function switchTab(tab) {
   document.getElementById("panel-" + tab).classList.add("active");
   if (tab === "fluxos") loadFlows();
   if (tab === "api") loadApiKeys();
+  if (tab === "dashboard") loadDashboard();
 }
 
 // ===== USERS =====
@@ -5216,6 +5367,272 @@ function goApiLogPage(p) {
 }
 
 // ===== UTILS =====
+// ===== DASHBOARD =====
+var _dashLoaded = false;
+var _dashChartDaily = null;
+var _dashChartHourly = null;
+var _dashChartTypes = null;
+
+function dashSetRange(days) {
+  var to = new Date();
+  var from = new Date();
+  from.setDate(from.getDate() - days);
+  document.getElementById("dashDateFrom").value = from.toISOString().split("T")[0];
+  document.getElementById("dashDateTo").value = to.toISOString().split("T")[0];
+  document.querySelectorAll(".dash-period .btn-sm").forEach(function(b) { b.classList.remove("active"); });
+  var labels = {"7": "7d", "30": "30d", "90": "90d"};
+  document.querySelectorAll(".dash-period .btn-sm").forEach(function(b) {
+    if (b.textContent.trim() === labels[String(days)]) b.classList.add("active");
+  });
+  loadDashboard();
+}
+
+function loadDashboard() {
+  var from = document.getElementById("dashDateFrom").value;
+  var to = document.getElementById("dashDateTo").value;
+  if (!from || !to) {
+    dashSetRange(30);
+    return;
+  }
+  _dashLoaded = true;
+
+  // Load all 3 RPC functions in parallel
+  var summaryP = supa("/rest/v1/rpc/fn_dashboard_summary", {
+    method: "POST",
+    body: { p_user_id: currentAdmin.user_id, p_date_from: from, p_date_to: to },
+    prefer: "return=representation"
+  });
+
+  var responseP = supa("/rest/v1/rpc/fn_response_times", {
+    method: "POST",
+    body: { p_user_id: currentAdmin.user_id, p_date_from: from, p_date_to: to },
+    prefer: "return=representation"
+  });
+
+  var adminP = supa("/rest/v1/rpc/fn_admin_overview", {
+    method: "POST",
+    body: { p_date_from: from, p_date_to: to },
+    prefer: "return=representation"
+  });
+
+  summaryP.then(function(data) {
+    if (!data || data.error) {
+      document.getElementById("dashStatsGrid").innerHTML = '<div class="dash-stat"><div class="ds-label" style="color:var(--error)">Erro ao carregar dados</div></div>';
+      return;
+    }
+    renderDashSummary(data);
+  }).catch(function() {
+    document.getElementById("dashStatsGrid").innerHTML = '<div class="dash-stat"><div class="ds-label" style="color:var(--error)">Erro de conexao</div></div>';
+  });
+
+  responseP.then(function(data) {
+    if (!data || data.error) { document.getElementById("dashResponseTimes").innerHTML = '<div style="color:var(--on-surface-variant);font-size:13px">Sem dados de tempo de resposta</div>'; return; }
+    renderResponseTimes(data);
+  }).catch(function() {});
+
+  adminP.then(function(data) {
+    if (!data || data.error) { document.getElementById("dashAdminOverview").innerHTML = '<div style="color:var(--on-surface-variant);font-size:13px">Sem dados admin</div>'; return; }
+    renderAdminOverview(data);
+  }).catch(function() {});
+}
+
+function renderDashSummary(data) {
+  var t = data.totals || {};
+  var statsHtml =
+    '<div class="dash-stat"><div class="ds-value blue">' + fmtNum(t.messages) + '</div><div class="ds-label">Mensagens</div></div>' +
+    '<div class="dash-stat"><div class="ds-value green">' + fmtNum(t.sent) + '</div><div class="ds-label">Enviadas</div></div>' +
+    '<div class="dash-stat"><div class="ds-value">' + fmtNum(t.received) + '</div><div class="ds-label">Recebidas</div></div>' +
+    '<div class="dash-stat"><div class="ds-value blue">' + fmtNum(t.unique_chats) + '</div><div class="ds-label">Conversas</div></div>' +
+    '<div class="dash-stat"><div class="ds-value orange">' + fmtNum(t.audio_msgs) + '</div><div class="ds-label">Audios</div></div>' +
+    '<div class="dash-stat"><div class="ds-value green">' + fmtNum(t.transcribed) + '</div><div class="ds-label">Transcritos</div></div>' +
+    '<div class="dash-stat"><div class="ds-value">' + fmtNum(t.group_msgs) + '</div><div class="ds-label">Grupo</div></div>' +
+    '<div class="dash-stat"><div class="ds-value">' + fmtNum(t.individual_msgs) + '</div><div class="ds-label">Individual</div></div>' +
+    '<div class="dash-stat"><div class="ds-value blue">' + (t.total_audio_minutes || 0) + ' min</div><div class="ds-label">Audio total</div></div>';
+  document.getElementById("dashStatsGrid").innerHTML = statsHtml;
+
+  // Daily chart
+  renderChartDaily(data.daily || []);
+  // Hourly chart
+  renderChartHourly(data.hourly || []);
+  // Types chart
+  renderChartTypes(data.by_type || []);
+  // Top chats
+  renderTopChats(data.top_chats || []);
+}
+
+function fmtNum(n) {
+  if (n == null) return "0";
+  return Number(n).toLocaleString("pt-BR");
+}
+
+function getChartColors() {
+  var isDark = !document.body.classList.contains("light-theme");
+  return {
+    sent: isDark ? "rgba(110,180,255,0.8)" : "rgba(43,125,224,0.8)",
+    received: isDark ? "rgba(160,255,195,0.6)" : "rgba(13,159,79,0.6)",
+    grid: isDark ? "rgba(100,140,180,0.1)" : "rgba(0,30,60,0.08)",
+    text: isDark ? "#7a8da0" : "#5a6a7a",
+    bg1: isDark ? "rgba(110,180,255,0.15)" : "rgba(43,125,224,0.1)",
+    bg2: isDark ? "rgba(160,255,195,0.1)" : "rgba(13,159,79,0.08)"
+  };
+}
+
+function renderChartDaily(daily) {
+  var ctx = document.getElementById("chartDaily");
+  if (_dashChartDaily) _dashChartDaily.destroy();
+  var c = getChartColors();
+  var labels = daily.map(function(d) { return d.day ? d.day.substring(5) : ""; });
+  _dashChartDaily = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        { label: "Enviadas", data: daily.map(function(d) { return d.sent || 0; }), backgroundColor: c.sent, borderRadius: 3, barPercentage: 0.7 },
+        { label: "Recebidas", data: daily.map(function(d) { return d.received || 0; }), backgroundColor: c.received, borderRadius: 3, barPercentage: 0.7 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: c.text, font: { size: 11 } } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: c.text, font: { size: 10 }, maxRotation: 45 } },
+        y: { grid: { color: c.grid }, ticks: { color: c.text, font: { size: 10 } }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+function renderChartHourly(hourly) {
+  var ctx = document.getElementById("chartHourly");
+  if (_dashChartHourly) _dashChartHourly.destroy();
+  var c = getChartColors();
+  // Fill all 24 hours
+  var sent = new Array(24).fill(0);
+  var recv = new Array(24).fill(0);
+  hourly.forEach(function(h) { sent[h.hour] = h.sent || 0; recv[h.hour] = h.received || 0; });
+  var labels = [];
+  for (var i = 0; i < 24; i++) labels.push(String(i).padStart(2, "0") + "h");
+  _dashChartHourly = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        { label: "Enviadas", data: sent, backgroundColor: c.sent, borderRadius: 2 },
+        { label: "Recebidas", data: recv, backgroundColor: c.received, borderRadius: 2 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: c.text, font: { size: 10 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: c.text, font: { size: 9 } } },
+        y: { stacked: true, grid: { color: c.grid }, ticks: { color: c.text, font: { size: 10 } }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+function renderChartTypes(types) {
+  var ctx = document.getElementById("chartTypes");
+  if (_dashChartTypes) _dashChartTypes.destroy();
+  var isDark = !document.body.classList.contains("light-theme");
+  var palette = isDark
+    ? ["#6eb4ff","#a0ffc3","#ffb74d","#ff716c","#c4b5fd","#67e8f9","#fbbf24","#f472b6"]
+    : ["#2b7de0","#0d9f4f","#e67e22","#dc3545","#7c3aed","#0891b2","#d97706","#db2777"];
+  var labels = types.map(function(t) { return t.type || "outro"; });
+  var values = types.map(function(t) { return t.count || 0; });
+  var colors = labels.map(function(_, i) { return palette[i % palette.length]; });
+  _dashChartTypes = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: labels,
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "right", labels: { color: isDark ? "#7a8da0" : "#5a6a7a", font: { size: 11 }, padding: 10 } }
+      },
+      cutout: "60%"
+    }
+  });
+}
+
+function renderTopChats(chats) {
+  var el = document.getElementById("dashTopChats");
+  if (!chats.length) { el.innerHTML = '<div style="color:var(--on-surface-variant);font-size:13px;padding:12px">Sem dados de conversas</div>'; return; }
+  var html = '<table class="dash-top-table"><thead><tr><th>Conversa</th><th>Total</th><th>Env</th><th>Rec</th><th>Tipo</th></tr></thead><tbody>';
+  chats.slice(0, 15).forEach(function(c) {
+    var name = esc(c.chat_name || c.chat_jid || "-");
+    var tipo = c.is_group ? '<span style="color:var(--warning);font-size:11px">Grupo</span>' : '<span style="color:var(--secondary);font-size:11px">Individual</span>';
+    html += '<tr><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</td><td><strong>' + fmtNum(c.total) + '</strong></td><td>' + fmtNum(c.sent) + '</td><td>' + fmtNum(c.received) + '</td><td>' + tipo + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderResponseTimes(data) {
+  var el = document.getElementById("dashResponseTimes");
+  var ov = data.overall || {};
+  var avgMin = Math.round((ov.avg_response_seconds || 0) / 60);
+  var medMin = Math.round((ov.median_response_seconds || 0) / 60);
+  var rate = ov.response_rate || 0;
+
+  var html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:18px">';
+  html += '<div class="dash-stat" style="padding:14px"><div class="ds-value blue" style="font-size:20px">' + avgMin + ' min</div><div class="ds-label">Media</div></div>';
+  html += '<div class="dash-stat" style="padding:14px"><div class="ds-value green" style="font-size:20px">' + medMin + ' min</div><div class="ds-label">Mediana</div></div>';
+  html += '<div class="dash-stat" style="padding:14px"><div class="ds-value orange" style="font-size:20px">' + rate + '%</div><div class="ds-label">Taxa resp.</div></div>';
+  html += '</div>';
+
+  var byChat = data.by_chat || [];
+  if (byChat.length > 0) {
+    html += '<div style="max-height:260px;overflow-y:auto">';
+    byChat.slice(0, 15).forEach(function(c) {
+      var mins = Math.round((c.avg_seconds || 0) / 60);
+      var pct = c.received > 0 ? Math.round(c.responded / c.received * 100) : 0;
+      html += '<div class="dash-response-bar" style="margin-bottom:8px">';
+      html += '<span style="font-size:12px;color:var(--on-surface);min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">' + esc(c.chat_name || c.chat_jid || "-") + '</span>';
+      html += '<div class="bar"><div class="bar-fill" style="width:' + Math.min(pct, 100) + '%"></div></div>';
+      html += '<span class="bar-pct">' + mins + 'min</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderAdminOverview(data) {
+  var el = document.getElementById("dashAdminOverview");
+  var totals = data.totals || {};
+  var users = data.users || [];
+
+  var html = '<div class="dash-stats-grid" style="margin-bottom:18px">';
+  html += '<div class="dash-stat"><div class="ds-value blue">' + fmtNum(totals.messages) + '</div><div class="ds-label">Msgs totais</div></div>';
+  html += '<div class="dash-stat"><div class="ds-value green">' + fmtNum(totals.active_users) + '</div><div class="ds-label">Usuarios ativos</div></div>';
+  html += '<div class="dash-stat"><div class="ds-value">' + fmtNum(totals.unique_chats) + '</div><div class="ds-label">Conversas</div></div>';
+  html += '<div class="dash-stat"><div class="ds-value orange">' + fmtNum(totals.audio_msgs) + '</div><div class="ds-label">Audios</div></div>';
+  html += '<div class="dash-stat"><div class="ds-value green">' + fmtNum(totals.transcribed) + '</div><div class="ds-label">Transcritos</div></div>';
+  html += '</div>';
+
+  if (users.length > 0) {
+    html += '<div>';
+    users.forEach(function(u) {
+      var initials = (u.name || "??").split(" ").map(function(w) { return w[0]; }).slice(0, 2).join("").toUpperCase();
+      var lastAct = u.last_activity ? formatDate(u.last_activity) : "Sem atividade";
+      html += '<div class="dash-user-row">';
+      html += '<div class="dash-user-avatar">' + initials + '</div>';
+      html += '<div class="dash-user-info"><div class="dash-user-name">' + esc(u.name || "-") + '</div><div class="dash-user-sub">' + esc(u.phone || "") + ' &middot; ' + lastAct + '</div></div>';
+      html += '<div class="dash-user-stat"><div class="val">' + fmtNum(u.total_msgs) + '</div><div class="lbl">mensagens</div></div>';
+      html += '<div class="dash-user-stat" style="margin-left:14px"><div class="val">' + fmtNum(u.unique_chats) + '</div><div class="lbl">conversas</div></div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="color:var(--on-surface-variant);font-size:13px">Nenhum usuario com atividade no periodo</div>';
+  }
+  el.innerHTML = html;
+}
+
 var _modalMouseDownTarget = null;
 function modalOverlayMouseDown(e) { _modalMouseDownTarget = e.target; }
 function closeModal(e) { if (e.target.classList.contains("modal-overlay") && _modalMouseDownTarget === e.target) closeModalForce(); _modalMouseDownTarget = null; }
