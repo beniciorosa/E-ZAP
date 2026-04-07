@@ -1001,6 +1001,108 @@
     }
     .pagination button:disabled { opacity: 0.3; cursor: default; }
 
+    /* ===== API KEYS ===== */
+    .api-stats-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px; margin-bottom: 20px;
+    }
+    .api-stat-card {
+      background: var(--surface-container);
+      border-radius: var(--radius-md); padding: 16px 18px;
+      box-shadow: var(--shadow-card);
+    }
+    .api-stat-card .label {
+      font-size: 11px; color: var(--on-surface-variant);
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+    }
+    .api-stat-card .value {
+      font-family: var(--font-display); font-size: 22px; font-weight: 700;
+      color: var(--on-surface);
+    }
+    .api-key-card {
+      background: var(--surface-container);
+      border-radius: var(--radius-lg); padding: 20px;
+      margin-bottom: 12px; box-shadow: var(--shadow-card);
+      transition: background 0.15s;
+    }
+    .api-key-card:hover { background: var(--surface-container-high); }
+    .api-key-card.revoked { opacity: 0.5; }
+    .api-key-card-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+    }
+    .api-key-card-title {
+      font-family: var(--font-display); font-size: 15px; font-weight: 600;
+    }
+    .api-key-card-prefix {
+      font-family: monospace; font-size: 13px; color: var(--on-surface-variant);
+      background: var(--surface-container-lowest); padding: 2px 8px;
+      border-radius: 4px; margin-left: 10px;
+    }
+    .api-key-card-meta {
+      display: flex; gap: 20px; flex-wrap: wrap; font-size: 12px; color: var(--on-surface-variant);
+    }
+    .api-key-card-meta .meta-item {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .api-key-scopes {
+      display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;
+    }
+    .api-key-scopes .scope-tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px;
+      background: rgba(110, 180, 255, 0.12); color: var(--secondary);
+      font-weight: 500;
+    }
+    .api-key-scopes .scope-tag.admin {
+      background: rgba(204, 93, 232, 0.12); color: #cc5de8;
+    }
+    .api-key-actions {
+      display: flex; gap: 8px;
+    }
+    .api-key-actions button {
+      padding: 6px 12px; font-size: 11px; border-radius: var(--radius-sm);
+      border: none; cursor: pointer; font-weight: 500; transition: all 0.15s;
+    }
+    .api-key-actions .btn-logs {
+      background: rgba(110, 180, 255, 0.12); color: var(--secondary);
+    }
+    .api-key-actions .btn-logs:hover { background: rgba(110, 180, 255, 0.2); }
+    .api-key-actions .btn-revoke {
+      background: rgba(255, 113, 108, 0.1); color: var(--error);
+    }
+    .api-key-actions .btn-revoke:hover { background: rgba(255, 113, 108, 0.2); }
+    .api-key-result-box {
+      background: var(--surface-container-lowest);
+      border: 2px solid var(--primary);
+      border-radius: var(--radius-lg); padding: 24px;
+      text-align: center; margin-top: 20px;
+      box-shadow: 0 0 20px rgba(160, 255, 195, 0.08);
+    }
+    .api-key-result-box .key-value {
+      font-size: 16px; font-family: monospace; font-weight: 700;
+      color: var(--primary); letter-spacing: 1px;
+      word-break: break-all; cursor: pointer;
+      padding: 12px; background: var(--surface-container);
+      border-radius: var(--radius-md); margin: 12px 0;
+    }
+    .api-key-result-box .key-value:hover { opacity: 0.8; }
+    .api-key-result-box .warning {
+      font-size: 12px; color: var(--warning); margin-top: 8px;
+      font-weight: 500;
+    }
+    .api-log-status { font-weight: 600; }
+    .api-log-status.s2xx { color: var(--success); }
+    .api-log-status.s4xx { color: var(--warning); }
+    .api-log-status.s5xx { color: var(--error); }
+
+    .light-theme .api-stat-card { background: #ffffff; }
+    .light-theme .api-key-card { background: #ffffff; }
+    .light-theme .api-key-card:hover { background: #f7f8fa; }
+    .light-theme .api-key-card-prefix { background: #f0f2f5; }
+    .light-theme .api-key-scopes .scope-tag { background: rgba(43,125,224,0.08); color: #2b7de0; }
+    .light-theme .api-key-scopes .scope-tag.admin { background: rgba(156,39,176,0.08); color: #9c27b0; }
+    .light-theme .api-key-result-box { border-color: #0d9f4f; }
+    .light-theme .api-key-result-box .key-value { color: #0d9f4f; background: #f0f2f5; }
+
     /* ===== SCROLLBAR ===== */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -1086,6 +1188,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         Segurança
         <span class="sidebar-nav-badge" id="secBadge" style="display:none">0</span>
+      </button>
+      <button class="sidebar-nav-item" data-tab="api" onclick="switchTab('api')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        API
       </button>
       <button class="sidebar-nav-item" data-tab="settings" onclick="switchTab('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -1463,6 +1569,41 @@
       </div>
     </div>
 
+    <!-- ===== API PANEL ===== -->
+    <div class="panel" id="panel-api">
+      <div class="page-header">
+        <div class="page-title">API</div>
+        <div class="page-header-actions">
+          <button class="btn-primary" onclick="openCreateApiKey()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nova API Key
+          </button>
+        </div>
+      </div>
+
+      <div class="api-stats-row" id="apiStatsRow"></div>
+
+      <div id="apiKeysContainer">
+        <div class="empty-state">Carregando...</div>
+      </div>
+
+      <div style="margin-top:32px">
+        <div class="page-header" style="margin-bottom:16px">
+          <div class="page-title" style="font-size:16px">Logs de Uso</div>
+          <div class="page-header-actions">
+            <div class="search-bar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="apiLogSearch" placeholder="Filtrar por endpoint..." oninput="filterApiLogs()">
+            </div>
+          </div>
+        </div>
+        <div id="apiLogsContainer">
+          <div class="empty-state">Selecione uma API key para ver os logs</div>
+        </div>
+        <div class="pagination" id="apiLogsPagination"></div>
+      </div>
+    </div>
+
     <div class="panel" id="panel-settings">
       <div class="page-header">
         <div class="page-title">Configurações</div>
@@ -1685,6 +1826,7 @@ function switchTab(tab) {
   document.querySelector('.sidebar-nav-item[data-tab="' + tab + '"]').classList.add("active");
   document.getElementById("panel-" + tab).classList.add("active");
   if (tab === "fluxos") loadFlows();
+  if (tab === "api") loadApiKeys();
 }
 
 // ===== USERS =====
@@ -4707,6 +4849,332 @@ function updateNodeData(nodeId, key, value) {
   var el = document.querySelector('.flow-node[data-node-id="' + nodeId + '"]');
   if (el) renderFlowNodes();
   scheduleAutoSave();
+}
+
+// ===== API KEYS =====
+var allApiKeys = [];
+var allApiLogs = [];
+var filteredApiLogs = [];
+var apiLogsPage = 1;
+var apiLogsPerPage = 20;
+var selectedApiKeyId = null;
+
+function loadApiKeys() {
+  supa("/rest/v1/api_keys?select=*,users(name,email)&order=created_at.desc").then(function(keys) {
+    if (!Array.isArray(keys)) { allApiKeys = []; renderApiKeys(); return; }
+    allApiKeys = keys;
+    renderApiStats();
+    renderApiKeys();
+  });
+}
+
+function renderApiStats() {
+  var total = allApiKeys.length;
+  var active = allApiKeys.filter(function(k) { return k.active && !k.revoked_at; }).length;
+  var revoked = allApiKeys.filter(function(k) { return !!k.revoked_at; }).length;
+  var el = document.getElementById("apiStatsRow");
+  el.innerHTML =
+    '<div class="api-stat-card"><div class="label">Total de Keys</div><div class="value">' + total + '</div></div>' +
+    '<div class="api-stat-card"><div class="label">Ativas</div><div class="value" style="color:var(--success)">' + active + '</div></div>' +
+    '<div class="api-stat-card"><div class="label">Revogadas</div><div class="value" style="color:var(--error)">' + revoked + '</div></div>';
+}
+
+function renderApiKeys() {
+  var container = document.getElementById("apiKeysContainer");
+  if (allApiKeys.length === 0) {
+    container.innerHTML = '<div class="empty-state">Nenhuma API key encontrada. Crie a primeira!</div>';
+    return;
+  }
+  var html = "";
+  allApiKeys.forEach(function(k) {
+    var isRevoked = !!k.revoked_at;
+    var userName = (k.users && k.users.name) ? esc(k.users.name) : "—";
+    var scopes = k.scopes || [];
+    var scopesHtml = "";
+    scopes.forEach(function(s) {
+      var cls = s === "admin" ? " admin" : "";
+      scopesHtml += '<span class="scope-tag' + cls + '">' + esc(s) + '</span>';
+    });
+
+    html += '<div class="api-key-card' + (isRevoked ? ' revoked' : '') + '">';
+    html += '<div class="api-key-card-header">';
+    html += '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">';
+    html += '<span class="api-key-card-title">' + esc(k.label || "Sem nome") + '</span>';
+    html += '<span class="api-key-card-prefix">' + esc(k.key_prefix) + '...</span>';
+    if (isRevoked) html += '<span class="badge inactive" style="margin-left:6px">Revogada</span>';
+    else html += '<span class="badge active" style="margin-left:6px">Ativa</span>';
+    html += '</div>';
+    html += '<div class="api-key-actions">';
+    if (!isRevoked) {
+      html += '<button class="btn-logs" onclick="event.stopPropagation();loadApiLogsForKey(\'' + k.id + '\',\'' + esc(k.label || "") + '\')">Logs</button>';
+      html += '<button class="btn-revoke" onclick="event.stopPropagation();confirmRevokeKey(\'' + k.id + '\',\'' + esc(k.label || "") + '\')">Revogar</button>';
+    }
+    html += '</div></div>';
+
+    html += '<div class="api-key-card-meta">';
+    html += '<div class="meta-item"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg> ' + userName + '</div>';
+    html += '<div class="meta-item"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Criada ' + formatDate(k.created_at) + '</div>';
+    if (k.last_used_at) html += '<div class="meta-item"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg> Usada ' + formatDate(k.last_used_at) + '</div>';
+    html += '<div class="meta-item"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> ' + (k.rate_limit_per_min || 60) + '/min</div>';
+    html += '</div>';
+
+    if (scopesHtml) html += '<div class="api-key-scopes">' + scopesHtml + '</div>';
+
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function openCreateApiKey() {
+  // Load users for the select dropdown
+  supa("/rest/v1/users?select=id,name,email&active=eq.true&order=name.asc").then(function(users) {
+    if (!Array.isArray(users)) users = [];
+    var userOpts = '';
+    users.forEach(function(u) {
+      var selected = (currentAdmin && currentAdmin.user_id === u.id) ? " selected" : "";
+      userOpts += '<option value="' + u.id + '"' + selected + '>' + esc(u.name) + ' (' + esc(u.email || "") + ')</option>';
+    });
+
+    var container = document.getElementById("modalsContainer");
+    container.innerHTML =
+      '<div class="modal-overlay" onmousedown="modalOverlayMouseDown(event)" onclick="closeModal(event)">' +
+        '<div class="modal" style="max-width:480px">' +
+          '<h3>Nova API Key</h3>' +
+          '<div class="form-group"><label>Nome / Label</label><input type="text" id="apiKeyLabel" placeholder="Ex: Integracao N8N, App Mobile..."></div>' +
+          '<div class="form-group"><label>Usuário</label><select id="apiKeyUser">' + userOpts + '</select></div>' +
+          '<div class="form-group"><label>Escopos</label>' +
+            '<div class="checkbox-group" style="display:flex;flex-direction:column;gap:8px">' +
+              '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" name="apiScope" value="read" checked> <strong>read</strong> — Ler abas, pins, notas, contatos</label>' +
+              '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" name="apiScope" value="write"> <strong>write</strong> — Criar/editar abas, pins, notas</label>' +
+              '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" name="apiScope" value="messages"> <strong>messages</strong> — Enviar mensagens</label>' +
+              '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" name="apiScope" value="flows"> <strong>flows</strong> — Gerenciar e executar fluxos</label>' +
+              '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" name="apiScope" value="admin"> <strong>admin</strong> — Acesso total (todas permissões)</label>' +
+            '</div>' +
+          '</div>' +
+          '<div class="form-group"><label>Rate Limit (requisições/min)</label><input type="number" id="apiKeyRateLimit" value="60" min="1" max="1000"><div class="hint">Padrão: 60 req/min. Máximo recomendado: 300.</div></div>' +
+          '<div class="modal-actions">' +
+            '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+            '<button class="btn-save" onclick="createApiKey()">Gerar API Key</button>' +
+          '</div>' +
+          '<div id="createApiKeyResult"></div>' +
+        '</div>' +
+      '</div>';
+    document.getElementById("apiKeyLabel").focus();
+  });
+}
+
+async function createApiKey() {
+  var label = (document.getElementById("apiKeyLabel").value || "").trim();
+  var userId = document.getElementById("apiKeyUser").value;
+  var rateLimit = parseInt(document.getElementById("apiKeyRateLimit").value) || 60;
+  var scopes = [];
+  document.querySelectorAll('input[name="apiScope"]:checked').forEach(function(cb) {
+    scopes.push(cb.value);
+  });
+
+  if (!label) {
+    document.getElementById("createApiKeyResult").innerHTML = '<div style="color:var(--error);margin-top:12px;font-size:13px">Informe um nome para a key.</div>';
+    return;
+  }
+  if (!userId) {
+    document.getElementById("createApiKeyResult").innerHTML = '<div style="color:var(--error);margin-top:12px;font-size:13px">Selecione um usuário.</div>';
+    return;
+  }
+  if (scopes.length === 0) {
+    document.getElementById("createApiKeyResult").innerHTML = '<div style="color:var(--error);margin-top:12px;font-size:13px">Selecione ao menos um escopo.</div>';
+    return;
+  }
+
+  // Generate random key: ezap_live_ + 32 hex chars
+  var rawKey = "ezap_live_" + generateHex(32);
+  var keyPrefix = rawKey.substring(0, 14);
+
+  // Hash with SHA-256
+  var keyHash = await sha256(rawKey);
+
+  document.getElementById("createApiKeyResult").innerHTML = '<div style="color:var(--on-surface-variant);font-size:13px;margin-top:12px">Gerando...</div>';
+
+  supa("/rest/v1/api_keys", {
+    method: "POST",
+    body: {
+      user_id: userId,
+      key_hash: keyHash,
+      key_prefix: keyPrefix,
+      label: label,
+      scopes: scopes,
+      rate_limit_per_min: rateLimit,
+      active: true
+    }
+  }).then(function(res) {
+    if (res && Array.isArray(res) && res.length > 0) {
+      document.getElementById("createApiKeyResult").innerHTML =
+        '<div class="api-key-result-box">' +
+          '<div style="font-size:12px;color:var(--on-surface-variant);margin-bottom:8px">API Key gerada com sucesso!</div>' +
+          '<div class="key-value" onclick="copyApiKey(this)" title="Clique para copiar">' + esc(rawKey) + '</div>' +
+          '<div class="warning">⚠ Copie agora! Esta chave não será exibida novamente.</div>' +
+        '</div>';
+      loadApiKeys();
+    } else {
+      var errMsg = (res && res.message) ? res.message : "Erro ao criar API key";
+      document.getElementById("createApiKeyResult").innerHTML = '<div style="color:var(--error);margin-top:12px;font-size:13px">' + esc(errMsg) + '</div>';
+    }
+  });
+}
+
+function copyApiKey(el) {
+  var text = el.textContent || el.innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    var original = el.innerHTML;
+    el.innerHTML = '<span style="color:var(--success)">✓ Copiada!</span>';
+    setTimeout(function() { el.innerHTML = original; }, 2000);
+  });
+}
+
+function generateHex(len) {
+  var chars = "0123456789abcdef";
+  var result = "";
+  var arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  for (var i = 0; i < len; i++) {
+    result += chars[arr[i] % 16];
+  }
+  return result;
+}
+
+async function sha256(message) {
+  var msgBuffer = new TextEncoder().encode(message);
+  var hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  var hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(function(b) { return b.toString(16).padStart(2, "0"); }).join("");
+}
+
+function confirmRevokeKey(keyId, label) {
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="modal-overlay" onmousedown="modalOverlayMouseDown(event)" onclick="closeModal(event)">' +
+      '<div class="modal" style="max-width:400px">' +
+        '<h3 style="color:var(--error)">Revogar API Key</h3>' +
+        '<p style="font-size:13px;color:var(--on-surface-variant);margin-bottom:20px">Tem certeza que deseja revogar a key <strong>"' + esc(label) + '"</strong>? Esta ação não pode ser desfeita. Todas as integrações que usam esta key deixarão de funcionar imediatamente.</p>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
+          '<button class="btn-save" style="background:var(--error);color:#fff" onclick="revokeApiKey(\'' + keyId + '\')">Revogar</button>' +
+        '</div>' +
+        '<div id="revokeKeyResult"></div>' +
+      '</div>' +
+    '</div>';
+}
+
+function revokeApiKey(keyId) {
+  supa("/rest/v1/api_keys?id=eq." + keyId, {
+    method: "PATCH",
+    body: {
+      active: false,
+      revoked_at: new Date().toISOString()
+    }
+  }).then(function(res) {
+    if (res && Array.isArray(res) && res.length > 0) {
+      closeModalForce();
+      loadApiKeys();
+    } else {
+      document.getElementById("revokeKeyResult").innerHTML = '<div style="color:var(--error);margin-top:12px;font-size:13px">Erro ao revogar key.</div>';
+    }
+  });
+}
+
+function loadApiLogsForKey(keyId, label) {
+  selectedApiKeyId = keyId;
+  document.getElementById("apiLogsContainer").innerHTML = '<div class="empty-state">Carregando logs de "' + esc(label) + '"...</div>';
+  document.getElementById("apiLogSearch").value = "";
+  apiLogsPage = 1;
+
+  supa("/rest/v1/api_usage_logs?api_key_id=eq." + keyId + "&select=*&order=created_at.desc&limit=500").then(function(logs) {
+    if (!Array.isArray(logs)) logs = [];
+    allApiLogs = logs;
+    filteredApiLogs = logs;
+    renderApiLogs();
+  });
+}
+
+function filterApiLogs() {
+  var q = (document.getElementById("apiLogSearch").value || "").trim().toLowerCase();
+  if (!q) {
+    filteredApiLogs = allApiLogs;
+  } else {
+    filteredApiLogs = allApiLogs.filter(function(l) {
+      return (l.endpoint || "").toLowerCase().indexOf(q) !== -1 ||
+             (l.method || "").toLowerCase().indexOf(q) !== -1 ||
+             String(l.status_code).indexOf(q) !== -1;
+    });
+  }
+  apiLogsPage = 1;
+  renderApiLogs();
+}
+
+function renderApiLogs() {
+  var container = document.getElementById("apiLogsContainer");
+  if (filteredApiLogs.length === 0) {
+    container.innerHTML = '<div class="empty-state">Nenhum log encontrado</div>';
+    document.getElementById("apiLogsPagination").innerHTML = "";
+    return;
+  }
+
+  var totalPages = Math.ceil(filteredApiLogs.length / apiLogsPerPage);
+  if (apiLogsPage > totalPages) apiLogsPage = totalPages;
+  var start = (apiLogsPage - 1) * apiLogsPerPage;
+  var pageLogs = filteredApiLogs.slice(start, start + apiLogsPerPage);
+
+  var html = '<table class="data-table"><thead><tr>' +
+    '<th>Data</th><th>Método</th><th>Endpoint</th><th>Status</th><th>Tempo</th><th>IP</th>' +
+    '</tr></thead><tbody>';
+
+  pageLogs.forEach(function(l) {
+    var statusCls = "s2xx";
+    if (l.status_code >= 400 && l.status_code < 500) statusCls = "s4xx";
+    if (l.status_code >= 500) statusCls = "s5xx";
+    var methodBg = l.method === "GET" ? "rgba(110,180,255,0.12)" :
+                   l.method === "POST" ? "rgba(160,255,195,0.1)" :
+                   l.method === "PATCH" ? "rgba(255,183,77,0.12)" :
+                   l.method === "DELETE" ? "rgba(255,113,108,0.1)" : "transparent";
+    var methodColor = l.method === "GET" ? "var(--secondary)" :
+                      l.method === "POST" ? "var(--success)" :
+                      l.method === "PATCH" ? "var(--warning)" :
+                      l.method === "DELETE" ? "var(--error)" : "var(--on-surface)";
+
+    html += '<tr>';
+    html += '<td style="font-size:12px;white-space:nowrap">' + formatDate(l.created_at) + '</td>';
+    html += '<td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:' + methodBg + ';color:' + methodColor + '">' + esc(l.method) + '</span></td>';
+    html += '<td style="font-family:monospace;font-size:12px">' + esc(l.endpoint) + '</td>';
+    html += '<td><span class="api-log-status ' + statusCls + '">' + l.status_code + '</span></td>';
+    html += '<td style="font-size:12px">' + (l.response_ms || 0) + 'ms</td>';
+    html += '<td style="font-size:11px;color:var(--on-surface-variant)">' + esc(l.ip_address || "—") + '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  // Pagination
+  var pagEl = document.getElementById("apiLogsPagination");
+  if (totalPages <= 1) { pagEl.innerHTML = ""; return; }
+  var pagHtml = '<button onclick="goApiLogPage(' + (apiLogsPage - 1) + ')"' + (apiLogsPage === 1 ? ' disabled' : '') + '>';
+  pagHtml += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  for (var i = 1; i <= totalPages; i++) {
+    if (totalPages > 7 && i > 3 && i < totalPages - 1 && Math.abs(i - apiLogsPage) > 1) {
+      if (i === 4 || i === totalPages - 2) pagHtml += '<span style="color:var(--on-surface-variant);padding:0 4px">...</span>';
+      continue;
+    }
+    pagHtml += '<button onclick="goApiLogPage(' + i + ')"' + (i === apiLogsPage ? ' class="active"' : '') + '>' + i + '</button>';
+  }
+  pagHtml += '<button onclick="goApiLogPage(' + (apiLogsPage + 1) + ')"' + (apiLogsPage === totalPages ? ' disabled' : '') + '>';
+  pagHtml += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>';
+  pagEl.innerHTML = pagHtml;
+}
+
+function goApiLogPage(p) {
+  var totalPages = Math.ceil(filteredApiLogs.length / apiLogsPerPage);
+  if (p < 1 || p > totalPages) return;
+  apiLogsPage = p;
+  renderApiLogs();
 }
 
 // ===== UTILS =====
