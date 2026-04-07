@@ -1604,30 +1604,115 @@
           tryMsgDownload(msg, md, resolve);
         }
 
+        // After download, try all possible ways to extract the blob
+        function extractBlobAfterDownload(msg, resolve, fallbackFn) {
+          var md2 = msg.mediaData || msg.__x_mediaData;
+          // Log what properties exist after download
+          if (md2) {
+            var mdKeys = [];
+            for (var k in md2) { if (md2.hasOwnProperty && md2.hasOwnProperty(k)) mdKeys.push(k); }
+            // Also check __x_ prefixed keys
+            try {
+              var allKeys = Object.getOwnPropertyNames(md2);
+              for (var ak = 0; ak < allKeys.length; ak++) {
+                if (mdKeys.indexOf(allKeys[ak]) === -1) mdKeys.push(allKeys[ak]);
+              }
+            } catch(e) {}
+            console.log('[EZAP-BRIDGE] mediaData keys after download:', mdKeys.join(', '));
+            console.log('[EZAP-BRIDGE] mediaData state:',
+              'getBlob:', typeof md2.getBlob,
+              'localUrl:', md2.localUrl || md2.__x_localUrl || 'none',
+              'objectUrl:', md2.objectUrl || md2.__x_objectUrl || 'none',
+              'directPath:', md2.directPath || md2.__x_directPath || 'none',
+              'filehash:', md2.filehash || md2.__x_filehash || 'none',
+              'mediaBlob:', typeof md2.mediaBlob,
+              'type:', md2.type || md2.__x_type || 'none'
+            );
+          }
+
+          // Try getBlob
+          if (md2 && typeof md2.getBlob === 'function') {
+            try {
+              var b2 = md2.getBlob();
+              if (b2 && typeof b2.then === 'function') {
+                b2.then(function(blob) {
+                  if (blob && blob.size > 500) resolve(blob);
+                  else tryBlobAlternatives(msg, md2, resolve, fallbackFn);
+                }).catch(function() { tryBlobAlternatives(msg, md2, resolve, fallbackFn); });
+                return;
+              } else if (b2 && b2.size > 500) { resolve(b2); return; }
+            } catch(e) {}
+          }
+          tryBlobAlternatives(msg, md2, resolve, fallbackFn);
+        }
+
+        function tryBlobAlternatives(msg, md, resolve, fallbackFn) {
+          // Try localUrl after download
+          var localUrl = md && (md.localUrl || md.__x_localUrl);
+          if (localUrl) {
+            fetch(localUrl).then(function(r) { return r.blob(); }).then(function(b) {
+              if (b && b.size > 500) resolve(b);
+              else tryObjectUrl(msg, md, resolve, fallbackFn);
+            }).catch(function() { tryObjectUrl(msg, md, resolve, fallbackFn); });
+            return;
+          }
+          tryObjectUrl(msg, md, resolve, fallbackFn);
+        }
+
+        function tryObjectUrl(msg, md, resolve, fallbackFn) {
+          // Try objectUrl
+          var objectUrl = md && (md.objectUrl || md.__x_objectUrl);
+          if (objectUrl) {
+            fetch(objectUrl).then(function(r) { return r.blob(); }).then(function(b) {
+              if (b && b.size > 500) resolve(b);
+              else if (fallbackFn) fallbackFn(msg, md, resolve);
+              else resolve(null);
+            }).catch(function() {
+              if (fallbackFn) fallbackFn(msg, md, resolve);
+              else resolve(null);
+            });
+            return;
+          }
+          // Try mediaBlob directly
+          if (md && md.mediaBlob && md.mediaBlob.size > 500) {
+            resolve(md.mediaBlob);
+            return;
+          }
+          if (md && md._blob && md._blob.size > 500) {
+            resolve(md._blob);
+            return;
+          }
+          if (fallbackFn) fallbackFn(msg, md, resolve);
+          else resolve(null);
+        }
+
         function tryMsgDownload(msg, md, resolve) {
           // Attempt 3: Call downloadMedia on message model
           if (typeof msg.downloadMedia === 'function') {
             try {
+              console.log('[EZAP-BRIDGE] Trying msg.downloadMedia()...');
               var dlResult = msg.downloadMedia({ type: 'audio' });
               if (dlResult && typeof dlResult.then === 'function') {
-                dlResult.then(function() {
-                  // After download, try getBlob again
-                  var md2 = msg.mediaData || msg.__x_mediaData;
-                  if (md2 && typeof md2.getBlob === 'function') {
-                    var b2 = md2.getBlob();
-                    if (b2 && typeof b2.then === 'function') {
-                      b2.then(function(blob) { resolve(blob && blob.size > 500 ? blob : null); })
-                        .catch(function() { tryMediaDataDownload(msg, md, resolve); });
-                    } else {
-                      resolve(b2 && b2.size > 500 ? b2 : null);
-                    }
-                  } else {
-                    tryMediaDataDownload(msg, md, resolve);
+                dlResult.then(function(downloadResult) {
+                  console.log('[EZAP-BRIDGE] downloadMedia resolved:', typeof downloadResult,
+                    downloadResult instanceof Blob ? 'Blob size=' + downloadResult.size : '');
+                  // If downloadMedia returned a blob directly
+                  if (downloadResult instanceof Blob && downloadResult.size > 500) {
+                    resolve(downloadResult);
+                    return;
                   }
-                }).catch(function() { tryMediaDataDownload(msg, md, resolve); });
+                  extractBlobAfterDownload(msg, resolve, function(m, md2, res) {
+                    tryMediaDataDownload(m, md2, res);
+                  });
+                }).catch(function(err) {
+                  console.warn('[EZAP-BRIDGE] downloadMedia failed:', err && err.message || err);
+                  tryMediaDataDownload(msg, md, resolve);
+                });
                 return;
               }
-            } catch(e) {}
+            } catch(e) {
+              console.warn('[EZAP-BRIDGE] downloadMedia exception:', e.message);
+            }
           }
           tryMediaDataDownload(msg, md, resolve);
         }
