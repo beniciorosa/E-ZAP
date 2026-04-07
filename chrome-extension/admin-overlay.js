@@ -8,9 +8,11 @@
   // ===== STATE =====
   var _users = null;          // cached user list
   var _selectedUserId = null;
+  var _selectedUserName = "";
   var _conversations = [];    // grouped conversations
   var _viewingChat = null;    // { chatJid, chatName } when viewing messages
   var _sidebarCreated = false;
+  var _immersiveActive = false; // immersive (full WhatsApp) mode
 
   // ===== HELPERS =====
   function supa(path, method, body, prefer) {
@@ -189,6 +191,7 @@
     var sel = document.getElementById("admin-overlay-user-select");
     if (sel) sel.addEventListener("change", function() {
       _selectedUserId = this.value;
+      _selectedUserName = this.options[this.selectedIndex] ? this.options[this.selectedIndex].text : "";
       _viewingChat = null;
       if (_selectedUserId) loadConversations(_selectedUserId);
       else renderEmpty();
@@ -281,8 +284,14 @@
   function updateStats(chats, msgs) {
     var el = document.getElementById("admin-overlay-stats");
     if (!el) return;
-    if (chats === 0 && msgs === 0) { el.textContent = ""; return; }
-    el.textContent = chats + " conversas | " + msgs + " mensagens recentes";
+    if (chats === 0 && msgs === 0) { el.innerHTML = ""; return; }
+    el.innerHTML = chats + " conversas | " + msgs + " mensagens recentes" +
+      '<button id="ao-immersive-btn" style="display:block;width:100%;margin-top:8px;padding:8px;border:none;border-radius:8px;background:#ff922b;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:background 0.15s">' +
+        '&#128065; Modo Imersivo' +
+      '</button>';
+    document.getElementById("ao-immersive-btn").addEventListener("click", function() {
+      enterImmersiveMode();
+    });
   }
 
   // ===== RENDER CONVERSATION LIST =====
@@ -472,6 +481,331 @@
         '<div style="font-size:14px;font-weight:600;margin-bottom:6px">Supervisao de conversas</div>' +
         '<div style="font-size:12px;line-height:1.5">Selecione um usuario acima para visualizar suas conversas em tempo real.</div>' +
       '</div>';
+  }
+
+  // =============================================
+  // ===== IMMERSIVE MODE (Full WhatsApp View) =====
+  // =============================================
+
+  function enterImmersiveMode() {
+    if (_immersiveActive) return;
+    if (!_selectedUserId || !_conversations.length) return;
+    _immersiveActive = true;
+
+    // Close the sidebar
+    if (window.ezapSidebar) ezapSidebar.close("admin_overlay");
+
+    // Create top banner
+    var banner = document.createElement("div");
+    banner.id = "ao-imm-banner";
+    Object.assign(banner.style, {
+      position: "fixed", top: "0", left: "0", width: "100%", height: "36px",
+      background: "linear-gradient(90deg, #ff922b, #e8590c)", color: "#fff",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: "13px", fontWeight: "600", zIndex: "200000",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+    });
+    banner.innerHTML =
+      '<span>&#128065; Supervisao: <strong>' + esc(_selectedUserName) + '</strong> &mdash; Somente leitura</span>' +
+      '<button id="ao-imm-exit" style="position:absolute;right:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Sair</button>';
+    document.body.appendChild(banner);
+    document.getElementById("ao-imm-exit").addEventListener("click", exitImmersiveMode);
+
+    // Push WhatsApp down
+    var appEl = document.getElementById("app");
+    if (appEl) appEl.style.marginTop = "36px";
+
+    // Create left panel overlay (over #pane-side)
+    var pane = document.getElementById("pane-side");
+    if (pane) {
+      var leftOverlay = document.createElement("div");
+      leftOverlay.id = "ao-imm-left";
+      Object.assign(leftOverlay.style, {
+        position: "absolute", top: "0", left: "0", width: "100%", height: "100%",
+        background: "#111b21", zIndex: "100", display: "flex", flexDirection: "column",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        color: "#e9edef", fontSize: "14px",
+      });
+
+      // Left header (like WhatsApp native)
+      leftOverlay.innerHTML =
+        '<div style="display:flex;align-items:center;padding:12px 16px;background:#202c33;min-height:56px;gap:12px">' +
+          '<div style="width:40px;height:40px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#fff">' + esc(getInitials(_selectedUserName)) + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-weight:600;font-size:16px">' + esc(_selectedUserName) + '</div>' +
+            '<div style="font-size:11px;color:#8696a0">' + _conversations.length + ' conversas</div>' +
+          '</div>' +
+        '</div>' +
+        '<div id="ao-imm-search" style="padding:6px 12px;background:#111b21">' +
+          '<div style="display:flex;align-items:center;background:#202c33;border-radius:8px;padding:6px 12px;gap:8px">' +
+            '<span style="color:#8696a0;font-size:14px">&#128269;</span>' +
+            '<input id="ao-imm-search-input" type="text" placeholder="Pesquisar conversa..." style="background:none;border:none;color:#e9edef;font-size:13px;outline:none;width:100%;font-family:inherit">' +
+          '</div>' +
+        '</div>' +
+        '<div id="ao-imm-chatlist" style="flex:1;overflow-y:auto"></div>';
+
+      pane.style.position = "relative";
+      pane.appendChild(leftOverlay);
+
+      // Render chat list
+      renderImmersiveChatList(_conversations);
+
+      // Search filter
+      document.getElementById("ao-imm-search-input").addEventListener("input", function() {
+        var q = this.value.toLowerCase().trim();
+        var filtered = q ? _conversations.filter(function(c) {
+          return (c.chatName || "").toLowerCase().indexOf(q) >= 0;
+        }) : _conversations;
+        renderImmersiveChatList(filtered);
+      });
+    }
+
+    // Create right panel overlay (over #main)
+    var mainEl = document.getElementById("main");
+    if (mainEl) {
+      var rightOverlay = document.createElement("div");
+      rightOverlay.id = "ao-imm-right";
+      Object.assign(rightOverlay.style, {
+        position: "absolute", top: "0", left: "0", width: "100%", height: "100%",
+        background: "#0b141a", zIndex: "100", display: "flex", flexDirection: "column",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        color: "#e9edef", fontSize: "14px",
+      });
+      rightOverlay.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8696a0;flex-direction:column;gap:12px">' +
+          '<div style="font-size:64px;opacity:0.2">&#128172;</div>' +
+          '<div style="font-size:16px;font-weight:500">Selecione uma conversa</div>' +
+          '<div style="font-size:13px;opacity:0.7">Clique em uma conversa ao lado para visualizar</div>' +
+        '</div>';
+      mainEl.style.position = "relative";
+      mainEl.appendChild(rightOverlay);
+    } else {
+      // #main may not exist yet — create a placeholder
+      var appBody = document.querySelector('#app > div > div');
+      if (appBody) {
+        var rightOverlay = document.createElement("div");
+        rightOverlay.id = "ao-imm-right";
+        Object.assign(rightOverlay.style, {
+          position: "fixed", top: "36px", left: pane ? (pane.offsetWidth + "px") : "30%",
+          width: pane ? ("calc(100% - " + pane.offsetWidth + "px)") : "70%",
+          height: "calc(100% - 36px)", background: "#0b141a", zIndex: "200000",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          color: "#8696a0",
+        });
+        rightOverlay.innerHTML =
+          '<div style="font-size:64px;opacity:0.2">&#128172;</div>' +
+          '<div style="font-size:16px;font-weight:500;margin-top:12px">Selecione uma conversa</div>';
+        document.body.appendChild(rightOverlay);
+      }
+    }
+
+    // ESC key to exit
+    document.addEventListener("keydown", _immEscHandler);
+    console.log("[EZAP] Admin Overlay: Immersive mode entered for", _selectedUserName);
+  }
+
+  function _immEscHandler(e) {
+    if (e.key === "Escape" && _immersiveActive) exitImmersiveMode();
+  }
+
+  function exitImmersiveMode() {
+    if (!_immersiveActive) return;
+    _immersiveActive = false;
+
+    // Remove overlays
+    var banner = document.getElementById("ao-imm-banner");
+    if (banner) banner.remove();
+    var leftOv = document.getElementById("ao-imm-left");
+    if (leftOv) leftOv.remove();
+    var rightOv = document.getElementById("ao-imm-right");
+    if (rightOv) rightOv.remove();
+
+    // Restore app margin
+    var appEl = document.getElementById("app");
+    if (appEl) appEl.style.marginTop = "";
+
+    document.removeEventListener("keydown", _immEscHandler);
+    console.log("[EZAP] Admin Overlay: Immersive mode exited");
+  }
+
+  // ===== IMMERSIVE: Render Chat List =====
+  function renderImmersiveChatList(conversations) {
+    var container = document.getElementById("ao-imm-chatlist");
+    if (!container) return;
+
+    var html = '';
+    conversations.forEach(function(c) {
+      var initials = getInitials(c.chatName);
+      var color = avatarColor(c.chatJid);
+      var lastBody = c.lastMsg.body || "";
+      if (!lastBody && c.lastMsg.message_type && c.lastMsg.message_type !== "chat") {
+        var t = c.lastMsg.message_type;
+        if (t === "ptt" || t === "audio") lastBody = "🎤 Audio";
+        else if (t === "image") lastBody = "📷 Imagem";
+        else if (t === "video") lastBody = "🎥 Video";
+        else if (t === "document") lastBody = "📄 Documento";
+        else if (t === "sticker") lastBody = "🏷 Sticker";
+        else lastBody = "📎 " + t;
+      }
+      if (lastBody.length > 55) lastBody = lastBody.substring(0, 55) + "...";
+      var dirIcon = c.lastMsg.direction === "sent" ? '<span style="color:#8696a0">&#10003;&#10003; </span>' : "";
+      var time = timeAgo(c.lastMsg.timestamp);
+
+      html +=
+        '<div class="ao-imm-row" data-jid="' + esc(c.chatJid) + '" data-name="' + esc(c.chatName) + '">' +
+          '<div style="width:49px;height:49px;min-width:49px;border-radius:50%;background:' + color + ';display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;color:#fff">' + esc(initials) + '</div>' +
+          '<div style="flex:1;min-width:0;padding-left:14px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+              '<span style="font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;color:#e9edef">' + esc(c.chatName) + '</span>' +
+              '<span style="font-size:12px;color:#8696a0;flex-shrink:0;margin-left:8px">' + time + '</span>' +
+            '</div>' +
+            '<div style="font-size:13px;color:#8696a0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center">' +
+              dirIcon + '<span>' + esc(lastBody) + '</span>' +
+              (c.count > 0 ? '<span style="margin-left:auto;min-width:20px;height:20px;border-radius:50%;background:#25d366;color:#111b21;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0">' + c.count + '</span>' : '') +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    });
+
+    container.innerHTML = html;
+
+    // Bind click
+    container.querySelectorAll(".ao-imm-row").forEach(function(el) {
+      el.addEventListener("click", function() {
+        // Highlight active
+        container.querySelectorAll(".ao-imm-row").forEach(function(r) { r.style.background = ""; });
+        this.style.background = "#2a3942";
+        var jid = this.getAttribute("data-jid");
+        var name = this.getAttribute("data-name");
+        openImmersiveChat(jid, name);
+      });
+    });
+  }
+
+  // ===== IMMERSIVE: Open Chat =====
+  function openImmersiveChat(chatJid, chatName) {
+    var rightOv = document.getElementById("ao-imm-right");
+    if (!rightOv) return;
+
+    // Show header + loading
+    rightOv.innerHTML =
+      '<div style="display:flex;align-items:center;padding:10px 16px;background:#202c33;min-height:56px;gap:12px;border-bottom:1px solid #2a3942">' +
+        '<div style="width:40px;height:40px;min-width:40px;border-radius:50%;background:' + avatarColor(chatJid) + ';display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff">' + esc(getInitials(chatName)) + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:500;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(chatName) + '</div>' +
+          '<div id="ao-imm-msg-meta" style="font-size:12px;color:#8696a0">Carregando mensagens...</div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="ao-imm-messages" style="flex:1;overflow-y:auto;padding:20px 60px;display:flex;flex-direction:column;gap:3px;background-image:url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIiBmaWxsPSIjMGIxNDFhIi8+PC9zdmc+)">' +
+        '<div style="text-align:center;padding:60px;color:#8696a0">Carregando...</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;padding:12px 60px;background:#202c33;border-top:1px solid #2a3942;color:#8696a0;font-size:13px;gap:8px">' +
+        '<span style="opacity:0.5">&#128274;</span> Visualizacao somente leitura' +
+      '</div>';
+
+    // Fetch messages
+    var query = "/rest/v1/message_events?user_id=eq." + _selectedUserId +
+      "&chat_jid=eq." + encodeURIComponent(chatJid) +
+      "&select=message_wid,direction,message_type,body,caption,sender_name,group_participant,timestamp,transcript,duration_seconds,is_group" +
+      "&order=timestamp.asc&limit=500";
+
+    supa(query).then(function(msgs) {
+      var msgContainer = document.getElementById("ao-imm-messages");
+      var meta = document.getElementById("ao-imm-msg-meta");
+      if (!msgContainer) return;
+
+      if (!Array.isArray(msgs) || !msgs.length) {
+        msgContainer.innerHTML = '<div style="text-align:center;padding:60px;color:#8696a0">Nenhuma mensagem encontrada</div>';
+        if (meta) meta.textContent = "Sem mensagens";
+        return;
+      }
+
+      if (meta) meta.textContent = msgs.length + " mensagens";
+      renderImmersiveMessages(msgContainer, msgs);
+    });
+  }
+
+  // ===== IMMERSIVE: Render Messages =====
+  function renderImmersiveMessages(container, msgs) {
+    var html = '';
+    var lastDate = '';
+
+    for (var i = 0; i < msgs.length; i++) {
+      var m = msgs[i];
+      var dt = new Date(m.timestamp);
+      var dateStr = String(dt.getDate()).padStart(2, "0") + "/" + String(dt.getMonth() + 1).padStart(2, "0") + "/" + dt.getFullYear();
+      var timeStr = String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0");
+
+      // Date divider
+      if (dateStr !== lastDate) {
+        html += '<div style="text-align:center;padding:12px 0">' +
+          '<span style="background:#1a2530;color:#8696a0;font-size:12px;padding:5px 16px;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,0.2)">' + dateStr + '</span></div>';
+        lastDate = dateStr;
+      }
+
+      var isSent = m.direction === "sent";
+      var bubbleBg = isSent ? "#005c4b" : "#202c33";
+      var align = isSent ? "flex-end" : "flex-start";
+      var tailRadius = isSent ? "border-bottom-right-radius:3px" : "border-bottom-left-radius:3px";
+
+      html += '<div style="display:flex;justify-content:' + align + '">' +
+        '<div style="max-width:65%;padding:6px 8px 4px 9px;border-radius:8px;' + tailRadius + ';background:' + bubbleBg + ';box-shadow:0 1px 1px rgba(0,0,0,0.13);font-size:14px;line-height:1.5;word-wrap:break-word">';
+
+      // Sender name for groups
+      if (m.is_group && !isSent) {
+        var senderLabel = m.sender_name || m.group_participant || "";
+        if (senderLabel) {
+          if (/^\d+$/.test(senderLabel) && senderLabel.length >= 10) {
+            senderLabel = "+" + senderLabel.substring(0, 2) + " " + senderLabel.substring(2, 4) + " " + senderLabel.substring(4);
+          }
+          html += '<div style="font-size:12.5px;font-weight:600;color:' + avatarColor(senderLabel) + ';margin-bottom:2px">' + esc(senderLabel) + '</div>';
+        }
+      }
+
+      // Message type badge
+      if (m.message_type && m.message_type !== "chat" && m.message_type !== "text") {
+        var typeLabel = m.message_type;
+        if (typeLabel === "ptt" || typeLabel === "audio") {
+          var dur = m.duration_seconds ? Math.round(m.duration_seconds) : 0;
+          var durMin = Math.floor(dur / 60);
+          var durSec = dur % 60;
+          typeLabel = "🎤 Audio " + durMin + ":" + String(durSec).padStart(2, "0");
+        } else if (typeLabel === "image") { typeLabel = "📷 Imagem"; }
+        else if (typeLabel === "video") { typeLabel = "🎥 Video"; }
+        else if (typeLabel === "document") { typeLabel = "📄 Documento"; }
+        else if (typeLabel === "sticker") { typeLabel = "🏷 Sticker"; }
+        else if (typeLabel === "vcard") { typeLabel = "👤 Contato"; }
+        else if (typeLabel === "location") { typeLabel = "📍 Localizacao"; }
+        html += '<div style="display:inline-block;font-size:12px;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.06);color:#8696a0;margin-bottom:3px">' + typeLabel + '</div>';
+      }
+
+      // Body text
+      var text = m.body || m.caption || "";
+      if (text) {
+        html += '<span style="color:#e9edef">' + esc(text) + '</span>';
+      } else if (!m.body && !m.caption && m.message_type !== "chat" && m.message_type !== "text") {
+        // Media — badge is enough
+      } else {
+        html += '<span style="font-style:italic;opacity:0.4">(sem texto)</span>';
+      }
+
+      // Transcript
+      if (m.transcript) {
+        html += '<div style="font-style:italic;font-size:12px;color:#8696a0;border-left:2px solid #25d366;padding-left:8px;margin-top:4px">📝 ' + esc(m.transcript) + '</div>';
+      }
+
+      // Time + checkmarks
+      var checks = isSent ? ' <span style="color:rgba(255,255,255,0.35)">&#10003;&#10003;</span>' : '';
+      html += '<div style="display:flex;justify-content:flex-end;align-items:center;gap:4px;margin-top:2px">' +
+        '<span style="font-size:11px;color:rgba(255,255,255,0.45)">' + timeStr + '</span>' + checks + '</div>';
+
+      html += '</div></div>';
+    }
+
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
   }
 
   // ===== INIT =====

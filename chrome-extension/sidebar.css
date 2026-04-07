@@ -766,3 +766,16 @@
   padding: 4px 14px;
   border-radius: 8px;
 }
+
+/* ===== Immersive Mode ===== */
+.ao-imm-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(134, 150, 160, 0.08);
+  transition: background 0.1s;
+}
+.ao-imm-row:hover {
+  background: #202c33;
+}
