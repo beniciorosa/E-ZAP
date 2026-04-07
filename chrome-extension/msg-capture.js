@@ -205,6 +205,7 @@
 
     _trProcessing = true;
     var item = _trQueue.shift();
+    item.retries = item.retries || 0;
 
     // Skip if already done (might have been added twice)
     if (_trDoneWids[item.wid]) {
@@ -213,7 +214,7 @@
       return;
     }
 
-    console.log("[EZAP-CAPTURE] Transcribing audio:", item.wid, "dur:", item.duration + "s");
+    console.log("[EZAP-CAPTURE] Transcribing audio:", item.wid, "dur:", item.duration + "s", "retry:", item.retries);
 
     // Step 1: Download audio from WA Store via bridge
     downloadAudioFromBridge(item.wid)
@@ -255,10 +256,27 @@
         }
       })
       .catch(function(err) {
-        _trDoneWids[item.wid] = true;
-        _trDoneCount++;
-        _trTotalErrors++;
-        console.warn("[EZAP-CAPTURE] Transcription failed:", item.wid, err.message);
+        // Re-queue for retry if download failed (max 3 retries, with increasing delay)
+        if (item.retries < 3) {
+          item.retries++;
+          _trQueue.push(item); // Push to end of queue for later retry
+          console.log("[EZAP-CAPTURE] Audio download failed, re-queued (retry " + item.retries + "/3):", item.wid);
+        } else {
+          _trDoneWids[item.wid] = true;
+          _trDoneCount++;
+          _trTotalErrors++;
+          console.warn("[EZAP-CAPTURE] Transcription failed after 3 retries:", item.wid, err.message);
+          // Update DB status to error so we know it failed
+          try {
+            chrome.runtime.sendMessage({
+              action: "supabase_rest",
+              path: "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(item.wid),
+              method: "PATCH",
+              body: { transcription_status: "error" },
+              prefer: "return=minimal"
+            });
+          } catch(e) {}
+        }
       })
       .finally(function() {
         _trProcessing = false;
@@ -267,7 +285,7 @@
           _trDoneWids = {};
           _trDoneCount = 0;
         }
-        // Process next with delay
+        // Process next with delay (longer delay for retries)
         if (_trQueue.length > 0) {
           setTimeout(processTranscribeQueue, TR_DELAY_BETWEEN_MS);
         }

@@ -1617,19 +1617,22 @@
                     var b2 = md2.getBlob();
                     if (b2 && typeof b2.then === 'function') {
                       b2.then(function(blob) { resolve(blob && blob.size > 500 ? blob : null); })
-                        .catch(function() { resolve(null); });
+                        .catch(function() { tryMediaDataDownload(msg, md, resolve); });
                     } else {
                       resolve(b2 && b2.size > 500 ? b2 : null);
                     }
                   } else {
-                    resolve(null);
+                    tryMediaDataDownload(msg, md, resolve);
                   }
-                }).catch(function() { resolve(null); });
+                }).catch(function() { tryMediaDataDownload(msg, md, resolve); });
                 return;
               }
             } catch(e) {}
           }
+          tryMediaDataDownload(msg, md, resolve);
+        }
 
+        function tryMediaDataDownload(msg, md, resolve) {
           // Attempt 4: mediaData has downloadMedia
           if (md && typeof md.downloadMedia === 'function') {
             try {
@@ -1640,19 +1643,71 @@
                     var b3 = md.getBlob();
                     if (b3 && typeof b3.then === 'function') {
                       b3.then(function(blob) { resolve(blob && blob.size > 500 ? blob : null); })
-                        .catch(function() { resolve(null); });
+                        .catch(function() { tryWebpackDownload(msg, resolve); });
                     } else {
                       resolve(b3 && b3.size > 500 ? b3 : null);
                     }
                   } else {
-                    resolve(null);
+                    tryWebpackDownload(msg, resolve);
                   }
-                }).catch(function() { resolve(null); });
+                }).catch(function() { tryWebpackDownload(msg, resolve); });
                 return;
               }
             } catch(e) {}
           }
+          tryWebpackDownload(msg, resolve);
+        }
 
+        function tryWebpackDownload(msg, resolve) {
+          // Attempt 5: Use WhatsApp internal webpack modules for download
+          try {
+            // Try to find download manager via webpack require
+            var wpReq = null;
+            var wpChunks = window.webpackChunkwhatsapp_web_client || window.webpackChunkbuild || [];
+            if (wpChunks.push) {
+              var origPush = wpChunks.push;
+              wpChunks.push([['__ezap_dl_probe'], {}, function(r) { wpReq = r; }]);
+              // Restore if needed
+              try { wpChunks.pop(); } catch(e) {}
+            }
+            if (wpReq) {
+              // Search modules for download/decrypt functions
+              var moduleIds = Object.keys(wpReq.m || {});
+              for (var mIdx = 0; mIdx < moduleIds.length && mIdx < 5000; mIdx++) {
+                try {
+                  var mod = wpReq(moduleIds[mIdx]);
+                  if (mod && mod.downloadMedia && typeof mod.downloadMedia === 'function') {
+                    var dlRes = mod.downloadMedia(msg);
+                    if (dlRes && typeof dlRes.then === 'function') {
+                      dlRes.then(function(blob) {
+                        resolve(blob && blob.size > 500 ? blob : null);
+                      }).catch(function() { resolve(null); });
+                      return;
+                    }
+                  }
+                  // Also check for downloadAndDecrypt
+                  if (mod && mod.downloadAndDecrypt && typeof mod.downloadAndDecrypt === 'function') {
+                    var md3 = msg.mediaData || msg.__x_mediaData;
+                    if (md3 && md3.directPath) {
+                      var ddRes = mod.downloadAndDecrypt({
+                        directPath: md3.directPath,
+                        mediaKey: md3.mediaKey || md3.__x_mediaKey,
+                        type: 'audio'
+                      });
+                      if (ddRes && typeof ddRes.then === 'function') {
+                        ddRes.then(function(data) {
+                          if (data && data.byteLength > 500) {
+                            resolve(new Blob([data], { type: msg.mimetype || 'audio/ogg' }));
+                          } else { resolve(null); }
+                        }).catch(function() { resolve(null); });
+                        return;
+                      }
+                    }
+                  }
+                } catch(e) { continue; }
+              }
+            }
+          } catch(e) {}
           resolve(null);
         }
 
@@ -1672,23 +1727,45 @@
         // Main flow
         try {
           var msgModel = findMsg(wid);
-          if (!msgModel) { respond(false, 'MSG_NOT_FOUND'); return; }
+          if (!msgModel) {
+            console.warn('[EZAP-BRIDGE] Audio download: MSG_NOT_FOUND for', wid);
+            respond(false, 'MSG_NOT_FOUND');
+            return;
+          }
 
           var mtype = (msgModel.type || msgModel.__x_type || '').toLowerCase();
-          if (mtype !== 'ptt' && mtype !== 'audio') { respond(false, 'NOT_AUDIO'); return; }
+          if (mtype !== 'ptt' && mtype !== 'audio') {
+            console.warn('[EZAP-BRIDGE] Audio download: NOT_AUDIO, type=' + mtype, wid);
+            respond(false, 'NOT_AUDIO');
+            return;
+          }
 
           var dur = Number(msgModel.duration || msgModel.__x_duration || 0);
+          var md0 = msgModel.mediaData || msgModel.__x_mediaData;
+          console.log('[EZAP-BRIDGE] Audio download starting:', wid, 'dur:', dur,
+            'hasMediaData:', !!md0,
+            'hasGetBlob:', !!(md0 && typeof md0.getBlob === 'function'),
+            'hasLocalUrl:', !!(md0 && md0.localUrl),
+            'hasDownloadMedia:', typeof msgModel.downloadMedia === 'function',
+            'hasDirectPath:', !!(md0 && md0.directPath));
 
           downloadMedia(msgModel).then(function(blob) {
-            if (!blob) { respond(false, 'DOWNLOAD_FAILED'); return; }
+            if (!blob) {
+              console.warn('[EZAP-BRIDGE] Audio download: DOWNLOAD_FAILED (all strategies exhausted)', wid);
+              respond(false, 'DOWNLOAD_FAILED');
+              return;
+            }
+            console.log('[EZAP-BRIDGE] Audio download SUCCESS:', wid, 'size:', blob.size);
             return toBase64(blob).then(function(data) {
               data.duration = dur;
               respond(true, data);
             });
           }).catch(function(e) {
+            console.warn('[EZAP-BRIDGE] Audio download ERROR:', wid, e.message || e);
             respond(false, e.message || 'ERROR');
           });
         } catch(e) {
+          console.warn('[EZAP-BRIDGE] Audio download EXCEPTION:', wid, e.message || e);
           respond(false, e.message || 'EXCEPTION');
         }
       })(_dlReqId, _dlWid);
