@@ -1286,47 +1286,47 @@
           }
         } catch(e) {}
       }
-      // Detect own phone (mentor) from WhatsApp Store
+      // Detect own phone (mentor) from WhatsApp internal state
       var mentorPhone = '';
       try {
-        // Strategy A: Fiber store — look for own WID in chats contact.isMe
-        if (!mentorPhone && fiberStore && Array.isArray(fiberStore.contacts)) {
-          for (var ci = 0; ci < fiberStore.contacts.length; ci++) {
-            var ct = fiberStore.contacts[ci];
-            if (ct && ct.isMe && ct.id) {
-              var meJid = ct.id._serialized || (ct.id.toString ? ct.id.toString() : '');
-              if (meJid && meJid.indexOf('@') >= 0) {
-                mentorPhone = meJid.split('@')[0].replace(/[^0-9]/g, '');
-                break;
+        // Strategy A: localStorage last-wid-md (most reliable, always available)
+        var widVal = localStorage.getItem('last-wid-md') || localStorage.getItem('last-wid') || '';
+        var widMatch = widVal.match(/^(\d{10,15})/);
+        if (widMatch) mentorPhone = widMatch[1];
+
+        // Strategy B: Webpack Store Contact with isMe flag
+        if (!mentorPhone && window._ezapStore && window._ezapStore.Contact) {
+          try {
+            var wpContacts = window._ezapStore.Contact.getModelsArray();
+            for (var cj = 0; cj < wpContacts.length; cj++) {
+              var wpC = wpContacts[cj];
+              if ((wpC.isMe || wpC.__x_isMe) && wpC.id) {
+                mentorPhone = (wpC.id._serialized || (wpC.id.toString ? wpC.id.toString() : '')).split('@')[0].replace(/[^0-9]/g, '');
+                if (mentorPhone) break;
               }
             }
-          }
+          } catch(e) {}
         }
-        // Strategy B: Webpack Store — Chat models have a "me" ref or Contact.getMeContact
-        if (!mentorPhone && window._ezapStore) {
-          if (window._ezapStore.Contact) {
-            try {
-              var contacts = window._ezapStore.Contact.getModelsArray();
-              for (var cj = 0; cj < contacts.length; cj++) {
-                if (contacts[cj].isMe || contacts[cj].__x_isMe) {
-                  var meId = contacts[cj].id;
-                  if (meId) {
-                    mentorPhone = (meId._serialized || meId.toString()).split('@')[0].replace(/[^0-9]/g, '');
-                    break;
-                  }
-                }
+
+        // Strategy C: Fiber store contacts (may be array or collection)
+        if (!mentorPhone && fiberStore && fiberStore.contacts) {
+          try {
+            var fContacts = Array.isArray(fiberStore.contacts) ? fiberStore.contacts :
+              (typeof fiberStore.contacts.getModelsArray === 'function' ? fiberStore.contacts.getModelsArray() : []);
+            for (var ci = 0; ci < fContacts.length; ci++) {
+              var fc = fContacts[ci];
+              if (fc && (fc.isMe || fc.__x_isMe) && fc.id) {
+                mentorPhone = (fc.id._serialized || (fc.id.toString ? fc.id.toString() : '')).split('@')[0].replace(/[^0-9]/g, '');
+                if (mentorPhone) break;
               }
-            } catch(e) {}
-          }
-        }
-        // Strategy C: localStorage last-wid-md
-        if (!mentorPhone) {
-          var widVal = localStorage.getItem('last-wid-md') || localStorage.getItem('last-wid') || '';
-          var widMatch = widVal.match(/^(\d{10,15})/);
-          if (widMatch) mentorPhone = widMatch[1];
+            }
+          } catch(e) {}
         }
       } catch(e) {}
-      console.log('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0, 'mentorPhone:', mentorPhone || '(not detected)');
+      // Strategy D (deferred): extract from fromMe messages in groups during iteration
+      // Will be done after the loop if mentorPhone is still empty
+      var _mentorPhoneFromMsg = '';
+      console.log('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0, 'mentorPhone:', mentorPhone || '(will detect from msgs)');
       var allMsgEvents = [];
       if (msgChats && msgChats.length) {
         for (var mci = 0; mci < msgChats.length; mci++) {
@@ -1388,20 +1388,29 @@
                 mmParticipant = typeof mmP === 'string' ? mmP.split('@')[0] :
                   (mmP._serialized ? mmP._serialized.split('@')[0] : '');
               }
+              // Strategy D: if this is MY sent message in a group, the participant IS my phone
+              if (mmSent && mmParticipant && !_mentorPhoneFromMsg) {
+                var candidatePhone = mmParticipant.replace(/[^0-9]/g, '');
+                if (candidatePhone.length >= 10 && candidatePhone.length <= 15) {
+                  _mentorPhoneFromMsg = candidatePhone;
+                }
+              }
             }
             var mmDuration = Number(mm.duration || mm.__x_duration || 0);
             var mmMime = mm.mimetype || mm.__x_mimetype || null;
             // Normalize type
             var typeMap = {chat:'text',text:'text',ptt:'audio',audio:'audio',image:'image',video:'video',document:'document',sticker:'sticker',vcard:'contact',multi_vcard:'contact',location:'location',liveLocation:'location'};
             var normType = typeMap[mmType] || 'other';
-            // clientPhone: only for individual chats (@c.us), not groups (@g.us)
+            // clientPhone: for individual chats = the contact's phone
+            // for groups: participant phone of the OTHER person (not me)
             var mmClientPhone = '';
             if (!mcIsGroup && mcJid.indexOf('@c.us') >= 0) {
               mmClientPhone = mcJid.split('@')[0].replace(/[^0-9]/g, '');
-            } else if (mcIsGroup && mmParticipant) {
-              // In groups, use the participant phone (sender of THIS message)
+            } else if (mcIsGroup && !mmSent && mmParticipant) {
+              // Received msg in group: participant is the client who sent it
               mmClientPhone = mmParticipant.replace(/[^0-9]/g, '');
             }
+            // For sent msgs in groups, clientPhone stays empty (I'm the sender, not a client)
             allMsgEvents.push({
               wid: mmWid,
               chatJid: mcJid,
@@ -1417,10 +1426,21 @@
               mediaMime: mmMime,
               timestamp: mmTs,
               clientPhone: mmClientPhone || null,
-              mentorPhone: mentorPhone || null,
+              mentorPhone: mentorPhone || _mentorPhoneFromMsg || null,
               charCount: mmBody ? mmBody.length : 0
             });
           }
+        }
+      }
+      // Apply mentor phone from messages fallback (Strategy D)
+      if (!mentorPhone && _mentorPhoneFromMsg) {
+        mentorPhone = _mentorPhoneFromMsg;
+        console.log('[EZAP-CAPTURE-BRIDGE] Mentor phone detected from sent group msg:', mentorPhone);
+      }
+      // Backfill mentorPhone in events that were added before Strategy D resolved
+      if (mentorPhone) {
+        for (var bfi = 0; bfi < allMsgEvents.length; bfi++) {
+          if (!allMsgEvents[bfi].mentorPhone) allMsgEvents[bfi].mentorPhone = mentorPhone;
         }
       }
       // Log first chat with msgs info for diagnostics
