@@ -9,105 +9,7 @@ var ABAS_COLORS = [
   "#cc5de8", "#20c997", "#748ffc", "#f06595", "#868e96",
 ];
 
-// ===== Theme Detection =====
-function isDarkMode() {
-  var body = document.body;
-  if (!body) return true;
-  var bg = getComputedStyle(body).backgroundColor;
-  if (!bg || bg === 'transparent') {
-    // Check WhatsApp's app element
-    var app = document.getElementById('app');
-    if (app) bg = getComputedStyle(app).backgroundColor;
-  }
-  if (!bg || bg === 'transparent') return true;
-  var match = bg.match(/\d+/g);
-  if (!match) return true;
-  var brightness = (parseInt(match[0]) + parseInt(match[1]) + parseInt(match[2])) / 3;
-  return brightness < 128;
-}
-
-// Le cor computada de um elemento do DOM (retorna hex ou fallback)
-function _readColor(selector, prop, fallback) {
-  try {
-    var el = typeof selector === 'string' ? document.querySelector(selector) : selector;
-    if (!el) return fallback;
-    var val = getComputedStyle(el)[prop || 'backgroundColor'];
-    if (!val || val === 'transparent' || val === 'rgba(0, 0, 0, 0)') return fallback;
-    // Converte rgb(r,g,b) pra hex
-    var match = val.match(/\d+/g);
-    if (!match || match.length < 3) return fallback;
-    var hex = '#' + match.slice(0,3).map(function(c) {
-      return ('0' + parseInt(c).toString(16)).slice(-2);
-    }).join('');
-    return hex;
-  } catch (e) { return fallback; }
-}
-
-// Converte hex pra RGB array
-function _hexToRgb(hex) {
-  hex = hex.replace('#', '');
-  return [parseInt(hex.substr(0,2),16), parseInt(hex.substr(2,2),16), parseInt(hex.substr(4,2),16)];
-}
-
-// Escurece/clareia uma cor hex por um fator (-1 a 1)
-function _adjustColor(hex, factor) {
-  var rgb = _hexToRgb(hex);
-  var adjusted = rgb.map(function(c) {
-    if (factor > 0) return Math.min(255, Math.round(c + (255 - c) * factor));
-    return Math.max(0, Math.round(c * (1 + factor)));
-  });
-  return '#' + adjusted.map(function(c) { return ('0' + c.toString(16)).slice(-2); }).join('');
-}
-
-function getTheme() {
-  var dark = isDarkMode();
-  var cfg = window.__ezapThemeConfig || { mode: "responsive" };
-
-  // Modo customizado: deriva cores a partir da cor primaria
-  if (cfg.mode === "custom" && cfg.primaryColor) {
-    var pc = cfg.primaryColor;
-    var pcRgb = _hexToRgb(pc);
-    // Determina se a cor primaria e clara ou escura pra adaptar textos
-    var pcBrightness = (pcRgb[0] + pcRgb[1] + pcRgb[2]) / 3;
-    return {
-      bg: dark ? '#111b21' : '#ffffff',
-      bgSecondary: dark ? '#202c33' : '#f0f2f5',
-      bgHover: _adjustColor(pc, dark ? -0.7 : 0.85),
-      bgItem: dark ? '#1a2730' : '#ffffff',
-      border: _adjustColor(pc, dark ? -0.6 : 0.7),
-      borderLight: _adjustColor(pc, dark ? -0.4 : 0.5),
-      text: dark ? '#e9edef' : '#111b21',
-      textSecondary: dark ? '#8696a0' : '#667781',
-      headerBg: _adjustColor(pc, dark ? -0.75 : 0.9),
-      iconColor: pc,
-      accent: pc,
-    };
-  }
-
-  // Modo responsivo: le cores REAIS do WA DOM pra combinar exatamente
-  var paneSide = document.getElementById('pane-side');
-  var header = paneSide && paneSide.querySelector('header');
-  var realBg = _readColor(paneSide, 'backgroundColor', dark ? '#111b21' : '#ffffff');
-  var realHeaderBg = _readColor(header, 'backgroundColor', dark ? '#202c33' : '#f0f2f5');
-  return {
-    bg: realBg,
-    bgSecondary: dark ? '#202c33' : '#f0f2f5',
-    bgHover: dark ? '#2a3942' : '#e9edef',
-    bgItem: dark ? '#1a2730' : '#ffffff',
-    border: dark ? '#2a3942' : '#e9edef',
-    borderLight: dark ? '#3b4a54' : '#d1d7db',
-    text: dark ? '#e9edef' : '#111b21',
-    textSecondary: dark ? '#8696a0' : '#667781',
-    headerBg: realHeaderBg,
-    iconColor: dark ? '#aebac1' : '#54656f',
-  };
-}
-
-// Callback pra auth.js notificar mudanca de theme_config
-window.__ezapRefreshTheme = function() {
-  console.log("[WCRM ABAS] Theme config changed, re-applying CSS");
-  if (typeof _ensureCustomListCSS === 'function') _ensureCustomListCSS(true);
-};
+// Theme functions moved to theme.js (isDarkMode, getTheme, _readColor, _hexToRgb, _adjustColor, __ezapRefreshTheme)
 
 // ===== Extension Context Guard =====
 function isExtensionValid() {
@@ -195,6 +97,9 @@ function saveAbasData(data) {
   window._wcrmAbasCache = data;
   // Save to local cache immediately (fast)
   chrome.storage.local.set({ wcrm_abas: data });
+
+  // Notify all subscribers immediately (real-time pills update)
+  if (window.ezapBus) window.ezapBus.emit('abas:changed', data);
 
   // Sync to Supabase in background
   var uid = getUserId();
@@ -294,7 +199,128 @@ function getAllKnownContacts() {
   });
 }
 
-// ===== Pinned Contacts (Supabase + chrome.storage cache) =====
+// ===== Per-Context Pinned Contacts =====
+// Cada contexto (overlay geral, cada aba) tem seus proprios pins independentes.
+// Modelo: _wcrmPinnedCtx = { "__overlay__": { "Nome": true }, "aba-uuid": { "Nome": true } }
+//         _wcrmPinnedCtxJids = { "__overlay__": { "Nome": "5511...@c.us" }, ... }
+var OVERLAY_PIN_CTX = '__overlay__';
+
+function _getPinCtx() {
+  return window._wcrmPinnedCtx || {};
+}
+function _getPinCtxJids() {
+  return window._wcrmPinnedCtxJids || {};
+}
+
+function loadPinnedCtx() {
+  return new Promise(function(resolve) {
+    chrome.storage.local.get(["wcrm_pinned_ctx", "wcrm_pinned_ctx_jids", "wcrm_pinned", "wcrm_pinned_jids"], function(result) {
+      var ctx = result.wcrm_pinned_ctx || {};
+      var ctxJids = result.wcrm_pinned_ctx_jids || {};
+      // Migra pins antigos (globais) pro contexto __overlay__ se ainda nao migrou
+      var oldPinned = result.wcrm_pinned || {};
+      var oldJids = result.wcrm_pinned_jids || {};
+      if (Object.keys(oldPinned).length > 0 && !ctx[OVERLAY_PIN_CTX]) {
+        ctx[OVERLAY_PIN_CTX] = oldPinned;
+        ctxJids[OVERLAY_PIN_CTX] = oldJids;
+        chrome.storage.local.set({ wcrm_pinned_ctx: ctx, wcrm_pinned_ctx_jids: ctxJids });
+        console.log('[WCRM PINS] Migrated global pins to __overlay__ context');
+      }
+      window._wcrmPinnedCtx = ctx;
+      window._wcrmPinnedCtxJids = ctxJids;
+      // Retrocompat: popula _wcrmPinned com o ctx do overlay
+      window._wcrmPinned = ctx[OVERLAY_PIN_CTX] || {};
+      window._wcrmPinnedJids = ctxJids[OVERLAY_PIN_CTX] || {};
+      resolve(ctx);
+    });
+  });
+}
+
+function savePinnedCtx(ctxId, pinned, jids) {
+  var ctx = _getPinCtx();
+  var ctxJids = _getPinCtxJids();
+  ctx[ctxId] = pinned;
+  ctxJids[ctxId] = jids || {};
+  window._wcrmPinnedCtx = ctx;
+  window._wcrmPinnedCtxJids = ctxJids;
+  // Retrocompat
+  if (ctxId === OVERLAY_PIN_CTX) {
+    window._wcrmPinned = pinned;
+    window._wcrmPinnedJids = jids || {};
+  }
+  if (isExtensionValid()) {
+    chrome.storage.local.set({ wcrm_pinned_ctx: ctx, wcrm_pinned_ctx_jids: ctxJids });
+  }
+}
+
+function getPinnedForCtx(ctxId) {
+  var ctx = _getPinCtx();
+  return ctx[ctxId] || {};
+}
+function getPinnedJidsForCtx(ctxId) {
+  var ctxJids = _getPinCtxJids();
+  return ctxJids[ctxId] || {};
+}
+
+function togglePinInCtx(ctxId, chatName, jid) {
+  var pinned = getPinnedForCtx(ctxId);
+  var jids = getPinnedJidsForCtx(ctxId);
+  // Copia pra nao mutar referencia
+  pinned = JSON.parse(JSON.stringify(pinned));
+  jids = JSON.parse(JSON.stringify(jids));
+
+  var existingKey = null;
+  // Match por JID
+  if (jid) {
+    var jidKeys = Object.keys(jids);
+    for (var k = 0; k < jidKeys.length; k++) {
+      if (jids[jidKeys[k]] === jid) { existingKey = jidKeys[k]; break; }
+    }
+  }
+  // Fallback: match por nome
+  if (!existingKey && window.ezapMatchContact) {
+    var keys = Object.keys(pinned);
+    for (var i = 0; i < keys.length; i++) {
+      if (window.ezapMatchContact(keys[i], chatName)) { existingKey = keys[i]; break; }
+    }
+  } else if (!existingKey && pinned[chatName]) {
+    existingKey = chatName;
+  }
+
+  var wasPinned = !!existingKey;
+  if (existingKey) {
+    delete pinned[existingKey];
+    delete jids[existingKey];
+  } else {
+    pinned[chatName] = true;
+    if (jid) jids[chatName] = jid;
+  }
+  savePinnedCtx(ctxId, pinned, jids);
+  return !wasPinned; // retorna true se agora esta pinado
+}
+
+function isPinnedInCtx(ctxId, chatName, jid) {
+  var pinned = getPinnedForCtx(ctxId);
+  var jids = getPinnedJidsForCtx(ctxId);
+  // Match por JID
+  if (jid) {
+    var jidVals = Object.keys(jids);
+    for (var k = 0; k < jidVals.length; k++) {
+      if (jids[jidVals[k]] === jid) return true;
+    }
+  }
+  // Match por nome
+  if (pinned[chatName]) return true;
+  if (window.ezapMatchContact) {
+    var keys = Object.keys(pinned);
+    for (var i = 0; i < keys.length; i++) {
+      if (window.ezapMatchContact(keys[i], chatName)) return true;
+    }
+  }
+  return false;
+}
+
+// ===== Pinned Contacts LEGACY (Supabase + chrome.storage cache) =====
 // Modelo: _wcrmPinned = { 'Nome': true }  (retrocompat)
 //         _wcrmPinnedJids = { 'Nome': '5511...@c.us' }  (novo, aditivo)
 // Matching de pin:
@@ -303,14 +329,20 @@ function getAllKnownContacts() {
 //   3. fallback: ezapMatchContact tolerante com nomes de _wcrmPinned
 function loadPinnedContacts() {
   return new Promise(function(resolve) {
-    // Fast: load from local cache first
-    chrome.storage.local.get(["wcrm_pinned", "wcrm_pinned_jids"], function(result) {
-      window._wcrmPinned = result.wcrm_pinned || {};
-      window._wcrmPinnedJids = result.wcrm_pinned_jids || {};
-      resolve(window._wcrmPinned);
+    // Carrega sistema per-context primeiro
+    loadPinnedCtx().then(function() {
+      // Fast: load from local cache first (retrocompat)
+      chrome.storage.local.get(["wcrm_pinned", "wcrm_pinned_jids"], function(result) {
+        // Se ja migrou pro ctx, _wcrmPinned ja foi populado por loadPinnedCtx
+        if (!window._wcrmPinned || Object.keys(window._wcrmPinned).length === 0) {
+          window._wcrmPinned = result.wcrm_pinned || {};
+          window._wcrmPinnedJids = result.wcrm_pinned_jids || {};
+        }
+        resolve(window._wcrmPinned);
+      });
     });
 
-    // Background: sync from Supabase
+    // Background: sync from Supabase (retrocompat - pins globais antigos)
     var uid = getUserId();
     if (!uid) return;
 
@@ -353,48 +385,22 @@ function savePinnedContacts(data, jids) {
 
 function togglePinContact(chatName) {
   // Resolve JID async pra guardar o identificador estavel do chat.
-  // Se o bridge (store-bridge.js) ainda nao esta pronto, salva sem JID e
-  // o JID sera resolvido preguicosamente depois (ver migratePinJids).
   var jidPromise = window.ezapResolveJid
     ? window.ezapResolveJid(chatName)
     : Promise.resolve(null);
 
   jidPromise.then(function(resolvedJid) {
-    var pinned = window._wcrmPinned || {};
-    var jids = window._wcrmPinnedJids || {};
-    var existingKey = null;
-
-    // 1) Match por JID (mais confiavel)
-    if (resolvedJid) {
-      var jidKeys = Object.keys(jids);
-      for (var k = 0; k < jidKeys.length; k++) {
-        if (jids[jidKeys[k]] === resolvedJid) { existingKey = jidKeys[k]; break; }
-      }
-    }
-
-    // 2) Fallback: match tolerante por nome (legacy pins sem JID)
-    if (!existingKey && window.ezapMatchContact) {
-      var keys = Object.keys(pinned);
-      for (var i = 0; i < keys.length; i++) {
-        if (window.ezapMatchContact(keys[i], chatName)) { existingKey = keys[i]; break; }
-      }
-    } else if (!existingKey && pinned[chatName]) {
-      existingKey = chatName;
-    }
-
-    if (existingKey) {
-      delete pinned[existingKey];
-      delete jids[existingKey];
-    } else {
-      pinned[chatName] = true;
-      if (resolvedJid) jids[chatName] = resolvedJid;
-    }
-    savePinnedContacts(pinned, jids);
+    // Determina contexto ativo: aba selecionada ou overlay geral
+    var ctxId = selectedAbaId || OVERLAY_PIN_CTX;
+    togglePinInCtx(ctxId, chatName, resolvedJid);
+    // Retrocompat: sincroniza _wcrmPinned global com contexto ativo
+    window._wcrmPinned = getPinnedForCtx(ctxId);
+    window._wcrmPinnedJids = getPinnedJidsForCtx(ctxId);
+    // Legacy save (Supabase retrocompat)
+    savePinnedContacts(window._wcrmPinned, window._wcrmPinnedJids);
     updateHeaderButtons();
     applyPinnedOrder();
-    if (selectedAbaId) {
-      applyConversationFilters();
-    }
+    applyConversationFilters();
   });
 }
 
@@ -496,18 +502,28 @@ function removePinIndicator(nameSpan) {
 // comparando primeiro pelo JID (via chatIndex) e depois por nome tolerante.
 // chatIndex pode ser null — entao so usa match por nome.
 function _isTitlePinned(title, chatIndex) {
+  // Determina contexto ativo: aba selecionada ou overlay geral
+  var ctxId = (typeof selectedAbaId !== 'undefined' && selectedAbaId) ? selectedAbaId : OVERLAY_PIN_CTX;
+  // Usa sistema per-context se disponivel
+  if (typeof isPinnedInCtx === 'function') {
+    var jid = null;
+    if (chatIndex && window.ezapFindJidInIndex) {
+      jid = window.ezapFindJidInIndex(chatIndex, title);
+    }
+    return isPinnedInCtx(ctxId, title, jid);
+  }
+  // Fallback legacy
   var pinned = window._wcrmPinned || {};
   var pinJids = window._wcrmPinnedJids || {};
   if (chatIndex && window.ezapFindJidInIndex) {
-    var jid = window.ezapFindJidInIndex(chatIndex, title);
-    if (jid) {
+    var jid2 = window.ezapFindJidInIndex(chatIndex, title);
+    if (jid2) {
       var keys = Object.keys(pinJids);
       for (var i = 0; i < keys.length; i++) {
-        if (pinJids[keys[i]] === jid) return true;
+        if (pinJids[keys[i]] === jid2) return true;
       }
     }
   }
-  // Fallback: match tolerante por nome
   var names = Object.keys(pinned);
   for (var j = 0; j < names.length; j++) {
     if (window.ezapMatchContact && window.ezapMatchContact(names[j], title)) return true;
@@ -762,39 +778,36 @@ function createAbasSidebar() {
   document.getElementById("wcrm-abas-close").addEventListener("click", toggleAbasSidebar);
   document.getElementById("wcrm-abas-create").addEventListener("click", openCreateAbaModal);
   document.getElementById("wcrm-abas-clear-filter").addEventListener("click", clearAbasFilter);
-}
 
-// ===== Toggle =====
-function toggleAbasSidebar() {
-  if (typeof sidebarOpen !== 'undefined' && sidebarOpen) toggleSidebar();
-  if (typeof msgSidebarOpen !== 'undefined' && msgSidebarOpen) closeMsgSidebar();
-
-  abasSidebarOpen = !abasSidebarOpen;
-  document.getElementById("wcrm-abas-sidebar").style.display = abasSidebarOpen ? "flex" : "none";
-
-  var appEl = document.getElementById("app");
-  if (appEl) {
-    if (abasSidebarOpen) {
-      appEl.style.width = "calc(100% - 320px)";
-      appEl.style.maxWidth = "calc(100% - 320px)";
-    } else {
-      appEl.style.width = "";
-      appEl.style.maxWidth = "";
-    }
-  }
-
-  if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
-
-  if (abasSidebarOpen) {
-    // Load fresh data from Supabase when opening sidebar
-    loadAbasData().then(function(data) {
-      renderAbasList(data);
-      updateAbasIndicator();
+  // Register with sidebar manager
+  if (window.ezapSidebar) {
+    window.ezapSidebar.register('abas', {
+      show: function() { abasSidebarOpen = true; document.getElementById("wcrm-abas-sidebar").style.display = "flex"; },
+      hide: function() { abasSidebarOpen = false; var sb = document.getElementById("wcrm-abas-sidebar"); if (sb) sb.style.display = "none"; },
+      onOpen: function() {
+        loadAbasData().then(function(data) {
+          renderAbasList(data);
+          updateAbasIndicator();
+        });
+      }
     });
   }
 }
 
+// ===== Toggle =====
+function toggleAbasSidebar() {
+  if (window.ezapSidebar) { ezapSidebar.toggle('abas'); return; }
+  // Fallback
+  abasSidebarOpen = !abasSidebarOpen;
+  document.getElementById("wcrm-abas-sidebar").style.display = abasSidebarOpen ? "flex" : "none";
+  if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
+  if (abasSidebarOpen) {
+    loadAbasData().then(function(data) { renderAbasList(data); updateAbasIndicator(); });
+  }
+}
+
 function closeAbasSidebar() {
+  if (window.ezapSidebar) { ezapSidebar.close('abas'); return; }
   if (!abasSidebarOpen) return;
   abasSidebarOpen = false;
   var sb = document.getElementById("wcrm-abas-sidebar");
@@ -1729,6 +1742,15 @@ function injectQuickAbaSelector() {
   var pane = document.getElementById('pane-side');
   if (!pane) return;
 
+  // Se overlay esta ativo, as pills ficam dentro do header do overlay (slice.js)
+  // Nao precisa da barra externa que fica escondida atras do overlay
+  var overlayEl = document.getElementById('wcrm-custom-list');
+  if (overlayEl && overlayEl.style.display !== 'none' && window.__ezapOverlayEnabled) {
+    var old2 = document.getElementById('wcrm-quick-aba-bar');
+    if (old2) old2.remove();
+    return;
+  }
+
   var data = window._wcrmAbasCache || { tabs: [] };
   if (!data.tabs || data.tabs.length === 0) {
     var old = document.getElementById('wcrm-quick-aba-bar');
@@ -1970,6 +1992,17 @@ function initAbas() {
   // Tenta migrar JIDs assim que o store-bridge ficar pronto.
   // (Pins e contatos de aba antigos nao tem JID - resolve preguicosamente.)
   setTimeout(migrateJidsWhenStoreReady, 5000);
+
+  // Overlay activation: if overlay is enabled and no ABA filter is active,
+  // apply the overlay after store-bridge has time to populate chatIndex
+  setTimeout(function() {
+    var overlayEnabled = window.__ezapOverlayEnabled === true;
+    var hasAbaFilter = typeof selectedAbaId !== 'undefined' && selectedAbaId !== null;
+    if (overlayEnabled && !hasAbaFilter && typeof window._wcrmApplyOverlay === 'function') {
+      console.log("[WCRM ABAS] Activating overlay on boot");
+      window._wcrmApplyOverlay();
+    }
+  }, 3000);
 
   var abasInterval = setInterval(function() {
     if (!isExtensionValid()) {

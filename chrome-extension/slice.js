@@ -2025,5 +2025,21 @@ function _getAbaTabEntry(abaId) {
   return data.tabs.find(function(t) { return t.id === abaId; }) || null;
 }
 
+// ===== Real-time aba pills update =====
+// When abas are created/deleted/edited in the sidebar, immediately refresh the pills row
+if (window.ezapBus) {
+  window.ezapBus.on('abas:changed', function() {
+    var existingRow = document.getElementById('ezap-overlay-aba-row');
+    if (!existingRow) return;
+    var theme = (typeof getTheme === 'function') ? getTheme() : { bgHover: '#2a3942', border: '#3b4a54', text: '#e9edef', textSecondary: '#8696a0', accent: '#00a884' };
+    var newRow = _buildAbaPillsRow(theme);
+    if (newRow) {
+      existingRow.replaceWith(newRow);
+    } else {
+      existingRow.remove();
+    }
+  });
+}
+
 // Export for overlay activation from auth.js / abas.js
 window._wcrmApplyOverlay = applyConversationFilters;
