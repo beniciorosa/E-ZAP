@@ -150,7 +150,10 @@
       '<select id="admin-overlay-user-select" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #3b4a54;background:#2a3942;color:#e9edef;font-size:13px;font-family:inherit;cursor:pointer;outline:none">' +
         '<option value="">Carregando usuarios...</option>' +
       '</select>' +
-      '<div id="admin-overlay-stats" style="font-size:11px;color:#8696a0;margin-top:6px"></div>';
+      '<div id="admin-overlay-stats" style="font-size:11px;color:#8696a0;margin-top:6px"></div>' +
+      '<button id="ao-immersive-btn" style="display:block;width:100%;margin-top:8px;padding:8px;border:none;border-radius:8px;background:#ff922b;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:background 0.15s;opacity:0.5" disabled>' +
+        '&#128065; Modo Imersivo' +
+      '</button>';
     sidebar.appendChild(selectorDiv);
 
     // Content area (conversations list or chat viewer)
@@ -187,6 +190,12 @@
       });
     }
 
+    // Bind immersive button (always present in sidebar)
+    var immBtn = document.getElementById("ao-immersive-btn");
+    if (immBtn) immBtn.addEventListener("click", function() {
+      if (_selectedUserId) enterImmersiveMode();
+    });
+
     // Bind user select
     var sel = document.getElementById("admin-overlay-user-select");
     if (sel) sel.addEventListener("change", function() {
@@ -195,7 +204,24 @@
       _viewingChat = null;
       if (_selectedUserId) loadConversations(_selectedUserId);
       else renderEmpty();
+      // Enable/disable immersive button based on selection
+      _updateImmersiveBtn();
     });
+  }
+
+  /** Enable/disable the immersive button based on whether a user is selected */
+  function _updateImmersiveBtn() {
+    var btn = document.getElementById("ao-immersive-btn");
+    if (!btn) return;
+    if (_selectedUserId) {
+      btn.disabled = false;
+      btn.style.opacity = "1";
+      btn.style.cursor = "pointer";
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = "0.5";
+      btn.style.cursor = "not-allowed";
+    }
   }
 
   // ===== LOAD USERS =====
@@ -293,13 +319,9 @@
     var el = document.getElementById("admin-overlay-stats");
     if (!el) return;
     if (chats === 0 && msgs === 0) { el.innerHTML = ""; return; }
-    el.innerHTML = chats + " conversas | " + msgs + " mensagens recentes" +
-      '<button id="ao-immersive-btn" style="display:block;width:100%;margin-top:8px;padding:8px;border:none;border-radius:8px;background:#ff922b;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:background 0.15s">' +
-        '&#128065; Modo Imersivo' +
-      '</button>';
-    document.getElementById("ao-immersive-btn").addEventListener("click", function() {
-      enterImmersiveMode();
-    });
+    el.innerHTML = chats + " conversas | " + msgs + " mensagens recentes";
+    // Enable immersive button now that data is loaded
+    _updateImmersiveBtn();
   }
 
   // ===== RENDER CONVERSATION LIST =====
