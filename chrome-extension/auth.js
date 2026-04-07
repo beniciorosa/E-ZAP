@@ -335,6 +335,36 @@ setInterval(loadThemeConfig, 2 * 60 * 1000);
 // ===== Overlay config (custom chat list overlay) =====
 window.__ezapOverlayEnabled = false;
 
+// Retry overlay activation until Store is ready and overlay renders (max 30s)
+function _retryOverlayActivation(attempt) {
+  if (attempt > 30) {
+    // Give up after 30 attempts (~30s) — remove loading class to show native
+    if (document.body) document.body.classList.remove('ezap-overlay-loading');
+    return;
+  }
+  // Wait for the overlay function to exist
+  if (typeof window._wcrmApplyOverlay !== "function") {
+    setTimeout(function() { _retryOverlayActivation(attempt + 1); }, 1000);
+    return;
+  }
+  // Wait for pane-side to exist (WA still loading)
+  if (!document.getElementById("pane-side")) {
+    setTimeout(function() { _retryOverlayActivation(attempt + 1); }, 1000);
+    return;
+  }
+  // Try to apply
+  window._wcrmApplyOverlay();
+  // Check if overlay rendered (custom list appeared)
+  setTimeout(function() {
+    var customList = document.getElementById("wcrm-custom-list");
+    if (!customList) {
+      // Overlay didn't render — Store probably not ready, retry
+      _retryOverlayActivation(attempt + 1);
+    }
+    // If rendered, early-hide is removed by slice.js automatically
+  }, 800);
+}
+
 function loadOverlayConfig() {
   chrome.runtime.sendMessage({
     action: "supabase_rest",
@@ -354,10 +384,10 @@ function loadOverlayConfig() {
         if (prev !== window.__ezapOverlayEnabled) {
           console.log("[EZAP AUTH] Overlay config loaded, enabled:", window.__ezapOverlayEnabled);
           // If overlay was just enabled and no ABA filter active, activate it
-          if (window.__ezapOverlayEnabled && typeof window._wcrmApplyOverlay === "function") {
+          if (window.__ezapOverlayEnabled) {
             var hasAbaFilter = typeof selectedAbaId !== "undefined" && selectedAbaId !== null;
             if (!hasAbaFilter) {
-              setTimeout(function() { window._wcrmApplyOverlay(); }, 500);
+              _retryOverlayActivation(0);
             }
           }
           // If overlay was just disabled, remove overlay

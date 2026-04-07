@@ -7,7 +7,10 @@
   style.id = 'ezap-early-hide-css';
   style.textContent =
     'body.ezap-overlay-loading #pane-side > div { visibility: hidden !important; }' +
-    'body.ezap-overlay-loading #pane-side { background: var(--panel-background, #fff) !important; }';
+    'body.ezap-overlay-loading #pane-side { background: var(--panel-background, #111b21) !important; }' +
+    'body.ezap-overlay-loading #pane-side > header { visibility: hidden !important; }' +
+    'body.ezap-overlay-loading [data-testid="chat-list-filter"] { visibility: hidden !important; }' +
+    'body.ezap-overlay-loading [role="navigation"] { visibility: hidden !important; }';
   (document.head || document.documentElement).appendChild(style);
 
   // Check cached overlay state
