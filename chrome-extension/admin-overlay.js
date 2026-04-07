@@ -260,6 +260,7 @@
       // Group by chat_jid
       var chatMap = {};
       var totalMsgs = msgs.length;
+      var todayStr = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
       msgs.forEach(function(m) {
         if (!m.chat_jid) return;
         if (!chatMap[m.chat_jid]) {
@@ -269,9 +270,14 @@
             isGroup: m.is_group || false,
             lastMsg: m,
             count: 0,
+            todayReceived: 0,
           };
         }
         chatMap[m.chat_jid].count++;
+        // Count received messages from today
+        if (m.direction === "received" && m.timestamp && m.timestamp.substring(0, 10) === todayStr) {
+          chatMap[m.chat_jid].todayReceived++;
+        }
       });
 
       _conversations = Object.values(chatMap).sort(function(a, b) {
@@ -638,12 +644,16 @@
           return;
         }
         var chatMap = {};
+        var todayStr = new Date().toISOString().split("T")[0];
         msgs.forEach(function(m) {
           if (!m.chat_jid) return;
           if (!chatMap[m.chat_jid]) {
-            chatMap[m.chat_jid] = { chatJid: m.chat_jid, chatName: m.chat_name || m.chat_jid, isGroup: m.is_group || false, lastMsg: m, count: 0 };
+            chatMap[m.chat_jid] = { chatJid: m.chat_jid, chatName: m.chat_name || m.chat_jid, isGroup: m.is_group || false, lastMsg: m, count: 0, todayReceived: 0 };
           }
           chatMap[m.chat_jid].count++;
+          if (m.direction === "received" && m.timestamp && m.timestamp.substring(0, 10) === todayStr) {
+            chatMap[m.chat_jid].todayReceived++;
+          }
         });
         _conversations = Object.values(chatMap).sort(function(a, b) {
           return new Date(b.lastMsg.timestamp) - new Date(a.lastMsg.timestamp);
@@ -720,16 +730,16 @@
       var lastBody = c.lastMsg.body || "";
       if (!lastBody && c.lastMsg.message_type && c.lastMsg.message_type !== "chat") {
         var t = c.lastMsg.message_type;
-        if (t === "ptt" || t === "audio") lastBody = "🎤 Audio";
-        else if (t === "image") lastBody = "📷 Imagem";
-        else if (t === "video") lastBody = "🎥 Video";
-        else if (t === "document") lastBody = "📄 Documento";
-        else if (t === "sticker") lastBody = "🏷 Sticker";
-        else lastBody = "📎 " + t;
+        if (t === "ptt" || t === "audio") lastBody = "\uD83C\uDFA4 Audio";
+        else if (t === "image") lastBody = "\uD83D\uDCF7 Imagem";
+        else if (t === "video") lastBody = "\uD83C\uDFA5 Video";
+        else if (t === "document") lastBody = "\uD83D\uDCC4 Documento";
+        else if (t === "sticker") lastBody = "\uD83C\uDFF7 Sticker";
+        else lastBody = "\uD83D\uDCCE " + t;
       }
       if (lastBody.length > 55) lastBody = lastBody.substring(0, 55) + "...";
-      var dirIcon = c.lastMsg.direction === "sent" ? '<span style="color:#8696a0">&#10003;&#10003; </span>' : "";
       var time = timeAgo(c.lastMsg.timestamp);
+      var todayCount = c.todayReceived || 0;
 
       html +=
         '<div class="ao-imm-row" data-jid="' + esc(c.chatJid) + '" data-name="' + esc(c.chatName) + '">' +
@@ -737,11 +747,11 @@
           '<div style="flex:1;min-width:0;padding-left:14px">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
               '<span style="font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;color:#e9edef">' + esc(c.chatName) + '</span>' +
-              '<span style="font-size:12px;color:#8696a0;flex-shrink:0;margin-left:8px">' + time + '</span>' +
+              '<span style="font-size:12px;color:' + (todayCount > 0 ? '#25d366' : '#8696a0') + ';flex-shrink:0;margin-left:8px">' + time + '</span>' +
             '</div>' +
             '<div style="font-size:13px;color:#8696a0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center">' +
-              dirIcon + '<span>' + esc(lastBody) + '</span>' +
-              (c.count > 0 ? '<span style="margin-left:auto;min-width:20px;height:20px;border-radius:50%;background:#25d366;color:#111b21;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0">' + c.count + '</span>' : '') +
+              '<span>' + esc(lastBody) + '</span>' +
+              (todayCount > 0 ? '<span style="margin-left:auto;min-width:20px;height:20px;border-radius:50%;background:#25d366;color:#111b21;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0">' + todayCount + '</span>' : '') +
             '</div>' +
           '</div>' +
         '</div>';
