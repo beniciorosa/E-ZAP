@@ -82,7 +82,8 @@
     if (!d.ok || !d.events || !d.events.length) return;
 
     var userId = getUserId();
-    var mentorPhone = getMentorPhone();
+    // mentorPhone: prefer bridge-detected (MAIN world), fallback to auth
+    var mentorPhone = (d.events.length && d.events[0].mentorPhone) || getMentorPhone();
     if (!userId) return;
 
     var events = d.events;
@@ -108,7 +109,7 @@
         message_wid: e.wid,
         chat_jid: e.chatJid,
         chat_name: e.chatName || null,
-        phone_mentor: mentorPhone || null,
+        phone_mentor: e.mentorPhone || mentorPhone || null,
         phone_client: e.clientPhone || null,
         direction: e.direction,
         message_type: e.messageType,

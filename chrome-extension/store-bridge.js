@@ -1286,7 +1286,47 @@
           }
         } catch(e) {}
       }
-      console.log('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0);
+      // Detect own phone (mentor) from WhatsApp Store
+      var mentorPhone = '';
+      try {
+        // Strategy A: Fiber store — look for own WID in chats contact.isMe
+        if (!mentorPhone && fiberStore && Array.isArray(fiberStore.contacts)) {
+          for (var ci = 0; ci < fiberStore.contacts.length; ci++) {
+            var ct = fiberStore.contacts[ci];
+            if (ct && ct.isMe && ct.id) {
+              var meJid = ct.id._serialized || (ct.id.toString ? ct.id.toString() : '');
+              if (meJid && meJid.indexOf('@') >= 0) {
+                mentorPhone = meJid.split('@')[0].replace(/[^0-9]/g, '');
+                break;
+              }
+            }
+          }
+        }
+        // Strategy B: Webpack Store — Chat models have a "me" ref or Contact.getMeContact
+        if (!mentorPhone && window._ezapStore) {
+          if (window._ezapStore.Contact) {
+            try {
+              var contacts = window._ezapStore.Contact.getModelsArray();
+              for (var cj = 0; cj < contacts.length; cj++) {
+                if (contacts[cj].isMe || contacts[cj].__x_isMe) {
+                  var meId = contacts[cj].id;
+                  if (meId) {
+                    mentorPhone = (meId._serialized || meId.toString()).split('@')[0].replace(/[^0-9]/g, '');
+                    break;
+                  }
+                }
+              }
+            } catch(e) {}
+          }
+        }
+        // Strategy C: localStorage last-wid-md
+        if (!mentorPhone) {
+          var widVal = localStorage.getItem('last-wid-md') || localStorage.getItem('last-wid') || '';
+          var widMatch = widVal.match(/^(\d{10,15})/);
+          if (widMatch) mentorPhone = widMatch[1];
+        }
+      } catch(e) {}
+      console.log('[EZAP-CAPTURE-BRIDGE] Request id:', d.id, 'source:', chatSource, 'chats:', msgChats ? msgChats.length : 0, 'mentorPhone:', mentorPhone || '(not detected)');
       var allMsgEvents = [];
       if (msgChats && msgChats.length) {
         for (var mci = 0; mci < msgChats.length; mci++) {
@@ -1354,6 +1394,14 @@
             // Normalize type
             var typeMap = {chat:'text',text:'text',ptt:'audio',audio:'audio',image:'image',video:'video',document:'document',sticker:'sticker',vcard:'contact',multi_vcard:'contact',location:'location',liveLocation:'location'};
             var normType = typeMap[mmType] || 'other';
+            // clientPhone: only for individual chats (@c.us), not groups (@g.us)
+            var mmClientPhone = '';
+            if (!mcIsGroup && mcJid.indexOf('@c.us') >= 0) {
+              mmClientPhone = mcJid.split('@')[0].replace(/[^0-9]/g, '');
+            } else if (mcIsGroup && mmParticipant) {
+              // In groups, use the participant phone (sender of THIS message)
+              mmClientPhone = mmParticipant.replace(/[^0-9]/g, '');
+            }
             allMsgEvents.push({
               wid: mmWid,
               chatJid: mcJid,
@@ -1368,7 +1416,8 @@
               duration: mmDuration > 0 ? Math.round(mmDuration) : 0,
               mediaMime: mmMime,
               timestamp: mmTs,
-              clientPhone: mcJid.split('@')[0].replace(/[^0-9]/g, ''),
+              clientPhone: mmClientPhone || null,
+              mentorPhone: mentorPhone || null,
               charCount: mmBody ? mmBody.length : 0
             });
           }
