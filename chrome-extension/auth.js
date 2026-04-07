@@ -332,6 +332,50 @@ window.__ezapReloadThemeConfig = loadThemeConfig;
 loadThemeConfig();
 setInterval(loadThemeConfig, 2 * 60 * 1000);
 
+// ===== Overlay config (custom chat list overlay) =====
+window.__ezapOverlayEnabled = false;
+
+function loadOverlayConfig() {
+  chrome.runtime.sendMessage({
+    action: "supabase_rest",
+    path: "/rest/v1/app_settings?key=eq.overlay_config&select=value",
+    method: "GET"
+  }, function(resp) {
+    if (chrome.runtime.lastError) return;
+    if (!resp || !Array.isArray(resp) || resp.length === 0) return;
+    try {
+      var val = resp[0].value;
+      var parsed = typeof val === "string" ? JSON.parse(val) : val;
+      if (parsed && typeof parsed === "object") {
+        var prev = window.__ezapOverlayEnabled;
+        window.__ezapOverlayEnabled = parsed.enabled === true;
+        // Cache overlay state for early-hide on next reload
+        try { chrome.storage.local.set({ ezap_overlay_enabled: window.__ezapOverlayEnabled }); } catch(e) {}
+        if (prev !== window.__ezapOverlayEnabled) {
+          console.log("[EZAP AUTH] Overlay config loaded, enabled:", window.__ezapOverlayEnabled);
+          // If overlay was just enabled and no ABA filter active, activate it
+          if (window.__ezapOverlayEnabled && typeof window._wcrmApplyOverlay === "function") {
+            var hasAbaFilter = typeof selectedAbaId !== "undefined" && selectedAbaId !== null;
+            if (!hasAbaFilter) {
+              setTimeout(function() { window._wcrmApplyOverlay(); }, 500);
+            }
+          }
+          // If overlay was just disabled, remove overlay
+          if (!window.__ezapOverlayEnabled && typeof clearAbasFilter === "function") {
+            clearAbasFilter();
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[EZAP AUTH] Failed to parse overlay_config", e);
+    }
+  });
+}
+
+window.__ezapReloadOverlayConfig = loadOverlayConfig;
+loadOverlayConfig();
+setInterval(loadOverlayConfig, 2 * 60 * 1000);
+
 // ===== Dispatch auth ready event =====
 function dispatchAuthReady() {
   console.log("[EZAP AUTH] Authenticated as:", window.__wcrmAuth.userName,

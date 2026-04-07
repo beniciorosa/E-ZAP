@@ -1307,6 +1307,9 @@ function _showCustomAbaList(abaTab, chatIndex) {
 
   console.log("[WCRM CUSTOM] Renderizou", rows.length, "contatos,", pinnedCount, "pinned");
 
+  // Remove early-hide class (overlay ja ta visivel, pode liberar)
+  if (document.body) document.body.classList.remove('ezap-overlay-loading');
+
   // Inicia scan progressivo da lista nativa pra capturar fotos
   _startNativePicScan();
 
