@@ -495,14 +495,19 @@
     // Close the sidebar
     if (window.ezapSidebar) ezapSidebar.close("admin_overlay");
 
+    // Measure pane-side position before adding banner
+    var pane = document.getElementById("pane-side");
+    var paneRect = pane ? pane.getBoundingClientRect() : { left: 0, top: 0, width: 400, height: window.innerHeight };
+    var BANNER_H = 36;
+
     // Create top banner
     var banner = document.createElement("div");
     banner.id = "ao-imm-banner";
     Object.assign(banner.style, {
-      position: "fixed", top: "0", left: "0", width: "100%", height: "36px",
+      position: "fixed", top: "0", left: "0", width: "100%", height: BANNER_H + "px",
       background: "linear-gradient(90deg, #ff922b, #e8590c)", color: "#fff",
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: "13px", fontWeight: "600", zIndex: "200000",
+      fontSize: "13px", fontWeight: "600", zIndex: "200001",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
       boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
     });
@@ -512,94 +517,91 @@
     document.body.appendChild(banner);
     document.getElementById("ao-imm-exit").addEventListener("click", exitImmersiveMode);
 
-    // Push WhatsApp down
+    // Push WhatsApp down to make room for banner
     var appEl = document.getElementById("app");
-    if (appEl) appEl.style.marginTop = "36px";
-
-    // Create left panel overlay (over #pane-side)
-    var pane = document.getElementById("pane-side");
-    if (pane) {
-      var leftOverlay = document.createElement("div");
-      leftOverlay.id = "ao-imm-left";
-      Object.assign(leftOverlay.style, {
-        position: "absolute", top: "0", left: "0", width: "100%", height: "100%",
-        background: "#111b21", zIndex: "100", display: "flex", flexDirection: "column",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-        color: "#e9edef", fontSize: "14px",
-      });
-
-      // Left header (like WhatsApp native)
-      leftOverlay.innerHTML =
-        '<div style="display:flex;align-items:center;padding:12px 16px;background:#202c33;min-height:56px;gap:12px">' +
-          '<div style="width:40px;height:40px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#fff">' + esc(getInitials(_selectedUserName)) + '</div>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="font-weight:600;font-size:16px">' + esc(_selectedUserName) + '</div>' +
-            '<div style="font-size:11px;color:#8696a0">' + _conversations.length + ' conversas</div>' +
-          '</div>' +
-        '</div>' +
-        '<div id="ao-imm-search" style="padding:6px 12px;background:#111b21">' +
-          '<div style="display:flex;align-items:center;background:#202c33;border-radius:8px;padding:6px 12px;gap:8px">' +
-            '<span style="color:#8696a0;font-size:14px">&#128269;</span>' +
-            '<input id="ao-imm-search-input" type="text" placeholder="Pesquisar conversa..." style="background:none;border:none;color:#e9edef;font-size:13px;outline:none;width:100%;font-family:inherit">' +
-          '</div>' +
-        '</div>' +
-        '<div id="ao-imm-chatlist" style="flex:1;overflow-y:auto"></div>';
-
-      pane.style.position = "relative";
-      pane.appendChild(leftOverlay);
-
-      // Render chat list
-      renderImmersiveChatList(_conversations);
-
-      // Search filter
-      document.getElementById("ao-imm-search-input").addEventListener("input", function() {
-        var q = this.value.toLowerCase().trim();
-        var filtered = q ? _conversations.filter(function(c) {
-          return (c.chatName || "").toLowerCase().indexOf(q) >= 0;
-        }) : _conversations;
-        renderImmersiveChatList(filtered);
-      });
+    if (appEl) {
+      appEl.style.marginTop = BANNER_H + "px";
+      appEl.style.height = "calc(100vh - " + BANNER_H + "px)";
     }
 
-    // Create right panel overlay (over #main)
-    var mainEl = document.getElementById("main");
-    if (mainEl) {
-      var rightOverlay = document.createElement("div");
-      rightOverlay.id = "ao-imm-right";
-      Object.assign(rightOverlay.style, {
-        position: "absolute", top: "0", left: "0", width: "100%", height: "100%",
-        background: "#0b141a", zIndex: "100", display: "flex", flexDirection: "column",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-        color: "#e9edef", fontSize: "14px",
-      });
-      rightOverlay.innerHTML =
-        '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8696a0;flex-direction:column;gap:12px">' +
-          '<div style="font-size:64px;opacity:0.2">&#128172;</div>' +
-          '<div style="font-size:16px;font-weight:500">Selecione uma conversa</div>' +
-          '<div style="font-size:13px;opacity:0.7">Clique em uma conversa ao lado para visualizar</div>' +
-        '</div>';
-      mainEl.style.position = "relative";
-      mainEl.appendChild(rightOverlay);
-    } else {
-      // #main may not exist yet — create a placeholder
-      var appBody = document.querySelector('#app > div > div');
-      if (appBody) {
-        var rightOverlay = document.createElement("div");
-        rightOverlay.id = "ao-imm-right";
-        Object.assign(rightOverlay.style, {
-          position: "fixed", top: "36px", left: pane ? (pane.offsetWidth + "px") : "30%",
-          width: pane ? ("calc(100% - " + pane.offsetWidth + "px)") : "70%",
-          height: "calc(100% - 36px)", background: "#0b141a", zIndex: "200000",
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-          color: "#8696a0",
-        });
-        rightOverlay.innerHTML =
-          '<div style="font-size:64px;opacity:0.2">&#128172;</div>' +
-          '<div style="font-size:16px;font-weight:500;margin-top:12px">Selecione uma conversa</div>';
-        document.body.appendChild(rightOverlay);
-      }
-    }
+    // Recalculate positions after margin push
+    var paneLeft = pane ? pane.getBoundingClientRect().left : 0;
+    var paneWidth = paneRect.width;
+    var rightLeft = paneLeft + paneWidth;
+    var topOffset = BANNER_H;
+
+    // ===== LEFT PANEL: fixed overlay covering #pane-side =====
+    var leftOverlay = document.createElement("div");
+    leftOverlay.id = "ao-imm-left";
+    Object.assign(leftOverlay.style, {
+      position: "fixed",
+      top: topOffset + "px",
+      left: paneLeft + "px",
+      width: paneWidth + "px",
+      height: "calc(100vh - " + topOffset + "px)",
+      background: "#111b21",
+      zIndex: "200000",
+      display: "flex",
+      flexDirection: "column",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      color: "#e9edef",
+      fontSize: "14px",
+    });
+
+    leftOverlay.innerHTML =
+      '<div style="display:flex;align-items:center;padding:12px 16px;background:#202c33;min-height:56px;gap:12px">' +
+        '<div style="width:40px;height:40px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#fff">' + esc(getInitials(_selectedUserName)) + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;font-size:16px">' + esc(_selectedUserName) + '</div>' +
+          '<div style="font-size:11px;color:#8696a0">' + _conversations.length + ' conversas</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="padding:6px 12px;background:#111b21">' +
+        '<div style="display:flex;align-items:center;background:#202c33;border-radius:8px;padding:6px 12px;gap:8px">' +
+          '<span style="color:#8696a0;font-size:14px">&#128269;</span>' +
+          '<input id="ao-imm-search-input" type="text" placeholder="Pesquisar conversa..." style="background:none;border:none;color:#e9edef;font-size:13px;outline:none;width:100%;font-family:inherit">' +
+        '</div>' +
+      '</div>' +
+      '<div id="ao-imm-chatlist" style="flex:1;overflow-y:auto"></div>';
+
+    document.body.appendChild(leftOverlay);
+
+    // Render chat list
+    renderImmersiveChatList(_conversations);
+
+    // Search filter
+    document.getElementById("ao-imm-search-input").addEventListener("input", function() {
+      var q = this.value.toLowerCase().trim();
+      var filtered = q ? _conversations.filter(function(c) {
+        return (c.chatName || "").toLowerCase().indexOf(q) >= 0;
+      }) : _conversations;
+      renderImmersiveChatList(filtered);
+    });
+
+    // ===== RIGHT PANEL: fixed overlay covering #main area =====
+    var rightOverlay = document.createElement("div");
+    rightOverlay.id = "ao-imm-right";
+    Object.assign(rightOverlay.style, {
+      position: "fixed",
+      top: topOffset + "px",
+      left: rightLeft + "px",
+      width: "calc(100vw - " + rightLeft + "px)",
+      height: "calc(100vh - " + topOffset + "px)",
+      background: "#0b141a",
+      zIndex: "200000",
+      display: "flex",
+      flexDirection: "column",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      color: "#e9edef",
+      fontSize: "14px",
+    });
+    rightOverlay.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8696a0;flex-direction:column;gap:12px">' +
+        '<div style="font-size:64px;opacity:0.2">&#128172;</div>' +
+        '<div style="font-size:16px;font-weight:500">Selecione uma conversa</div>' +
+        '<div style="font-size:13px;opacity:0.7">Clique em uma conversa ao lado para visualizar</div>' +
+      '</div>';
+    document.body.appendChild(rightOverlay);
 
     // ESC key to exit
     document.addEventListener("keydown", _immEscHandler);
@@ -622,9 +624,9 @@
     var rightOv = document.getElementById("ao-imm-right");
     if (rightOv) rightOv.remove();
 
-    // Restore app margin
+    // Restore app margin and height
     var appEl = document.getElementById("app");
-    if (appEl) appEl.style.marginTop = "";
+    if (appEl) { appEl.style.marginTop = ""; appEl.style.height = ""; }
 
     document.removeEventListener("keydown", _immEscHandler);
     console.log("[EZAP] Admin Overlay: Immersive mode exited");
