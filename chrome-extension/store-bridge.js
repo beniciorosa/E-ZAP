@@ -1261,6 +1261,7 @@
       }
     } else if (d.type === '_ezap_get_msgs_req') {
       // Return recent messages from all chats for capture
+      console.log('[EZAP-CAPTURE-BRIDGE] Received msgs request, id:', d.id);
       var sinceTs = d.sinceTs || {};  // { chatJid: lastTimestamp } map
       var maxPerChat = d.maxPerChat || 30;
       var initialMax = d.initialMax || 50;
@@ -1359,6 +1360,7 @@
           }
         }
       }
+      console.log('[EZAP-CAPTURE-BRIDGE] Responding with', allMsgEvents.length, 'events from', (msgChats ? msgChats.length : 0), 'chats');
       window.postMessage({
         type: '_ezap_get_msgs_res',
         id: d.id,

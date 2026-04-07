@@ -47,13 +47,14 @@
 
   // ===== BRIDGE: Request messages from MAIN world =====
   function requestMessages() {
-    if (!getUserId()) return;
+    if (!getUserId()) { console.log("[EZAP-CAPTURE] Skip scan: no userId"); return; }
     if (document.hidden) return;
-    if (_pendingReqId) return;  // Still waiting for previous response
+    if (_pendingReqId) { console.log("[EZAP-CAPTURE] Skip scan: pending request"); return; }
 
     var reqId = "cap_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
     _pendingReqId = reqId;
 
+    console.log("[EZAP-CAPTURE] Requesting messages via bridge (id:", reqId, ")");
     window.postMessage({
       type: "_ezap_get_msgs_req",
       id: reqId,
@@ -76,6 +77,7 @@
 
     _pendingReqId = null;
     var d = event.data;
+    console.log("[EZAP-CAPTURE] Bridge response: ok=" + d.ok + ", events=" + (d.events ? d.events.length : 0) + ", chats=" + d.chatCount);
 
     if (!d.ok || !d.events || !d.events.length) return;
 
