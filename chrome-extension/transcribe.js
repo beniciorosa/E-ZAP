@@ -111,11 +111,17 @@
     var b64 = await getAudioBase64(row);
     if (!b64) throw new Error('Audio nao encontrado');
 
+    // Get message WID and userId for saving to database
+    var messageWid = getRowId(row);
+    var userId = (window.__wcrmAuth && window.__wcrmAuth.userId) || null;
+
     var result = await new Promise(function(resolve) {
       chrome.runtime.sendMessage({
-        action: 'transcribe_audio',
+        action: 'transcribe_and_save',
         base64: b64.data,
-        contentType: b64.type
+        contentType: b64.type,
+        messageWid: messageWid,
+        userId: userId
       }, function(resp) {
         resolve(resp || { error: 'Sem resposta do background' });
       });
