@@ -2065,6 +2065,36 @@ function buildProfileOptions(selectedKey) {
   return html;
 }
 
+// ===== Helper: GEIA parent/child dependency =====
+// Ensures geia parent is checked when any geia sub-feature is checked, and vice-versa
+function ensureGeiaFeatures(features) {
+  var hasChild = features.indexOf("geia_resumo") !== -1 || features.indexOf("geia_sugestao") !== -1;
+  if (hasChild && features.indexOf("geia") === -1) features.push("geia");
+  return features;
+}
+
+function bindGeiaCheckboxLogic(checkboxName) {
+  // Wait a tick for DOM to be ready
+  setTimeout(function() {
+    var cbs = document.querySelectorAll('input[name="' + checkboxName + '"]');
+    cbs.forEach(function(cb) {
+      cb.addEventListener("change", function() {
+        var val = cb.value;
+        // If checking a GEIA child, auto-check parent
+        if ((val === "geia_resumo" || val === "geia_sugestao") && cb.checked) {
+          var parent = document.querySelector('input[name="' + checkboxName + '"][value="geia"]');
+          if (parent && !parent.checked) parent.checked = true;
+        }
+        // If unchecking GEIA parent, uncheck all children
+        if (val === "geia" && !cb.checked) {
+          var children = document.querySelectorAll('input[name="' + checkboxName + '"][value^="geia_"]');
+          children.forEach(function(c) { c.checked = false; });
+        }
+      });
+    });
+  }, 50);
+}
+
 // ===== Helper: toggle features/phones visibility based on role =====
 function onRoleChange(selectId, featGroupId, phonesGroupId) {
   var sel = document.getElementById(selectId);
@@ -2122,6 +2152,7 @@ function openCreateUser() {
     '</div>';
   document.getElementById("newUserName").focus();
   onRoleChange("newUserRole", "newFeatGroup", "newPhonesGroup");
+  bindGeiaCheckboxLogic("feat");
 }
 
 function createUser() {
@@ -2140,6 +2171,7 @@ function createUser() {
     document.querySelectorAll('input[name="feat"]:checked').forEach(function(cb) {
       features.push(cb.value);
     });
+    features = ensureGeiaFeatures(features);
   }
 
   var allowedPhones = [];
@@ -2246,6 +2278,7 @@ function openEditUser(id) {
     '</div>';
   document.getElementById("editUserName").focus();
   onRoleChange("editUserRole", "editFeatGroup", "editPhonesGroup");
+  bindGeiaCheckboxLogic("editFeat");
 }
 
 function saveEditUser(id) {
@@ -2264,6 +2297,7 @@ function saveEditUser(id) {
     document.querySelectorAll('input[name="editFeat"]:checked').forEach(function(cb) {
       features.push(cb.value);
     });
+    features = ensureGeiaFeatures(features);
   }
 
   var allowedPhones = [];
@@ -2788,6 +2822,7 @@ function openCreateProfile() {
       '</div>' +
     '</div>';
   initDragDrop('newProf');
+  bindGeiaCheckboxLogic("newProfFeat");
 }
 
 function saveNewProfile() {
@@ -2800,6 +2835,7 @@ function saveNewProfile() {
 
   var features = [];
   document.querySelectorAll('input[name="newProfFeat"]:checked').forEach(function(cb) { features.push(cb.value); });
+  features = ensureGeiaFeatures(features);
 
   userProfiles.push({ key: key, name: name, features: features, system: false });
   saveProfiles(function() {
@@ -2834,6 +2870,7 @@ function openEditProfile(idx) {
     document.querySelectorAll('input[name="editProfFeat"]').forEach(function(cb) { cb.checked = true; cb.disabled = true; });
   }
   initDragDrop('editProf');
+  if (!isAdmin) bindGeiaCheckboxLogic("editProfFeat");
 }
 
 function saveEditProfile(idx) {
@@ -2850,6 +2887,7 @@ function saveEditProfile(idx) {
   } else {
     p.features = [];
     document.querySelectorAll('input[name="editProfFeat"]:checked').forEach(function(cb) { p.features.push(cb.value); });
+    p.features = ensureGeiaFeatures(p.features);
   }
 
   saveProfiles(function() {
