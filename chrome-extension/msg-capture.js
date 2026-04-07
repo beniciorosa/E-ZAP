@@ -116,7 +116,7 @@
         message_wid: e.wid,
         chat_jid: e.chatJid,
         chat_name: e.chatName || null,
-        phone_mentor: e.mentorPhone || mentorPhone || null,
+        phone_mentor: mentorPhone || null,
         phone_client: e.clientPhone || null,
         direction: e.direction,
         message_type: e.messageType,
