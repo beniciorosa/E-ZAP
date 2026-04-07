@@ -37,7 +37,14 @@
   }
 
   function getMentorPhone() {
-    return (window.__wcrmAuth && window.__wcrmAuth.userPhone) || "";
+    // Priority: 1) userPhone from DB, 2) first allowedPhone (always has real number)
+    if (window.__wcrmAuth) {
+      if (window.__wcrmAuth.userPhone) return window.__wcrmAuth.userPhone;
+      if (window.__wcrmAuth.allowedPhones && window.__wcrmAuth.allowedPhones.length) {
+        return window.__wcrmAuth.allowedPhones[0].replace(/\D/g, '');
+      }
+    }
+    return "";
   }
 
   function isExtValid() {
@@ -82,8 +89,8 @@
     if (!d.ok || !d.events || !d.events.length) return;
 
     var userId = getUserId();
-    // mentorPhone: prefer bridge-detected (MAIN world), fallback to auth
-    var mentorPhone = (d.events.length && d.events[0].mentorPhone) || getMentorPhone();
+    // mentorPhone: prefer allowedPhones (real number), bridge may return LID
+    var mentorPhone = getMentorPhone() || (d.events.length && d.events[0].mentorPhone) || '';
     if (!userId) return;
 
     var events = d.events;
