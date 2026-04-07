@@ -17,9 +17,11 @@
   var SYNC_INTERVAL_MS = 20000;    // Sync buffer to Supabase every 20s
   var MAX_BUFFER_SIZE = 200;       // Max buffered events before forced sync
   var DEDUP_CACHE_MAX = 15000;     // Max known message IDs in memory
-  var TR_QUEUE_INTERVAL_MS = 25000; // Process transcription queue every 25s
-  var TR_MAX_DURATION = 300;       // Max audio duration to transcribe (5 min)
-  var TR_DELAY_BETWEEN_MS = 3000;  // Delay between transcriptions
+  // OLD download-based transcription pipeline DISABLED (v1.9.17)
+  // Auto-transcription now handled by interceptor (transcribe-interceptor.js)
+  // var TR_QUEUE_INTERVAL_MS = 25000;
+  // var TR_MAX_DURATION = 300;
+  // var TR_DELAY_BETWEEN_MS = 3000;
 
   // ===== STATE =====
   var _buffer = [];                // Pending events to sync
@@ -27,7 +29,6 @@
   var _knownWidsCount = 0;
   var _scanTimer = null;
   var _syncTimer = null;
-  var _trTimer = null;             // Transcription queue timer
   var _initialized = false;
   var _chatLastTs = {};            // chat_jid -> last captured timestamp (unix s)
   var _syncInProgress = false;
@@ -36,12 +37,8 @@
   var _pendingReqId = null;
 
   // ===== TRANSCRIPTION STATE =====
-  var _trQueue = [];               // [{wid, duration}] audio msgs to transcribe
-  var _trProcessing = false;       // true while transcribing
   var _trDoneWids = {};            // wid -> true (already transcribed or attempted)
   var _trDoneCount = 0;
-  var _trTotalDone = 0;
-  var _trTotalErrors = 0;
   var _trEnabled = false;          // set to true if user has 'transcribe' feature
 
   // ===== HELPERS =====
@@ -140,7 +137,7 @@
         duration_seconds: e.duration > 0 ? e.duration : null,
         media_mime: e.mediaMime || null,
         timestamp: new Date(e.timestamp * 1000).toISOString(),
-        transcription_status: (e.messageType === 'audio' && _trEnabled) ? 'pending' : null
+        transcription_status: null  // Set to 'done' by auto-transcribe when played/sent
       };
 
       _buffer.push(row);
@@ -150,11 +147,6 @@
 
     if (newCount > 0) {
       console.log("[EZAP-CAPTURE] Captured", newCount, "new messages (buffer:", _buffer.length, ")");
-    }
-
-    // Queue audio messages for transcription
-    if (_trEnabled && events.length > 0) {
-      queueForTranscription(events);
     }
 
     // Sync LID->phone mappings if any were discovered
@@ -172,168 +164,11 @@
     if (_buffer.length >= MAX_BUFFER_SIZE) syncBuffer();
   });
 
-  // ===== TRANSCRIPTION QUEUE =====
+  // ===== TRANSCRIPTION =====
+  // Old download-based queue REMOVED (v1.9.17)
+  // Transcription now happens via interceptor auto-capture (play/send)
   function hasTranscribeFeature() {
     return !!(window.__ezapHasFeature && window.__ezapHasFeature('transcribe'));
-  }
-
-  function queueForTranscription(events) {
-    if (!_trEnabled) return;
-    for (var i = 0; i < events.length; i++) {
-      var e = events[i];
-      // Only queue audio/ptt messages that haven't been processed
-      if ((e.messageType === 'audio') && !_trDoneWids[e.wid]) {
-        // Skip very long audios to save costs
-        if (e.duration && e.duration > TR_MAX_DURATION) {
-          _trDoneWids[e.wid] = true;
-          _trDoneCount++;
-          continue;
-        }
-        _trQueue.push({ wid: e.wid, duration: e.duration || 0 });
-      }
-    }
-    if (_trQueue.length > 0) {
-      console.log("[EZAP-CAPTURE] Queued", _trQueue.length, "audio msgs for transcription");
-    }
-  }
-
-  function processTranscribeQueue() {
-    if (_trProcessing || _trQueue.length === 0) return;
-    if (!getUserId() || !isExtValid()) return;
-    if (!_trEnabled) return;
-    if (document.hidden) return; // Don't transcribe when tab is hidden
-
-    _trProcessing = true;
-    var item = _trQueue.shift();
-    item.retries = item.retries || 0;
-
-    // Skip if already done (might have been added twice)
-    if (_trDoneWids[item.wid]) {
-      _trProcessing = false;
-      if (_trQueue.length > 0) setTimeout(processTranscribeQueue, 500);
-      return;
-    }
-
-    console.log("[EZAP-CAPTURE] Transcribing audio:", item.wid, "dur:", item.duration + "s", "retry:", item.retries);
-
-    // Step 1: Download audio from WA Store via bridge
-    downloadAudioFromBridge(item.wid)
-      .then(function(audioData) {
-        if (!audioData || !audioData.base64) {
-          throw new Error('Audio download failed');
-        }
-        // Step 2: Send to background for transcription + save
-        return new Promise(function(resolve) {
-          if (!isExtValid()) { resolve({ error: 'Extension invalidated' }); return; }
-          try {
-            chrome.runtime.sendMessage({
-              action: 'transcribe_and_save',
-              base64: audioData.base64,
-              contentType: audioData.mimeType || 'audio/ogg',
-              messageWid: item.wid,
-              userId: getUserId()
-            }, function(resp) {
-              if (chrome.runtime.lastError) {
-                resolve({ error: chrome.runtime.lastError.message });
-              } else {
-                resolve(resp || { error: 'No response' });
-              }
-            });
-          } catch(e) {
-            resolve({ error: e.message });
-          }
-        });
-      })
-      .then(function(result) {
-        _trDoneWids[item.wid] = true;
-        _trDoneCount++;
-        if (result && result.error) {
-          _trTotalErrors++;
-          console.warn("[EZAP-CAPTURE] Transcription error:", item.wid, result.error);
-        } else {
-          _trTotalDone++;
-          console.log("[EZAP-CAPTURE] Transcribed:", item.wid, "=>", (result && result.text || '').substring(0, 60));
-        }
-      })
-      .catch(function(err) {
-        // Re-queue for retry if download failed (max 3 retries, with increasing delay)
-        if (item.retries < 3) {
-          item.retries++;
-          _trQueue.push(item); // Push to end of queue for later retry
-          console.log("[EZAP-CAPTURE] Audio download failed, re-queued (retry " + item.retries + "/3):", item.wid);
-        } else {
-          _trDoneWids[item.wid] = true;
-          _trDoneCount++;
-          _trTotalErrors++;
-          console.warn("[EZAP-CAPTURE] Transcription failed after 3 retries:", item.wid, err.message);
-          // Update DB status to error so we know it failed
-          try {
-            chrome.runtime.sendMessage({
-              action: "supabase_rest",
-              path: "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(item.wid),
-              method: "PATCH",
-              body: { transcription_status: "error" },
-              prefer: "return=minimal"
-            });
-          } catch(e) {}
-        }
-      })
-      .finally(function() {
-        _trProcessing = false;
-        // Prevent dedup cache bloat
-        if (_trDoneCount > 5000) {
-          _trDoneWids = {};
-          _trDoneCount = 0;
-        }
-        // Process next with delay (longer delay for retries)
-        if (_trQueue.length > 0) {
-          setTimeout(processTranscribeQueue, TR_DELAY_BETWEEN_MS);
-        }
-      });
-  }
-
-  // Download audio blob from MAIN world via postMessage bridge
-  function downloadAudioFromBridge(wid) {
-    return new Promise(function(resolve) {
-      var dlId = "dl_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
-      var resolved = false;
-
-      function handler(event) {
-        if (!event.data || event.source !== window) return;
-        if (event.data.type !== '_ezap_download_audio_res') return;
-        if (event.data.id !== dlId) return;
-        resolved = true;
-        window.removeEventListener('message', handler);
-
-        if (event.data.ok) {
-          resolve({
-            base64: event.data.base64,
-            mimeType: event.data.mimeType,
-            duration: event.data.duration || 0
-          });
-        } else {
-          console.warn("[EZAP-CAPTURE] Audio download failed:", event.data.error);
-          resolve(null);
-        }
-      }
-
-      window.addEventListener('message', handler);
-      window.postMessage({
-        type: '_ezap_download_audio_req',
-        id: dlId,
-        wid: wid
-      }, '*');
-
-      // Timeout after 15s
-      setTimeout(function() {
-        if (!resolved) {
-          resolved = true;
-          window.removeEventListener('message', handler);
-          console.warn("[EZAP-CAPTURE] Audio download timeout:", wid);
-          resolve(null);
-        }
-      }, 15000);
-    });
   }
 
   // ===== LID -> PHONE MAPPING SYNC =====
@@ -396,6 +231,24 @@
     _syncInProgress = true;
     var batch = _buffer.splice(0, 50);  // Max 50 per request
 
+    // Normalize keys: PostgREST requires all objects in a batch to have the same keys (PGRST102)
+    // Some rows may have transcript/transcription_status from auto-transcribe, others don't
+    var allKeys = {};
+    for (var k = 0; k < batch.length; k++) {
+      var rowKeys = Object.keys(batch[k]);
+      for (var j = 0; j < rowKeys.length; j++) {
+        allKeys[rowKeys[j]] = true;
+      }
+    }
+    var keyList = Object.keys(allKeys);
+    for (var k = 0; k < batch.length; k++) {
+      for (var j = 0; j < keyList.length; j++) {
+        if (!(keyList[j] in batch[k])) {
+          batch[k][keyList[j]] = null;
+        }
+      }
+    }
+
     try {
       chrome.runtime.sendMessage({
         action: "supabase_rest",
@@ -455,14 +308,6 @@
       if (!isExtValid()) { stop(); return; }
       syncBuffer();
     }, SYNC_INTERVAL_MS);
-
-    // Transcription queue processor
-    if (_trEnabled) {
-      _trTimer = setInterval(function() {
-        if (!isExtValid()) { stop(); return; }
-        processTranscribeQueue();
-      }, TR_QUEUE_INTERVAL_MS);
-    }
 
     // Listen for auto-transcription events from interceptor (MAIN world)
     if (_trEnabled) {
@@ -596,7 +441,6 @@
   function stop() {
     if (_scanTimer) { clearInterval(_scanTimer); _scanTimer = null; }
     if (_syncTimer) { clearInterval(_syncTimer); _syncTimer = null; }
-    if (_trTimer) { clearInterval(_trTimer); _trTimer = null; }
     _initialized = false;
     // Final sync attempt
     if (_buffer.length > 0) syncBuffer();
@@ -626,11 +470,8 @@
       totalSynced: _totalSynced,
       transcribe: {
         enabled: _trEnabled,
-        queue: _trQueue.length,
-        processing: _trProcessing,
-        done: _trTotalDone,
-        errors: _trTotalErrors,
-        dedupCache: _trDoneCount
+        dedupCache: _trDoneCount,
+        pendingRetries: Object.keys(_pendingTranscripts).length
       }
     };
   };
