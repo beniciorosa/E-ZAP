@@ -58,9 +58,26 @@
     return "";
   }
 
+  var _extInvalidCount = 0;  // Track consecutive invalid checks
+  var EXT_INVALID_MAX = 30;  // Only stop after 30 consecutive failures (~5 min)
+
   function isExtValid() {
-    try { return !!(chrome && chrome.runtime && chrome.runtime.id); }
-    catch (e) { return false; }
+    try {
+      var valid = !!(chrome && chrome.runtime && chrome.runtime.id);
+      if (valid) { _extInvalidCount = 0; return true; }
+      _extInvalidCount++;
+      console.warn("[EZAP-CAPTURE] Extension temporarily invalid (" + _extInvalidCount + "/" + EXT_INVALID_MAX + ")");
+      return false;
+    }
+    catch (e) {
+      _extInvalidCount++;
+      return false;
+    }
+  }
+
+  // Check if we should permanently stop (many consecutive failures)
+  function shouldStop() {
+    return _extInvalidCount >= EXT_INVALID_MAX;
   }
 
   // ===== BRIDGE: Request messages from MAIN world =====
@@ -310,13 +327,13 @@
 
     // Scan periodically via bridge
     _scanTimer = setInterval(function() {
-      if (!isExtValid()) { stop(); return; }
+      if (!isExtValid()) { if (shouldStop()) stop(); return; }
       requestMessages();
     }, SCAN_INTERVAL_MS);
 
     // Sync periodically
     _syncTimer = setInterval(function() {
-      if (!isExtValid()) { stop(); return; }
+      if (!isExtValid()) { if (shouldStop()) stop(); return; }
       syncBuffer();
     }, SYNC_INTERVAL_MS);
 
@@ -475,7 +492,8 @@
     var attempts = 0;
     var waitTimer = setInterval(function() {
       attempts++;
-      if (!isExtValid() || attempts > 120) { clearInterval(waitTimer); return; }
+      if (attempts > 120) { clearInterval(waitTimer); return; }
+      if (!isExtValid()) return; // Skip this tick, but keep trying
       if (getUserId()) {
         clearInterval(waitTimer);
         setTimeout(start, 5000);  // Wait for Store to be ready
