@@ -406,6 +406,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // ===== Auto-transcribe: transcribe + save to Supabase =====
+  if (request.action === "transcribe_and_save") {
+    handleAsync(() => transcribeAndSave(request.base64, request.contentType, request.messageWid, request.userId), sendResponse);
+    return true;
+  }
+
   // ===== GEIA - AI Chat Completion =====
   if (request.action === "geia_chat") {
     handleAsync(() => geiaChatCompletion(request.messages, request.maxTokens), sendResponse);
@@ -1357,6 +1363,57 @@ async function transcribeAudio(base64, contentType) {
   } catch (err) {
     console.error("[EZAP BG] Transcription error:", err);
     return { error: err.message || "Erro desconhecido" };
+  }
+}
+
+// ===== Auto-Transcribe: Transcribe audio + save to Supabase =====
+async function transcribeAndSave(base64, contentType, messageWid, userId) {
+  try {
+    if (!base64) throw new Error("No audio data");
+    if (!messageWid) throw new Error("No message WID");
+
+    // Step 1: Transcribe via Whisper
+    const result = await transcribeAudio(base64, contentType);
+    if (result.error) {
+      // Mark as error in Supabase
+      try {
+        await supabaseRest(
+          "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(messageWid)
+            + (userId ? "&user_id=eq." + encodeURIComponent(userId) : ""),
+          "PATCH",
+          { transcription_status: "error" },
+          "return=minimal"
+        );
+      } catch(e) {}
+      return result;
+    }
+
+    // Step 2: Save transcription to Supabase
+    const text = (result.text || "").trim();
+    if (!text) {
+      await supabaseRest(
+        "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(messageWid)
+          + (userId ? "&user_id=eq." + encodeURIComponent(userId) : ""),
+        "PATCH",
+        { transcription_status: "error" },
+        "return=minimal"
+      );
+      return { error: "Empty transcription" };
+    }
+
+    await supabaseRest(
+      "/rest/v1/message_events?message_wid=eq." + encodeURIComponent(messageWid)
+        + (userId ? "&user_id=eq." + encodeURIComponent(userId) : ""),
+      "PATCH",
+      { transcript: text, transcription_status: "done" },
+      "return=minimal"
+    );
+
+    console.log("[EZAP BG] Auto-transcribe saved:", messageWid, "=>", text.substring(0, 60) + "...");
+    return { text: text, saved: true };
+  } catch (err) {
+    console.error("[EZAP BG] transcribeAndSave error:", err);
+    return { error: err.message || "Unknown error" };
   }
 }
 

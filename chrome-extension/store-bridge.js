@@ -1462,6 +1462,210 @@
         events: allMsgEvents,
         chatCount: msgChats ? msgChats.length : 0
       }, '*');
+    } else if (d.type === '_ezap_download_audio_req') {
+      // Download audio blob for a specific message by WID
+      // Used by msg-capture.js for automatic transcription
+      var _dlReqId = d.id;
+      var _dlWid = d.wid;
+
+      (function(reqId, wid) {
+        function respond(ok, data) {
+          var msg = { type: '_ezap_download_audio_res', id: reqId, ok: ok };
+          if (ok) {
+            msg.base64 = data.base64;
+            msg.mimeType = data.mimeType;
+            msg.duration = data.duration || 0;
+          } else {
+            msg.error = data;
+          }
+          window.postMessage(msg, '*');
+        }
+
+        // Parse WID to extract chatJid for faster lookup
+        function extractChatJid(w) {
+          var m = w.match(/[_]([^_]+@[cgs]\.us)/);
+          return m ? m[1] : null;
+        }
+
+        // Find message model in WA Store by WID
+        function findMsg(w) {
+          var chatJid = extractChatJid(w);
+
+          // Strategy 1: Webpack Store Chat -> msgs
+          if (window._ezapStore && window._ezapStore.Chat) {
+            try {
+              var chats = window._ezapStore.Chat.getModelsArray();
+              for (var ci = 0; ci < chats.length; ci++) {
+                var c = chats[ci];
+                if (!c || !c.id) continue;
+                var cjid = c.id._serialized || '';
+                if (chatJid && cjid !== chatJid) continue;
+                var msgsCol = c.msgs || c.__x_msgs;
+                var arr = [];
+                if (msgsCol && msgsCol._models) arr = msgsCol._models;
+                else if (Array.isArray(msgsCol)) arr = msgsCol;
+                else if (msgsCol && typeof msgsCol.getModelsArray === 'function') {
+                  try { arr = msgsCol.getModelsArray() || []; } catch(e) {}
+                }
+                for (var mi = 0; mi < arr.length; mi++) {
+                  var mid = arr[mi].id ? (arr[mi].id._serialized || '') : '';
+                  if (mid === w) return arr[mi];
+                }
+              }
+            } catch(e) {}
+          }
+
+          // Strategy 2: Fiber Store chats
+          try {
+            var fs = findFiberStore();
+            if (fs && Array.isArray(fs.chats)) {
+              for (var fi = 0; fi < fs.chats.length; fi++) {
+                var fc = fs.chats[fi];
+                if (!fc || !fc.id) continue;
+                var fjid = fc.id._serialized || '';
+                if (chatJid && fjid !== chatJid) continue;
+                var fMsgs = fc.msgs || fc.__x_msgs;
+                var fArr = [];
+                if (fMsgs && fMsgs._models) fArr = fMsgs._models;
+                else if (Array.isArray(fMsgs)) fArr = fMsgs;
+                for (var fmi = 0; fmi < fArr.length; fmi++) {
+                  var fmid = fArr[fmi].id ? (fArr[fmi].id._serialized || '') : '';
+                  if (fmid === w) return fArr[fmi];
+                }
+              }
+            }
+          } catch(e) {}
+
+          return null;
+        }
+
+        // Download media blob from message model
+        function downloadMedia(msg) {
+          return new Promise(function(resolve) {
+            var md = msg.mediaData || msg.__x_mediaData;
+
+            // Attempt 1: Already have blob cached (audio was previously played)
+            if (md && typeof md.getBlob === 'function') {
+              try {
+                var blobResult = md.getBlob();
+                if (blobResult && typeof blobResult.then === 'function') {
+                  blobResult.then(function(b) {
+                    if (b && b.size > 500) resolve(b);
+                    else tryDownload(msg, md, resolve);
+                  }).catch(function() { tryDownload(msg, md, resolve); });
+                  return;
+                } else if (blobResult && blobResult.size > 500) {
+                  resolve(blobResult);
+                  return;
+                }
+              } catch(e) {}
+            }
+
+            tryDownload(msg, md, resolve);
+          });
+        }
+
+        function tryDownload(msg, md, resolve) {
+          // Attempt 2: localUrl on mediaData
+          if (md && md.localUrl) {
+            fetch(md.localUrl).then(function(r) { return r.blob(); }).then(function(b) {
+              if (b && b.size > 500) resolve(b);
+              else tryMsgDownload(msg, md, resolve);
+            }).catch(function() { tryMsgDownload(msg, md, resolve); });
+            return;
+          }
+          tryMsgDownload(msg, md, resolve);
+        }
+
+        function tryMsgDownload(msg, md, resolve) {
+          // Attempt 3: Call downloadMedia on message model
+          if (typeof msg.downloadMedia === 'function') {
+            try {
+              var dlResult = msg.downloadMedia({ type: 'audio' });
+              if (dlResult && typeof dlResult.then === 'function') {
+                dlResult.then(function() {
+                  // After download, try getBlob again
+                  var md2 = msg.mediaData || msg.__x_mediaData;
+                  if (md2 && typeof md2.getBlob === 'function') {
+                    var b2 = md2.getBlob();
+                    if (b2 && typeof b2.then === 'function') {
+                      b2.then(function(blob) { resolve(blob && blob.size > 500 ? blob : null); })
+                        .catch(function() { resolve(null); });
+                    } else {
+                      resolve(b2 && b2.size > 500 ? b2 : null);
+                    }
+                  } else {
+                    resolve(null);
+                  }
+                }).catch(function() { resolve(null); });
+                return;
+              }
+            } catch(e) {}
+          }
+
+          // Attempt 4: mediaData has downloadMedia
+          if (md && typeof md.downloadMedia === 'function') {
+            try {
+              var mdlResult = md.downloadMedia();
+              if (mdlResult && typeof mdlResult.then === 'function') {
+                mdlResult.then(function() {
+                  if (typeof md.getBlob === 'function') {
+                    var b3 = md.getBlob();
+                    if (b3 && typeof b3.then === 'function') {
+                      b3.then(function(blob) { resolve(blob && blob.size > 500 ? blob : null); })
+                        .catch(function() { resolve(null); });
+                    } else {
+                      resolve(b3 && b3.size > 500 ? b3 : null);
+                    }
+                  } else {
+                    resolve(null);
+                  }
+                }).catch(function() { resolve(null); });
+                return;
+              }
+            } catch(e) {}
+          }
+
+          resolve(null);
+        }
+
+        // Convert blob to base64
+        function toBase64(blob) {
+          return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() {
+              var b64 = reader.result.split(',')[1];
+              resolve({ base64: b64, mimeType: blob.type || 'audio/ogg' });
+            };
+            reader.onerror = function() { reject(new Error('BLOB_READ_ERROR')); };
+            reader.readAsDataURL(blob);
+          });
+        }
+
+        // Main flow
+        try {
+          var msgModel = findMsg(wid);
+          if (!msgModel) { respond(false, 'MSG_NOT_FOUND'); return; }
+
+          var mtype = (msgModel.type || msgModel.__x_type || '').toLowerCase();
+          if (mtype !== 'ptt' && mtype !== 'audio') { respond(false, 'NOT_AUDIO'); return; }
+
+          var dur = Number(msgModel.duration || msgModel.__x_duration || 0);
+
+          downloadMedia(msgModel).then(function(blob) {
+            if (!blob) { respond(false, 'DOWNLOAD_FAILED'); return; }
+            return toBase64(blob).then(function(data) {
+              data.duration = dur;
+              respond(true, data);
+            });
+          }).catch(function(e) {
+            respond(false, e.message || 'ERROR');
+          });
+        } catch(e) {
+          respond(false, e.message || 'EXCEPTION');
+        }
+      })(_dlReqId, _dlWid);
+
     } else if (d.type === '_ezap_store_ready_req') {
       // Fiber store nao precisa de "ready handshake" — ou tem, ou nao tem.
       var fiberOk = false;

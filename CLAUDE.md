@@ -29,7 +29,7 @@ Chrome Extension (Manifest V3) para gestao de WhatsApp Business. Inclui CRM, men
 - **URL**: `https://xsqpqdjffjqxdcmoytfc.supabase.co`
 - **Anon key**: no `background.js` linha 5 (AUTH_SUPA_ANON)
 - **Service key**: no `background.js` linha 6 (AUTH_SERVICE_KEY)
-- **Management API token**: `sbp_3d0347fbdc8498cf2317edcff0ae4907f80229f4`
+- **Management API token**: `sbp_5ae8739e7793a58d23314a1261887f42c61f1c39`
 - **IMPORTANTE**: chamar Management API com `User-Agent: Mozilla/5.0 ...` (Cloudflare bloqueia UAs de bot/python/curl com error 1010)
 
 ## GitHub
