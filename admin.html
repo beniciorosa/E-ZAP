@@ -1212,6 +1212,86 @@
     .dash-user-stat .val { font-size: 16px; font-weight: 700; font-family: var(--font-display); color: var(--on-surface); }
     .dash-user-stat .lbl { font-size: 10px; color: var(--on-surface-variant); text-transform: uppercase; }
     @media (max-width: 1100px) { .dash-grid { grid-template-columns: 1fr; } .dash-grid.cols-3 { grid-template-columns: 1fr; } }
+
+    /* ===== CHAT VIEWER MODAL ===== */
+    .chat-modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6); z-index: 2000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .chat-modal {
+      background: var(--surface-container); border-radius: var(--radius-xl);
+      width: 680px; max-width: 95vw; max-height: 85vh;
+      display: flex; flex-direction: column; box-shadow: var(--shadow-modal);
+      overflow: hidden;
+    }
+    .chat-modal-header {
+      padding: 18px 24px; display: flex; align-items: center; gap: 14px;
+      border-bottom: 1px solid var(--outline-variant);
+      background: var(--surface-container-high);
+    }
+    .chat-modal-header .chat-avatar {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: var(--secondary-container); display: flex;
+      align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px; color: var(--on-secondary-container);
+    }
+    .chat-modal-header .chat-info { flex: 1; }
+    .chat-modal-header .chat-name { font-size: 15px; font-weight: 700; color: var(--on-surface); }
+    .chat-modal-header .chat-meta { font-size: 11px; color: var(--on-surface-variant); }
+    .chat-modal-header .chat-close {
+      width: 32px; height: 32px; border-radius: 50%; border: none;
+      background: transparent; color: var(--on-surface-variant); cursor: pointer;
+      font-size: 18px; display: flex; align-items: center; justify-content: center;
+    }
+    .chat-modal-header .chat-close:hover { background: var(--surface-variant); }
+    .chat-modal-body {
+      flex: 1; overflow-y: auto; padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 4px;
+      background: var(--surface-dim);
+    }
+    .chat-msg {
+      max-width: 75%; padding: 8px 12px; border-radius: 10px;
+      font-size: 13px; line-height: 1.45; word-wrap: break-word;
+      position: relative;
+    }
+    .chat-msg.sent {
+      align-self: flex-end; background: var(--secondary-container);
+      color: var(--on-secondary-container); border-bottom-right-radius: 3px;
+    }
+    .chat-msg.received {
+      align-self: flex-start; background: var(--surface-container);
+      color: var(--on-surface); border-bottom-left-radius: 3px;
+    }
+    .chat-msg .msg-sender {
+      font-size: 11px; font-weight: 700; margin-bottom: 2px;
+      color: var(--primary-fixed-dim);
+    }
+    .chat-msg .msg-time {
+      font-size: 10px; color: var(--on-surface-variant);
+      text-align: right; margin-top: 3px;
+    }
+    .chat-msg .msg-type-badge {
+      display: inline-block; font-size: 10px; padding: 1px 6px;
+      border-radius: 4px; background: var(--surface-variant);
+      color: var(--on-surface-variant); margin-bottom: 3px;
+    }
+    .chat-msg .msg-transcript {
+      font-style: italic; font-size: 12px; color: var(--on-surface-variant);
+      border-left: 2px solid var(--primary); padding-left: 8px; margin-top: 4px;
+    }
+    .chat-date-divider {
+      text-align: center; padding: 8px 0;
+    }
+    .chat-date-divider span {
+      background: var(--surface-container-high); color: var(--on-surface-variant);
+      font-size: 11px; padding: 4px 14px; border-radius: 8px;
+    }
+    .chat-modal-footer {
+      padding: 12px 24px; border-top: 1px solid var(--outline-variant);
+      font-size: 11px; color: var(--on-surface-variant); text-align: center;
+      background: var(--surface-container-high);
+    }
   </style>
 </head>
 <body>
@@ -1318,6 +1398,11 @@
     <div class="panel" id="panel-dashboard">
       <div class="page-header">
         <div class="page-title">Dashboard de Performance</div>
+        <div class="page-header-actions">
+          <select id="dashUserSelect" onchange="loadDashboard()" style="background:var(--surface-container-high);color:var(--on-surface);border:1px solid var(--outline-variant);border-radius:var(--radius-sm);padding:8px 14px;font-size:13px;font-family:var(--font-body);min-width:200px;cursor:pointer">
+            <option value="">Carregando...</option>
+          </select>
+        </div>
       </div>
 
       <div class="dash-period">
@@ -5372,6 +5457,7 @@ var _dashLoaded = false;
 var _dashChartDaily = null;
 var _dashChartHourly = null;
 var _dashChartTypes = null;
+var _dashUsersLoaded = false;
 
 function dashSetRange(days) {
   var to = new Date();
@@ -5387,6 +5473,28 @@ function dashSetRange(days) {
   loadDashboard();
 }
 
+function loadDashUserSelect() {
+  if (_dashUsersLoaded) return;
+  supa("/rest/v1/users?select=id,name,phone&active=eq.true&order=name.asc").then(function(users) {
+    if (!Array.isArray(users)) return;
+    var sel = document.getElementById("dashUserSelect");
+    var html = '<option value="__all__">Todos os usuarios</option>';
+    users.forEach(function(u) {
+      var selected = (currentAdmin && currentAdmin.user_id === u.id) ? " selected" : "";
+      html += '<option value="' + u.id + '"' + selected + '>' + esc(u.name || u.phone || "Sem nome") + '</option>';
+    });
+    sel.innerHTML = html;
+    _dashUsersLoaded = true;
+  });
+}
+
+function getDashUserId() {
+  var sel = document.getElementById("dashUserSelect");
+  var val = sel ? sel.value : "";
+  if (!val || val === "__all__") return null;
+  return val;
+}
+
 function loadDashboard() {
   var from = document.getElementById("dashDateFrom").value;
   var to = document.getElementById("dashDateTo").value;
@@ -5395,17 +5503,24 @@ function loadDashboard() {
     return;
   }
   _dashLoaded = true;
+  loadDashUserSelect();
+
+  var userId = getDashUserId();
 
   // Load all 3 RPC functions in parallel
+  var summaryBody = { p_date_from: from, p_date_to: to };
+  if (userId) summaryBody.p_user_id = userId;
   var summaryP = supa("/rest/v1/rpc/fn_dashboard_summary", {
     method: "POST",
-    body: { p_user_id: currentAdmin.user_id, p_date_from: from, p_date_to: to },
+    body: summaryBody,
     prefer: "return=representation"
   });
 
+  var responseBody = { p_date_from: from, p_date_to: to };
+  if (userId) responseBody.p_user_id = userId;
   var responseP = supa("/rest/v1/rpc/fn_response_times", {
     method: "POST",
-    body: { p_user_id: currentAdmin.user_id, p_date_from: from, p_date_to: to },
+    body: responseBody,
     prefer: "return=representation"
   });
 
@@ -5564,8 +5679,10 @@ function renderTopChats(chats) {
   var html = '<table class="dash-top-table"><thead><tr><th>Conversa</th><th>Total</th><th>Env</th><th>Rec</th><th>Tipo</th></tr></thead><tbody>';
   chats.slice(0, 15).forEach(function(c) {
     var name = esc(c.chat_name || c.chat_jid || "-");
+    var jidSafe = esc(c.chat_jid || "");
+    var nameSafe = esc(c.chat_name || c.chat_jid || "-");
     var tipo = c.is_group ? '<span style="color:var(--warning);font-size:11px">Grupo</span>' : '<span style="color:var(--secondary);font-size:11px">Individual</span>';
-    html += '<tr><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</td><td><strong>' + fmtNum(c.total) + '</strong></td><td>' + fmtNum(c.sent) + '</td><td>' + fmtNum(c.received) + '</td><td>' + tipo + '</td></tr>';
+    html += '<tr onclick="openChatViewer(\'' + jidSafe + '\', \'' + nameSafe.replace(/'/g, "\\'") + '\')" style="cursor:pointer" title="Clique para ver conversa"><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + ' <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.4;vertical-align:middle"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></td><td><strong>' + fmtNum(c.total) + '</strong></td><td>' + fmtNum(c.sent) + '</td><td>' + fmtNum(c.received) + '</td><td>' + tipo + '</td></tr>';
   });
   html += '</tbody></table>';
   el.innerHTML = html;
@@ -5631,6 +5748,121 @@ function renderAdminOverview(data) {
     html += '<div style="color:var(--on-surface-variant);font-size:13px">Nenhum usuario com atividade no periodo</div>';
   }
   el.innerHTML = html;
+}
+
+// ===== CHAT VIEWER =====
+function openChatViewer(chatJid, chatName) {
+  if (!chatJid) return;
+  var from = document.getElementById("dashDateFrom").value;
+  var to = document.getElementById("dashDateTo").value;
+  var userId = getDashUserId();
+
+  // Build query
+  var query = "/rest/v1/message_events?chat_jid=eq." + encodeURIComponent(chatJid);
+  if (userId) query += "&user_id=eq." + userId;
+  if (from) query += "&timestamp=gte." + from + "T00:00:00";
+  if (to) query += "&timestamp=lte." + to + "T23:59:59";
+  query += "&select=message_wid,direction,message_type,body,caption,sender_name,group_participant,timestamp,transcript,duration_seconds,is_group&order=timestamp.asc&limit=500";
+
+  // Show loading modal
+  var initials = (chatName || "?").split(" ").map(function(w) { return w[0]; }).slice(0, 2).join("").toUpperCase();
+  var container = document.getElementById("modalsContainer");
+  container.innerHTML =
+    '<div class="chat-modal-overlay" onclick="if(event.target===this)closeChatViewer()">' +
+      '<div class="chat-modal">' +
+        '<div class="chat-modal-header">' +
+          '<div class="chat-avatar">' + initials + '</div>' +
+          '<div class="chat-info"><div class="chat-name">' + esc(chatName) + '</div><div class="chat-meta">Carregando mensagens...</div></div>' +
+          '<button class="chat-close" onclick="closeChatViewer()">&times;</button>' +
+        '</div>' +
+        '<div class="chat-modal-body" id="chatViewerBody"><div style="text-align:center;padding:40px;color:var(--on-surface-variant)">Carregando...</div></div>' +
+        '<div class="chat-modal-footer">Visualizacao somente leitura</div>' +
+      '</div>' +
+    '</div>';
+
+  supa(query).then(function(msgs) {
+    if (!Array.isArray(msgs)) { document.getElementById("chatViewerBody").innerHTML = '<div style="text-align:center;padding:40px;color:var(--error)">Erro ao carregar mensagens</div>'; return; }
+    renderChatMessages(msgs, chatName);
+  }).catch(function() {
+    document.getElementById("chatViewerBody").innerHTML = '<div style="text-align:center;padding:40px;color:var(--error)">Erro de conexao</div>';
+  });
+}
+
+function renderChatMessages(msgs, chatName) {
+  var body = document.getElementById("chatViewerBody");
+  if (!msgs.length) {
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--on-surface-variant)">Nenhuma mensagem encontrada no periodo</div>';
+    return;
+  }
+  // Update header meta
+  var meta = document.querySelector(".chat-modal-header .chat-meta");
+  if (meta) meta.textContent = msgs.length + " mensagens no periodo";
+
+  var html = '';
+  var lastDate = '';
+  for (var i = 0; i < msgs.length; i++) {
+    var m = msgs[i];
+    var dt = new Date(m.timestamp);
+    var dateStr = String(dt.getDate()).padStart(2, "0") + "/" + String(dt.getMonth() + 1).padStart(2, "0") + "/" + dt.getFullYear();
+    var timeStr = String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0");
+
+    // Date divider
+    if (dateStr !== lastDate) {
+      html += '<div class="chat-date-divider"><span>' + dateStr + '</span></div>';
+      lastDate = dateStr;
+    }
+
+    var dir = m.direction === 'sent' ? 'sent' : 'received';
+    html += '<div class="chat-msg ' + dir + '">';
+
+    // Sender name for groups
+    if (m.is_group && m.direction === 'received' && m.sender_name) {
+      html += '<div class="msg-sender">' + esc(m.sender_name) + '</div>';
+    }
+
+    // Message type badge (non-text)
+    if (m.message_type && m.message_type !== 'chat' && m.message_type !== 'text') {
+      var typeLabel = m.message_type;
+      if (typeLabel === 'ptt' || typeLabel === 'audio') {
+        var dur = m.duration_seconds ? Math.round(m.duration_seconds) : 0;
+        var durMin = Math.floor(dur / 60);
+        var durSec = dur % 60;
+        typeLabel = '🎤 Audio ' + durMin + ':' + String(durSec).padStart(2, '0');
+      } else if (typeLabel === 'image') { typeLabel = '📷 Imagem'; }
+      else if (typeLabel === 'video') { typeLabel = '🎥 Video'; }
+      else if (typeLabel === 'document') { typeLabel = '📄 Documento'; }
+      else if (typeLabel === 'sticker') { typeLabel = '🏷 Sticker'; }
+      else if (typeLabel === 'vcard') { typeLabel = '👤 Contato'; }
+      else if (typeLabel === 'location') { typeLabel = '📍 Localizacao'; }
+      html += '<div class="msg-type-badge">' + typeLabel + '</div>';
+    }
+
+    // Body text
+    var text = m.body || m.caption || '';
+    if (text) {
+      html += '<div>' + esc(text) + '</div>';
+    } else if (!m.body && !m.caption && m.message_type !== 'chat' && m.message_type !== 'text') {
+      // No body for media — badge is enough
+    } else {
+      html += '<div style="font-style:italic;opacity:0.5">(sem texto)</div>';
+    }
+
+    // Transcript
+    if (m.transcript) {
+      html += '<div class="msg-transcript">📝 ' + esc(m.transcript) + '</div>';
+    }
+
+    html += '<div class="msg-time">' + timeStr + '</div>';
+    html += '</div>';
+  }
+
+  body.innerHTML = html;
+  // Scroll to bottom
+  body.scrollTop = body.scrollHeight;
+}
+
+function closeChatViewer() {
+  document.getElementById("modalsContainer").innerHTML = "";
 }
 
 var _modalMouseDownTarget = null;
