@@ -139,13 +139,9 @@
         group_participant: e.groupParticipant || null,
         duration_seconds: e.duration > 0 ? e.duration : null,
         media_mime: e.mediaMime || null,
-        timestamp: new Date(e.timestamp * 1000).toISOString()
+        timestamp: new Date(e.timestamp * 1000).toISOString(),
+        transcription_status: (e.messageType === 'audio' && _trEnabled) ? 'pending' : null
       };
-
-      // Mark audio messages for auto-transcription
-      if (e.messageType === 'audio' && _trEnabled) {
-        row.transcription_status = 'pending';
-      }
 
       _buffer.push(row);
       newCount++;
