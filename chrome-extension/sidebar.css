@@ -426,6 +426,128 @@
   border-top: none;
 }
 
+/* ===== Message Notes ===== */
+.ezap-note-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(134, 150, 160, 0.15);
+  color: #8696a0;
+  cursor: pointer;
+  position: absolute;
+  left: -30px;
+  top: 4px;
+  z-index: 10;
+  transition: background 0.2s, color 0.2s, transform 0.15s;
+  user-select: none;
+  border: none;
+  line-height: 1;
+}
+/* Show on hover over the message row */
+div[role="row"]:hover .ezap-note-btn,
+div[data-id]:hover .ezap-note-btn {
+  display: flex;
+}
+/* Always show if note exists */
+.ezap-note-has {
+  display: flex !important;
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+.ezap-note-btn:hover {
+  background: rgba(134, 150, 160, 0.3);
+  color: #d1d7db;
+  transform: scale(1.12);
+}
+.ezap-note-has:hover {
+  background: rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+}
+
+/* Note display box */
+.ezap-note-box {
+  padding: 6px 10px;
+  margin-top: 4px;
+  background: rgba(251, 191, 36, 0.08);
+  border-left: 3px solid #fbbf24;
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #fde68a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+.ezap-note-box:hover {
+  background: rgba(251, 191, 36, 0.14);
+}
+
+/* Note editor */
+.ezap-note-editor {
+  padding: 6px 8px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(251, 191, 36, 0.2);
+}
+.ezap-note-input {
+  width: 100%;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 8px 10px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+.ezap-note-input:focus {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2);
+}
+.ezap-note-input::placeholder {
+  color: rgba(134, 150, 160, 0.5);
+}
+.ezap-note-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+.ezap-note-editor-actions button {
+  padding: 4px 14px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.ezap-note-save {
+  background: #fbbf24;
+  color: #1a1a1a;
+}
+.ezap-note-save:hover {
+  background: #fde68a;
+}
+.ezap-note-cancel {
+  background: transparent;
+  color: #8696a0;
+}
+.ezap-note-cancel:hover {
+  color: #d1d7db;
+}
+.ezap-note-delete {
+  background: transparent;
+  color: #ef4444;
+}
+.ezap-note-delete:hover {
+  color: #f87171;
+}
+
 /* ===== GEIA Sidebar ===== */
 #geia-sidebar {
   display: none;
