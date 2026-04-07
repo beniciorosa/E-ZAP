@@ -492,7 +492,7 @@ function _ensureCustomListCSS(force) {
     '.wcrm-custom-time.wcrm-time-unread { color: ' + accent + '; }',
     '.wcrm-custom-line2 { display: flex; align-items: center; gap: 6px; }',
     '.wcrm-custom-preview { color: ' + t.textSecondary + '; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 20px; }',
-    '.wcrm-custom-preview svg { display: inline !important; vertical-align: middle; flex-shrink: 0; }',
+    '.wcrm-custom-preview svg { display: inline !important; vertical-align: -2px; flex-shrink: 0; }',
     '.wcrm-custom-pin { color: ' + t.textSecondary + '; font-size: 12px; flex-shrink: 0; opacity: 0.7; display: inline-flex; align-items: center; }',
     '.wcrm-custom-badge { background: ' + accent + '; color: ' + (isDark ? '#111b21' : '#ffffff') + '; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
     '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: ' + t.textSecondary + '; font-size: 14px; }',
@@ -1352,16 +1352,15 @@ function _wcrmFormatTime(ts) {
 function _stripAlpha(s) { return (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase(); }
 
 // SVGs inline estilo WhatsApp nativo (14px, inline com texto)
-var _icoS = 'display:inline;vertical-align:middle;margin-right:3px;flex-shrink:0;';
-var _icoSmic = 'display:inline;vertical-align:middle;margin-right:1px;flex-shrink:0;';
+var _icoS = 'display:inline;vertical-align:-2px;margin-right:2px;flex-shrink:0;';
 var _waIcons = {
-  ptt: '<svg viewBox="0 0 24 24" width="16" height="16" style="' + _icoSmic + '"><path fill="#8696a0" d="M7 5.5c0-2.76142 2.23858-5 5-5 2.7614 0 5 2.23858 5 5v5.5c0 2.7614-2.2386 5-5 5-2.76142 0-5-2.2386-5-5z"/><path fill="#8696a0" d="M12.006 18c-.002 0-.004 0-.006 0s-.004 0-.006 0c-2.93324-.0028-5.44639-1.81-6.48477-4.3752-.20722-.5119-.79022-.7589-1.30215-.5517s-.75895.7902-.55172 1.3021c1.21491 3.0014 4.00322 5.2002 7.34464 5.5698v3.055c0 .5523.4477 1 1 1s1-.4477 1-1v-3.0548c3.3421-.3692 6.1311-2.5682 7.3462-5.57.2072-.5119-.0398-1.0949-.5517-1.3021-.512-.2072-1.095.0398-1.3022.5517-1.0385 2.5657-3.5524 4.3731-6.4863 4.3752z"/></svg>',
-  camera: '<svg viewBox="0 0 16 14" width="14" height="14" style="' + _icoS + '"><path fill="#8696a0" d="M11 0H5L3.5 2H1a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-2.5L11 0zM8 11a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm0-1.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
-  video: '<svg viewBox="0 0 16 14" width="14" height="14" style="' + _icoS + '"><path fill="#8696a0" d="M15 3.5l-4 2.5V3a1 1 0 0 0-1-1H1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V8l4 2.5v-7z"/></svg>',
-  doc: '<svg viewBox="0 0 13 16" width="13" height="14" style="' + _icoS + '"><path fill="#8696a0" d="M0 1.5A1.5 1.5 0 0 1 1.5 0h6.379a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 12.5 4.622V14.5a1.5 1.5 0 0 1-1.5 1.5H1.5A1.5 1.5 0 0 1 0 14.5v-13zM1.5 1a.5.5 0 0 0-.5.5v13a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5H8.5A1.5 1.5 0 0 1 7 3.5V1H1.5zM8 1.293V3.5a.5.5 0 0 0 .5.5h2.207L8 1.293z"/></svg>',
-  sticker: '<svg viewBox="0 0 16 16" width="14" height="14" style="' + _icoS + '"><path fill="#8696a0" d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm2.5 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm-5 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm6.03 5.5a.5.5 0 0 1-.68.18A6.98 6.98 0 0 1 8 12a6.98 6.98 0 0 1-2.85-1.32.5.5 0 1 1 .5-.86A5.97 5.97 0 0 0 8 11c.87 0 1.71-.24 2.35-.68a.5.5 0 0 1 .68.18z"/></svg>',
-  location: '<svg viewBox="0 0 12 17" width="12" height="14" style="' + _icoS + '"><path fill="#8696a0" d="M6 0C2.69 0 0 2.69 0 6c0 4.5 6 11 6 11s6-6.5 6-11c0-3.31-2.69-6-6-6zm0 8.5A2.5 2.5 0 1 1 6 3.5a2.5 2.5 0 0 1 0 5z"/></svg>',
-  contact: '<svg viewBox="0 0 16 16" width="14" height="14" style="' + _icoS + '"><path fill="#8696a0" d="M8 7a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1c-3.3 0-6 2-6 4.5V14h12v-1.5C14 10 11.3 8 8 8z"/></svg>',
+  ptt: '<svg viewBox="0 0 24 24" width="15" height="15" style="' + _icoS + '"><path fill="#8696a0" d="M7 5.5c0-2.76142 2.23858-5 5-5 2.7614 0 5 2.23858 5 5v5.5c0 2.7614-2.2386 5-5 5-2.76142 0-5-2.2386-5-5z"/><path fill="#8696a0" d="M12.006 18c-.002 0-.004 0-.006 0s-.004 0-.006 0c-2.93324-.0028-5.44639-1.81-6.48477-4.3752-.20722-.5119-.79022-.7589-1.30215-.5517s-.75895.7902-.55172 1.3021c1.21491 3.0014 4.00322 5.2002 7.34464 5.5698v3.055c0 .5523.4477 1 1 1s1-.4477 1-1v-3.0548c3.3421-.3692 6.1311-2.5682 7.3462-5.57.2072-.5119-.0398-1.0949-.5517-1.3021-.512-.2072-1.095.0398-1.3022.5517-1.0385 2.5657-3.5524 4.3731-6.4863 4.3752z"/></svg>',
+  camera: '<svg viewBox="0 0 16 14" width="15" height="15" style="' + _icoS + '"><path fill="#8696a0" d="M11 0H5L3.5 2H1a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1h-2.5L11 0zM8 11a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm0-1.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>',
+  video: '<svg viewBox="0 0 16 14" width="15" height="15" style="' + _icoS + '"><path fill="#8696a0" d="M15 3.5l-4 2.5V3a1 1 0 0 0-1-1H1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V8l4 2.5v-7z"/></svg>',
+  doc: '<svg viewBox="0 0 13 16" width="13" height="15" style="' + _icoS + '"><path fill="#8696a0" d="M0 1.5A1.5 1.5 0 0 1 1.5 0h6.379a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 12.5 4.622V14.5a1.5 1.5 0 0 1-1.5 1.5H1.5A1.5 1.5 0 0 1 0 14.5v-13zM1.5 1a.5.5 0 0 0-.5.5v13a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5H8.5A1.5 1.5 0 0 1 7 3.5V1H1.5zM8 1.293V3.5a.5.5 0 0 0 .5.5h2.207L8 1.293z"/></svg>',
+  sticker: '<svg viewBox="0 0 16 16" width="15" height="15" style="' + _icoS + '"><path fill="#8696a0" d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm2.5 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm-5 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm6.03 5.5a.5.5 0 0 1-.68.18A6.98 6.98 0 0 1 8 12a6.98 6.98 0 0 1-2.85-1.32.5.5 0 1 1 .5-.86A5.97 5.97 0 0 0 8 11c.87 0 1.71-.24 2.35-.68a.5.5 0 0 1 .68.18z"/></svg>',
+  location: '<svg viewBox="0 0 12 17" width="13" height="15" style="' + _icoS + '"><path fill="#8696a0" d="M6 0C2.69 0 0 2.69 0 6c0 4.5 6 11 6 11s6-6.5 6-11c0-3.31-2.69-6-6-6zm0 8.5A2.5 2.5 0 1 1 6 3.5a2.5 2.5 0 0 1 0 5z"/></svg>',
+  contact: '<svg viewBox="0 0 16 16" width="15" height="15" style="' + _icoS + '"><path fill="#8696a0" d="M8 7a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 1c-3.3 0-6 2-6 4.5V14h12v-1.5C14 10 11.3 8 8 8z"/></svg>',
   pin: '<svg viewBox="0 0 32 32" width="18" height="18" style="display:inline;vertical-align:middle"><path fill="#8696a0" d="m28.1 12.7-8.8-8.8c-.4-.4-1-.4-1.4 0l-3.2 3.2c-.5.5-.3 1.1 0 1.4l.7.7-3 3c-1.5-.3-5.6-1-7.8 1.2-.4.4-.4 1 0 1.4l5.7 5.7-6.3 6.3c-.4.4-.4 1 0 1.4s1.1.3 1.4 0l6.3-6.3 5.7 5.7c.6.5 1.2.3 1.4 0 2.2-2.2 1.5-6.3 1.2-7.8l3-3 .7.7c.4.4 1 .4 1.4 0l3.2-3.2c.2-.6.2-1.2-.2-1.6zm-3.9 2.5-.7-.7c-.4-.4-1-.4-1.4 0l-4.1 4.2c-.3.3-.4.6-.3 1 .3 1.1.8 3.8 0 5.6l-11-11c1.7-.8 4.5-.3 5.6 0 .3.1.7 0 1-.3l4.1-4.1c.6-.6.3-1.1 0-1.4l-.7-.7 1.9-1.8 7.4 7.4z"/></svg>',
   muted: '<svg viewBox="0 0 24 24" width="14" height="14" style="display:inline;vertical-align:middle"><path fill="#8696a0" d="M12 4.5c-1.2 0-2.3.5-3.1 1.3L3.5 12.2 12 20.5V4.5zm7.5 7.7l-2.1-2.1-1.4 1.4 2.1 2.1-2.1 2.1 1.4 1.4 2.1-2.1 2.1 2.1 1.4-1.4-2.1-2.1 2.1-2.1-1.4-1.4-2.1 2.1z"/></svg>'
 };
@@ -1391,7 +1390,7 @@ function _formatPreview(data) {
   // Prefixo de quem mandou
   var isSystemEvent = /saiu|entrou|adicionou|removeu|criou o grupo|mudou o/i.test(txt);
   if (data.lastMsgFromMe && !isSystemEvent && !/^Voc[eê]:?\s/i.test(txt)) {
-    txt = 'Voce: ' + txt;
+    txt = 'Voc\u00ea: ' + txt;
   } else if (data.lastMsgSender && !data.lastMsgFromMe && !isSystemEvent) {
     var sender = data.lastMsgSender;
     var senderLabel = sender;
