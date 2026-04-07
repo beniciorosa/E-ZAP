@@ -155,10 +155,10 @@
     try {
       chrome.runtime.sendMessage({
         action: "supabase_rest",
-        path: "/rest/v1/message_events",
+        path: "/rest/v1/message_events?on_conflict=user_id,message_wid",
         method: "POST",
         body: batch,
-        prefer: "resolution=ignore-duplicates,return=minimal"
+        prefer: "resolution=merge-duplicates,return=minimal"
       }, function(resp) {
         _syncInProgress = false;
         if (chrome.runtime.lastError) {
