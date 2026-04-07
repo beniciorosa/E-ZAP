@@ -216,6 +216,7 @@
     if (!sel || !_users) return;
     var currentUserId = window.__wcrmAuth ? window.__wcrmAuth.userId : null;
     var html = '<option value="">-- Selecione um usuario --</option>';
+    html += '<option value="__all__">Todos os usuarios</option>';
     _users.forEach(function(u) {
       // Don't show current admin user
       if (u.id === currentUserId) return;
@@ -241,8 +242,9 @@
       '</div>';
 
     // Fetch recent messages, group by chat
-    var query = "/rest/v1/message_events?user_id=eq." + userId +
-      "&select=chat_jid,chat_name,is_group,direction,message_type,body,timestamp" +
+    var query = "/rest/v1/message_events?";
+    if (userId !== "__all__") query += "user_id=eq." + userId + "&";
+    query += "select=chat_jid,chat_name,is_group,direction,message_type,body,timestamp" +
       "&order=timestamp.desc&limit=1500";
 
     supa(query).then(function(msgs) {
@@ -377,8 +379,9 @@
     });
 
     // Fetch messages
-    var query = "/rest/v1/message_events?user_id=eq." + _selectedUserId +
-      "&chat_jid=eq." + encodeURIComponent(chatJid) +
+    var query = "/rest/v1/message_events?";
+    if (_selectedUserId !== "__all__") query += "user_id=eq." + _selectedUserId + "&";
+    query += "chat_jid=eq." + encodeURIComponent(chatJid) +
       "&select=message_wid,direction,message_type,body,caption,sender_name,group_participant,timestamp,transcript,duration_seconds,is_group" +
       "&order=timestamp.asc&limit=500";
 
@@ -548,12 +551,30 @@
       fontSize: "14px",
     });
 
+    // Build user options for immersive dropdown
+    var immUserOpts = '<option value="__all__">Todos os usuarios</option>';
+    var currentUserId = window.__wcrmAuth ? window.__wcrmAuth.userId : null;
+    if (_users) {
+      _users.forEach(function(u) {
+        if (u.id === currentUserId) return;
+        var label = u.name || u.phone || "Sem nome";
+        var sel = (u.id === _selectedUserId) ? " selected" : "";
+        immUserOpts += '<option value="' + u.id + '"' + sel + '>' + esc(label) + '</option>';
+      });
+    }
+    // Select __all__ if that's the current selection
+    if (_selectedUserId === "__all__") {
+      immUserOpts = immUserOpts.replace('value="__all__"', 'value="__all__" selected');
+    }
+
     leftOverlay.innerHTML =
       '<div style="display:flex;align-items:center;padding:12px 16px;background:#202c33;min-height:56px;gap:12px">' +
-        '<div style="width:40px;height:40px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#fff">' + esc(getInitials(_selectedUserName)) + '</div>' +
+        '<div style="width:40px;height:40px;min-width:40px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:#fff">' + esc(getInitials(_selectedUserName)) + '</div>' +
         '<div style="flex:1;min-width:0">' +
-          '<div style="font-weight:600;font-size:16px">' + esc(_selectedUserName) + '</div>' +
-          '<div style="font-size:11px;color:#8696a0">' + _conversations.length + ' conversas</div>' +
+          '<select id="ao-imm-user-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #3b4a54;background:#2a3942;color:#e9edef;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;outline:none">' +
+            immUserOpts +
+          '</select>' +
+          '<div id="ao-imm-conv-count" style="font-size:11px;color:#8696a0;margin-top:2px">' + _conversations.length + ' conversas</div>' +
         '</div>' +
       '</div>' +
       '<div style="padding:6px 12px;background:#111b21">' +
@@ -576,6 +597,61 @@
         return (c.chatName || "").toLowerCase().indexOf(q) >= 0;
       }) : _conversations;
       renderImmersiveChatList(filtered);
+    });
+
+    // Bind immersive user selector — switch user without leaving immersive mode
+    document.getElementById("ao-imm-user-select").addEventListener("change", function() {
+      var newUserId = this.value;
+      var newUserName = this.options[this.selectedIndex] ? this.options[this.selectedIndex].text : "";
+      _selectedUserId = newUserId;
+      _selectedUserName = newUserName;
+      // Update avatar
+      var avatar = document.querySelector("#ao-imm-left div[style*='border-radius:50']");
+      // Update banner
+      var bannerSpan = document.querySelector("#ao-imm-banner span");
+      if (bannerSpan) bannerSpan.innerHTML = '&#128065; Supervisao: <strong>' + esc(_selectedUserName) + '</strong> &mdash; Somente leitura';
+      // Clear search
+      var searchInput = document.getElementById("ao-imm-search-input");
+      if (searchInput) searchInput.value = "";
+      // Reset right panel
+      var rightOv = document.getElementById("ao-imm-right");
+      if (rightOv) rightOv.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8696a0;flex-direction:column;gap:12px">' +
+          '<div style="font-size:64px;opacity:0.2">&#128172;</div>' +
+          '<div style="font-size:16px;font-weight:500">Selecione uma conversa</div>' +
+          '<div style="font-size:13px;opacity:0.7">Clique em uma conversa ao lado para visualizar</div>' +
+        '</div>';
+      // Show loading in chat list
+      var chatlist = document.getElementById("ao-imm-chatlist");
+      if (chatlist) chatlist.innerHTML = '<div style="text-align:center;padding:40px;color:#8696a0">Carregando conversas...</div>';
+      // Fetch new user's conversations
+      if (!newUserId) return;
+      var query = "/rest/v1/message_events?";
+      if (newUserId !== "__all__") query += "user_id=eq." + newUserId + "&";
+      query += "select=chat_jid,chat_name,is_group,direction,message_type,body,timestamp&order=timestamp.desc&limit=1500";
+      supa(query).then(function(msgs) {
+        if (!Array.isArray(msgs) || !msgs.length) {
+          if (chatlist) chatlist.innerHTML = '<div style="text-align:center;padding:40px;color:#8696a0">Nenhuma conversa encontrada</div>';
+          var countEl = document.getElementById("ao-imm-conv-count");
+          if (countEl) countEl.textContent = "0 conversas";
+          _conversations = [];
+          return;
+        }
+        var chatMap = {};
+        msgs.forEach(function(m) {
+          if (!m.chat_jid) return;
+          if (!chatMap[m.chat_jid]) {
+            chatMap[m.chat_jid] = { chatJid: m.chat_jid, chatName: m.chat_name || m.chat_jid, isGroup: m.is_group || false, lastMsg: m, count: 0 };
+          }
+          chatMap[m.chat_jid].count++;
+        });
+        _conversations = Object.values(chatMap).sort(function(a, b) {
+          return new Date(b.lastMsg.timestamp) - new Date(a.lastMsg.timestamp);
+        });
+        var countEl = document.getElementById("ao-imm-conv-count");
+        if (countEl) countEl.textContent = _conversations.length + " conversas";
+        renderImmersiveChatList(_conversations);
+      });
     });
 
     // ===== RIGHT PANEL: fixed overlay covering #main area =====
@@ -708,8 +784,9 @@
       '</div>';
 
     // Fetch messages
-    var query = "/rest/v1/message_events?user_id=eq." + _selectedUserId +
-      "&chat_jid=eq." + encodeURIComponent(chatJid) +
+    var query = "/rest/v1/message_events?";
+    if (_selectedUserId !== "__all__") query += "user_id=eq." + _selectedUserId + "&";
+    query += "chat_jid=eq." + encodeURIComponent(chatJid) +
       "&select=message_wid,direction,message_type,body,caption,sender_name,group_participant,timestamp,transcript,duration_seconds,is_group" +
       "&order=timestamp.asc&limit=500";
 
