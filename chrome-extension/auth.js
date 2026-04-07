@@ -168,7 +168,8 @@ window.__ezapDefaultButtonConfig = {
   crm:   { label: "CRM",   bgColor: "#25d366", textColor: "#111b21", order: 1 },
   msg:   { label: "MSG",   bgColor: "#4d96ff", textColor: "#ffffff", order: 2 },
   abas:  { label: "ABAS",  bgColor: "#cc5de8", textColor: "#ffffff", order: 4 },
-  geia:  { label: "GEIA",  bgColor: "#cc5de8", textColor: "#ffffff", order: 5 }
+  geia:  { label: "GEIA",  bgColor: "#cc5de8", textColor: "#ffffff", order: 5 },
+  admin_overlay: { label: "SPV", bgColor: "#ff922b", textColor: "#ffffff", order: 6 }
 };
 
 window.__ezapButtonConfig = window.__ezapDefaultButtonConfig;
