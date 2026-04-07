@@ -1665,20 +1665,89 @@
           if (objectUrl) {
             fetch(objectUrl).then(function(r) { return r.blob(); }).then(function(b) {
               if (b && b.size > 500) resolve(b);
-              else if (fallbackFn) fallbackFn(msg, md, resolve);
-              else resolve(null);
-            }).catch(function() {
-              if (fallbackFn) fallbackFn(msg, md, resolve);
-              else resolve(null);
-            });
+              else tryMediaBlob(msg, md, resolve, fallbackFn);
+            }).catch(function() { tryMediaBlob(msg, md, resolve, fallbackFn); });
             return;
           }
-          // Try mediaBlob directly
-          if (md && md.mediaBlob && md.mediaBlob.size > 500) {
-            resolve(md.mediaBlob);
-            return;
+          tryMediaBlob(msg, md, resolve, fallbackFn);
+        }
+
+        function tryMediaBlob(msg, md, resolve, fallbackFn) {
+          // Try __x_mediaBlob (WhatsApp internal MediaBlob wrapper)
+          var mediaBlob = md && (md.__x_mediaBlob || md.mediaBlob);
+          if (mediaBlob) {
+            console.log('[EZAP-BRIDGE] Found mediaBlob, type:', typeof mediaBlob,
+              'isBlob:', mediaBlob instanceof Blob,
+              'size:', mediaBlob.size,
+              'keys:', Object.getOwnPropertyNames(mediaBlob).slice(0, 15).join(','));
+
+            // Case 1: It's already a Blob
+            if (mediaBlob instanceof Blob && mediaBlob.size > 500) {
+              console.log('[EZAP-BRIDGE] mediaBlob is a direct Blob, size:', mediaBlob.size);
+              resolve(mediaBlob);
+              return;
+            }
+
+            // Case 2: It's a wrapper with a _blob or blob property
+            var innerBlob = mediaBlob._blob || mediaBlob.blob || mediaBlob.__x_blob;
+            if (innerBlob && innerBlob instanceof Blob && innerBlob.size > 500) {
+              console.log('[EZAP-BRIDGE] Found inner blob, size:', innerBlob.size);
+              resolve(innerBlob);
+              return;
+            }
+
+            // Case 3: It has a forceGetBlob or getBlob method
+            var getBlobFn = mediaBlob.forceGetBlob || mediaBlob.getBlob || mediaBlob.toBlob;
+            if (typeof getBlobFn === 'function') {
+              try {
+                var blobResult = getBlobFn.call(mediaBlob);
+                if (blobResult && typeof blobResult.then === 'function') {
+                  blobResult.then(function(b) {
+                    if (b && b instanceof Blob && b.size > 500) {
+                      console.log('[EZAP-BRIDGE] getBlob from mediaBlob wrapper, size:', b.size);
+                      resolve(b);
+                    } else if (fallbackFn) fallbackFn(msg, md, resolve);
+                    else resolve(null);
+                  }).catch(function() {
+                    if (fallbackFn) fallbackFn(msg, md, resolve);
+                    else resolve(null);
+                  });
+                  return;
+                } else if (blobResult && blobResult instanceof Blob && blobResult.size > 500) {
+                  resolve(blobResult);
+                  return;
+                }
+              } catch(e) {
+                console.warn('[EZAP-BRIDGE] mediaBlob getBlob error:', e.message);
+              }
+            }
+
+            // Case 4: It has an ArrayBuffer or Uint8Array
+            if (mediaBlob.buffer || mediaBlob._buffer) {
+              var buf = mediaBlob.buffer || mediaBlob._buffer;
+              if (buf && buf.byteLength > 500) {
+                var mimeType = (md && (md.__x_mimetype || md.mimetype)) || msg.mimetype || 'audio/ogg';
+                resolve(new Blob([buf], { type: mimeType }));
+                return;
+              }
+            }
+
+            // Case 5: Try to convert the wrapper to a URL and fetch
+            if (typeof mediaBlob.url === 'string' && mediaBlob.url.startsWith('blob:')) {
+              fetch(mediaBlob.url).then(function(r) { return r.blob(); }).then(function(b) {
+                if (b && b.size > 500) resolve(b);
+                else if (fallbackFn) fallbackFn(msg, md, resolve);
+                else resolve(null);
+              }).catch(function() {
+                if (fallbackFn) fallbackFn(msg, md, resolve);
+                else resolve(null);
+              });
+              return;
+            }
           }
-          if (md && md._blob && md._blob.size > 500) {
+
+          // Last resort: try _blob on md itself
+          if (md && md._blob && md._blob instanceof Blob && md._blob.size > 500) {
             resolve(md._blob);
             return;
           }
