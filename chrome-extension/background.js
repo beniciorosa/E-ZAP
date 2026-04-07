@@ -484,7 +484,22 @@ async function syncHubSpotKey() {
   }
 }
 
+// Rate limiter for HubSpot API (max 4 requests/second to avoid 429)
+let _hubQueue = Promise.resolve();
+let _hubLastCall = 0;
+const HUB_MIN_INTERVAL = 260; // ms between calls (~4/sec)
+
 async function hubFetch(path, options) {
+  // Queue requests to avoid secondly rate limit
+  const ticket = _hubQueue.then(async () => {
+    const now = Date.now();
+    const wait = Math.max(0, HUB_MIN_INTERVAL - (now - _hubLastCall));
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    _hubLastCall = Date.now();
+  });
+  _hubQueue = ticket.catch(() => {});
+  await ticket;
+
   const apiKey = await getApiKey();
   if (!apiKey) throw new Error("API key not configured");
   const res = await fetch("https://api.hubapi.com" + path, {
@@ -496,6 +511,28 @@ async function hubFetch(path, options) {
     },
   });
   if (!res.ok) {
+    // On rate limit, wait and retry once
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get("Retry-After") || "1", 10);
+      console.warn("[EZAP BG] HubSpot 429 on " + path + ", retrying in " + retryAfter + "s");
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+      _hubLastCall = Date.now();
+      const res2 = await fetch("https://api.hubapi.com" + path, {
+        ...options,
+        headers: {
+          "Authorization": "Bearer " + apiKey,
+          "Content-Type": "application/json",
+          ...(options && options.headers),
+        },
+      });
+      if (!res2.ok) {
+        let errDetail = "";
+        try { errDetail = await res2.text(); } catch (e) { /* ignore */ }
+        console.error("[EZAP BG] HubSpot " + res2.status + " on " + path + " (retry):", errDetail);
+        throw new Error("HubSpot HTTP " + res2.status);
+      }
+      return res2.json();
+    }
     let errDetail = "";
     try { errDetail = await res.text(); } catch (e) { /* ignore */ }
     console.error("[EZAP BG] HubSpot " + res.status + " on " + path + ":", errDetail);
