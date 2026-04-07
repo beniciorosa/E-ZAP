@@ -885,15 +885,21 @@ async function getHubSpotMeetings(ticketId, contactId) {
 
     const assocResults = await Promise.all(assocPromises);
 
+    // Debug: log raw association results
+    console.log("[MEETINGS] Raw assoc results:", JSON.stringify(assocResults.map(function(a) { return (a.results || []).length; })));
+
     // Deduplicate meeting IDs (v4 API may use toObjectId or to.id)
     const seen = {};
     const meetingIds = [];
-    assocResults.forEach(function(assoc) {
+    assocResults.forEach(function(assoc, idx) {
       (assoc.results || []).forEach(function(a) {
         var mid = a.toObjectId || (a.to && a.to.id) || null;
+        console.log("[MEETINGS] Assoc[" + idx + "] entry:", JSON.stringify({ toObjectId: a.toObjectId, toId: a.to ? a.to.id : undefined, mid: mid }));
         if (mid && !seen[mid]) { seen[mid] = true; meetingIds.push(mid); }
       });
     });
+
+    console.log("[MEETINGS] Unique meeting IDs:", JSON.stringify(meetingIds));
 
     if (meetingIds.length === 0) return { meetings: [] };
 
@@ -907,14 +913,30 @@ async function getHubSpotMeetings(ticketId, contactId) {
     });
 
     var meetings = batchResult.results || [];
+    console.log("[MEETINGS] Batch read returned " + meetings.length + " meetings, IDs:", meetings.map(function(m) { return m.id; }));
 
-    // Deduplicate meetings by ID (same meeting can appear via ticket + contact associations)
+    // Deduplicate meetings by ID
     var seenMeetings = {};
     meetings = meetings.filter(function(m) {
       if (!m.id || seenMeetings[m.id]) return false;
       seenMeetings[m.id] = true;
       return true;
     });
+
+    // Deduplicate by content (title + start time) as fallback — HubSpot may return
+    // the same meeting with different IDs via ticket vs contact associations
+    var seenContent = {};
+    meetings = meetings.filter(function(m) {
+      var key = (m.properties.hs_meeting_title || "") + "|" + (m.properties.hs_meeting_start_time || "");
+      if (seenContent[key]) {
+        console.log("[MEETINGS] Content-dedup removed duplicate:", m.id, key);
+        return false;
+      }
+      seenContent[key] = true;
+      return true;
+    });
+
+    console.log("[MEETINGS] After dedup: " + meetings.length + " meetings");
 
     // Sort by start time descending (most recent first)
     meetings.sort(function(a, b) {
