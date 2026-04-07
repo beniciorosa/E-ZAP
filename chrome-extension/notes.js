@@ -121,9 +121,23 @@
     return null;
   }
 
+  // ===== Get WID from a message row =====
+  function getRowWid(row) {
+    // data-id may be on the row itself or on a child element
+    var id = row.getAttribute('data-id');
+    if (id && id.indexOf('@') >= 0) return id;
+    var child = row.querySelector('[data-id]');
+    if (child) {
+      id = child.getAttribute('data-id');
+      if (id && id.indexOf('@') >= 0) return id;
+    }
+    return null;
+  }
+
   // ===== Scan and inject note icons =====
   function scan() {
-    var rows = document.querySelectorAll('div[role="row"][data-id]');
+    // Find all message rows (role="row" in the message list)
+    var rows = document.querySelectorAll('div[role="row"]');
     if (!rows.length) return;
 
     var newRows = [];
@@ -132,9 +146,9 @@
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       if (row.querySelector('.ezap-note-btn')) continue;
-      var wid = row.getAttribute('data-id');
-      if (!wid || wid.indexOf('@') < 0) continue;
-      newRows.push(row);
+      var wid = getRowWid(row);
+      if (!wid) continue;
+      newRows.push({ row: row, wid: wid });
       newWids.push(wid);
     }
 
@@ -142,19 +156,42 @@
 
     checkDbNotes(newWids).then(function(dbResults) {
       for (var j = 0; j < newRows.length; j++) {
-        if (newRows[j].querySelector('.ezap-note-btn')) continue;
-        var wid = newRows[j].getAttribute('data-id');
+        if (newRows[j].row.querySelector('.ezap-note-btn')) continue;
+        var wid = newRows[j].wid;
         var hasNote = !!(dbResults[wid] || _noteCache[wid]);
-        injectNoteIcon(newRows[j], wid, hasNote);
+        injectNoteIcon(newRows[j].row, wid, hasNote);
       }
     });
+  }
+
+  // Find the visual message bubble inside a row
+  function findBubble(row) {
+    // Strategy 1: msg-container (most reliable)
+    var container = row.querySelector('[data-testid="msg-container"]');
+    if (container) return container;
+
+    // Strategy 2: find element with background color (the bubble)
+    var dataIdEl = row.querySelector('[data-id]');
+    var startEl = dataIdEl || row;
+    var children = startEl.querySelectorAll('div');
+    for (var i = 0; i < children.length; i++) {
+      try {
+        var bg = window.getComputedStyle(children[i]).backgroundColor;
+        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' &&
+            children[i].offsetWidth > 60 && children[i].offsetWidth < 700) {
+          return children[i];
+        }
+      } catch(e) {}
+    }
+
+    return row;
   }
 
   function injectNoteIcon(row, wid, hasNote) {
     var btn = document.createElement('div');
     btn.className = 'ezap-note-btn';
     if (hasNote) btn.classList.add('ezap-note-has');
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     btn.title = hasNote ? 'Ver anotacao' : 'Adicionar anotacao';
 
     btn.addEventListener('click', function(e) {
@@ -163,11 +200,11 @@
       onNoteClick(row, wid, btn);
     });
 
-    // Find msg container to position the button
-    var container = row.querySelector('[data-testid="msg-container"]');
-    if (!container) container = row;
-    container.style.position = 'relative';
-    container.appendChild(btn);
+    // Attach to the bubble itself
+    var bubble = findBubble(row);
+    bubble.style.position = 'relative';
+    bubble.setAttribute('data-ezap-note-bubble', '1');
+    bubble.appendChild(btn);
 
     // If note exists, show it immediately
     if (hasNote) {
@@ -266,10 +303,9 @@
     actions.appendChild(saveBtn);
     editor.appendChild(actions);
 
-    // Insert editor inside the msg container
-    var container = row.querySelector('[data-testid="msg-container"]');
-    if (!container) container = row;
-    container.appendChild(editor);
+    // Insert editor inside the bubble
+    var bubble = row.querySelector('[data-ezap-note-bubble]') || findBubble(row);
+    bubble.appendChild(editor);
 
     // Auto-focus and handle Ctrl+Enter
     setTimeout(function() { textarea.focus(); }, 50);
@@ -304,9 +340,8 @@
       openEditor(row, wid, btn, _noteCache[wid] || text);
     });
 
-    var container = row.querySelector('[data-testid="msg-container"]');
-    if (!container) container = row;
-    container.appendChild(box);
+    var bubble = row.querySelector('[data-ezap-note-bubble]') || findBubble(row);
+    bubble.appendChild(box);
   }
 
   // ===== Observer & Init =====

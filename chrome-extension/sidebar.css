@@ -431,36 +431,37 @@
   display: none;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: rgba(134, 150, 160, 0.15);
+  background: rgba(134, 150, 160, 0.18);
   color: #8696a0;
   cursor: pointer;
   position: absolute;
-  left: -30px;
-  top: 4px;
+  right: 4px;
+  top: 2px;
   z-index: 10;
-  transition: background 0.2s, color 0.2s, transform 0.15s;
+  transition: background 0.2s, color 0.2s, opacity 0.2s;
   user-select: none;
   border: none;
   line-height: 1;
+  opacity: 0;
 }
-/* Show on hover over the message row */
-div[role="row"]:hover .ezap-note-btn,
-div[data-id]:hover .ezap-note-btn {
+/* Show on hover over the bubble */
+[data-ezap-note-bubble]:hover .ezap-note-btn {
   display: flex;
+  opacity: 1;
 }
 /* Always show if note exists */
 .ezap-note-has {
   display: flex !important;
+  opacity: 1 !important;
   background: rgba(251, 191, 36, 0.2);
   color: #fbbf24;
 }
 .ezap-note-btn:hover {
-  background: rgba(134, 150, 160, 0.3);
+  background: rgba(134, 150, 160, 0.35);
   color: #d1d7db;
-  transform: scale(1.12);
 }
 .ezap-note-has:hover {
   background: rgba(251, 191, 36, 0.35);
