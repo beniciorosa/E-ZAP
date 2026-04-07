@@ -5706,7 +5706,9 @@ function renderResponseTimes(data) {
       var mins = Math.round((c.avg_seconds || 0) / 60);
       var pct = c.received > 0 ? Math.round(c.responded / c.received * 100) : 0;
       html += '<div class="dash-response-bar" style="margin-bottom:8px">';
-      html += '<span style="font-size:12px;color:var(--on-surface);min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">' + esc(c.chat_name || c.chat_jid || "-") + '</span>';
+      var chatLabel = esc(c.chat_name || c.chat_jid || "-");
+      if (c.is_group) chatLabel += ' <span style="font-size:10px;color:var(--primary);font-weight:600;margin-left:4px">Grupo</span>';
+      html += '<span style="font-size:12px;color:var(--on-surface);min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block">' + chatLabel + '</span>';
       html += '<div class="bar"><div class="bar-fill" style="width:' + Math.min(pct, 100) + '%"></div></div>';
       html += '<span class="bar-pct">' + mins + 'min</span>';
       html += '</div>';
