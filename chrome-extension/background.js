@@ -885,12 +885,13 @@ async function getHubSpotMeetings(ticketId, contactId) {
 
     const assocResults = await Promise.all(assocPromises);
 
-    // Deduplicate meeting IDs
+    // Deduplicate meeting IDs (v4 API may use toObjectId or to.id)
     const seen = {};
     const meetingIds = [];
     assocResults.forEach(function(assoc) {
       (assoc.results || []).forEach(function(a) {
-        if (!seen[a.toObjectId]) { seen[a.toObjectId] = true; meetingIds.push(a.toObjectId); }
+        var mid = a.toObjectId || (a.to && a.to.id) || null;
+        if (mid && !seen[mid]) { seen[mid] = true; meetingIds.push(mid); }
       });
     });
 
@@ -906,6 +907,14 @@ async function getHubSpotMeetings(ticketId, contactId) {
     });
 
     var meetings = batchResult.results || [];
+
+    // Deduplicate meetings by ID (same meeting can appear via ticket + contact associations)
+    var seenMeetings = {};
+    meetings = meetings.filter(function(m) {
+      if (!m.id || seenMeetings[m.id]) return false;
+      seenMeetings[m.id] = true;
+      return true;
+    });
 
     // Sort by start time descending (most recent first)
     meetings.sort(function(a, b) {
