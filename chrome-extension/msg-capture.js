@@ -346,8 +346,21 @@
     if (!_trEnabled || !isExtValid()) return;
     if (_autoTrDone[data.wid]) return;
 
+    // Validate mime type — skip non-audio blobs (images, thumbnails, etc.)
+    var mime = (data.mimeType || '').toLowerCase();
+    if (mime && mime.indexOf('audio') < 0 && mime.indexOf('ogg') < 0 && mime.indexOf('opus') < 0 && mime.indexOf('video/mp4') < 0 && mime.indexOf('video/webm') < 0 && mime.indexOf('application/ogg') < 0) {
+      console.log("[EZAP-CAPTURE] Auto-transcribe skipped non-audio mime:", mime, data.wid);
+      return;
+    }
+
+    // Skip very small blobs (likely notification sounds, not voice messages)
+    if (data.size && data.size < 3000) {
+      console.log("[EZAP-CAPTURE] Auto-transcribe skipped tiny blob:", data.size, data.wid);
+      return;
+    }
+
     _autoTrDone[data.wid] = true;
-    console.log("[EZAP-CAPTURE] Auto-transcribe received:", data.wid, "size:", data.size, "source:", data.source);
+    console.log("[EZAP-CAPTURE] Auto-transcribe received:", data.wid, "size:", data.size, "mime:", mime, "source:", data.source);
 
     // Step 1: Transcribe via Whisper (just transcribe, don't save yet)
     try {

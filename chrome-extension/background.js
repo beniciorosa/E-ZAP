@@ -1349,6 +1349,15 @@ async function downloadMsgFile(url) {
 // ===== Audio Transcription via OpenAI Whisper =====
 async function transcribeAudio(base64, contentType) {
   try {
+    // Validate content type — Whisper only accepts audio formats
+    const VALID_AUDIO = ["audio/", "video/mp4", "video/webm", "application/ogg"];
+    const ct = (contentType || "").toLowerCase();
+    const isValidAudio = ct === "" || VALID_AUDIO.some(function(v) { return ct.indexOf(v) >= 0; });
+    if (!isValidAudio) {
+      console.warn("[EZAP BG] Skipping non-audio content type:", ct);
+      return { error: "Formato invalido: " + ct };
+    }
+
     // Convert base64 to binary
     const binaryStr = atob(base64);
     const bytes = new Uint8Array(binaryStr.length);
@@ -1356,15 +1365,27 @@ async function transcribeAudio(base64, contentType) {
       bytes[i] = binaryStr.charCodeAt(i);
     }
 
-    // Determine file extension
+    // Determine file extension from content type
     let ext = "ogg";
-    if (contentType && contentType.includes("mp4")) ext = "mp4";
-    else if (contentType && contentType.includes("webm")) ext = "webm";
-    else if (contentType && contentType.includes("mpeg")) ext = "mp3";
-    else if (contentType && contentType.includes("wav")) ext = "wav";
+    if (ct.includes("mp4")) ext = "mp4";
+    else if (ct.includes("webm")) ext = "webm";
+    else if (ct.includes("mpeg") || ct.includes("mp3")) ext = "mp3";
+    else if (ct.includes("wav")) ext = "wav";
+    else if (ct.includes("m4a")) ext = "m4a";
+    else if (ct.includes("flac")) ext = "flac";
 
-    const blob = new Blob([bytes], { type: contentType || "audio/ogg" });
-    const file = new File([blob], "audio." + ext, { type: contentType || "audio/ogg" });
+    // Detect actual format from magic bytes if content type is generic
+    if (ext === "ogg" && bytes.length > 4) {
+      // OGG: "OggS" | WebM/MKV: 0x1A45DFA3 | MP4/M4A: "ftyp" at offset 4
+      if (bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) ext = "webm";
+      else if (bytes.length > 8 && String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === "ftyp") ext = "mp4";
+      else if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0) ext = "mp3";
+      else if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) ext = "wav";
+    }
+
+    const audioType = ext === "ogg" ? "audio/ogg" : (ext === "mp4" ? "audio/mp4" : "audio/" + ext);
+    const blob = new Blob([bytes], { type: audioType });
+    const file = new File([blob], "audio." + ext, { type: audioType });
 
     const formData = new FormData();
     formData.append("file", file);
