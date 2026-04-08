@@ -156,6 +156,82 @@ function _unhideChat(jid) {
   } catch(e) {}
 }
 
+// Helper: adiciona badge de olho riscado no avatar de uma row oculta
+function _addHiddenBadgeToRow(row) {
+  var badge = document.createElement('div');
+  badge.className = 'ezap-hidden-badge';
+  badge.style.cssText = 'position:absolute;bottom:8px;right:12px;background:rgba(0,0,0,0.6);border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;';
+  badge.innerHTML = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#fff" stroke-width="2.5"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  var avatar = row.querySelector('.wcrm-custom-avatar');
+  if (avatar) {
+    avatar.style.position = 'relative';
+    avatar.appendChild(badge);
+  }
+}
+
+// Helper: atualiza contagem e visibilidade do toggle "Conversas ocultas"
+function _updateHiddenToggle() {
+  var custom = document.getElementById('wcrm-custom-list');
+  if (!custom) return;
+  var hiddenRows = custom.querySelectorAll('.wcrm-custom-row[data-ezap-is-hidden="1"]');
+  var count = 0;
+  for (var i = 0; i < hiddenRows.length; i++) {
+    if (hiddenRows[i].style.opacity !== '0') count++;
+  }
+  var toggle = document.getElementById('ezap-hidden-filter');
+  if (count === 0 && toggle) {
+    toggle.style.display = 'none';
+    return;
+  }
+  if (count > 0 && !toggle) {
+    // Cria toggle dinamicamente (primeiro chat oculto na sessão)
+    toggle = document.createElement('div');
+    toggle.id = 'ezap-hidden-filter';
+    toggle.style.cssText = 'display:flex;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid #3b4a54;';
+    toggle.addEventListener('mouseenter', function() { if (!_ezapHiddenViewActive) toggle.style.background = '#2a3942'; });
+    toggle.addEventListener('mouseleave', function() { if (!_ezapHiddenViewActive) toggle.style.background = 'transparent'; });
+    var icon = document.createElement('span');
+    icon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#00a884" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    icon.style.cssText = 'display:flex;align-items:center;margin-right:15px;';
+    toggle.appendChild(icon);
+    var text = document.createElement('span');
+    text.style.cssText = 'font-size:14px;color:#00a884;font-weight:500;';
+    toggle.appendChild(text);
+    toggle.addEventListener('click', function(e) {
+      e.stopPropagation();
+      _ezapHiddenViewActive = !_ezapHiddenViewActive;
+      toggle.style.background = _ezapHiddenViewActive ? 'rgba(0,168,132,0.12)' : 'transparent';
+      _updateHiddenToggle();
+      var nRows = custom.querySelectorAll('.wcrm-custom-row:not([data-ezap-is-hidden])');
+      var hRows = custom.querySelectorAll('.wcrm-custom-row[data-ezap-is-hidden="1"]');
+      for (var ni = 0; ni < nRows.length; ni++) nRows[ni].style.display = _ezapHiddenViewActive ? 'none' : '';
+      for (var hi = 0; hi < hRows.length; hi++) hRows[hi].style.display = _ezapHiddenViewActive ? '' : 'none';
+      var countEl = document.getElementById('ezap-overlay-count');
+      if (countEl) {
+        var visCount = _ezapHiddenViewActive ? hRows.length : nRows.length;
+        countEl.textContent = visCount + ' conversa' + (visCount !== 1 ? 's' : '') + (_ezapHiddenViewActive ? ' (ocultas)' : '');
+      }
+    });
+    // Insere depois do unread filter ou no início da lista
+    var unreadFilter = document.getElementById('ezap-unread-filter');
+    if (unreadFilter && unreadFilter.parentNode === custom) {
+      custom.insertBefore(toggle, unreadFilter.nextSibling);
+    } else {
+      var firstRow = custom.querySelector('.wcrm-custom-row');
+      if (firstRow) custom.insertBefore(toggle, firstRow);
+    }
+  }
+  if (toggle) {
+    toggle.style.display = '';
+    var textEl = toggle.querySelector('span:last-child');
+    if (textEl) {
+      textEl.textContent = _ezapHiddenViewActive
+        ? 'Conversas ocultas (filtro ativo)'
+        : 'Conversas ocultas (' + count + ')';
+    }
+  }
+}
+
 // Load marks + hidden chats when auth is ready
 (function() {
   var attempts = 0;
@@ -882,59 +958,87 @@ function _handleContextAction(action, jid, displayName, rowData) {
 
     case 'hide':
       _hideChat(jid);
-      // Remove row do overlay com animação
-      var hideRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
-      if (hideRow) {
-        hideRow.style.transition = 'opacity 0.3s, height 0.3s';
-        hideRow.style.opacity = '0';
-        hideRow.style.height = '0';
-        hideRow.style.overflow = 'hidden';
-        setTimeout(function() { if (hideRow.parentNode) hideRow.parentNode.removeChild(hideRow); }, 300);
+      var hideRowEl = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
+      var _hideData = rowData || {};
+      if (hideRowEl) {
+        hideRowEl.style.transition = 'opacity 0.3s, height 0.3s';
+        hideRowEl.style.opacity = '0';
+        hideRowEl.style.height = '0';
+        hideRowEl.style.overflow = 'hidden';
+        setTimeout(function() {
+          if (hideRowEl.parentNode) hideRowEl.parentNode.removeChild(hideRowEl);
+          // Cria row oculta e adiciona no DOM
+          var newHidRow = _createCustomRow({
+            name: _hideData.name || displayName, displayName: _hideData.displayName || displayName,
+            jid: jid, isPinned: false, picUrl: _hideData.picUrl || '',
+            lastTs: _hideData.lastTs || 0, unread: 0, abaName: '',
+            lastMsgText: _hideData.lastMsgText || '', lastMsgFromMe: _hideData.lastMsgFromMe || false,
+            lastMsgSender: '', isMuted: false, isHidden: true
+          });
+          newHidRow.setAttribute('data-ezap-is-hidden', '1');
+          newHidRow.style.display = _ezapHiddenViewActive ? '' : 'none';
+          _addHiddenBadgeToRow(newHidRow);
+          var customEl = document.getElementById('wcrm-custom-list');
+          if (customEl) customEl.appendChild(newHidRow);
+          _updateHiddenToggle();
+          // Atualiza contagem principal
+          if (!_ezapHiddenViewActive) {
+            var countEl = document.getElementById('ezap-overlay-count');
+            if (countEl) {
+              var visNormal = customEl.querySelectorAll('.wcrm-custom-row:not([data-ezap-is-hidden])');
+              var vc = 0; for (var vi = 0; vi < visNormal.length; vi++) { if (visNormal[vi].style.display !== 'none') vc++; }
+              countEl.textContent = vc + ' conversa' + (vc !== 1 ? 's' : '');
+            }
+          }
+        }, 300);
       }
-      // Atualiza contagem
-      setTimeout(function() {
-        var countEl = document.querySelector('.wcrm-header-count');
-        var visibleRows = document.querySelectorAll('.wcrm-custom-row[data-ezap-jid]');
-        var visibleCount = 0;
-        visibleRows.forEach(function(r) { if (r.style.display !== 'none' && r.style.opacity !== '0') visibleCount++; });
-        if (countEl) countEl.textContent = visibleCount + ' conversas';
-      }, 350);
       console.log('[EZAP-CTX] Chat hidden (DB):', jid);
       break;
 
     case 'unhide':
       _unhideChat(jid);
-      // Remove row da lista de ocultos com animação
-      var unhideRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
-      if (unhideRow) {
-        unhideRow.style.transition = 'opacity 0.3s, height 0.3s';
-        unhideRow.style.opacity = '0';
-        unhideRow.style.height = '0';
-        unhideRow.style.overflow = 'hidden';
-        setTimeout(function() { if (unhideRow.parentNode) unhideRow.parentNode.removeChild(unhideRow); }, 300);
-      }
-      // Atualiza contagem das ocultas e texto do toggle
-      setTimeout(function() {
-        var hiddenRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row[data-ezap-is-hidden="1"]');
-        var visibleHidden = 0;
-        hiddenRows.forEach(function(r) { if (r.style.opacity !== '0') visibleHidden++; });
-        var countEl = document.getElementById('ezap-overlay-count');
-        if (countEl && _ezapHiddenViewActive) {
-          countEl.textContent = visibleHidden + ' conversa' + (visibleHidden !== 1 ? 's' : '') + ' (ocultas)';
-        }
-        // Se não sobrou nenhuma oculta, volta para a view normal
-        if (visibleHidden === 0 && _ezapHiddenViewActive) {
-          _ezapHiddenViewActive = false;
-          var normalRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row:not([data-ezap-is-hidden])');
-          for (var ni = 0; ni < normalRows.length; ni++) normalRows[ni].style.display = '';
-          var hiddenToggle = document.getElementById('ezap-hidden-filter');
-          if (hiddenToggle) hiddenToggle.style.display = 'none';
-          if (countEl) {
-            var total = normalRows.length;
-            countEl.textContent = total + ' conversa' + (total !== 1 ? 's' : '');
+      var unhideRowEl = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
+      var _unhideData = rowData || {};
+      if (unhideRowEl) {
+        unhideRowEl.style.transition = 'opacity 0.3s, height 0.3s';
+        unhideRowEl.style.opacity = '0';
+        unhideRowEl.style.height = '0';
+        unhideRowEl.style.overflow = 'hidden';
+        setTimeout(function() {
+          if (unhideRowEl.parentNode) unhideRowEl.parentNode.removeChild(unhideRowEl);
+          // Cria row normal e adiciona no DOM
+          var newNormalRow = _createCustomRow({
+            name: _unhideData.name || displayName, displayName: _unhideData.displayName || displayName,
+            jid: jid, isPinned: false, picUrl: _unhideData.picUrl || '',
+            lastTs: _unhideData.lastTs || 0, unread: _unhideData.unread || 0, abaName: '',
+            lastMsgText: _unhideData.lastMsgText || '', lastMsgFromMe: _unhideData.lastMsgFromMe || false,
+            lastMsgSender: '', isMuted: false
+          });
+          newNormalRow.style.display = _ezapHiddenViewActive ? 'none' : '';
+          var customEl = document.getElementById('wcrm-custom-list');
+          if (customEl) customEl.appendChild(newNormalRow);
+          _updateHiddenToggle();
+          // Se não sobrou oculta, volta pra view normal
+          var remaining = customEl ? customEl.querySelectorAll('.wcrm-custom-row[data-ezap-is-hidden="1"]') : [];
+          if (remaining.length === 0 && _ezapHiddenViewActive) {
+            _ezapHiddenViewActive = false;
+            var nRows = customEl.querySelectorAll('.wcrm-custom-row:not([data-ezap-is-hidden])');
+            for (var ni = 0; ni < nRows.length; ni++) nRows[ni].style.display = '';
+            _updateHiddenToggle();
           }
-        }
-      }, 350);
+          // Atualiza contagem
+          var countEl = document.getElementById('ezap-overlay-count');
+          if (countEl) {
+            if (_ezapHiddenViewActive) {
+              countEl.textContent = remaining.length + ' conversa' + (remaining.length !== 1 ? 's' : '') + ' (ocultas)';
+            } else {
+              var visNormal = customEl.querySelectorAll('.wcrm-custom-row:not([data-ezap-is-hidden])');
+              var vc = 0; for (var vi = 0; vi < visNormal.length; vi++) { if (visNormal[vi].style.display !== 'none') vc++; }
+              countEl.textContent = vc + ' conversa' + (vc !== 1 ? 's' : '');
+            }
+          }
+        }, 300);
+      }
       console.log('[EZAP-CTX] Chat unhidden (restored):', jid);
       break;
   }
@@ -1698,9 +1802,10 @@ function _showCustomAbaList(abaTab, chatIndex) {
         e.stopPropagation();
         _ezapHiddenViewActive = !_ezapHiddenViewActive;
         hiddenRow.style.background = _ezapHiddenViewActive ? 'rgba(0,168,132,0.12)' : 'transparent';
+        var _dynCount = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row[data-ezap-is-hidden="1"]').length;
         hiddenText.textContent = _ezapHiddenViewActive
           ? 'Conversas ocultas (filtro ativo)'
-          : 'Conversas ocultas (' + hiddenCount + ')';
+          : 'Conversas ocultas (' + _dynCount + ')';
 
         // Toggle: mostra/esconde rows normais e hidden
         var normalRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row:not([data-ezap-is-hidden])');
