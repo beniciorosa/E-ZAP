@@ -2189,19 +2189,22 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
       return;
     }
 
-    // Position overlay exactly over compose box
+    // Anchor overlay to BOTTOM of compose box so it grows upward
+    var bottomOffset = window.innerHeight - rect.bottom;
     Object.assign(_sigOverlay.style, {
       display: "block",
-      top: rect.top + "px",
+      top: "auto",
+      bottom: bottomOffset + "px",
       left: rect.left + "px",
       width: rect.width + "px",
       minHeight: rect.height + "px",
     });
 
     // Position badge above the overlay
+    var overlayRect = _sigOverlay.getBoundingClientRect();
     Object.assign(_sigBadge.style, {
       display: "flex",
-      bottom: (window.innerHeight - rect.top + 4) + "px",
+      bottom: (window.innerHeight - overlayRect.top + 2) + "px",
       left: rect.left + "px",
     });
     _sigBadge.textContent = "\u270D " + _sigName;
