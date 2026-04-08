@@ -352,7 +352,13 @@ window.addEventListener("resize", scheduleReposition);
 window.addEventListener("scroll", scheduleReposition, true);
 
 // Observe only structural DOM changes (chat switch), throttled
-var widgetObserver = new MutationObserver(function() { scheduleReposition(); });
+var _widgetEnsureTimer = null;
+var widgetObserver = new MutationObserver(function() {
+  scheduleReposition();
+  // Also schedule a state-check (debounced 200ms) to catch chat switches fast
+  if (_widgetEnsureTimer) clearTimeout(_widgetEnsureTimer);
+  _widgetEnsureTimer = setTimeout(ensureWidget, 200);
+});
 
 function startWidgetObserver() {
   if (document.body) {
@@ -363,8 +369,8 @@ function startWidgetObserver() {
 // ===== Init =====
 function initWidget() {
   startWidgetObserver();
-  // Full state-check every 2s (only rebuilds if hash changes)
-  setInterval(ensureWidget, 2000);
+  // Safety-net polling every 4s (primary detection is now event-based via __ezapRefreshWidget)
+  setInterval(ensureWidget, 4000);
   ensureWidget();
 }
 

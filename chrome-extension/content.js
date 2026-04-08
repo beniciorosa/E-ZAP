@@ -859,12 +859,26 @@ function removeAccentsJS(str) {
 
 // Pre-load HubSpot data in background (without rendering UI)
 // Populates window._wcrmContactData for @variable replacement
+// Uses in-session cache to avoid re-fetching contacts already visited
+var _hubspotCache = {}; // { phone -> { data, ticketId, timestamp } }
+var _HUBSPOT_CACHE_TTL = 5 * 60 * 1000; // 5 min TTL
+
 function preloadHubSpotData() {
   if (!currentPhone) return;
-  window._wcrmContactData = null;
   var chatName = currentName || currentPhone || "";
   var preloadId = Date.now();
   window._wcrmPreloadId = preloadId;
+
+  // Check cache first
+  var cached = _hubspotCache[currentPhone];
+  if (cached && (Date.now() - cached.timestamp) < _HUBSPOT_CACHE_TTL) {
+    window._wcrmContactData = cached.data;
+    if (cached.ticketId) window._wcrmTicketId = cached.ticketId;
+    console.log("[WCRM] Pre-loaded from cache:", currentPhone);
+    return;
+  }
+
+  window._wcrmContactData = null;
 
   sendBgMessage({ action: "ping" }).then(function() {
     if (window._wcrmPreloadId !== preloadId) return;
@@ -930,6 +944,14 @@ function preloadHubSpotData() {
         status: ticket && ticket.properties._stageName ? ticket.properties._stageName : "",
       };
       if (ticket) window._wcrmTicketId = ticket.id;
+
+      // Cache the result
+      _hubspotCache[currentPhone] = {
+        data: window._wcrmContactData,
+        ticketId: ticket ? ticket.id : null,
+        timestamp: Date.now()
+      };
+
       console.log("[WCRM] Pre-loaded contact data:", window._wcrmContactData);
     });
   }).catch(function() { /* ignore preload errors */ });
@@ -1911,9 +1933,14 @@ function rowCopy(label, value, copyValue) {
 }
 
 // ===== Chat Observer =====
+var _detectDebounceTimer = null;
+
 function observeChatChanges() {
   var observer = new MutationObserver(function() {
-    detectCurrentChat();
+    // Debounce: MutationObserver fires many times per DOM change,
+    // we only need to detect once after things settle (150ms)
+    if (_detectDebounceTimer) clearTimeout(_detectDebounceTimer);
+    _detectDebounceTimer = setTimeout(detectCurrentChat, 150);
   });
 
   var app = document.getElementById("app");
@@ -1922,10 +1949,11 @@ function observeChatChanges() {
     console.log("[WCRM] Observing chat changes");
   }
 
+  // Safety-net polling at 3s (just a fallback, MutationObserver is the primary)
   var crmInterval = setInterval(function() {
     try { if (!chrome.runtime || !chrome.runtime.id) { clearInterval(crmInterval); return; } } catch(e) { clearInterval(crmInterval); return; }
     detectCurrentChat();
-  }, 2000);
+  }, 3000);
 }
 
 function detectCurrentChat() {
@@ -1970,6 +1998,11 @@ function detectCurrentChat() {
     }
 
     console.log("[WCRM] Chat changed:", currentName, "->", currentPhone);
+
+    // Refresh widget IMMEDIATELY (pin, abas, tags, sig) — no more 2s polling delay
+    if (typeof window.__ezapRefreshWidget === 'function') {
+      window.__ezapRefreshWidget();
+    }
 
     // Auto-switch from ABAS to CRM when user clicks a contact
     if (typeof abasSidebarOpen !== 'undefined' && abasSidebarOpen) {
