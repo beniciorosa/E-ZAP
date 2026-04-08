@@ -2083,26 +2083,65 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  // ===== Overlay creation =====
-  function createOverlay() {
-    if (_sigOverlay) return;
+  // ===== Full-bar overlay covering the entire WA footer =====
+  var _sigBar = null; // outer container covering the footer
 
-    // Badge showing who is signing
+  function createOverlay() {
+    if (_sigBar) return;
+
+    // --- Outer bar (covers entire footer) ---
+    _sigBar = document.createElement("div");
+    _sigBar.id = "ezap-sig-bar";
+    _sigBar.className = "ezap-sig-bar";
+    _sigBar.style.display = "none";
+
+    // Left: emoji + attach buttons (cloned from WA)
+    var leftBtns = document.createElement("div");
+    leftBtns.className = "ezap-sig-left";
+    // Emoji button
+    var emojiBtn = document.createElement("button");
+    emojiBtn.className = "ezap-sig-icon-btn";
+    emojiBtn.title = "Emoji";
+    emojiBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.298 1.011 0 6.309 0 12.815s5.298 11.804 11.804 11.804 11.804-5.298 11.804-11.804S18.31 1.011 11.804 1.011zM12 21.649c-5.333 0-9.649-4.316-9.649-9.649S6.667 2.351 12 2.351s9.649 4.316 9.649 9.649-4.316 9.649-9.649 9.649zm3.847-10.046c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962z"></path></svg>';
+    emojiBtn.addEventListener("click", function() {
+      // Click WA's real emoji button
+      var waEmoji = document.querySelector('button[aria-label="Emoji"], button[aria-label="Emoji e figurinhas"]') ||
+                    document.querySelector('span[data-icon="smiley"]');
+      if (waEmoji) { var b = waEmoji.closest("button") || waEmoji; b.click(); }
+    });
+    leftBtns.appendChild(emojiBtn);
+
+    // Attach button
+    var attachBtn = document.createElement("button");
+    attachBtn.className = "ezap-sig-icon-btn";
+    attachBtn.title = "Anexar";
+    attachBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 003.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.501.501 1.128.801 1.765.853.637.051 1.21-.162 1.608-.56l5.778-5.778.397.397-5.778 5.778c-.56.56-1.357.832-2.184.762-.862-.074-1.691-.486-2.332-1.125C5.593 14.515 5.474 12.669 6.7 11.444l7.916-7.915c1.893-1.893 4.93-1.731 6.921.262 1.592 1.593 1.71 4.069.262 5.518l-9.548 9.548a4.78 4.78 0 01-3.406 1.413c-1.287 0-2.498-.502-3.409-1.413-1.886-1.885-1.893-4.931.001-6.826L13.98 4.49l.397.398-8.543 8.54a4.036 4.036 0 00-.001 5.706z"></path></svg>';
+    attachBtn.addEventListener("click", function() {
+      var waAttach = document.querySelector('span[data-icon="plus"]') ||
+                     document.querySelector('span[data-icon="clip"]') ||
+                     document.querySelector('button[aria-label="Anexar"]') ||
+                     document.querySelector('button[aria-label="Attach"]');
+      if (waAttach) { var b = waAttach.closest("button") || waAttach; b.click(); }
+    });
+    leftBtns.appendChild(attachBtn);
+    _sigBar.appendChild(leftBtns);
+
+    // Center: input area (contenteditable) wrapped with badge
+    var centerWrap = document.createElement("div");
+    centerWrap.className = "ezap-sig-center";
+
     _sigBadge = document.createElement("div");
     _sigBadge.id = "ezap-sig-badge";
     _sigBadge.className = "ezap-sig-badge";
-    document.body.appendChild(_sigBadge);
+    centerWrap.appendChild(_sigBadge);
 
-    // Overlay input
     _sigOverlay = document.createElement("div");
     _sigOverlay.id = "ezap-sig-overlay";
     _sigOverlay.className = "ezap-sig-overlay";
     _sigOverlay.contentEditable = "true";
     _sigOverlay.setAttribute("data-placeholder", "Digite uma mensagem");
     _sigOverlay.setAttribute("spellcheck", "true");
-    _sigOverlay.style.display = "none";
 
-    // Enter = send, Shift+Enter = line break
     _sigOverlay.addEventListener("keydown", function(e) {
       if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
@@ -2111,13 +2150,21 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
       }
     });
 
-    // Prevent WA from seeing focus on the real compose box
-    _sigOverlay.addEventListener("focus", function() {
-      var waInput = getComposeInput();
-      if (waInput) waInput.blur();
-    });
+    centerWrap.appendChild(_sigOverlay);
+    _sigBar.appendChild(centerWrap);
 
-    document.body.appendChild(_sigOverlay);
+    // Right: send / mic button
+    var rightBtns = document.createElement("div");
+    rightBtns.className = "ezap-sig-right";
+    var sendBtn = document.createElement("button");
+    sendBtn.className = "ezap-sig-icon-btn ezap-sig-send-btn";
+    sendBtn.title = "Enviar";
+    sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M1.101 21.757 23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912z"></path></svg>';
+    sendBtn.addEventListener("click", function() { sendWithSignature(); });
+    rightBtns.appendChild(sendBtn);
+    _sigBar.appendChild(rightBtns);
+
+    document.body.appendChild(_sigBar);
   }
 
   // ===== Send message with signature prefix =====
@@ -2134,10 +2181,7 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     var waInput = getComposeInput();
     if (!waInput) { _sigSending = false; return; }
 
-    // Focus WA compose box (it's empty) and paste full message
     waInput.focus();
-
-    // Clear just in case (WA box should be empty, but safety)
     document.execCommand("selectAll", false, null);
     document.execCommand("delete", false, null);
 
@@ -2147,24 +2191,21 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
       bubbles: true, cancelable: true, clipboardData: clipData
     }));
 
-    // Wait for paste to register, then click Send
     setTimeout(function() {
-      var sendBtn = document.querySelector('span[data-icon="send"]') ||
-                    document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
-                    document.querySelector('button[aria-label="Enviar"]') ||
-                    document.querySelector('button[aria-label="Send"]') ||
-                    document.querySelector('[data-testid="send"]');
-      if (sendBtn) {
-        var b = sendBtn.closest("button") || sendBtn;
+      var btn = document.querySelector('span[data-icon="send"]') ||
+                document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
+                document.querySelector('button[aria-label="Enviar"]') ||
+                document.querySelector('button[aria-label="Send"]') ||
+                document.querySelector('[data-testid="send"]');
+      if (btn) {
+        var b = btn.closest("button") || btn;
         b.click();
       } else {
-        // Fallback: Enter key
         waInput.dispatchEvent(new KeyboardEvent("keydown", {
           key: "Enter", code: "Enter", keyCode: 13, which: 13,
           bubbles: true, cancelable: true
         }));
       }
-
       setTimeout(function() {
         _sigSending = false;
         if (_sigOverlay && _sigEnabled) _sigOverlay.focus();
@@ -2172,55 +2213,42 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     }, 250);
   }
 
-  // ===== Position overlay over WA compose box =====
+  // ===== Position bar over WA footer =====
   function positionOverlay() {
-    if (!_sigOverlay || !_sigBadge) return;
-    var waInput = getComposeInput();
-    if (!waInput) {
-      _sigOverlay.style.display = "none";
-      _sigBadge.style.display = "none";
+    if (!_sigBar) return;
+    var footer = document.querySelector('#main footer') ||
+                 document.querySelector('[data-testid="conversation-compose-box"]');
+    if (!footer) {
+      _sigBar.style.display = "none";
       return;
     }
 
-    var rect = waInput.getBoundingClientRect();
+    var rect = footer.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
-      _sigOverlay.style.display = "none";
-      _sigBadge.style.display = "none";
+      _sigBar.style.display = "none";
       return;
     }
 
-    // Anchor overlay to BOTTOM of compose box so it grows upward
-    var bottomOffset = window.innerHeight - rect.bottom;
-    Object.assign(_sigOverlay.style, {
-      display: "block",
-      top: "auto",
-      bottom: bottomOffset + "px",
+    Object.assign(_sigBar.style, {
+      display: "flex",
+      bottom: (window.innerHeight - rect.bottom) + "px",
       left: rect.left + "px",
       width: rect.width + "px",
       minHeight: rect.height + "px",
-    });
-
-    // Position badge above the overlay
-    var overlayRect = _sigOverlay.getBoundingClientRect();
-    Object.assign(_sigBadge.style, {
-      display: "flex",
-      bottom: (window.innerHeight - overlayRect.top + 2) + "px",
-      left: rect.left + "px",
     });
     _sigBadge.textContent = "\u270D " + _sigName;
   }
 
   // ===== Show/hide overlay =====
   function updateOverlay() {
-    if (!_sigOverlay) return;
+    if (!_sigBar) return;
     if (_sigEnabled) {
       positionOverlay();
       if (!_sigTracker) {
         _sigTracker = setInterval(positionOverlay, 400);
       }
     } else {
-      _sigOverlay.style.display = "none";
-      _sigBadge.style.display = "none";
+      _sigBar.style.display = "none";
       if (_sigTracker) {
         clearInterval(_sigTracker);
         _sigTracker = null;
@@ -2228,7 +2256,7 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     }
   }
 
-  // ===== Prevent typing in WA compose box when overlay is active =====
+  // ===== Redirect focus from WA compose box to overlay =====
   document.addEventListener("focus", function(e) {
     if (!_sigEnabled || !_sigOverlay) return;
     var waInput = getComposeInput();
