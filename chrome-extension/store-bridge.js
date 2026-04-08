@@ -2000,54 +2000,6 @@
         id: d.id,
         ready: fiberOk || window._ezapStoreReady
       }, '*');
-    } else if (d.type === '_ezap_sig_send') {
-      // ===== SIGNATURE SEND (MAIN world) =====
-      // Receives text from content.js (ISOLATED), clears compose box,
-      // types prefix + text, then sends. Works because MAIN world
-      // shares execution context with WhatsApp's React.
-      var sigPrefix = d.prefix || '';
-      var sigText = d.text || '';
-      if (!sigPrefix || !sigText) return;
-
-      var sigInput = document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
-                     document.querySelector('#main footer div[contenteditable="true"][role="textbox"]') ||
-                     document.querySelector('[data-testid="conversation-compose-box-input"]');
-      if (!sigInput) return;
-
-      sigInput.focus();
-
-      // Move cursor to the very beginning of the compose box
-      var sel = window.getSelection();
-      var range = document.createRange();
-      if (sigInput.firstChild) {
-        range.setStartBefore(sigInput.firstChild);
-      } else {
-        range.setStart(sigInput, 0);
-      }
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
-
-      // Paste signature + line break at position 0 (text stays after it)
-      var sigClip = new DataTransfer();
-      sigClip.setData('text/plain', sigPrefix);
-      sigInput.dispatchEvent(new ClipboardEvent('paste', {
-        bubbles: true, cancelable: true, clipboardData: sigClip
-      }));
-
-      // Wait for paste, then send
-      setTimeout(function() {
-        var sigSendBtn = document.querySelector('button[aria-label="Enviar"]') ||
-                         document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
-                         document.querySelector('button[aria-label="Send"]') ||
-                         document.querySelector('[data-testid="send"]') ||
-                         document.querySelector('span[data-icon="send"]');
-        if (sigSendBtn) {
-          var btn = sigSendBtn.closest('button') || sigSendBtn;
-          btn.click();
-        }
-        window.postMessage({ type: '_ezap_sig_done' }, '*');
-      }, 200);
     }
   });
 

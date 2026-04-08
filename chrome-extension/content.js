@@ -2012,18 +2012,22 @@ document.addEventListener("wcrm-auth-ready", function() {
 if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm")) setTimeout(init, 2000);
 
 // ===================================================================
-// ===== ASSINATURA (Signature) — Prefixo de nome nas mensagens =====
+// ===== ASSINATURA (Signature) — Overlay sobre a caixa de texto =====
 // ===================================================================
 (function() {
   var _sigInitialized = false;
   var _sigEnabled = false;
   var _sigName = "";
+  var _sigOverlay = null;
+  var _sigBadge = null;
+  var _sigTracker = null;
+  var _sigSending = false;
 
-  // Toggle signature on/off and persist to Supabase
+  // ===== Toggle =====
   function toggleSignature() {
     _sigEnabled = !_sigEnabled;
     updateSignatureButton();
-    // Persist to DB
+    updateOverlay();
     var auth = window.__wcrmAuth;
     if (auth && auth.userId) {
       window.ezapSendBg({
@@ -2033,13 +2037,12 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
         body: { signature_enabled: _sigEnabled },
         prefer: "return=minimal"
       });
-      // Update local auth state
       auth.signatureEnabled = _sigEnabled;
     }
-    console.log("[EZAP-SIG] Signature", _sigEnabled ? "ENABLED" : "DISABLED", "for", _sigName);
+    console.log("[EZAP-SIG] Signature", _sigEnabled ? "ENABLED" : "DISABLED");
   }
 
-  // Create/update the signature toggle button
+  // ===== Toggle button (floating) =====
   function updateSignatureButton() {
     var btn = document.getElementById("ezap-sig-toggle");
     if (!btn) return;
@@ -2047,12 +2050,12 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
       btn.style.background = "#25d366";
       btn.style.color = "#111b21";
       btn.title = "Assinatura ativada: " + _sigName;
-      btn.textContent = "✍";
+      btn.textContent = "\u270D";
     } else {
       btn.style.background = "#3b4a54";
       btn.style.color = "#8696a0";
       btn.title = "Assinatura desativada";
-      btn.textContent = "✍";
+      btn.textContent = "\u270D";
     }
   }
 
@@ -2062,16 +2065,10 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     btn.id = "ezap-sig-toggle";
     btn.addEventListener("click", toggleSignature);
     Object.assign(btn.style, {
-      width: "40px",
-      height: "40px",
-      borderRadius: "50%",
-      border: "none",
-      fontSize: "18px",
-      cursor: "pointer",
+      width: "40px", height: "40px", borderRadius: "50%",
+      border: "none", fontSize: "18px", cursor: "pointer",
       boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
+      display: "flex", alignItems: "center", justifyContent: "center",
       transition: "background 0.2s",
     });
     var container = document.getElementById("ezap-float-container");
@@ -2079,74 +2076,166 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     updateSignatureButton();
   }
 
-  // ===== Signature injection via MAIN world (store-bridge.js) =====
-  // Content.js (ISOLATED) intercepts Enter/Send, reads the text,
-  // and sends it to store-bridge.js (MAIN) via postMessage.
-  // store-bridge.js does the DOM manipulation in React's own context
-  // where execCommand actually works.
-  // Format: _*Name:*_ (bold+italic in WhatsApp) + line break + text
-
-  var _sigSending = false;
-
+  // ===== Compose box finder =====
   function getComposeInput() {
     return document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
            document.querySelector('#main footer div[contenteditable="true"][role="textbox"]') ||
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  function requestSignatureSend(text) {
+  // ===== Overlay creation =====
+  function createOverlay() {
+    if (_sigOverlay) return;
+
+    // Badge showing who is signing
+    _sigBadge = document.createElement("div");
+    _sigBadge.id = "ezap-sig-badge";
+    _sigBadge.className = "ezap-sig-badge";
+    document.body.appendChild(_sigBadge);
+
+    // Overlay input
+    _sigOverlay = document.createElement("div");
+    _sigOverlay.id = "ezap-sig-overlay";
+    _sigOverlay.className = "ezap-sig-overlay";
+    _sigOverlay.contentEditable = "true";
+    _sigOverlay.setAttribute("data-placeholder", "Digite uma mensagem");
+    _sigOverlay.setAttribute("spellcheck", "true");
+    _sigOverlay.style.display = "none";
+
+    // Enter = send, Shift+Enter = line break
+    _sigOverlay.addEventListener("keydown", function(e) {
+      if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        sendWithSignature();
+      }
+    });
+
+    // Prevent WA from seeing focus on the real compose box
+    _sigOverlay.addEventListener("focus", function() {
+      var waInput = getComposeInput();
+      if (waInput) waInput.blur();
+    });
+
+    document.body.appendChild(_sigOverlay);
+  }
+
+  // ===== Send message with signature prefix =====
+  function sendWithSignature() {
+    if (_sigSending || !_sigOverlay) return;
+    var text = (_sigOverlay.innerText || "").trim();
+    if (!text) return;
+
     _sigSending = true;
-    window.postMessage({
-      type: "_ezap_sig_send",
-      prefix: "_*" + _sigName + ":*_\n",
-      text: text
-    }, "*");
-    // Reset guard after send completes
-    setTimeout(function() { _sigSending = false; }, 2000);
+    _sigOverlay.innerHTML = "";
+
+    var fullMsg = "_*" + _sigName + ":*_\n" + text;
+
+    var waInput = getComposeInput();
+    if (!waInput) { _sigSending = false; return; }
+
+    // Focus WA compose box (it's empty) and paste full message
+    waInput.focus();
+
+    // Clear just in case (WA box should be empty, but safety)
+    document.execCommand("selectAll", false, null);
+    document.execCommand("delete", false, null);
+
+    var clipData = new DataTransfer();
+    clipData.setData("text/plain", fullMsg);
+    waInput.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true, cancelable: true, clipboardData: clipData
+    }));
+
+    // Wait for paste to register, then click Send
+    setTimeout(function() {
+      var sendBtn = document.querySelector('span[data-icon="send"]') ||
+                    document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
+                    document.querySelector('button[aria-label="Enviar"]') ||
+                    document.querySelector('button[aria-label="Send"]') ||
+                    document.querySelector('[data-testid="send"]');
+      if (sendBtn) {
+        var b = sendBtn.closest("button") || sendBtn;
+        b.click();
+      } else {
+        // Fallback: Enter key
+        waInput.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "Enter", code: "Enter", keyCode: 13, which: 13,
+          bubbles: true, cancelable: true
+        }));
+      }
+
+      setTimeout(function() {
+        _sigSending = false;
+        if (_sigOverlay && _sigEnabled) _sigOverlay.focus();
+      }, 400);
+    }, 250);
   }
 
-  // Listen for Enter key
-  function handleKeydown(e) {
-    if (!_sigEnabled || _sigSending) return;
-    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey) return;
-    var input = getComposeInput();
-    if (!input || !input.contains(e.target)) return;
-    var text = (input.textContent || input.innerText || "").trim();
-    if (!text) return;
-    if (text.charAt(0) === "/") return;
-
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    requestSignatureSend(text);
-  }
-
-  // Listen for Send button click
-  function handleSendClick(e) {
-    if (!_sigEnabled || _sigSending) return;
-    var btn = e.target.closest && e.target.closest("button");
-    if (!btn) return;
-    var icon = btn.querySelector('span[data-icon="send"], span[data-icon="wds-ic-send-filled"]');
-    var isAriaLabel = btn.getAttribute("aria-label") === "Enviar" || btn.getAttribute("aria-label") === "Send";
-    if (!icon && !isAriaLabel) return;
-
-    var input = getComposeInput();
-    if (!input) return;
-    var text = (input.textContent || input.innerText || "").trim();
-    if (!text) return;
-    if (text.charAt(0) === "/") return;
-
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    requestSignatureSend(text);
-  }
-
-  // Listen for send confirmation from MAIN world
-  window.addEventListener("message", function(e) {
-    if (e.data && e.data.type === "_ezap_sig_done") {
-      setTimeout(function() { _sigSending = false; }, 300);
+  // ===== Position overlay over WA compose box =====
+  function positionOverlay() {
+    if (!_sigOverlay || !_sigBadge) return;
+    var waInput = getComposeInput();
+    if (!waInput) {
+      _sigOverlay.style.display = "none";
+      _sigBadge.style.display = "none";
+      return;
     }
-  });
 
+    var rect = waInput.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      _sigOverlay.style.display = "none";
+      _sigBadge.style.display = "none";
+      return;
+    }
+
+    // Position overlay exactly over compose box
+    Object.assign(_sigOverlay.style, {
+      display: "block",
+      top: rect.top + "px",
+      left: rect.left + "px",
+      width: rect.width + "px",
+      minHeight: rect.height + "px",
+    });
+
+    // Position badge above the overlay
+    Object.assign(_sigBadge.style, {
+      display: "flex",
+      bottom: (window.innerHeight - rect.top + 4) + "px",
+      left: rect.left + "px",
+    });
+    _sigBadge.textContent = "\u270D " + _sigName;
+  }
+
+  // ===== Show/hide overlay =====
+  function updateOverlay() {
+    if (!_sigOverlay) return;
+    if (_sigEnabled) {
+      positionOverlay();
+      if (!_sigTracker) {
+        _sigTracker = setInterval(positionOverlay, 400);
+      }
+    } else {
+      _sigOverlay.style.display = "none";
+      _sigBadge.style.display = "none";
+      if (_sigTracker) {
+        clearInterval(_sigTracker);
+        _sigTracker = null;
+      }
+    }
+  }
+
+  // ===== Prevent typing in WA compose box when overlay is active =====
+  document.addEventListener("focus", function(e) {
+    if (!_sigEnabled || !_sigOverlay) return;
+    var waInput = getComposeInput();
+    if (waInput && (e.target === waInput || waInput.contains(e.target))) {
+      e.stopPropagation();
+      _sigOverlay.focus();
+    }
+  }, true);
+
+  // ===== Init =====
   function initSignature() {
     if (_sigInitialized) return;
     var auth = window.__wcrmAuth;
@@ -2157,15 +2246,12 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     _sigInitialized = true;
 
     createSignatureButton();
+    createOverlay();
+    updateOverlay();
 
-    // Capture phase to intercept BEFORE WhatsApp
-    document.addEventListener("keydown", handleKeydown, true);
-    document.addEventListener("click", handleSendClick, true);
-
-    console.log("[EZAP-SIG] Initialized. Enabled:", _sigEnabled, "Name:", _sigName);
+    console.log("[EZAP-SIG] Overlay initialized. Enabled:", _sigEnabled, "Name:", _sigName);
   }
 
-  // Start after auth
   document.addEventListener("wcrm-auth-ready", function() {
     setTimeout(initSignature, 1000);
   });
