@@ -2079,12 +2079,14 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     updateSignatureButton();
   }
 
-  // ===== Compose box interceptor =====
-  // Uses MutationObserver approach: watches the compose box and prepends
-  // signature right before WhatsApp processes the send.
-  // Guard flag prevents infinite loops.
+  // ===== Signature injection via MAIN world (store-bridge.js) =====
+  // Content.js (ISOLATED) intercepts Enter/Send, reads the text,
+  // and sends it to store-bridge.js (MAIN) via postMessage.
+  // store-bridge.js does the DOM manipulation in React's own context
+  // where execCommand actually works.
+  // Format: _*Name:*_ (bold+italic in WhatsApp) + line break + text
 
-  var _sigSending = false;  // CRITICAL: prevents re-entry loop
+  var _sigSending = false;
 
   function getComposeInput() {
     return document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
@@ -2092,67 +2094,18 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  function prependSignatureAndSend(input) {
-    var text = (input.textContent || input.innerText || "").trim();
-    if (!text) return;
-    if (text.indexOf("*" + _sigName + ":*") === 0) return;
-    if (text.charAt(0) === "/") return;
-
-    var prefix = "*" + _sigName + ":*\n";
-
-    // Select ALL content using explicit Range (execCommand selectAll fails in React)
-    input.focus();
-    var sel = window.getSelection();
-    var range = document.createRange();
-    range.selectNodeContents(input);
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    // Paste over the selection — replaces all text with prefix + original
-    var clipData = new DataTransfer();
-    clipData.setData("text/plain", prefix + text);
-    input.dispatchEvent(new ClipboardEvent("paste", {
-      bubbles: true, cancelable: true, clipboardData: clipData
-    }));
-
-    // Wait for paste to settle, then send
-    setTimeout(function() {
-      // Verify paste worked
-      var newText = (input.textContent || input.innerText || "").trim();
-      if (newText.indexOf(_sigName) === -1) {
-        // Paste failed — try insertText at cursor (cursor should be at start after selectAll)
-        input.focus();
-        sel = window.getSelection();
-        range = document.createRange();
-        range.selectNodeContents(input);
-        sel.removeAllRanges();
-        sel.addRange(range);
-        document.execCommand("insertText", false, prefix + text);
-      }
-
-      // Send with guard flag
-      setTimeout(function() {
-        _sigSending = true;
-        var sendBtn = document.querySelector('button[aria-label="Enviar"]') ||
-                      document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
-                      document.querySelector('button[aria-label="Send"]') ||
-                      document.querySelector('[data-testid="send"]') ||
-                      document.querySelector('span[data-icon="send"]');
-        if (sendBtn) {
-          var button = sendBtn.closest("button") || sendBtn;
-          button.click();
-        } else {
-          input.dispatchEvent(new KeyboardEvent("keydown", {
-            key: "Enter", code: "Enter", keyCode: 13, which: 13,
-            bubbles: true, cancelable: true
-          }));
-        }
-        setTimeout(function() { _sigSending = false; }, 500);
-      }, 100);
-    }, 150);
+  function requestSignatureSend(text) {
+    _sigSending = true;
+    window.postMessage({
+      type: "_ezap_sig_send",
+      prefix: "_*" + _sigName + ":*_\n",
+      text: text
+    }, "*");
+    // Reset guard after send completes
+    setTimeout(function() { _sigSending = false; }, 2000);
   }
 
-  // Listen for Enter key (send) on compose box
+  // Listen for Enter key
   function handleKeydown(e) {
     if (!_sigEnabled || _sigSending) return;
     if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey) return;
@@ -2160,11 +2113,11 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     if (!input || !input.contains(e.target)) return;
     var text = (input.textContent || input.innerText || "").trim();
     if (!text) return;
-    if (text.indexOf("*" + _sigName + ":*") === 0) return;
+    if (text.charAt(0) === "/") return;
 
     e.stopImmediatePropagation();
     e.preventDefault();
-    prependSignatureAndSend(input);
+    requestSignatureSend(text);
   }
 
   // Listen for Send button click
@@ -2180,12 +2133,19 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     if (!input) return;
     var text = (input.textContent || input.innerText || "").trim();
     if (!text) return;
-    if (text.indexOf("*" + _sigName + ":*") === 0) return;
+    if (text.charAt(0) === "/") return;
 
     e.stopImmediatePropagation();
     e.preventDefault();
-    prependSignatureAndSend(input);
+    requestSignatureSend(text);
   }
+
+  // Listen for send confirmation from MAIN world
+  window.addEventListener("message", function(e) {
+    if (e.data && e.data.type === "_ezap_sig_done") {
+      setTimeout(function() { _sigSending = false; }, 300);
+    }
+  });
 
   function initSignature() {
     if (_sigInitialized) return;
@@ -2198,7 +2158,7 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
 
     createSignatureButton();
 
-    // Capture phase listeners to intercept BEFORE WhatsApp's handlers
+    // Capture phase to intercept BEFORE WhatsApp
     document.addEventListener("keydown", handleKeydown, true);
     document.addEventListener("click", handleSendClick, true);
 

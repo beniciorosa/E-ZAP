@@ -1471,13 +1471,13 @@
               // Received msg in group: participant is the client who sent it
               mmClientPhone = mmParticipant.replace(/[^0-9]/g, '');
             }
-            // Detect signature prefix: *Name:*\n at start of body
+            // Detect signature prefix: _*Name:*_ at start of body (bold+italic)
+            // Also supports legacy format *Name:* (bold only)
             var mmSignatureAuthor = '';
             if (mmSent && mmBody) {
-              var sigMatch = mmBody.match(/^\*([^*:]+):\*\n?/);
+              var sigMatch = mmBody.match(/^_\*([^*:]+):\*_\n?/) || mmBody.match(/^\*([^*:]+):\*\n?/);
               if (sigMatch) {
                 mmSignatureAuthor = sigMatch[1].trim();
-                // Remove signature prefix from stored body
                 mmBody = mmBody.substring(sigMatch[0].length);
               }
             }
@@ -2000,6 +2000,58 @@
         id: d.id,
         ready: fiberOk || window._ezapStoreReady
       }, '*');
+    } else if (d.type === '_ezap_sig_send') {
+      // ===== SIGNATURE SEND (MAIN world) =====
+      // Receives text from content.js (ISOLATED), clears compose box,
+      // types prefix + text, then sends. Works because MAIN world
+      // shares execution context with WhatsApp's React.
+      var sigPrefix = d.prefix || '';
+      var sigText = d.text || '';
+      if (!sigPrefix || !sigText) return;
+
+      var sigInput = document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
+                     document.querySelector('#main footer div[contenteditable="true"][role="textbox"]') ||
+                     document.querySelector('[data-testid="conversation-compose-box-input"]');
+      if (!sigInput) return;
+
+      var sigFull = sigPrefix + sigText;
+      sigInput.focus();
+
+      // Clear compose box: select all + delete (works in MAIN world context)
+      document.execCommand('selectAll', false, null);
+      document.execCommand('delete', false, null);
+
+      // Paste the full text with signature
+      var sigClip = new DataTransfer();
+      sigClip.setData('text/plain', sigFull);
+      sigInput.dispatchEvent(new ClipboardEvent('paste', {
+        bubbles: true, cancelable: true, clipboardData: sigClip
+      }));
+
+      // Wait for paste, then click send
+      setTimeout(function() {
+        // Verify text was set correctly
+        var verify = (sigInput.textContent || sigInput.innerText || '').trim();
+        if (verify.indexOf(sigText) === -1) {
+          // Paste failed: try insertText fallback
+          sigInput.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, sigFull);
+        }
+
+        setTimeout(function() {
+          var sigSendBtn = document.querySelector('button[aria-label="Enviar"]') ||
+                           document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
+                           document.querySelector('button[aria-label="Send"]') ||
+                           document.querySelector('[data-testid="send"]') ||
+                           document.querySelector('span[data-icon="send"]');
+          if (sigSendBtn) {
+            var btn = sigSendBtn.closest('button') || sigSendBtn;
+            btn.click();
+          }
+          window.postMessage({ type: '_ezap_sig_done' }, '*');
+        }, 150);
+      }, 150);
     }
   });
 
