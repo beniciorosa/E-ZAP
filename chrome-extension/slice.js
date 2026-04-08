@@ -1125,14 +1125,47 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var contacts, contactJids;
   if (isOverlayMode && chatIndex && chatIndex.byJid) {
     // Overlay mode: build contacts from ALL chats in the store (exceto arquivados)
+    // Deduplica contatos individuais que existem como @c.us E @lid (mesmo telefone)
     contacts = [];
     contactJids = {};
+    var _phoneDedup = {}; // phone -> { name, jid, lastTs } — só pra contatos individuais
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
-      if (meta && meta.name && !meta.isArchived) {
+      if (!meta || !meta.name || meta.isArchived) return;
+
+      var isGroup = jid.indexOf('@g.us') >= 0;
+      if (isGroup) {
+        // Grupos: sempre incluir (JID de grupo é único, nunca duplica)
+        contacts.push(meta.name);
+        contactJids[meta.name] = jid;
+        return;
+      }
+
+      // Contato individual: extrair telefone do JID para deduplicar
+      var phone = jid.split('@')[0].replace(/[^0-9]/g, '');
+      if (!phone || phone.length < 8) {
+        // JID sem telefone válido (ex: @lid sem mapeamento) — inclui pelo nome
+        if (!contactJids[meta.name]) {
+          contacts.push(meta.name);
+          contactJids[meta.name] = jid;
+        }
+        return;
+      }
+
+      var existing = _phoneDedup[phone];
+      if (!existing || (meta.lastTs || 0) > (existing.lastTs || 0)) {
+        // Primeiro registro desse telefone, ou este JID tem atividade mais recente
+        if (existing) {
+          // Remove o anterior do array de contacts
+          var idx = contacts.indexOf(existing.name);
+          if (idx >= 0) contacts.splice(idx, 1);
+          delete contactJids[existing.name];
+        }
+        _phoneDedup[phone] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0 };
         contacts.push(meta.name);
         contactJids[meta.name] = jid;
       }
+      // Se já existe com lastTs maior, ignora este JID duplicado
     });
   } else {
     contacts = (abaTab && abaTab.contacts) || [];
