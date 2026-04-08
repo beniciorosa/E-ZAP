@@ -3,6 +3,112 @@
 // Applies display filters to the WA Web chat list (virtual scroll aware).
 console.log("[WCRM FILTER] Loaded");
 
+// ===== Custom Unread Marks (DB-backed) =====
+// WhatsApp's internal markUnread API is unreliable, so we persist marks in Supabase.
+var _ezapUnreadMarks = {}; // { jid: true }
+var _ezapUnreadMarksLoaded = false;
+
+function _getAuthUserId() {
+  var auth = window.__wcrmAuth;
+  return auth && auth.userId ? auth.userId : null;
+}
+
+function _loadUnreadMarks() {
+  var userId = _getAuthUserId();
+  if (!userId) return;
+  try {
+    chrome.runtime.sendMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/chat_unread_marks?user_id=eq." + userId + "&select=jid",
+      method: "GET"
+    }, function(resp) {
+      if (chrome.runtime.lastError) return;
+      _ezapUnreadMarks = {};
+      if (Array.isArray(resp)) {
+        for (var i = 0; i < resp.length; i++) {
+          if (resp[i].jid) _ezapUnreadMarks[resp[i].jid] = true;
+        }
+      }
+      _ezapUnreadMarksLoaded = true;
+      console.log("[EZAP] Loaded", Object.keys(_ezapUnreadMarks).length, "custom unread marks");
+      _applyUnreadMarksBadges();
+    });
+  } catch(e) { console.warn("[EZAP] Failed to load unread marks:", e); }
+}
+
+function _saveUnreadMark(jid) {
+  var userId = _getAuthUserId();
+  if (!userId) return;
+  _ezapUnreadMarks[jid] = true;
+  try {
+    chrome.runtime.sendMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/chat_unread_marks",
+      method: "POST",
+      body: { user_id: userId, jid: jid },
+      prefer: "return=minimal"
+    }, function(resp) {
+      if (chrome.runtime.lastError) {
+        console.warn("[EZAP] Failed to save unread mark:", chrome.runtime.lastError);
+      }
+    });
+  } catch(e) { console.warn("[EZAP] Failed to save unread mark:", e); }
+}
+
+function _removeUnreadMark(jid) {
+  if (!_ezapUnreadMarks[jid]) return;
+  delete _ezapUnreadMarks[jid];
+  var userId = _getAuthUserId();
+  if (!userId) return;
+  try {
+    chrome.runtime.sendMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/chat_unread_marks?user_id=eq." + userId + "&jid=eq." + encodeURIComponent(jid),
+      method: "DELETE",
+      prefer: "return=minimal"
+    }, function(resp) {
+      if (chrome.runtime.lastError) {
+        console.warn("[EZAP] Failed to remove unread mark:", chrome.runtime.lastError);
+      }
+    });
+  } catch(e) { console.warn("[EZAP] Failed to remove unread mark:", e); }
+}
+
+function _applyUnreadMarksBadges() {
+  var rows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row');
+  for (var i = 0; i < rows.length; i++) {
+    var jid = rows[i].getAttribute('data-ezap-jid');
+    if (!jid) continue;
+    if (_ezapUnreadMarks[jid]) {
+      rows[i].setAttribute('data-ezap-custom-unread', '1');
+      var nativeUnread = parseInt(rows[i].getAttribute('data-ezap-unread') || '0', 10);
+      if (nativeUnread <= 0) {
+        var badge = rows[i].querySelector('.wcrm-custom-badge');
+        if (badge) {
+          badge.textContent = '\u2022'; // bullet dot
+          badge.style.display = '';
+        }
+      }
+    } else {
+      rows[i].removeAttribute('data-ezap-custom-unread');
+    }
+  }
+}
+
+// Load marks when auth is ready (retry a few times)
+(function() {
+  var attempts = 0;
+  var timer = setInterval(function() {
+    attempts++;
+    if (_getAuthUserId()) {
+      clearInterval(timer);
+      _loadUnreadMarks();
+    } else if (attempts > 30) {
+      clearInterval(timer);
+    }
+  }, 2000);
+})();
+
 var filterObserver = null;
 
 // ===== Inject CSS to override WhatsApp's virtual scroll positioning =====
@@ -668,26 +774,23 @@ function _handleContextAction(action, jid, displayName, rowData) {
       break;
 
     case 'markUnread':
-      if (window.ezapChatAction) {
-        window.ezapChatAction(jid, 'markUnread').then(function(r) {
-          console.log('[EZAP-CTX] MarkUnread result:', r);
-          if (r && r.ok) {
-            _flashRow(jid, 'rgba(37,211,102,0.2)');
-            // Update badge to show at least 1 unread
-            var unreadRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
-            if (unreadRow) {
-              var badge = unreadRow.querySelector('.wcrm-custom-badge');
-              if (badge) {
-                badge.textContent = badge.textContent === '' || badge.style.display === 'none' ? '1' : badge.textContent;
-                badge.style.display = '';
-              }
-              unreadRow.setAttribute('data-ezap-unread', '1');
-            }
-          } else {
-            _flashRow(jid, 'rgba(255,107,107,0.2)');
+      // Save unread mark to database (WhatsApp's internal API is unreliable)
+      _saveUnreadMark(jid);
+      _flashRow(jid, 'rgba(37,211,102,0.2)');
+      // Update badge locally
+      var unreadMarkRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
+      if (unreadMarkRow) {
+        unreadMarkRow.setAttribute('data-ezap-custom-unread', '1');
+        var umBadge = unreadMarkRow.querySelector('.wcrm-custom-badge');
+        if (umBadge) {
+          var nativeUn = parseInt(unreadMarkRow.getAttribute('data-ezap-unread') || '0', 10);
+          if (nativeUn <= 0) {
+            umBadge.textContent = '\u2022'; // bullet dot for custom mark
           }
-        });
+          umBadge.style.display = '';
+        }
       }
+      console.log('[EZAP-CTX] Marked as unread (DB):', jid);
       break;
 
     case 'archive':
@@ -1349,12 +1452,13 @@ function _showCustomAbaList(abaTab, chatIndex) {
       _unreadFilterActive = !_unreadFilterActive;
       unreadRow.style.background = _unreadFilterActive ? 'rgba(0,168,132,0.12)' : 'transparent';
       unreadText.textContent = _unreadFilterActive ? 'Nao lidas (filtro ativo)' : 'Nao lidas';
-      // Show/hide rows based on unread count
+      // Show/hide rows based on unread count OR custom unread marks
       var allCustomRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row');
       for (var ur = 0; ur < allCustomRows.length; ur++) {
         var unreadVal = parseInt(allCustomRows[ur].getAttribute('data-ezap-unread') || '0', 10);
+        var hasCustomMark = allCustomRows[ur].getAttribute('data-ezap-custom-unread') === '1';
         if (_unreadFilterActive) {
-          allCustomRows[ur].style.display = unreadVal > 0 ? '' : 'none';
+          allCustomRows[ur].style.display = (unreadVal > 0 || hasCustomMark) ? '' : 'none';
         } else {
           allCustomRows[ur].style.display = '';
         }
@@ -1368,6 +1472,11 @@ function _showCustomAbaList(abaTab, chatIndex) {
   custom.appendChild(frag);
 
   console.log("[WCRM CUSTOM] Renderizou", rows.length, "contatos,", pinnedCount, "pinned");
+
+  // Apply custom unread marks badges from DB
+  if (_ezapUnreadMarksLoaded) {
+    _applyUnreadMarksBadges();
+  }
 
   // Remove early-hide class (overlay ja ta visivel, pode liberar)
   if (document.body) document.body.classList.remove('ezap-overlay-loading');
@@ -1509,12 +1618,17 @@ function _updateCustomRow(row, data) {
     if (newPrev && prevEl.innerHTML !== newPrevHTML) { prevEl.innerHTML = newPrevHTML; changed = true; }
   }
 
-  // Badge de unread
+  // Badge de unread (native + custom marks)
   var badge = row.querySelector('.wcrm-custom-badge');
+  var hasCustomMark = _ezapUnreadMarks[data.jid || row.getAttribute('data-ezap-jid')];
   if (badge) {
     if (data.unread > 0) {
       var txt = data.unread > 99 ? '99+' : String(data.unread);
       if (badge.textContent !== txt) { badge.textContent = txt; changed = true; }
+      badge.style.display = '';
+    } else if (hasCustomMark) {
+      // Keep bullet dot for custom unread mark
+      if (badge.textContent !== '\u2022') { badge.textContent = '\u2022'; changed = true; }
       badge.style.display = '';
     } else {
       if (badge.style.display !== 'none') { badge.style.display = 'none'; changed = true; }
@@ -1643,6 +1757,10 @@ function _createCustomRow(data) {
   badge.className = 'wcrm-custom-badge';
   if (data.unread > 0) {
     badge.textContent = data.unread > 99 ? '99+' : String(data.unread);
+  } else if (_ezapUnreadMarks[data.jid]) {
+    // Custom unread mark from DB — show bullet dot
+    badge.textContent = '\u2022';
+    row.setAttribute('data-ezap-custom-unread', '1');
   } else {
     badge.style.display = 'none';
   }
@@ -1665,6 +1783,17 @@ function _createCustomRow(data) {
     var jid = row.getAttribute('data-ezap-jid');
     var cname = row.getAttribute('data-ezap-name');
     row.classList.add('wcrm-row-loading');
+    // Clear custom unread mark when chat is opened
+    if (_ezapUnreadMarks[jid]) {
+      _removeUnreadMark(jid);
+      row.removeAttribute('data-ezap-custom-unread');
+      // Hide badge if no native unread either
+      var nativeUn = parseInt(row.getAttribute('data-ezap-unread') || '0', 10);
+      if (nativeUn <= 0) {
+        var openBadge = row.querySelector('.wcrm-custom-badge');
+        if (openBadge) openBadge.style.display = 'none';
+      }
+    }
     window.ezapOpenChat(jid, cname).then(function(result) {
       console.log("[WCRM CUSTOM] openChat:", cname, "->", result);
       row.classList.remove('wcrm-row-loading');
