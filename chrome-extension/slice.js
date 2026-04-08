@@ -187,12 +187,12 @@ function _updateHiddenToggle() {
     // Cria toggle dinamicamente (primeiro chat oculto na sessão)
     toggle = document.createElement('div');
     toggle.id = 'ezap-hidden-filter';
-    toggle.style.cssText = 'display:flex;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid #3b4a54;';
+    toggle.style.cssText = 'display:flex;flex-direction:row;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid #3b4a54;';
     toggle.addEventListener('mouseenter', function() { if (!_ezapHiddenViewActive) toggle.style.background = '#2a3942'; });
     toggle.addEventListener('mouseleave', function() { if (!_ezapHiddenViewActive) toggle.style.background = 'transparent'; });
     var icon = document.createElement('span');
     icon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#00a884" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-    icon.style.cssText = 'display:flex;align-items:center;margin-right:15px;';
+    icon.style.cssText = 'display:flex;align-items:center;margin-right:15px;flex-shrink:0;';
     toggle.appendChild(icon);
     var text = document.createElement('span');
     text.style.cssText = 'font-size:14px;color:#00a884;font-weight:500;';
@@ -1787,12 +1787,12 @@ function _showCustomAbaList(abaTab, chatIndex) {
     if (hiddenCount > 0) {
       var hiddenRow = document.createElement('div');
       hiddenRow.id = 'ezap-hidden-filter';
-      hiddenRow.style.cssText = 'display:flex;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid ' + _tArch.border + ';';
+      hiddenRow.style.cssText = 'display:flex;flex-direction:row;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid ' + _tArch.border + ';';
       hiddenRow.addEventListener('mouseenter', function() { if (!_ezapHiddenViewActive) hiddenRow.style.background = _tArch.bgSecondary; });
       hiddenRow.addEventListener('mouseleave', function() { if (!_ezapHiddenViewActive) hiddenRow.style.background = 'transparent'; });
       var hiddenIcon = document.createElement('span');
       hiddenIcon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="' + (_tArch.accent || '#00a884') + '" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-      hiddenIcon.style.cssText = 'display:flex;align-items:center;margin-right:15px;';
+      hiddenIcon.style.cssText = 'display:flex;align-items:center;margin-right:15px;flex-shrink:0;';
       hiddenRow.appendChild(hiddenIcon);
       var hiddenText = document.createElement('span');
       hiddenText.textContent = 'Conversas ocultas (' + hiddenCount + ')';
