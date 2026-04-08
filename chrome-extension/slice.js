@@ -2206,6 +2206,7 @@ function _pollCustomListUpdates() {
         if (renderedJids[jid]) return;
         var meta = idx.byJid[jid];
         if (!meta || !meta.name || meta.isArchived) return;
+        if (_ezapHiddenChats[jid]) return; // Não readiciona chats ocultos
         // Pin nativo do WA (pinTs > 0)
         var isPinned = !!(meta.pinTs && meta.pinTs > 0);
         newRows.push({
