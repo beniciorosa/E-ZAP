@@ -1125,47 +1125,50 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var contacts, contactJids;
   if (isOverlayMode && chatIndex && chatIndex.byJid) {
     // Overlay mode: build contacts from ALL chats in the store (exceto arquivados)
-    // Deduplica contatos individuais que existem como @c.us E @lid (mesmo telefone)
+    // Deduplica por nome em 2 passes:
+    //   1º) Contatos individuais (@c.us/@lid) — dedup por nome, mantém mais recente
+    //   2º) Grupos (@g.us) — só adiciona se não existe contato com mesmo nome
+    // Isso garante que contatos individuais sempre têm prioridade sobre grupos
+    // antigos com mesmo nome (ex: grupo que o usuário saiu).
     contacts = [];
     contactJids = {};
-    var _phoneDedup = {}; // phone -> { name, jid, lastTs } — só pra contatos individuais
+    var _nameDedup = {}; // name -> { jid, lastTs, isGroup }
+
+    // Passo 1: contatos individuais primeiro
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
       if (!meta || !meta.name || meta.isArchived) return;
+      if (jid.indexOf('@g.us') >= 0) return; // Pula grupos neste passo
 
-      var isGroup = jid.indexOf('@g.us') >= 0;
-      if (isGroup) {
-        // Grupos: sempre incluir (JID de grupo é único, nunca duplica)
+      var existing = _nameDedup[meta.name];
+      if (!existing) {
+        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
         contacts.push(meta.name);
         contactJids[meta.name] = jid;
-        return;
-      }
-
-      // Contato individual: extrair telefone do JID para deduplicar
-      var phone = jid.split('@')[0].replace(/[^0-9]/g, '');
-      if (!phone || phone.length < 8) {
-        // JID sem telefone válido (ex: @lid sem mapeamento) — inclui pelo nome
-        if (!contactJids[meta.name]) {
-          contacts.push(meta.name);
-          contactJids[meta.name] = jid;
-        }
-        return;
-      }
-
-      var existing = _phoneDedup[phone];
-      if (!existing || (meta.lastTs || 0) > (existing.lastTs || 0)) {
-        // Primeiro registro desse telefone, ou este JID tem atividade mais recente
-        if (existing) {
-          // Remove o anterior do array de contacts
-          var idx = contacts.indexOf(existing.name);
-          if (idx >= 0) contacts.splice(idx, 1);
-          delete contactJids[existing.name];
-        }
-        _phoneDedup[phone] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0 };
-        contacts.push(meta.name);
+      } else if ((meta.lastTs || 0) > (existing.lastTs || 0)) {
+        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
         contactJids[meta.name] = jid;
       }
-      // Se já existe com lastTs maior, ignora este JID duplicado
+    });
+
+    // Passo 2: grupos — só adiciona se nome não existe ainda
+    Object.keys(chatIndex.byJid).forEach(function(jid) {
+      var meta = chatIndex.byJid[jid];
+      if (!meta || !meta.name || meta.isArchived) return;
+      if (jid.indexOf('@g.us') < 0) return; // Só grupos neste passo
+
+      var existing = _nameDedup[meta.name];
+      if (!existing) {
+        // Nenhum contato com esse nome — adiciona o grupo
+        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
+        contacts.push(meta.name);
+        contactJids[meta.name] = jid;
+      } else if (existing.isGroup && (meta.lastTs || 0) > (existing.lastTs || 0)) {
+        // Outro grupo com mesmo nome mas mais recente — atualiza
+        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
+        contactJids[meta.name] = jid;
+      }
+      // Se já existe um contato individual com esse nome → ignora o grupo
     });
   } else {
     contacts = (abaTab && abaTab.contacts) || [];
