@@ -1,8 +1,22 @@
 // ===== E-ZAP — Script para envio de email com token =====
 // Deploy como Web App: Execute as → tools@grupoescalada.com.br | Who has access → Anyone
 
-// URL publica do ZIP no Supabase Storage (atualizado automaticamente via GitHub Action)
-var ZIP_DOWNLOAD_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co/storage/v1/object/public/releases/ezap-latest.zip";
+// URL fallback do ZIP no Supabase Storage
+var ZIP_DOWNLOAD_FALLBACK = "https://xsqpqdjffjqxdcmoytfc.supabase.co/storage/v1/object/public/releases/ezap-latest.zip";
+var RELEASE_JSON_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co/storage/v1/object/public/releases/release.json";
+
+function getLatestDownloadUrl(passedUrl) {
+  // 1. Use URL passed from admin panel (most up-to-date)
+  if (passedUrl) return passedUrl;
+  // 2. Fetch from release.json dynamically
+  try {
+    var resp = UrlFetchApp.fetch(RELEASE_JSON_URL, { muteHttpExceptions: true });
+    var rel = JSON.parse(resp.getContentText());
+    if (rel && (rel.download_url || rel.url)) return rel.download_url || rel.url;
+  } catch(e) {}
+  // 3. Fallback
+  return ZIP_DOWNLOAD_FALLBACK;
+}
 
 function doPost(e) {
   try {
@@ -10,13 +24,15 @@ function doPost(e) {
     var nome = data.nome || "";
     var email = data.email || "";
     var token = data.token || "";
+    var downloadUrl = data.download_url || "";
 
     if (!email || !token) {
       return ContentService.createTextOutput(JSON.stringify({ ok: false, error: "Email e token obrigatorios" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    var html = buildEmailHtml(nome, token);
+    var zipUrl = getLatestDownloadUrl(downloadUrl);
+    var html = buildEmailHtml(nome, token, zipUrl);
 
     GmailApp.sendEmail(email, "E-ZAP — Seu acesso foi criado!", "", {
       htmlBody: html,
@@ -32,8 +48,9 @@ function doPost(e) {
   }
 }
 
-function buildEmailHtml(nome, token) {
+function buildEmailHtml(nome, token, zipUrl) {
   var firstName = nome.split(" ")[0] || "Usuario";
+  var ZIP_DOWNLOAD_URL = zipUrl || ZIP_DOWNLOAD_FALLBACK;
 
   return '<!DOCTYPE html>' +
   '<html><head><meta charset="utf-8"></head>' +

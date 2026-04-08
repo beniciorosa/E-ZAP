@@ -2461,17 +2461,20 @@ function createUser() {
 var APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_ZQ2372L2lmvBX22oOLYrJ07xbGfsnDAptfml7JVKIAg3IEijVg9k-nGFGTqPtv9uHA/exec";
 
 function sendWelcomeEmail(nome, email, token) {
-  return fetch(APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ nome: nome, email: email, token: token }),
-  }).then(function(res) {
-    return res.json();
-  }).then(function(data) {
-    return data && data.ok;
-  }).catch(function() {
-    return false;
-  });
+  // Fetch latest release URL to include in email
+  return fetch(SUPA_URL + "/storage/v1/object/public/releases/release.json?t=" + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(rel) {
+      var downloadUrl = (rel && (rel.download_url || rel.url)) || (SUPA_URL + "/storage/v1/object/public/releases/ezap-latest.zip");
+      return fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ nome: nome, email: email, token: token, download_url: downloadUrl }),
+      });
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) { return data && data.ok; })
+    .catch(function() { return false; });
 }
 
 // ===== EDIT USER MODAL =====
