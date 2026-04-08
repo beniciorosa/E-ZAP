@@ -100,6 +100,9 @@ function _applyUnreadMarksBadges() {
 // conversations from the overlay (e.g., ghost groups they left).
 var _ezapHiddenChats = {}; // { jid: true }
 var _ezapHiddenChatsLoaded = false;
+var _ezapHiddenViewActive = false; // true quando "Conversas ocultas" está ativo
+var _lastHiddenContacts = []; // cache de nomes ocultos para o toggle
+var _lastHiddenContactJids = {}; // cache de JIDs ocultos
 
 function _loadHiddenChats() {
   var userId = _getAuthUserId();
@@ -713,10 +716,15 @@ function _showContextMenu(e, rowData) {
   var unreadIcon = '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2z"/></svg>';
   var readIcon = '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>';
 
+  var isHiddenChat = !!_ezapHiddenChats[jid];
+  var hideRestoreIcon = isHiddenChat
+    ? '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/><line x1="4" y1="20" x2="20" y2="4" stroke="#8696a0" stroke-width="2"/></svg>';
+
   var items = [
     { icon: _waIcons.pin, label: isPinned ? 'Desafixar conversa' : 'Fixar conversa', action: 'togglePin' },
     { icon: isCustomUnread ? readIcon : unreadIcon, label: isCustomUnread ? 'Marcar como lido' : 'Marcar como não lido', action: isCustomUnread ? 'unmarkUnread' : 'markUnread' },
-    { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/><line x1="4" y1="20" x2="20" y2="4" stroke="#8696a0" stroke-width="2"/></svg>', label: 'Ocultar conversa', action: 'hide' }
+    { icon: hideRestoreIcon, label: isHiddenChat ? 'Restaurar conversa' : 'Ocultar conversa', action: isHiddenChat ? 'unhide' : 'hide' }
   ];
 
   items.forEach(function(item) {
@@ -893,6 +901,42 @@ function _handleContextAction(action, jid, displayName, rowData) {
       }, 350);
       console.log('[EZAP-CTX] Chat hidden (DB):', jid);
       break;
+
+    case 'unhide':
+      _unhideChat(jid);
+      // Remove row da lista de ocultos com animação
+      var unhideRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
+      if (unhideRow) {
+        unhideRow.style.transition = 'opacity 0.3s, height 0.3s';
+        unhideRow.style.opacity = '0';
+        unhideRow.style.height = '0';
+        unhideRow.style.overflow = 'hidden';
+        setTimeout(function() { if (unhideRow.parentNode) unhideRow.parentNode.removeChild(unhideRow); }, 300);
+      }
+      // Atualiza contagem das ocultas e texto do toggle
+      setTimeout(function() {
+        var hiddenRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row[data-ezap-is-hidden="1"]');
+        var visibleHidden = 0;
+        hiddenRows.forEach(function(r) { if (r.style.opacity !== '0') visibleHidden++; });
+        var countEl = document.getElementById('ezap-overlay-count');
+        if (countEl && _ezapHiddenViewActive) {
+          countEl.textContent = visibleHidden + ' conversa' + (visibleHidden !== 1 ? 's' : '') + ' (ocultas)';
+        }
+        // Se não sobrou nenhuma oculta, volta para a view normal
+        if (visibleHidden === 0 && _ezapHiddenViewActive) {
+          _ezapHiddenViewActive = false;
+          var normalRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row:not([data-ezap-is-hidden])');
+          for (var ni = 0; ni < normalRows.length; ni++) normalRows[ni].style.display = '';
+          var hiddenToggle = document.getElementById('ezap-hidden-filter');
+          if (hiddenToggle) hiddenToggle.style.display = 'none';
+          if (countEl) {
+            var total = normalRows.length;
+            countEl.textContent = total + ' conversa' + (total !== 1 ? 's' : '');
+          }
+        }
+      }, 350);
+      console.log('[EZAP-CTX] Chat unhidden (restored):', jid);
+      break;
   }
 }
 
@@ -1065,8 +1109,13 @@ function _buildNativePicMap() {
       var title = span.getAttribute('title') || '';
       if (!title) continue;
       var img = rows[i].querySelector('img');
-      var picUrl = (img && img.src && img.src.indexOf('data:') !== 0) ? img.src : '';
-      map[title] = picUrl;
+      if (!img || !img.src) continue;
+      var src = img.src;
+      // Aceita URLs http e data URIs grandes (base64 de fotos reais)
+      // Ignora GIFs e data URIs minúsculos (placeholders)
+      if (src.indexOf('data:image/gif') === 0) continue;
+      if (src.indexOf('data:image') === 0 && src.length < 200) continue;
+      map[title] = src;
     }
   } catch (e) {}
   return map;
@@ -1134,6 +1183,7 @@ function _buildNativePreviewMap() {
 }
 
 function _showCustomAbaList(abaTab, chatIndex) {
+  _ezapHiddenViewActive = false; // Reset ao reconstruir overlay
   _ensureCustomListCSS();
 
   var container = findChatListContainer();
@@ -1192,6 +1242,8 @@ function _showCustomAbaList(abaTab, chatIndex) {
     // antigos com mesmo nome (ex: grupo que o usuário saiu).
     contacts = [];
     contactJids = {};
+    var _hiddenContacts = []; // nomes dos chats ocultos
+    var _hiddenContactJids = {}; // nome -> jid dos chats ocultos
     var _nameDedup = {}; // normalizedName -> { name, jid, lastTs, isGroup }
 
     // Normaliza nome para comparação (remove espaços extras, unicode invisível)
@@ -1203,8 +1255,16 @@ function _showCustomAbaList(abaTab, chatIndex) {
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
       if (!meta || !meta.name || meta.isArchived) return;
-      if (_ezapHiddenChats[jid]) return; // Oculto pelo usuário
       if (jid.indexOf('@g.us') >= 0) return; // Pula grupos neste passo
+
+      // Chats ocultos vão para lista separada
+      if (_ezapHiddenChats[jid]) {
+        if (!_hiddenContactJids[meta.name]) {
+          _hiddenContacts.push(meta.name);
+          _hiddenContactJids[meta.name] = jid;
+        }
+        return;
+      }
 
       var key = _dedupKey(meta.name);
       var existing = _nameDedup[key];
@@ -1222,8 +1282,16 @@ function _showCustomAbaList(abaTab, chatIndex) {
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
       if (!meta || !meta.name || meta.isArchived) return;
-      if (_ezapHiddenChats[jid]) return; // Oculto pelo usuário
       if (jid.indexOf('@g.us') < 0) return; // Só grupos neste passo
+
+      // Grupos ocultos vão para lista separada
+      if (_ezapHiddenChats[jid]) {
+        if (!_hiddenContactJids[meta.name]) {
+          _hiddenContacts.push(meta.name);
+          _hiddenContactJids[meta.name] = jid;
+        }
+        return;
+      }
 
       var key = _dedupKey(meta.name);
       var existing = _nameDedup[key];
@@ -1239,6 +1307,10 @@ function _showCustomAbaList(abaTab, chatIndex) {
       }
       // Se já existe um contato individual com esse nome → ignora o grupo
     });
+
+    // Salva listas de ocultos para uso no toggle
+    _lastHiddenContacts = _hiddenContacts;
+    _lastHiddenContactJids = _hiddenContactJids;
   } else {
     contacts = (abaTab && abaTab.contacts) || [];
     contactJids = (abaTab && abaTab.contactJids) || {};
@@ -1605,11 +1677,107 @@ function _showCustomAbaList(abaTab, chatIndex) {
       }
     });
     custom.appendChild(unreadRow);
+
+    // Conversas ocultas row (mostra/esconde chats ocultos)
+    var hiddenCount = _lastHiddenContacts.length;
+    if (hiddenCount > 0) {
+      var hiddenRow = document.createElement('div');
+      hiddenRow.id = 'ezap-hidden-filter';
+      hiddenRow.style.cssText = 'display:flex;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid ' + _tArch.border + ';';
+      hiddenRow.addEventListener('mouseenter', function() { if (!_ezapHiddenViewActive) hiddenRow.style.background = _tArch.bgSecondary; });
+      hiddenRow.addEventListener('mouseleave', function() { if (!_ezapHiddenViewActive) hiddenRow.style.background = 'transparent'; });
+      var hiddenIcon = document.createElement('span');
+      hiddenIcon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="' + (_tArch.accent || '#00a884') + '" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+      hiddenIcon.style.cssText = 'display:flex;align-items:center;margin-right:15px;';
+      hiddenRow.appendChild(hiddenIcon);
+      var hiddenText = document.createElement('span');
+      hiddenText.textContent = 'Conversas ocultas (' + hiddenCount + ')';
+      hiddenText.style.cssText = 'font-size:14px;color:' + (_tArch.accent || '#00a884') + ';font-weight:500;';
+      hiddenRow.appendChild(hiddenText);
+      hiddenRow.addEventListener('click', function(e) {
+        e.stopPropagation();
+        _ezapHiddenViewActive = !_ezapHiddenViewActive;
+        hiddenRow.style.background = _ezapHiddenViewActive ? 'rgba(0,168,132,0.12)' : 'transparent';
+        hiddenText.textContent = _ezapHiddenViewActive
+          ? 'Conversas ocultas (filtro ativo)'
+          : 'Conversas ocultas (' + hiddenCount + ')';
+
+        // Toggle: mostra/esconde rows normais e hidden
+        var normalRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row:not([data-ezap-is-hidden])');
+        var hiddenRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row[data-ezap-is-hidden="1"]');
+
+        for (var ni = 0; ni < normalRows.length; ni++) {
+          normalRows[ni].style.display = _ezapHiddenViewActive ? 'none' : '';
+        }
+        for (var hi = 0; hi < hiddenRows.length; hi++) {
+          hiddenRows[hi].style.display = _ezapHiddenViewActive ? '' : 'none';
+        }
+
+        // Atualiza contagem
+        var countEl = document.getElementById('ezap-overlay-count');
+        if (countEl) {
+          var visCount = _ezapHiddenViewActive ? hiddenRows.length : normalRows.length;
+          countEl.textContent = visCount + ' conversa' + (visCount !== 1 ? 's' : '') +
+            (_ezapHiddenViewActive ? ' (ocultas)' : '');
+        }
+      });
+      custom.appendChild(hiddenRow);
+    }
   }
 
+  // Rows normais
   var frag = document.createDocumentFragment();
   rows.forEach(function(r) { frag.appendChild(_createCustomRow(r)); });
   custom.appendChild(frag);
+
+  // Rows ocultos (display:none por padrão, visíveis quando toggle ativo)
+  if (isOverlayMode && _lastHiddenContacts.length > 0) {
+    var hiddenFrag = document.createDocumentFragment();
+    _lastHiddenContacts.forEach(function(n) {
+      var jid = _lastHiddenContactJids[n];
+      if (!jid) return;
+      var displayName = n;
+      var picUrl = '';
+      var lastTs = 0;
+      var unread = 0;
+      var lastMsgText = '';
+      var lastMsgFromMe = false;
+      var lastMsgSender = '';
+      if (chatIndex && chatIndex.byJid && chatIndex.byJid[jid]) {
+        var meta = chatIndex.byJid[jid];
+        if (meta.name) displayName = meta.name;
+        if (meta.profilePicUrl) picUrl = meta.profilePicUrl;
+        if (meta.lastTs) lastTs = meta.lastTs;
+        if (meta.lastMsgText) lastMsgText = meta.lastMsgText;
+        if (meta.lastMsgFromMe) lastMsgFromMe = meta.lastMsgFromMe;
+      }
+      if (!picUrl) {
+        picUrl = nativePicMap[n] || nativePicMap[displayName] || '';
+      }
+      var rowData = {
+        name: n, displayName: displayName, jid: jid, isPinned: false,
+        picUrl: picUrl, lastTs: lastTs, unread: 0, abaName: '',
+        lastMsgText: lastMsgText, lastMsgFromMe: lastMsgFromMe, lastMsgSender: '',
+        isMuted: false, isHidden: true
+      };
+      var hidRow = _createCustomRow(rowData);
+      hidRow.setAttribute('data-ezap-is-hidden', '1');
+      hidRow.style.display = 'none'; // Oculto por padrão
+
+      // Badge visual de "oculto" (ícone de olho riscado no avatar)
+      var hidBadge = document.createElement('div');
+      hidBadge.style.cssText = 'position:absolute;bottom:8px;right:12px;background:rgba(0,0,0,0.6);border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;';
+      hidBadge.innerHTML = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#fff" stroke-width="2.5"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+      var hidAvatar = hidRow.querySelector('.wcrm-custom-avatar');
+      if (hidAvatar) {
+        hidAvatar.style.position = 'relative';
+        hidAvatar.appendChild(hidBadge);
+      }
+
+      hiddenFrag.appendChild(hidRow);
+    });
+    custom.appendChild(hiddenFrag);
+  }
 
   console.log("[WCRM CUSTOM] Renderizou", rows.length, "contatos,", pinnedCount, "pinned");
 
