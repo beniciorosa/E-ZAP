@@ -795,12 +795,13 @@
 .ezap-sig-left,
 .ezap-sig-right {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   flex-shrink: 0;
-  padding-bottom: 4px;
+  align-self: stretch;
+  padding-top: 16px;
 }
 .ezap-sig-left {
-  gap: 2px;
+  gap: 0;
 }
 .ezap-sig-icon-btn {
   background: none;

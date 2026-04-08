@@ -2111,17 +2111,21 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     });
     leftBtns.appendChild(emojiBtn);
 
-    // Attach button
+    // Attach button (+ icon)
     var attachBtn = document.createElement("button");
     attachBtn.className = "ezap-sig-icon-btn";
     attachBtn.title = "Anexar";
-    attachBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M1.816 15.556v.002c0 1.502.584 2.912 1.646 3.972s2.472 1.647 3.974 1.647a5.58 5.58 0 003.972-1.645l9.547-9.548c.769-.768 1.147-1.767 1.058-2.817-.079-.968-.548-1.927-1.319-2.698-1.594-1.592-4.068-1.711-5.517-.262l-7.916 7.915c-.881.881-.792 2.25.214 3.261.501.501 1.128.801 1.765.853.637.051 1.21-.162 1.608-.56l5.778-5.778.397.397-5.778 5.778c-.56.56-1.357.832-2.184.762-.862-.074-1.691-.486-2.332-1.125C5.593 14.515 5.474 12.669 6.7 11.444l7.916-7.915c1.893-1.893 4.93-1.731 6.921.262 1.592 1.593 1.71 4.069.262 5.518l-9.548 9.548a4.78 4.78 0 01-3.406 1.413c-1.287 0-2.498-.502-3.409-1.413-1.886-1.885-1.893-4.931.001-6.826L13.98 4.49l.397.398-8.543 8.54a4.036 4.036 0 00-.001 5.706z"></path></svg>';
+    attachBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path></svg>';
     attachBtn.addEventListener("click", function() {
-      var waAttach = document.querySelector('span[data-icon="plus"]') ||
-                     document.querySelector('span[data-icon="clip"]') ||
-                     document.querySelector('button[aria-label="Anexar"]') ||
-                     document.querySelector('button[aria-label="Attach"]');
-      if (waAttach) { var b = waAttach.closest("button") || waAttach; b.click(); }
+      _sigBar.style.visibility = "hidden";
+      setTimeout(function() {
+        var waAttach = document.querySelector('span[data-icon="plus"]') ||
+                       document.querySelector('span[data-icon="clip"]') ||
+                       document.querySelector('button[aria-label="Anexar"]') ||
+                       document.querySelector('button[aria-label="Attach"]');
+        if (waAttach) { var b = waAttach.closest("button") || waAttach; b.click(); }
+        setTimeout(function() { _sigBar.style.visibility = "visible"; }, 100);
+      }, 50);
     });
     leftBtns.appendChild(attachBtn);
     _sigBar.appendChild(leftBtns);
@@ -2161,11 +2165,15 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     micBtn.title = "Gravar audio";
     micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M11.999 14.942c2.001 0 3.531-1.53 3.531-3.531V4.35c0-2.001-1.53-3.531-3.531-3.531S8.469 2.35 8.469 4.35v7.061c0 2.001 1.53 3.531 3.53 3.531zm6.238-3.53c0 3.531-2.942 6.002-6.237 6.002s-6.237-2.471-6.237-6.002H3.761c0 4.001 3.178 7.297 7.061 7.885v3.884h2.354v-3.884c3.884-.588 7.061-3.884 7.061-7.885h-2z"></path></svg>';
     micBtn.addEventListener("click", function() {
-      // Click WA's real mic/ptt button
-      var waMic = document.querySelector('button[aria-label="Gravar mensagem de voz"]') ||
-                  document.querySelector('button[aria-label="Record voice message"]') ||
-                  document.querySelector('span[data-icon="ptt"]');
-      if (waMic) { var b = waMic.closest("button") || waMic; b.click(); }
+      _sigBar.style.visibility = "hidden";
+      setTimeout(function() {
+        var waMic = document.querySelector('span[data-icon="ptt"]') ||
+                    document.querySelector('button[aria-label="Gravar mensagem de voz"]') ||
+                    document.querySelector('button[aria-label="Record voice message"]') ||
+                    document.querySelector('#main footer button:last-child');
+        if (waMic) { var b = waMic.closest("button") || waMic; b.click(); }
+        setTimeout(function() { _sigBar.style.visibility = "visible"; }, 100);
+      }, 50);
     });
     rightBtns.appendChild(micBtn);
     _sigBar.appendChild(rightBtns);
@@ -2235,12 +2243,15 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
       return;
     }
 
+    // Extend bar upward to cover the full footer + separator line
+    var extraTop = 6;
     Object.assign(_sigBar.style, {
       display: "flex",
       bottom: (window.innerHeight - rect.bottom) + "px",
       left: rect.left + "px",
       width: rect.width + "px",
-      minHeight: rect.height + "px",
+      minHeight: (rect.height + extraTop) + "px",
+      paddingTop: (8 + extraTop) + "px",
     });
     _sigBadge.textContent = "\u270D " + _sigName;
   }
