@@ -163,12 +163,18 @@ function buildWidget() {
   var iconSize = variant === "minimal" ? 18 : 19;
 
   var widgets = (wc.widgets || {});
+  // sig widget requires "signature" feature permission
+  var hasSigFeature = window.__ezapHasFeature && window.__ezapHasFeature("signature");
   var items = [
     { key: "pin",  cfg: widgets.pin  || { enabled: true, order: 1 } },
     { key: "abas", cfg: widgets.abas || { enabled: true, order: 2 } },
     { key: "tags", cfg: widgets.tags || { enabled: true, order: 3 } },
     { key: "sig",  cfg: widgets.sig  || { enabled: false, order: 4 } }
-  ].filter(function(x) { return x.cfg.enabled !== false; });
+  ].filter(function(x) {
+    if (x.cfg.enabled === false) return false;
+    if (x.key === "sig" && !hasSigFeature) return false;
+    return true;
+  });
   items.sort(function(a, b) { return (a.cfg.order || 0) - (b.cfg.order || 0); });
 
   items.forEach(function(item, idx) {
