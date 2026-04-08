@@ -546,6 +546,7 @@ function _showContextMenu(e, rowData) {
 
   var items = [
     { icon: _waIcons.pin, label: isPinned ? 'Desafixar conversa' : 'Fixar conversa', action: 'togglePin' },
+    { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2z"/></svg>', label: 'Marcar como nao lido', action: 'markUnread' },
     { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/></svg>', label: 'Arquivar conversa', action: 'archive' }
   ];
 
@@ -577,10 +578,15 @@ function _showContextMenu(e, rowData) {
   menu.style.top = my + 'px';
   _ctxMenu = menu;
 
-  // Fecha ao clicar fora
+  // Fecha ao clicar fora ou em qualquer conversa
   setTimeout(function() {
-    document.addEventListener('click', _closeContextMenu, { once: true });
+    document.addEventListener('click', _closeContextMenu, { once: true, capture: true });
     document.addEventListener('contextmenu', _closeContextMenu, { once: true });
+    // Tambem fecha ao scroll da lista
+    var scrollParent = document.querySelector('#wcrm-custom-list') || document.getElementById('pane-side');
+    if (scrollParent) {
+      scrollParent.addEventListener('scroll', _closeContextMenu, { once: true });
+    }
   }, 50);
 }
 
@@ -658,6 +664,29 @@ function _handleContextAction(action, jid, displayName, rowData) {
         if (typeof updateHeaderButtons === 'function') {
           setTimeout(updateHeaderButtons, 200);
         }
+      }
+      break;
+
+    case 'markUnread':
+      if (window.ezapChatAction) {
+        window.ezapChatAction(jid, 'markUnread').then(function(r) {
+          console.log('[EZAP-CTX] MarkUnread result:', r);
+          if (r && r.ok) {
+            _flashRow(jid, 'rgba(37,211,102,0.2)');
+            // Update badge to show at least 1 unread
+            var unreadRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
+            if (unreadRow) {
+              var badge = unreadRow.querySelector('.wcrm-custom-badge');
+              if (badge) {
+                badge.textContent = badge.textContent === '' || badge.style.display === 'none' ? '1' : badge.textContent;
+                badge.style.display = '';
+              }
+              unreadRow.setAttribute('data-ezap-unread', '1');
+            }
+          } else {
+            _flashRow(jid, 'rgba(255,107,107,0.2)');
+          }
+        });
       }
       break;
 
@@ -1299,6 +1328,39 @@ function _showCustomAbaList(abaTab, chatIndex) {
       setTimeout(function() { clearInterval(_archW); }, 300000);
     });
     custom.appendChild(archRow);
+
+    // Nao lidas row (filtro de conversas com unread > 0)
+    var unreadRow = document.createElement('div');
+    unreadRow.id = 'ezap-unread-filter';
+    unreadRow.style.cssText = 'display:flex;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid ' + _tArch.border + ';';
+    unreadRow.addEventListener('mouseenter', function() { unreadRow.style.background = _tArch.bgSecondary; });
+    unreadRow.addEventListener('mouseleave', function() { unreadRow.style.background = 'transparent'; });
+    var unreadIcon = document.createElement('span');
+    unreadIcon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="' + (_tArch.accent || '#00a884') + '" stroke-width="2"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/><circle cx="12" cy="10" r="3" fill="' + (_tArch.accent || '#00a884') + '" stroke="none"/></svg>';
+    unreadIcon.style.cssText = 'display:flex;align-items:center;margin-right:15px;';
+    unreadRow.appendChild(unreadIcon);
+    var unreadText = document.createElement('span');
+    unreadText.textContent = 'Nao lidas';
+    unreadText.style.cssText = 'font-size:14px;color:' + (_tArch.accent || '#00a884') + ';font-weight:500;';
+    unreadRow.appendChild(unreadText);
+    var _unreadFilterActive = false;
+    unreadRow.addEventListener('click', function(e) {
+      e.stopPropagation();
+      _unreadFilterActive = !_unreadFilterActive;
+      unreadRow.style.background = _unreadFilterActive ? 'rgba(0,168,132,0.12)' : 'transparent';
+      unreadText.textContent = _unreadFilterActive ? 'Nao lidas (filtro ativo)' : 'Nao lidas';
+      // Show/hide rows based on unread count
+      var allCustomRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row');
+      for (var ur = 0; ur < allCustomRows.length; ur++) {
+        var unreadVal = parseInt(allCustomRows[ur].getAttribute('data-ezap-unread') || '0', 10);
+        if (_unreadFilterActive) {
+          allCustomRows[ur].style.display = unreadVal > 0 ? '' : 'none';
+        } else {
+          allCustomRows[ur].style.display = '';
+        }
+      }
+    });
+    custom.appendChild(unreadRow);
   }
 
   var frag = document.createDocumentFragment();
