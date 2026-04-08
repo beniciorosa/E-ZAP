@@ -1132,7 +1132,12 @@ function _showCustomAbaList(abaTab, chatIndex) {
     // antigos com mesmo nome (ex: grupo que o usuário saiu).
     contacts = [];
     contactJids = {};
-    var _nameDedup = {}; // name -> { jid, lastTs, isGroup }
+    var _nameDedup = {}; // normalizedName -> { name, jid, lastTs, isGroup }
+
+    // Normaliza nome para comparação (remove espaços extras, unicode invisível)
+    function _dedupKey(name) {
+      return name.replace(/\s+/g, ' ').trim().toLowerCase();
+    }
 
     // Passo 1: contatos individuais primeiro
     Object.keys(chatIndex.byJid).forEach(function(jid) {
@@ -1140,13 +1145,14 @@ function _showCustomAbaList(abaTab, chatIndex) {
       if (!meta || !meta.name || meta.isArchived) return;
       if (jid.indexOf('@g.us') >= 0) return; // Pula grupos neste passo
 
-      var existing = _nameDedup[meta.name];
+      var key = _dedupKey(meta.name);
+      var existing = _nameDedup[key];
       if (!existing) {
-        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
+        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
         contacts.push(meta.name);
         contactJids[meta.name] = jid;
       } else if ((meta.lastTs || 0) > (existing.lastTs || 0)) {
-        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
+        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
         contactJids[meta.name] = jid;
       }
     });
@@ -1157,15 +1163,16 @@ function _showCustomAbaList(abaTab, chatIndex) {
       if (!meta || !meta.name || meta.isArchived) return;
       if (jid.indexOf('@g.us') < 0) return; // Só grupos neste passo
 
-      var existing = _nameDedup[meta.name];
+      var key = _dedupKey(meta.name);
+      var existing = _nameDedup[key];
       if (!existing) {
         // Nenhum contato com esse nome — adiciona o grupo
-        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
+        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
         contacts.push(meta.name);
         contactJids[meta.name] = jid;
       } else if (existing.isGroup && (meta.lastTs || 0) > (existing.lastTs || 0)) {
         // Outro grupo com mesmo nome mas mais recente — atualiza
-        _nameDedup[meta.name] = { jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
+        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
         contactJids[meta.name] = jid;
       }
       // Se já existe um contato individual com esse nome → ignora o grupo
