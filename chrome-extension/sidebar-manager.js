@@ -29,19 +29,21 @@
   function _updateFloats() {
     var container = document.getElementById("ezap-float-container");
     if (!container) return;
+    // If WA native drawer is open, keep hidden
+    if (_nativeDrawerOpen) {
+      container.style.display = "none";
+      return;
+    }
     var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
       return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
     });
     if (anyShrinkOpen) {
-      // Move buttons to the left of the 320px sidebar
       container.style.right = "336px";
       container.style.display = "flex";
     } else {
-      // Restore original position
       container.style.right = "16px";
       container.style.display = "flex";
     }
-    // Highlight the active sidebar's button
     _highlightActiveButton();
   }
 
@@ -172,6 +174,38 @@
       });
     }
   };
+
+  // ===== Auto-hide floating buttons when WA's native info panel is open =====
+  var _nativeDrawerOpen = false;
+
+  function _isNativeDrawerOpen() {
+    // WhatsApp's contact/group info panel uses drawers with data-animate-drawer-title
+    // or specific testid patterns. Check multiple selectors for reliability.
+    return !!(
+      document.querySelector('[data-animate-drawer-title]') ||
+      document.querySelector('[data-testid="contact-info-drawer"]') ||
+      document.querySelector('[data-testid="group-info-drawer"]') ||
+      document.querySelector('span[data-testid="contact-info-drawer-title"]')
+    );
+  }
+
+  function _checkNativeDrawer() {
+    var container = document.getElementById("ezap-float-container");
+    if (!container) return;
+
+    var drawerOpen = _isNativeDrawerOpen();
+    if (drawerOpen === _nativeDrawerOpen) return; // no change
+
+    _nativeDrawerOpen = drawerOpen;
+    if (drawerOpen) {
+      container.style.display = "none";
+    } else {
+      container.style.display = "flex";
+      _updateFloats(); // restore correct position
+    }
+  }
+
+  setInterval(_checkNativeDrawer, 500);
 
   console.log("[EZAP] Sidebar manager loaded");
 })();
