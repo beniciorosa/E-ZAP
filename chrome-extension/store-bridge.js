@@ -2017,28 +2017,23 @@
       var sigFull = sigPrefix + sigText;
       sigInput.focus();
 
-      // Clear compose box: select all + delete (works in MAIN world context)
-      document.execCommand('selectAll', false, null);
-      document.execCommand('delete', false, null);
+      // Step 1: Force-clear by removing DOM children (execCommand does NOT work)
+      while (sigInput.firstChild) {
+        sigInput.removeChild(sigInput.firstChild);
+      }
+      // Notify React of the empty state
+      sigInput.dispatchEvent(new Event('input', { bubbles: true }));
 
-      // Paste the full text with signature
-      var sigClip = new DataTransfer();
-      sigClip.setData('text/plain', sigFull);
-      sigInput.dispatchEvent(new ClipboardEvent('paste', {
-        bubbles: true, cancelable: true, clipboardData: sigClip
-      }));
-
-      // Wait for paste, then click send
+      // Step 2: Wait for React to sync, then paste new text
       setTimeout(function() {
-        // Verify text was set correctly
-        var verify = (sigInput.textContent || sigInput.innerText || '').trim();
-        if (verify.indexOf(sigText) === -1) {
-          // Paste failed: try insertText fallback
-          sigInput.focus();
-          document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, sigFull);
-        }
+        sigInput.focus();
+        var sigClip = new DataTransfer();
+        sigClip.setData('text/plain', sigFull);
+        sigInput.dispatchEvent(new ClipboardEvent('paste', {
+          bubbles: true, cancelable: true, clipboardData: sigClip
+        }));
 
+        // Step 3: Wait for paste, then send
         setTimeout(function() {
           var sigSendBtn = document.querySelector('button[aria-label="Enviar"]') ||
                            document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
@@ -2050,8 +2045,8 @@
             btn.click();
           }
           window.postMessage({ type: '_ezap_sig_done' }, '*');
-        }, 150);
-      }, 150);
+        }, 200);
+      }, 100);
     }
   });
 
