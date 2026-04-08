@@ -256,9 +256,10 @@ window.__ezapDefaultWidgetConfig = {
   position: "sidebar", // "sidebar" | "floating"
   style: "pill",        // "pill" | "glass" | "minimal" | "solid"
   widgets: {
-    pin:  { enabled: true, order: 1 },
-    abas: { enabled: true, order: 2 },
-    tags: { enabled: true, order: 3 }
+    pin:  { enabled: true,  order: 1 },
+    abas: { enabled: true,  order: 2 },
+    tags: { enabled: true,  order: 3 },
+    sig:  { enabled: false, order: 4 }
   }
 };
 

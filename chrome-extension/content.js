@@ -2020,12 +2020,10 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   var _sigName = "";
   var _sigInserted = false; // guard to avoid re-inserting
 
-  // ===== Toggle =====
+  // ===== Toggle (exposed globally for widget.js) =====
   function toggleSignature() {
     _sigEnabled = !_sigEnabled;
-    updateSignatureButton();
     _sigInserted = false;
-    // If enabling and compose box is focused+empty, insert now
     if (_sigEnabled) tryInsertSignature();
     var auth = window.__wcrmAuth;
     if (auth && auth.userId) {
@@ -2041,39 +2039,8 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     console.log("[EZAP-SIG] Signature", _sigEnabled ? "ENABLED" : "DISABLED");
   }
 
-  // ===== Toggle button (floating) =====
-  function updateSignatureButton() {
-    var btn = document.getElementById("ezap-sig-toggle");
-    if (!btn) return;
-    if (_sigEnabled) {
-      btn.style.background = "#25d366";
-      btn.style.color = "#111b21";
-      btn.title = "Assinatura ativada: " + _sigName;
-      btn.textContent = "\u270D";
-    } else {
-      btn.style.background = "#3b4a54";
-      btn.style.color = "#8696a0";
-      btn.title = "Assinatura desativada";
-      btn.textContent = "\u270D";
-    }
-  }
-
-  function createSignatureButton() {
-    if (document.getElementById("ezap-sig-toggle")) return;
-    var btn = document.createElement("button");
-    btn.id = "ezap-sig-toggle";
-    btn.addEventListener("click", toggleSignature);
-    Object.assign(btn.style, {
-      width: "40px", height: "40px", borderRadius: "50%",
-      border: "none", fontSize: "18px", cursor: "pointer",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      transition: "background 0.2s",
-    });
-    var container = document.getElementById("ezap-float-container");
-    if (container) container.appendChild(btn);
-    updateSignatureButton();
-  }
+  // Expose toggle globally so widget.js can call it
+  window.__ezapToggleSignature = toggleSignature;
 
   // ===== Compose box finder =====
   function getComposeInput() {
@@ -2155,7 +2122,6 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     _sigEnabled = auth.signatureEnabled || false;
     _sigInitialized = true;
 
-    createSignatureButton();
     console.log("[EZAP-SIG] Auto-insert initialized. Enabled:", _sigEnabled, "Name:", _sigName);
   }
 

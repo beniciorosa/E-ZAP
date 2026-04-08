@@ -90,6 +90,9 @@ function svgAbas(color, sz) {
 function svgTag(color, sz) {
   return '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="' + color + '" style="pointer-events:none"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/></svg>';
 }
+function svgSignature(color, sz) {
+  return '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="' + color + '" style="pointer-events:none"><path d="M20.71 4.04c-.39-.39-1.02-.39-1.41 0L14 9.34l-1.34-1.34c-.39-.39-1.02-.39-1.41 0s-.39 1.02 0 1.41l2.05 2.05c.39.39 1.02.39 1.41 0l6-6c.39-.39.39-1.02 0-1.42zM3.41 20.41l2.1-5.08 2.97 2.97-5.07 2.11zM9.17 16.62L6.38 13.83 16.45 3.76l2.79 2.79L9.17 16.62z"/></svg>';
+}
 
 // ===== Compute state hash (determines when full rebuild is needed) =====
 function computeWidgetHash() {
@@ -99,6 +102,7 @@ function computeWidgetHash() {
   var isPinned = !!(chatName && typeof window._wcrmIsTitlePinned === "function" && window._wcrmIsTitlePinned(chatName, null));
   var inAba = !!(chatName && typeof isContactInAnyAba === "function" && isContactInAnyAba(chatName));
   var dark = typeof isDarkMode === "function" ? isDarkMode() : false;
+  var sigOn = !!(window.__wcrmAuth && window.__wcrmAuth.signatureEnabled);
   return JSON.stringify({
     pos: wc.position || "sidebar",
     style: wc.style || "pill",
@@ -106,6 +110,7 @@ function computeWidgetHash() {
     chat: chatName,
     pinned: isPinned,
     inAba: inAba,
+    sigOn: sigOn,
     dark: dark
   });
 }
@@ -161,7 +166,8 @@ function buildWidget() {
   var items = [
     { key: "pin",  cfg: widgets.pin  || { enabled: true, order: 1 } },
     { key: "abas", cfg: widgets.abas || { enabled: true, order: 2 } },
-    { key: "tags", cfg: widgets.tags || { enabled: true, order: 3 } }
+    { key: "tags", cfg: widgets.tags || { enabled: true, order: 3 } },
+    { key: "sig",  cfg: widgets.sig  || { enabled: false, order: 4 } }
   ].filter(function(x) { return x.cfg.enabled !== false; });
   items.sort(function(a, b) { return (a.cfg.order || 0) - (b.cfg.order || 0); });
 
@@ -250,19 +256,34 @@ function buildWidgetButton(key, btnSize, iconSize, s) {
         toggleTagSidebar();
       }
     });
+  } else if (key === "sig") {
+    var sigActive = !!(window.__wcrmAuth && window.__wcrmAuth.signatureEnabled);
+    btn.innerHTML = svgSignature(sigActive ? s.accent : s.icon, iconSize);
+    btn.title = sigActive ? "Assinatura ativada" : "Assinatura desativada";
+    if (sigActive) btn.style.background = s.accentGlow;
+    btn.addEventListener("click", function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (typeof window.__ezapToggleSignature === "function") {
+        window.__ezapToggleSignature();
+        setTimeout(function() { _ezapWidgetStateHash = ""; ensureWidget(); }, 100);
+      }
+    });
   }
 
   btn.addEventListener("mouseenter", function() {
     btn.style.background = s.accentGlow;
     var svg = btn.querySelector("svg");
-    if (svg && key !== "pin") svg.setAttribute("fill", s.iconHover);
+    if (svg && key !== "pin" && key !== "sig") svg.setAttribute("fill", s.iconHover);
   });
   btn.addEventListener("mouseleave", function() {
     var cn = typeof currentName !== "undefined" ? currentName : null;
     var isPinnedNow = key === "pin" && !!cn && typeof window._wcrmIsTitlePinned === "function" && window._wcrmIsTitlePinned(cn, null);
-    btn.style.background = isPinnedNow ? s.accentGlow : "transparent";
+    var isSigOn = key === "sig" && !!(window.__wcrmAuth && window.__wcrmAuth.signatureEnabled);
+    var keepActive = isPinnedNow || isSigOn;
+    btn.style.background = keepActive ? s.accentGlow : "transparent";
     var svg = btn.querySelector("svg");
-    if (svg && !isPinnedNow && key !== "pin") svg.setAttribute("fill", s.icon);
+    if (svg && !keepActive && key !== "pin" && key !== "sig") svg.setAttribute("fill", s.icon);
   });
 
   return btn;
@@ -344,14 +365,16 @@ function initWidget() {
 document.addEventListener("wcrm-auth-ready", function() {
   var hasAbas = window.__ezapHasFeature && window.__ezapHasFeature("abas");
   var hasPin = window.__ezapHasFeature && window.__ezapHasFeature("pin");
-  if (hasAbas || hasPin) {
+  var hasSig = !!(window.__wcrmAuth && window.__wcrmAuth.signatureEnabled !== undefined);
+  if (hasAbas || hasPin || hasSig) {
     setTimeout(initWidget, 1500);
   }
 });
 if (window.__wcrmAuth) {
   var _hasAbasW = window.__ezapHasFeature && window.__ezapHasFeature("abas");
   var _hasPinW = window.__ezapHasFeature && window.__ezapHasFeature("pin");
-  if (_hasAbasW || _hasPinW) {
+  var _hasSigW = !!(window.__wcrmAuth && window.__wcrmAuth.signatureEnabled !== undefined);
+  if (_hasAbasW || _hasPinW || _hasSigW) {
     setTimeout(initWidget, 2000);
   }
 }

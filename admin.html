@@ -3423,9 +3423,10 @@ var DEFAULT_WIDGET_CONFIG = {
   position: "sidebar",
   style: "pill",
   widgets: {
-    pin:  { enabled: true, order: 1 },
-    abas: { enabled: true, order: 2 },
-    tags: { enabled: true, order: 3 }
+    pin:  { enabled: true,  order: 1 },
+    abas: { enabled: true,  order: 2 },
+    tags: { enabled: true,  order: 3 },
+    sig:  { enabled: false, order: 4 }
   }
 };
 var WIDGET_STYLE_VARIANTS = [
@@ -3437,7 +3438,8 @@ var WIDGET_STYLE_VARIANTS = [
 var WIDGET_ITEMS = [
   { key: "pin",  label: "Fixar contato", icon: "&#128204;" },
   { key: "abas", label: "Abas",          icon: "&#128462;" },
-  { key: "tags", label: "Etiquetas",     icon: "&#127991;" }
+  { key: "tags", label: "Etiquetas",     icon: "&#127991;" },
+  { key: "sig",  label: "Assinatura",    icon: "&#9997;" }
 ];
 var currentWidgetConfig = JSON.parse(JSON.stringify(DEFAULT_WIDGET_CONFIG));
 
