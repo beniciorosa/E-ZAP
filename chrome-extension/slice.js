@@ -222,7 +222,7 @@ function _updateHiddenToggle() {
     }
   }
   if (toggle) {
-    toggle.style.display = '';
+    toggle.style.display = 'flex';
     var textEl = toggle.querySelector('span:last-child');
     if (textEl) {
       textEl.textContent = _ezapHiddenViewActive
