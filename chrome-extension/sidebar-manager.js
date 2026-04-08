@@ -26,25 +26,62 @@
    * Reposition floating buttons when sidebar opens/closes
    * Instead of hiding, moves them beside the sidebar so user can switch directly
    */
+  var _collapsed = false;
+
   function _updateFloats() {
     var container = document.getElementById("ezap-float-container");
     if (!container) return;
-    // If WA native drawer is open, keep hidden
-    if (_nativeDrawerOpen) {
-      container.style.display = "none";
-      return;
-    }
+    _ensureCollapseButton(container);
     var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
       return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
     });
     if (anyShrinkOpen) {
       container.style.right = "336px";
-      container.style.display = "flex";
     } else {
       container.style.right = "16px";
-      container.style.display = "flex";
     }
+    container.style.display = "flex";
+    _applyCollapse(container);
     _highlightActiveButton();
+  }
+
+  function _ensureCollapseButton(container) {
+    if (document.getElementById("ezap-collapse-btn")) return;
+    var btn = document.createElement("button");
+    btn.id = "ezap-collapse-btn";
+    Object.assign(btn.style, {
+      width: "28px", height: "28px", borderRadius: "50%",
+      border: "none", background: "#2a3942", color: "#8696a0",
+      fontSize: "14px", cursor: "pointer", display: "flex",
+      alignItems: "center", justifyContent: "center",
+      boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+      transition: "background 0.15s, transform 0.2s",
+      order: "-1", flexShrink: "0",
+    });
+    btn.textContent = "\u00BB"; // »
+    btn.title = "Recolher menu";
+    btn.addEventListener("mouseenter", function() { btn.style.background = "#3b4a54"; });
+    btn.addEventListener("mouseleave", function() { btn.style.background = "#2a3942"; });
+    btn.addEventListener("click", function(e) {
+      e.stopPropagation();
+      _collapsed = !_collapsed;
+      _applyCollapse(container);
+    });
+    container.insertBefore(btn, container.firstChild);
+  }
+
+  function _applyCollapse(container) {
+    var btn = document.getElementById("ezap-collapse-btn");
+    var children = container.children;
+    for (var i = 0; i < children.length; i++) {
+      if (children[i].id === "ezap-collapse-btn") continue;
+      children[i].style.display = _collapsed ? "none" : "flex";
+    }
+    if (btn) {
+      btn.textContent = _collapsed ? "\u00AB" : "\u00BB"; // « or »
+      btn.title = _collapsed ? "Expandir menu" : "Recolher menu";
+      btn.style.transform = _collapsed ? "rotate(0deg)" : "rotate(0deg)";
+    }
   }
 
   /**
@@ -174,38 +211,6 @@
       });
     }
   };
-
-  // ===== Auto-hide floating buttons when WA's native info panel is open =====
-  var _nativeDrawerOpen = false;
-
-  function _isNativeDrawerOpen() {
-    // WhatsApp's contact/group info panel uses drawers with data-animate-drawer-title
-    // or specific testid patterns. Check multiple selectors for reliability.
-    return !!(
-      document.querySelector('[data-animate-drawer-title]') ||
-      document.querySelector('[data-testid="contact-info-drawer"]') ||
-      document.querySelector('[data-testid="group-info-drawer"]') ||
-      document.querySelector('span[data-testid="contact-info-drawer-title"]')
-    );
-  }
-
-  function _checkNativeDrawer() {
-    var container = document.getElementById("ezap-float-container");
-    if (!container) return;
-
-    var drawerOpen = _isNativeDrawerOpen();
-    if (drawerOpen === _nativeDrawerOpen) return; // no change
-
-    _nativeDrawerOpen = drawerOpen;
-    if (drawerOpen) {
-      container.style.display = "none";
-    } else {
-      container.style.display = "flex";
-      _updateFloats(); // restore correct position
-    }
-  }
-
-  setInterval(_checkNativeDrawer, 500);
 
   console.log("[EZAP] Sidebar manager loaded");
 })();
