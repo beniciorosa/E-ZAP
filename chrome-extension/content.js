@@ -2012,22 +2012,21 @@ document.addEventListener("wcrm-auth-ready", function() {
 if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm")) setTimeout(init, 2000);
 
 // ===================================================================
-// ===== ASSINATURA (Signature) — Overlay sobre a caixa de texto =====
+// ===== ASSINATURA (Signature) — Auto-insert na caixa de texto =====
 // ===================================================================
 (function() {
   var _sigInitialized = false;
   var _sigEnabled = false;
   var _sigName = "";
-  var _sigOverlay = null;
-  var _sigBadge = null;
-  var _sigTracker = null;
-  var _sigSending = false;
+  var _sigInserted = false; // guard to avoid re-inserting
 
   // ===== Toggle =====
   function toggleSignature() {
     _sigEnabled = !_sigEnabled;
     updateSignatureButton();
-    updateOverlay();
+    _sigInserted = false;
+    // If enabling and compose box is focused+empty, insert now
+    if (_sigEnabled) tryInsertSignature();
     var auth = window.__wcrmAuth;
     if (auth && auth.userId) {
       window.ezapSendBg({
@@ -2083,203 +2082,66 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  // ===== Full-bar overlay covering the entire WA footer =====
-  var _sigBar = null; // outer container covering the footer
+  // ===== Auto-insert signature into compose box =====
+  function tryInsertSignature() {
+    if (!_sigEnabled || _sigInserted) return;
+    var input = getComposeInput();
+    if (!input) return;
 
-  function createOverlay() {
-    if (_sigBar) return;
+    // Only insert when compose box is empty
+    var text = (input.textContent || input.innerText || "").trim();
+    if (text) return;
 
-    // --- Outer bar (covers entire footer) ---
-    _sigBar = document.createElement("div");
-    _sigBar.id = "ezap-sig-bar";
-    _sigBar.className = "ezap-sig-bar";
-    _sigBar.style.display = "none";
+    // Only insert when compose box has focus
+    if (document.activeElement !== input && !input.contains(document.activeElement)) return;
 
-    // Left: emoji + attach buttons (cloned from WA)
-    var leftBtns = document.createElement("div");
-    leftBtns.className = "ezap-sig-left";
-    // Emoji button
-    var emojiBtn = document.createElement("button");
-    emojiBtn.className = "ezap-sig-icon-btn";
-    emojiBtn.title = "Emoji";
-    emojiBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M9.153 11.603c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962zm-3.204 1.362c-.026-.307-.131 5.218 6.063 5.551 6.066-.25 6.066-5.551 6.066-5.551-6.078 1.416-12.129 0-12.129 0zm11.363 1.108s-.669 1.959-5.051 1.959c-3.505 0-5.388-1.164-5.607-1.959 0 0 5.912 1.055 10.658 0zM11.804 1.011C5.298 1.011 0 6.309 0 12.815s5.298 11.804 11.804 11.804 11.804-5.298 11.804-11.804S18.31 1.011 11.804 1.011zM12 21.649c-5.333 0-9.649-4.316-9.649-9.649S6.667 2.351 12 2.351s9.649 4.316 9.649 9.649-4.316 9.649-9.649 9.649zm3.847-10.046c.795 0 1.439-.879 1.439-1.962s-.644-1.962-1.439-1.962-1.439.879-1.439 1.962.644 1.962 1.439 1.962z"></path></svg>';
-    emojiBtn.addEventListener("click", function() {
-      // Click WA's real emoji button
-      var waEmoji = document.querySelector('button[aria-label="Emoji"], button[aria-label="Emoji e figurinhas"]') ||
-                    document.querySelector('span[data-icon="smiley"]');
-      if (waEmoji) { var b = waEmoji.closest("button") || waEmoji; b.click(); }
-    });
-    leftBtns.appendChild(emojiBtn);
+    _sigInserted = true;
+    var prefix = "_*" + _sigName + ":*_\n";
 
-    // Attach button (+ icon)
-    var attachBtn = document.createElement("button");
-    attachBtn.className = "ezap-sig-icon-btn";
-    attachBtn.title = "Anexar";
-    attachBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path></svg>';
-    attachBtn.addEventListener("click", function() {
-      _sigBar.style.visibility = "hidden";
-      setTimeout(function() {
-        var waAttach = document.querySelector('span[data-icon="plus"]') ||
-                       document.querySelector('span[data-icon="clip"]') ||
-                       document.querySelector('button[aria-label="Anexar"]') ||
-                       document.querySelector('button[aria-label="Attach"]');
-        if (waAttach) { var b = waAttach.closest("button") || waAttach; b.click(); }
-        setTimeout(function() { _sigBar.style.visibility = "visible"; }, 100);
-      }, 50);
-    });
-    leftBtns.appendChild(attachBtn);
-    _sigBar.appendChild(leftBtns);
-
-    // Center: input area (contenteditable) wrapped with badge
-    var centerWrap = document.createElement("div");
-    centerWrap.className = "ezap-sig-center";
-
-    _sigBadge = document.createElement("div");
-    _sigBadge.id = "ezap-sig-badge";
-    _sigBadge.className = "ezap-sig-badge";
-    centerWrap.appendChild(_sigBadge);
-
-    _sigOverlay = document.createElement("div");
-    _sigOverlay.id = "ezap-sig-overlay";
-    _sigOverlay.className = "ezap-sig-overlay";
-    _sigOverlay.contentEditable = "true";
-    _sigOverlay.setAttribute("data-placeholder", "Digite uma mensagem");
-    _sigOverlay.setAttribute("spellcheck", "true");
-
-    _sigOverlay.addEventListener("keydown", function(e) {
-      if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        sendWithSignature();
-      }
-    });
-
-    centerWrap.appendChild(_sigOverlay);
-    _sigBar.appendChild(centerWrap);
-
-    // Right: send / mic button
-    var rightBtns = document.createElement("div");
-    rightBtns.className = "ezap-sig-right";
-    var micBtn = document.createElement("button");
-    micBtn.className = "ezap-sig-icon-btn";
-    micBtn.title = "Gravar audio";
-    micBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M11.999 14.942c2.001 0 3.531-1.53 3.531-3.531V4.35c0-2.001-1.53-3.531-3.531-3.531S8.469 2.35 8.469 4.35v7.061c0 2.001 1.53 3.531 3.53 3.531zm6.238-3.53c0 3.531-2.942 6.002-6.237 6.002s-6.237-2.471-6.237-6.002H3.761c0 4.001 3.178 7.297 7.061 7.885v3.884h2.354v-3.884c3.884-.588 7.061-3.884 7.061-7.885h-2z"></path></svg>';
-    micBtn.addEventListener("click", function() {
-      _sigBar.style.visibility = "hidden";
-      setTimeout(function() {
-        var waMic = document.querySelector('span[data-icon="ptt"]') ||
-                    document.querySelector('button[aria-label="Gravar mensagem de voz"]') ||
-                    document.querySelector('button[aria-label="Record voice message"]') ||
-                    document.querySelector('#main footer button:last-child');
-        if (waMic) { var b = waMic.closest("button") || waMic; b.click(); }
-        setTimeout(function() { _sigBar.style.visibility = "visible"; }, 100);
-      }, 50);
-    });
-    rightBtns.appendChild(micBtn);
-    _sigBar.appendChild(rightBtns);
-
-    document.body.appendChild(_sigBar);
-  }
-
-  // ===== Send message with signature prefix =====
-  function sendWithSignature() {
-    if (_sigSending || !_sigOverlay) return;
-    var text = (_sigOverlay.innerText || "").trim();
-    if (!text) return;
-
-    _sigSending = true;
-    _sigOverlay.innerHTML = "";
-
-    var fullMsg = "_*" + _sigName + ":*_\n" + text;
-
-    var waInput = getComposeInput();
-    if (!waInput) { _sigSending = false; return; }
-
-    waInput.focus();
-    document.execCommand("selectAll", false, null);
-    document.execCommand("delete", false, null);
-
+    input.focus();
     var clipData = new DataTransfer();
-    clipData.setData("text/plain", fullMsg);
-    waInput.dispatchEvent(new ClipboardEvent("paste", {
+    clipData.setData("text/plain", prefix);
+    input.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true, cancelable: true, clipboardData: clipData
     }));
 
+    console.log("[EZAP-SIG] Signature auto-inserted");
+
+    // Safety: if paste failed (input still empty), reset flag to retry
     setTimeout(function() {
-      var btn = document.querySelector('span[data-icon="send"]') ||
-                document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
-                document.querySelector('button[aria-label="Enviar"]') ||
-                document.querySelector('button[aria-label="Send"]') ||
-                document.querySelector('[data-testid="send"]');
-      if (btn) {
-        var b = btn.closest("button") || btn;
-        b.click();
-      } else {
-        waInput.dispatchEvent(new KeyboardEvent("keydown", {
-          key: "Enter", code: "Enter", keyCode: 13, which: 13,
-          bubbles: true, cancelable: true
-        }));
-      }
-      setTimeout(function() {
-        _sigSending = false;
-        if (_sigOverlay && _sigEnabled) _sigOverlay.focus();
-      }, 400);
-    }, 250);
+      var t = (input.textContent || input.innerText || "").trim();
+      if (!t) _sigInserted = false;
+    }, 500);
   }
 
-  // ===== Position bar over WA footer =====
-  function positionOverlay() {
-    if (!_sigBar) return;
-    var footer = document.querySelector('#main footer') ||
-                 document.querySelector('[data-testid="conversation-compose-box"]');
-    if (!footer) {
-      _sigBar.style.display = "none";
-      return;
-    }
+  // ===== Watch for compose box becoming empty (after send) =====
+  // Reset _sigInserted so the next focus will re-insert
+  setInterval(function() {
+    if (!_sigEnabled) return;
+    var input = getComposeInput();
+    if (!input) { _sigInserted = false; return; }
 
-    var rect = footer.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-      _sigBar.style.display = "none";
-      return;
-    }
-
-    // Extend bar upward to cover the full footer + separator line
-    var extraTop = 6;
-    Object.assign(_sigBar.style, {
-      display: "flex",
-      bottom: (window.innerHeight - rect.bottom) + "px",
-      left: rect.left + "px",
-      width: rect.width + "px",
-      minHeight: (rect.height + extraTop) + "px",
-      paddingTop: (8 + extraTop) + "px",
-    });
-    _sigBadge.textContent = "\u270D " + _sigName;
-  }
-
-  // ===== Show/hide overlay =====
-  function updateOverlay() {
-    if (!_sigBar) return;
-    if (_sigEnabled) {
-      positionOverlay();
-      if (!_sigTracker) {
-        _sigTracker = setInterval(positionOverlay, 400);
+    var text = (input.textContent || input.innerText || "").trim();
+    if (!text) {
+      // Compose box is empty — allow re-insert on next focus
+      if (_sigInserted) {
+        _sigInserted = false;
       }
-    } else {
-      _sigBar.style.display = "none";
-      if (_sigTracker) {
-        clearInterval(_sigTracker);
-        _sigTracker = null;
+      // If focused right now, insert immediately
+      if (document.activeElement === input || input.contains(document.activeElement)) {
+        tryInsertSignature();
       }
     }
-  }
+  }, 400);
 
-  // ===== Redirect focus from WA compose box to overlay =====
+  // ===== Listen for focus on compose box =====
   document.addEventListener("focus", function(e) {
-    if (!_sigEnabled || !_sigOverlay) return;
-    var waInput = getComposeInput();
-    if (waInput && (e.target === waInput || waInput.contains(e.target))) {
-      e.stopPropagation();
-      _sigOverlay.focus();
+    if (!_sigEnabled) return;
+    var input = getComposeInput();
+    if (!input) return;
+    if (e.target === input || input.contains(e.target)) {
+      // Small delay to let WhatsApp finish rendering
+      setTimeout(tryInsertSignature, 150);
     }
   }, true);
 
@@ -2294,10 +2156,7 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     _sigInitialized = true;
 
     createSignatureButton();
-    createOverlay();
-    updateOverlay();
-
-    console.log("[EZAP-SIG] Overlay initialized. Enabled:", _sigEnabled, "Name:", _sigName);
+    console.log("[EZAP-SIG] Auto-insert initialized. Enabled:", _sigEnabled, "Name:", _sigName);
   }
 
   document.addEventListener("wcrm-auth-ready", function() {
