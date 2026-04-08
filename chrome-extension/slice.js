@@ -650,9 +650,13 @@ function _showContextMenu(e, rowData) {
   var menu = document.createElement('div');
   menu.id = 'ezap-ctx-menu';
 
+  var isCustomUnread = !!_ezapUnreadMarks[jid];
+  var unreadIcon = '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2z"/></svg>';
+  var readIcon = '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></svg>';
+
   var items = [
     { icon: _waIcons.pin, label: isPinned ? 'Desafixar conversa' : 'Fixar conversa', action: 'togglePin' },
-    { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7zm4 0h2v2h-2zm4 0h2v2h-2z"/></svg>', label: 'Marcar como nao lido', action: 'markUnread' },
+    { icon: isCustomUnread ? readIcon : unreadIcon, label: isCustomUnread ? 'Marcar como lido' : 'Marcar como nao lido', action: isCustomUnread ? 'unmarkUnread' : 'markUnread' },
     { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/></svg>', label: 'Arquivar conversa', action: 'archive' }
   ];
 
@@ -791,6 +795,22 @@ function _handleContextAction(action, jid, displayName, rowData) {
         }
       }
       console.log('[EZAP-CTX] Marked as unread (DB):', jid);
+      break;
+
+    case 'unmarkUnread':
+      // Remove custom unread mark from database
+      _removeUnreadMark(jid);
+      _flashRow(jid, 'rgba(37,211,102,0.2)');
+      var unmarkRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
+      if (unmarkRow) {
+        unmarkRow.removeAttribute('data-ezap-custom-unread');
+        var nativeUnVal = parseInt(unmarkRow.getAttribute('data-ezap-unread') || '0', 10);
+        if (nativeUnVal <= 0) {
+          var umkBadge = unmarkRow.querySelector('.wcrm-custom-badge');
+          if (umkBadge) umkBadge.style.display = 'none';
+        }
+      }
+      console.log('[EZAP-CTX] Unmarked as unread (DB):', jid);
       break;
 
     case 'archive':
