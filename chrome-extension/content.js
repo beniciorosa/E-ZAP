@@ -2093,39 +2093,44 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   }
 
   function prependSignatureAndSend(input) {
-    var text = input.textContent || input.innerText || "";
-    if (!text.trim()) return;
-    // Skip if already has signature or is a command
+    var text = (input.textContent || input.innerText || "").trim();
+    if (!text) return;
     if (text.indexOf("*" + _sigName + ":*") === 0) return;
-    if (text.trim().charAt(0) === "/") return;
+    if (text.charAt(0) === "/") return;
 
     var prefix = "*" + _sigName + ":*\n";
 
-    // Clear and paste with signature
+    // Select ALL content using explicit Range (execCommand selectAll fails in React)
     input.focus();
-    document.execCommand("selectAll", false, null);
-    document.execCommand("delete", false, null);
+    var sel = window.getSelection();
+    var range = document.createRange();
+    range.selectNodeContents(input);
+    sel.removeAllRanges();
+    sel.addRange(range);
 
+    // Paste over the selection — replaces all text with prefix + original
     var clipData = new DataTransfer();
     clipData.setData("text/plain", prefix + text);
-    var pasteEvent = new ClipboardEvent("paste", {
+    input.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true, cancelable: true, clipboardData: clipData
-    });
-    input.dispatchEvent(pasteEvent);
+    }));
 
-    // Wait for paste, then verify and send
+    // Wait for paste to settle, then send
     setTimeout(function() {
-      var newText = input.textContent || input.innerText || "";
+      // Verify paste worked
+      var newText = (input.textContent || input.innerText || "").trim();
       if (newText.indexOf(_sigName) === -1) {
-        // Paste failed — use insertText fallback
+        // Paste failed — try insertText at cursor (cursor should be at start after selectAll)
         input.focus();
-        document.execCommand("selectAll", false, null);
-        document.execCommand("delete", false, null);
+        sel = window.getSelection();
+        range = document.createRange();
+        range.selectNodeContents(input);
+        sel.removeAllRanges();
+        sel.addRange(range);
         document.execCommand("insertText", false, prefix + text);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
       }
 
-      // Now send — with guard flag to prevent our listeners from intercepting
+      // Send with guard flag
       setTimeout(function() {
         _sigSending = true;
         var sendBtn = document.querySelector('button[aria-label="Enviar"]') ||
@@ -2137,16 +2142,14 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
           var button = sendBtn.closest("button") || sendBtn;
           button.click();
         } else {
-          // Fallback: Enter key
           input.dispatchEvent(new KeyboardEvent("keydown", {
             key: "Enter", code: "Enter", keyCode: 13, which: 13,
             bubbles: true, cancelable: true
           }));
         }
-        // Reset guard after send completes
         setTimeout(function() { _sigSending = false; }, 500);
       }, 100);
-    }, 80);
+    }, 150);
   }
 
   // Listen for Enter key (send) on compose box
