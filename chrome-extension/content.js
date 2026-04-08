@@ -2080,7 +2080,11 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   }
 
   // ===== Compose box interceptor =====
-  // Intercepts Enter key and Send button to prepend signature
+  // Uses MutationObserver approach: watches the compose box and prepends
+  // signature right before WhatsApp processes the send.
+  // Guard flag prevents infinite loops.
+
+  var _sigSending = false;  // CRITICAL: prevents re-entry loop
 
   function getComposeInput() {
     return document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
@@ -2088,23 +2092,20 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  function prependSignature(input) {
-    if (!_sigEnabled || !_sigName) return;
+  function prependSignatureAndSend(input) {
     var text = input.textContent || input.innerText || "";
     if (!text.trim()) return;
-    // Don't prepend if text already starts with the signature
+    // Skip if already has signature or is a command
     if (text.indexOf("*" + _sigName + ":*") === 0) return;
-    // Don't prepend if it's a command (starts with /)
     if (text.trim().charAt(0) === "/") return;
 
     var prefix = "*" + _sigName + ":*\n";
 
-    // Clear and re-type with signature prefix
+    // Clear and paste with signature
     input.focus();
     document.execCommand("selectAll", false, null);
     document.execCommand("delete", false, null);
 
-    // Use clipboard paste to preserve formatting
     var clipData = new DataTransfer();
     clipData.setData("text/plain", prefix + text);
     var pasteEvent = new ClipboardEvent("paste", {
@@ -2112,73 +2113,60 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     });
     input.dispatchEvent(pasteEvent);
 
-    // Verify paste worked
+    // Wait for paste, then verify and send
     setTimeout(function() {
       var newText = input.textContent || input.innerText || "";
       if (newText.indexOf(_sigName) === -1) {
-        // Paste failed, use insertText fallback
+        // Paste failed — use insertText fallback
         input.focus();
         document.execCommand("selectAll", false, null);
         document.execCommand("delete", false, null);
-        var lines = (prefix + text).split("\n");
-        lines.forEach(function(line, i) {
-          if (line) document.execCommand("insertText", false, line);
-          if (i < lines.length - 1) {
-            input.dispatchEvent(new KeyboardEvent("keydown", {
-              key: "Enter", code: "Enter", keyCode: 13, which: 13,
-              shiftKey: true, bubbles: true, cancelable: true
-            }));
-            input.dispatchEvent(new InputEvent("beforeinput", {
-              bubbles: true, cancelable: true, inputType: "insertLineBreak",
-            }));
-          }
-        });
+        document.execCommand("insertText", false, prefix + text);
         input.dispatchEvent(new Event("input", { bubbles: true }));
       }
-    }, 50);
+
+      // Now send — with guard flag to prevent our listeners from intercepting
+      setTimeout(function() {
+        _sigSending = true;
+        var sendBtn = document.querySelector('button[aria-label="Enviar"]') ||
+                      document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
+                      document.querySelector('button[aria-label="Send"]') ||
+                      document.querySelector('[data-testid="send"]') ||
+                      document.querySelector('span[data-icon="send"]');
+        if (sendBtn) {
+          var button = sendBtn.closest("button") || sendBtn;
+          button.click();
+        } else {
+          // Fallback: Enter key
+          input.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "Enter", code: "Enter", keyCode: 13, which: 13,
+            bubbles: true, cancelable: true
+          }));
+        }
+        // Reset guard after send completes
+        setTimeout(function() { _sigSending = false; }, 500);
+      }, 100);
+    }, 80);
   }
 
   // Listen for Enter key (send) on compose box
   function handleKeydown(e) {
-    if (!_sigEnabled) return;
+    if (!_sigEnabled || _sigSending) return;
     if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey) return;
     var input = getComposeInput();
     if (!input || !input.contains(e.target)) return;
     var text = (input.textContent || input.innerText || "").trim();
     if (!text) return;
-    // Already has signature?
     if (text.indexOf("*" + _sigName + ":*") === 0) return;
 
-    // Prevent the original send, add signature, then re-trigger
     e.stopImmediatePropagation();
     e.preventDefault();
-
-    prependSignature(input);
-
-    // After signature is prepended, simulate Enter to send
-    setTimeout(function() {
-      // Click the send button instead of simulating Enter (more reliable)
-      var sendBtn = document.querySelector('button[aria-label="Enviar"]') ||
-                    document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
-                    document.querySelector('button[aria-label="Send"]') ||
-                    document.querySelector('[data-testid="send"]') ||
-                    document.querySelector('span[data-icon="send"]');
-      if (sendBtn) {
-        var button = sendBtn.closest("button") || sendBtn;
-        button.click();
-      } else {
-        // Fallback: dispatch Enter
-        input.dispatchEvent(new KeyboardEvent("keydown", {
-          key: "Enter", code: "Enter", keyCode: 13, which: 13,
-          bubbles: true, cancelable: true
-        }));
-      }
-    }, 150);
+    prependSignatureAndSend(input);
   }
 
   // Listen for Send button click
   function handleSendClick(e) {
-    if (!_sigEnabled) return;
+    if (!_sigEnabled || _sigSending) return;
     var btn = e.target.closest && e.target.closest("button");
     if (!btn) return;
     var icon = btn.querySelector('span[data-icon="send"], span[data-icon="wds-ic-send-filled"]');
@@ -2191,15 +2179,9 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     if (!text) return;
     if (text.indexOf("*" + _sigName + ":*") === 0) return;
 
-    // Prevent original click, add signature, re-click
     e.stopImmediatePropagation();
     e.preventDefault();
-
-    prependSignature(input);
-
-    setTimeout(function() {
-      btn.click();
-    }, 150);
+    prependSignatureAndSend(input);
   }
 
   function initSignature() {
