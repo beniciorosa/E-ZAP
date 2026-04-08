@@ -100,7 +100,7 @@ function createSidebar() {
     </div>
     <div id="wcrm-content" style="flex:1;overflow-y:auto;padding:16px">
       <div id="wcrm-no-chat" style="color:#8696a0;font-size:13px;text-align:center;padding:20px;font-style:italic">
-        Abra uma conversa para ver as informacoes do contato
+        Abra uma conversa para ver as informações do contato
       </div>
       <div id="wcrm-chat-info" style="display:none">
         <div id="wcrm-name" style="font-size:17px;font-weight:600;color:#e9edef;margin-bottom:12px"></div>
@@ -122,7 +122,7 @@ function createSidebar() {
           <div style="background:#2a3942;border:1px solid #3b4a54;border-radius:8px;overflow:hidden">
             <div id="wcrm-editor-toolbar" style="display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid #3b4a54;background:#202c33">
               <button data-cmd="bold" style="background:none;border:none;color:#8696a0;font-size:13px;font-weight:700;cursor:pointer;padding:2px 6px;border-radius:4px" title="Negrito"><b>B</b></button>
-              <button data-cmd="italic" style="background:none;border:none;color:#8696a0;font-size:13px;font-style:italic;cursor:pointer;padding:2px 6px;border-radius:4px" title="Italico"><i>I</i></button>
+              <button data-cmd="italic" style="background:none;border:none;color:#8696a0;font-size:13px;font-style:italic;cursor:pointer;padding:2px 6px;border-radius:4px" title="Itálico"><i>I</i></button>
               <button data-cmd="underline" style="background:none;border:none;color:#8696a0;font-size:13px;text-decoration:underline;cursor:pointer;padding:2px 6px;border-radius:4px" title="Sublinhado"><u>U</u></button>
               <button data-cmd="insertUnorderedList" style="background:none;border:none;color:#8696a0;font-size:13px;cursor:pointer;padding:2px 6px;border-radius:4px" title="Lista">• ≡</button>
             </div>
@@ -1057,7 +1057,7 @@ function fetchHubSpotData() {
 
       // If no ticket and no matching contact → not found
       if (!ticket && !contactMatches) {
-        container.innerHTML = hsCard("not-found", "Nao encontrado", "Nenhum ticket de mentoria encontrado para este contato.");
+        container.innerHTML = hsCard("not-found", "Não encontrado", "Nenhum ticket de mentoria encontrado para este contato.");
         var meetingsC = document.getElementById("wcrm-meetings-container");
         if (meetingsC) meetingsC.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Sem dados</div>';
         showLoadingBar(false);
@@ -1132,7 +1132,7 @@ function fetchHubSpotData() {
         if (ticketEmail) html += row("E-mail", ticketEmail);
         // Calls adquiridas from ticket
         if (ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_) {
-          html += row("Reunioes Adquiridas", ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_);
+          html += row("Reuniões Adquiridas", ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_);
         }
         html += '</div></div>';
         container.innerHTML = html;
@@ -1180,18 +1180,18 @@ function fetchMeetings(ticketId, contactId) {
   var loadId = window._wcrmLoadId;
 
   if (!ticketId && !contactId) {
-    container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Sem ticket/contato para buscar reunioes</div>';
+    container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Sem ticket/contato para buscar reuniões</div>';
     return;
   }
 
-  container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px">Buscando reunioes...</div>';
+  container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px">Buscando reuniões...</div>';
 
   sendBgMessage({ action: "hubspot_get_meetings", ticketId: ticketId, contactId: contactId }).then(function(result) {
     if (window._wcrmLoadId !== loadId) return; // Contact changed, abort
     console.log("[WCRM] Meetings result:", result);
 
     if (!result || !result.meetings || result.meetings.length === 0) {
-      container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Nenhuma reuniao encontrada</div>';
+      container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Nenhuma reunião encontrada</div>';
       return;
     }
 
@@ -1284,7 +1284,7 @@ function fetchMeetings(ticketId, contactId) {
 
 function renderMeetingItem(meeting, isFuture) {
   var mp = meeting.properties;
-  var title = mp.hs_meeting_title || "Reuniao sem titulo";
+  var title = mp.hs_meeting_title || "Reunião sem título";
   var startTime = mp.hs_meeting_start_time || mp.hs_timestamp || "";
   var dateStr = "";
   if (startTime) {
@@ -1765,7 +1765,7 @@ function renderNotesHistory(hubspotNotes) {
                 if (window._wcrmHubspotNotes) {
                   window._wcrmHubspotNotes = window._wcrmHubspotNotes.filter(function(n) { return n.id !== localHsId; });
                 }
-                if (statusEl) statusEl.innerHTML = '<span style="color:#25d366">Excluido do HubSpot ✓</span>';
+                if (statusEl) statusEl.innerHTML = '<span style="color:#25d366">Excluído do HubSpot ✓</span>';
                 renderNotesHistory();
               } else {
                 if (statusEl) statusEl.innerHTML = '<span style="color:#ff922b">Removido local, erro no HubSpot</span>';

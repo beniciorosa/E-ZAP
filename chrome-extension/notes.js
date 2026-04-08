@@ -192,7 +192,7 @@
     btn.className = 'ezap-note-btn';
     if (hasNote) btn.classList.add('ezap-note-has');
     btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    btn.title = hasNote ? 'Ver anotacao' : 'Adicionar anotacao';
+    btn.title = hasNote ? 'Ver anotação' : 'Adicionar anotação';
 
     btn.addEventListener('click', function(e) {
       e.preventDefault();
@@ -248,7 +248,7 @@
 
     var textarea = document.createElement('textarea');
     textarea.className = 'ezap-note-input';
-    textarea.placeholder = 'Escreva sua anotacao...';
+    textarea.placeholder = 'Escreva sua anotação...';
     textarea.value = existingText;
     textarea.rows = 2;
     editor.appendChild(textarea);
@@ -270,7 +270,7 @@
         editor.remove();
         if (ok) {
           btn.classList.add('ezap-note-has');
-          btn.title = 'Ver anotacao';
+          btn.title = 'Ver anotação';
           renderNote(row, wid, text);
         }
       });
@@ -299,7 +299,7 @@
           editor.remove();
           if (ok) {
             btn.classList.remove('ezap-note-has');
-            btn.title = 'Adicionar anotacao';
+            btn.title = 'Adicionar anotação';
             var noteBox = row.querySelector('.ezap-note-box');
             if (noteBox) noteBox.remove();
           }

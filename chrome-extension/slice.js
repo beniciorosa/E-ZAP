@@ -656,7 +656,7 @@ function _showContextMenu(e, rowData) {
 
   var items = [
     { icon: _waIcons.pin, label: isPinned ? 'Desafixar conversa' : 'Fixar conversa', action: 'togglePin' },
-    { icon: isCustomUnread ? readIcon : unreadIcon, label: isCustomUnread ? 'Marcar como lido' : 'Marcar como nao lido', action: isCustomUnread ? 'unmarkUnread' : 'markUnread' },
+    { icon: isCustomUnread ? readIcon : unreadIcon, label: isCustomUnread ? 'Marcar como lido' : 'Marcar como não lido', action: isCustomUnread ? 'unmarkUnread' : 'markUnread' },
     { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/></svg>', label: 'Arquivar conversa', action: 'archive' }
   ];
 
@@ -1463,7 +1463,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     unreadIcon.style.cssText = 'display:flex;align-items:center;margin-right:15px;';
     unreadRow.appendChild(unreadIcon);
     var unreadText = document.createElement('span');
-    unreadText.textContent = 'Nao lidas';
+    unreadText.textContent = 'Não lidas';
     unreadText.style.cssText = 'font-size:14px;color:' + (_tArch.accent || '#00a884') + ';font-weight:500;';
     unreadRow.appendChild(unreadText);
     var _unreadFilterActive = false;
@@ -1471,7 +1471,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
       e.stopPropagation();
       _unreadFilterActive = !_unreadFilterActive;
       unreadRow.style.background = _unreadFilterActive ? 'rgba(0,168,132,0.12)' : 'transparent';
-      unreadText.textContent = _unreadFilterActive ? 'Nao lidas (filtro ativo)' : 'Nao lidas';
+      unreadText.textContent = _unreadFilterActive ? 'Não lidas (filtro ativo)' : 'Não lidas';
       // Show/hide rows based on unread count OR custom unread marks
       var allCustomRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row');
       var visibleCount = 0;

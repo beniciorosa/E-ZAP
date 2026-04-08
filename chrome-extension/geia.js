@@ -51,14 +51,14 @@ function buildSystemPrompt(config) {
   if (config.knowledge && config.knowledge.length > 0) {
     parts.push("\n--- BASE DE CONHECIMENTO ---");
     config.knowledge.forEach(function(k) {
-      var entry = "\n[" + (k.title || "Sem titulo") + "]";
+      var entry = "\n[" + (k.title || "Sem título") + "]";
       if (k.url) entry += "\nLink: " + k.url;
       if (k.content) entry += "\n" + k.content;
       parts.push(entry);
     });
   }
 
-  return parts.join("\n") || "Voce e um assistente util para conversas de WhatsApp Business.";
+  return parts.join("\n") || "Você é um assistente útil para conversas de WhatsApp Business.";
 }
 
 // ===== Extract messages from WhatsApp DOM =====
@@ -148,7 +148,7 @@ function createGeiaButton() {
   if (document.getElementById("geia-toggle")) return;
   var btn = document.createElement("button");
   btn.id = "geia-toggle";
-  btn.title = "GEIA - Inteligencia Artificial";
+  btn.title = "GEIA - Inteligência Artificial";
   btn.addEventListener("click", toggleGeiaSidebar);
   Object.assign(btn.style, {
     width: "50px",
@@ -310,7 +310,7 @@ function updateGeiaContent() {
   }
 
   if (!hasResumo && !hasSugestao) {
-    content.innerHTML = '<div style="text-align:center;padding:30px;color:#8696a0;font-style:italic">Nenhuma funcao GEIA habilitada para seu perfil.</div>';
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:#8696a0;font-style:italic">Nenhuma função GEIA habilitada para seu perfil.</div>';
   }
 }
 
@@ -339,7 +339,7 @@ async function geiaGenerateSummary() {
 
   var systemPrompt = buildSystemPrompt(config);
   var chatMessages = [
-    { role: "system", content: systemPrompt + "\n\nVoce deve gerar um resumo conciso e util da conversa de WhatsApp abaixo. Destaque os pontos principais, decisoes tomadas, pendencias e proximos passos. Responda em portugues." },
+    { role: "system", content: systemPrompt + "\n\nVocê deve gerar um resumo conciso e útil da conversa de WhatsApp abaixo. Destaque os pontos principais, decisões tomadas, pendências e próximos passos. Responda em português." },
     { role: "user", content: "Conversa com " + contactName + ":\n\n" + conversationText + "\n\nGere um resumo desta conversa." },
   ];
 
@@ -359,7 +359,7 @@ async function geiaSuggestReply() {
   var btnEl = document.getElementById("geia-btn-sugestao");
   if (!resultEl) return;
 
-  resultEl.innerHTML = '<div style="text-align:center;padding:12px;color:#8696a0"><span class="ezap-tr-spin" style="display:inline-block;margin-right:8px"></span>Gerando sugestao...</div>';
+  resultEl.innerHTML = '<div style="text-align:center;padding:12px;color:#8696a0"><span class="ezap-tr-spin" style="display:inline-block;margin-right:8px"></span>Gerando sugestão...</div>';
   if (btnEl) btnEl.style.pointerEvents = "none";
 
   var config = await geiaLoadConfig();
@@ -378,7 +378,7 @@ async function geiaSuggestReply() {
 
   var systemPrompt = buildSystemPrompt(config);
   var chatMessages = [
-    { role: "system", content: systemPrompt + "\n\nVoce deve sugerir uma resposta adequada para a conversa de WhatsApp abaixo. A resposta deve ser natural, no tom da conversa, e pronta para enviar. NAO use saudacao se a conversa ja esta em andamento. Responda APENAS com o texto da mensagem sugerida, sem explicacoes. Responda em portugues." },
+    { role: "system", content: systemPrompt + "\n\nVocê deve sugerir uma resposta adequada para a conversa de WhatsApp abaixo. A resposta deve ser natural, no tom da conversa, e pronta para enviar. NÃO use saudação se a conversa já está em andamento. Responda APENAS com o texto da mensagem sugerida, sem explicações. Responda em português." },
     { role: "user", content: "Conversa com " + contactName + ":\n\n" + conversationText + "\n\nSugira uma resposta para a ultima mensagem recebida." },
   ];
 
@@ -387,7 +387,7 @@ async function geiaSuggestReply() {
   if (resp.error) {
     resultEl.innerHTML = '<div style="padding:10px;background:#1a2730;border-radius:8px;color:#ff6b6b;font-size:12px">' + escGeia(resp.error) + '</div>';
   } else {
-    renderResultBox(resultEl, "Sugestao de Resposta", "#25d366", resp.text, { showUse: true, showCopy: true, showRegenerate: true });
+    renderResultBox(resultEl, "Sugestão de Resposta", "#25d366", resp.text, { showUse: true, showCopy: true, showRegenerate: true });
   }
   if (btnEl) btnEl.style.pointerEvents = "";
 }
@@ -533,7 +533,7 @@ async function onSuggestClick(row, btn) {
 
   var systemPrompt = buildSystemPrompt(config);
   var chatMessages = [
-    { role: "system", content: systemPrompt + "\n\nVoce deve sugerir uma resposta curta e adequada para a mensagem do contato em uma conversa de WhatsApp. A resposta deve ser natural e pronta para enviar. NAO use saudacao se a conversa ja esta em andamento. Responda APENAS com o texto da mensagem sugerida. Responda em portugues." },
+    { role: "system", content: systemPrompt + "\n\nVocê deve sugerir uma resposta curta e adequada para a mensagem do contato em uma conversa de WhatsApp. A resposta deve ser natural e pronta para enviar. NÃO use saudação se a conversa já está em andamento. Responda APENAS com o texto da mensagem sugerida. Responda em português." },
     { role: "user", content: "Contexto da conversa com " + contactName + ":\n\n" + conversationText + "\n\nSugira uma resposta para: \"" + clickedText + "\"" },
   ];
 

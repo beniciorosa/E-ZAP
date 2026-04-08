@@ -1044,7 +1044,7 @@ function openContactPickerModal(abaId) {
         '<button id="wcrm-picker-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;padding:0 4px">&times;</button>' +
       '</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:12px">' +
-        '<input id="wcrm-picker-search" type="text" placeholder="Pesquise por nome ou numero do contato" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;outline:none">' +
+        '<input id="wcrm-picker-search" type="text" placeholder="Pesquise por nome ou número do contato" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;outline:none">' +
         '<button id="wcrm-picker-select-all" style="background:#25d366;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Selecionar tudo</button>' +
       '</div>' +
       '<div id="wcrm-picker-list" style="flex:1;overflow-y:auto;border:1px solid #eee;border-radius:8px;max-height:50vh"></div>' +

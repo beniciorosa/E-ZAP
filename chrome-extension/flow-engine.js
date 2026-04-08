@@ -133,7 +133,7 @@
 
     // Step 1: load flow
     return loadFlowById(flowId).then(function(f) {
-      if (!f) throw new Error("Fluxo nao encontrado");
+      if (!f) throw new Error("Fluxo não encontrado");
       flow = f;
       logSteps.push({ t: Date.now(), type: "start", msg: "Iniciando fluxo: " + f.name });
 
@@ -148,7 +148,7 @@
 
       // Step 3: resolve variables
       return resolveVariables(chat).then(function(vars) {
-        logSteps.push({ t: Date.now(), type: "vars", msg: "Variaveis carregadas", vars: summarizeVars(vars) });
+        logSteps.push({ t: Date.now(), type: "vars", msg: "Variáveis carregadas", vars: summarizeVars(vars) });
         return { chat: chat, vars: vars };
       });
     }).then(function(ctx) {
@@ -197,7 +197,7 @@
       if (scope.type === "chat_name" && cn.indexOf(tn) >= 0) matches = true;
     }
     if (matches) {
-      logSteps.push({ t: Date.now(), type: "scope", msg: "Chat alvo ja aberto: " + currentOpen });
+      logSteps.push({ t: Date.now(), type: "scope", msg: "Chat alvo já aberto: " + currentOpen });
       return Promise.resolve();
     }
 
@@ -218,12 +218,12 @@
                    || document.querySelector('#side header div[contenteditable="true"][role="textbox"]')
                    || document.querySelector('[aria-label="Lista de conversas"] div[contenteditable="true"][role="textbox"]');
       if (!searchBox) {
-        reject(new Error("Campo de pesquisa do WhatsApp nao encontrado"));
+        reject(new Error("Campo de pesquisa do WhatsApp não encontrado"));
         return;
       }
       // Guarda: nao pode ser o compose do chat (#main) nem o footer
       if (searchBox.closest("#main") || searchBox.closest("footer")) {
-        reject(new Error("Selector caiu no compose do chat, nao na busca lateral"));
+        reject(new Error("Selector caiu no compose do chat, não na busca lateral"));
         return;
       }
 
@@ -269,7 +269,7 @@
         }
         if (attempts > 15) {
           clearInterval(check);
-          reject(new Error("Contato nao encontrado na busca: " + name));
+          reject(new Error("Contato não encontrado na busca: " + name));
         }
       }, 300);
     });
@@ -515,7 +515,7 @@
       visited[nodeId] = true;
 
       var node = findNode(nodeId);
-      if (!node) throw new Error("Node nao encontrado: " + nodeId);
+      if (!node) throw new Error("Node não encontrado: " + nodeId);
 
       logSteps.push({ t: Date.now(), type: "node", nodeId: nodeId, nodeType: node.type });
 
@@ -649,7 +649,7 @@
                  || document.querySelector('#main div[contenteditable="true"][role="textbox"]');
         if (input) return resolve(input);
         if (Date.now() - start > (maxMs || 4000)) {
-          return reject(new Error("Campo de mensagem nao apareceu. Chat esta aberto? WA pode estar carregando."));
+          return reject(new Error("Campo de mensagem não apareceu. Chat está aberto? WA pode estar carregando."));
         }
         setTimeout(check, 250);
       }
@@ -660,7 +660,7 @@
   function typeInWhatsAppFallback(text) {
     return new Promise(function(resolve, reject) {
       var input = document.querySelector('#main div[contenteditable="true"][role="textbox"]');
-      if (!input) return reject(new Error("Campo de mensagem nao encontrado"));
+      if (!input) return reject(new Error("Campo de mensagem não encontrado"));
       input.focus();
       var clipData = new DataTransfer();
       clipData.setData("text/plain", text);

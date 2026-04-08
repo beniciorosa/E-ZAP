@@ -16,6 +16,7 @@ Chrome Extension (Manifest V3) para gestao de WhatsApp Business. Inclui CRM, men
 2. Gerar ZIP da pasta `chrome-extension/` (usar pasta temporaria se arquivos estiverem travados)
 3. Subir ZIP no Supabase Storage bucket `releases/` (PUT com service key)
 4. Atualizar `releases/release.json` com nova versao, URL e notas
+5. Toda nova atualização no Admin ou na extensão, as palavras sempre devem conter acentos. Ex: "Usuário" ou invés de "Usuario". "Marcar como não lido" ou invés de "Marcar como nao lido"
 
 ### Admin e paginas web
 - Fazer `git push origin main` — deploy automatico no Vercel

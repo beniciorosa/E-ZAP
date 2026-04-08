@@ -85,7 +85,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (chrome.runtime.lastError) {
           // Even if test fails, key is saved
           statusEl.className = "status ok";
-          statusEl.textContent = "Chave salva! (teste indisponivel)";
+          statusEl.textContent = "Chave salva! (teste indisponível)";
           return;
         }
         if (response && response.ok) {

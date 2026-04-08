@@ -1710,7 +1710,7 @@
         <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
           <div>
             <div class="page-title">Fluxos</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Automacoes visuais disparadas por tempo, eventos ou condicoes</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Automações visuais disparadas por tempo, eventos ou condições</div>
           </div>
           <button class="btn-primary" onclick="createNewFlow()" style="padding:10px 18px">+ Novo fluxo</button>
         </div>
@@ -2889,7 +2889,7 @@ function showReadsModal(msgId, msgTitle) {
     var container = document.getElementById("modalsContainer");
     var html = '<div class="modal-overlay" onmousedown="modalOverlayMouseDown(event)" onclick="closeModal(event)">' +
       '<div class="modal">' +
-        '<h3>Visualizacoes: ' + esc(msgTitle) + '</h3>';
+        '<h3>Visualizações: ' + esc(msgTitle) + '</h3>';
     if (reads.length === 0) {
       html += '<div class="empty-state">Nenhum usuário visualizou esta notificação ainda.</div>';
     } else {
@@ -4161,9 +4161,9 @@ var FLOW_VARIABLES = [
     { key: "contact.days_since_last_message", label: "Dias sem trocar mensagem", type: "number" },
     { key: "contact.total_messages", label: "Total de mensagens", type: "number" }
   ]},
-  { group: "Reuniao (HubSpot)", options: [
-    { key: "meeting.exists", label: "Tem reuniao agendada", type: "boolean" },
-    { key: "meeting.days_until", label: "Dias ate a proxima reuniao", type: "number" },
+  { group: "Reunião (HubSpot)", options: [
+    { key: "meeting.exists", label: "Tem reunião agendada", type: "boolean" },
+    { key: "meeting.days_until", label: "Dias até a próxima reunião", type: "number" },
     { key: "meeting.days_since", label: "Dias desde a ultima reuniao", type: "number" },
     { key: "meeting.total_count", label: "Total de reunioes realizadas", type: "number" },
     { key: "meeting.last_outcome", label: "Resultado da ultima", type: "string" }
@@ -4261,7 +4261,7 @@ function renderFlowsList() {
     container.innerHTML = '<div class="empty-state" style="padding:60px 20px;text-align:center;color:var(--on-surface-variant)">' +
       '<div style="font-size:40px;margin-bottom:12px;opacity:0.5">&#129513;</div>' +
       '<div style="font-size:15px;font-weight:500;color:var(--on-surface);margin-bottom:6px">Nenhum fluxo criado</div>' +
-      '<div style="font-size:13px">Clique em "+ Novo fluxo" para criar sua primeira automacao</div>' +
+      '<div style="font-size:13px">Clique em "+ Novo fluxo" para criar sua primeira automação</div>' +
     '</div>';
     return;
   }
@@ -4276,7 +4276,7 @@ function renderFlowsList() {
         '<div style="font-size:15px;font-weight:600;color:var(--on-surface)">' + esc(f.name || "Sem nome") + '</div>' +
         '<span style="font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:600;color:' + statusColor + ';padding:3px 8px;border-radius:4px;background:' + statusColor + '22">' + statusLabel + '</span>' +
       '</div>' +
-      '<div style="font-size:12px;color:var(--on-surface-variant);margin-bottom:12px;min-height:32px">' + esc(f.description || "Sem descricao") + '</div>' +
+      '<div style="font-size:12px;color:var(--on-surface-variant);margin-bottom:12px;min-height:32px">' + esc(f.description || "Sem descrição") + '</div>' +
       '<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--on-surface-variant)">' +
         '<span>' + nodeCount + ' node' + (nodeCount !== 1 ? "s" : "") + ' &middot; ' + (f.run_count || 0) + ' exec</span>' +
         '<span>' + updated + '</span>' +
@@ -4335,7 +4335,7 @@ function duplicateFlow(flowId) {
 }
 
 function deleteFlow(flowId, name) {
-  if (!confirm("Excluir o fluxo \"" + name + "\"? Esta acao nao pode ser desfeita.")) return;
+  if (!confirm("Excluir o fluxo \"" + name + "\"? Esta ação não pode ser desfeita.")) return;
   supa("/rest/v1/flows?id=eq." + flowId, { method: "DELETE" }).then(function() {
     allFlows = allFlows.filter(function(x) { return x.id !== flowId; });
     renderFlowsList();
@@ -4498,10 +4498,10 @@ function toggleTriggerDay(dayIdx) {
 }
 
 function describeNextRun() {
-  if (!currentFlow || currentFlow.status !== "active") return "Ative o fluxo para agendar execucao";
+  if (!currentFlow || currentFlow.status !== "active") return "Ative o fluxo para agendar execução";
   var tt = currentFlow.trigger_type || "manual";
   var tc = currentFlow.trigger_config || {};
-  if (tt === "manual") return "Apenas execucao manual";
+  if (tt === "manual") return "Apenas execução manual";
   if (tt === "daily") return "Proximo: amanha as " + (tc.time || "09:00");
   if (tt === "weekly") {
     var names = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
@@ -5035,10 +5035,10 @@ function renderNodeConfigForm(n) {
   var inp = 'width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);color:var(--on-surface);border-radius:6px;font-size:12px;margin-bottom:12px';
   switch (n.type) {
     case "start":
-      h += '<div style="font-size:12px;color:var(--on-surface-variant);line-height:1.5">Ponto de entrada do fluxo.<br><br>Escopo e disparo sao configurados na barra no topo do editor.</div>';
+      h += '<div style="font-size:12px;color:var(--on-surface-variant);line-height:1.5">Ponto de entrada do fluxo.<br><br>Escopo e disparo são configurados na barra no topo do editor.</div>';
       break;
     case "end":
-      h += '<div style="font-size:12px;color:var(--on-surface-variant)">Finaliza a execucao do fluxo.</div>';
+      h += '<div style="font-size:12px;color:var(--on-surface-variant)">Finaliza a execução do fluxo.</div>';
       break;
     case "ifelse":
       h += lbl("Campo / variavel");

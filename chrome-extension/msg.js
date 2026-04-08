@@ -162,10 +162,10 @@ function createMsgSidebar() {
     </div>
     <div style="padding:12px 16px">
       <button id="wcrm-msg-create-btn" style="width:100%;background:#4d96ff;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s"
-        onmouseover="this.style.background='#3a7ff0'" onmouseout="this.style.background='#4d96ff'">+ Criar Sequencia</button>
+        onmouseover="this.style.background='#3a7ff0'" onmouseout="this.style.background='#4d96ff'">+ Criar Sequência</button>
     </div>
     <div id="wcrm-msg-sidebar-list" style="flex:1;overflow-y:auto;padding:0 16px 16px">
-      <div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;font-style:italic">Nenhuma sequencia salva</div>
+      <div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;font-style:italic">Nenhuma sequência salva</div>
     </div>
   `;
 
@@ -226,13 +226,13 @@ function createMsgModal() {
   overlay.innerHTML = `
     <div style="width:520px;max-height:85vh;background:#111b21;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;border:1px solid #2a3942;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#202c33;border-bottom:1px solid #2a3942">
-        <h3 id="wcrm-msg-modal-title" style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Nova Sequencia</h3>
+        <h3 id="wcrm-msg-modal-title" style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Nova Sequência</h3>
         <button id="wcrm-msg-modal-close" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>
       </div>
       <div id="wcrm-msg-modal-content" style="flex:1;overflow-y:auto;padding:16px;color:#e9edef;font-size:13px">
 
         <div style="margin-bottom:12px">
-          <input id="wcrm-msg-seq-name" type="text" placeholder="Nome da sequencia (ex: Boas Vindas Mentoria)" maxlength="50"
+          <input id="wcrm-msg-seq-name" type="text" placeholder="Nome da sequência (ex: Boas Vindas Mentoria)" maxlength="50"
             style="width:100%;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:10px 12px;color:#e9edef;font-size:13px;outline:none;box-sizing:border-box">
         </div>
 
@@ -266,14 +266,14 @@ function createMsgModal() {
         <div style="margin-bottom:16px;background:#1a2730;border-radius:8px;padding:10px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <input type="checkbox" id="wcrm-msg-schedule-check" style="accent-color:#4d96ff;width:16px;height:16px;cursor:pointer">
-            <label for="wcrm-msg-schedule-check" style="font-size:12px;color:#8696a0;cursor:pointer">Agendar envio automatico</label>
+            <label for="wcrm-msg-schedule-check" style="font-size:12px;color:#8696a0;cursor:pointer">Agendar envio automático</label>
           </div>
           <input id="wcrm-msg-schedule-time" type="datetime-local"
             style="display:none;width:100%;background:#2a3942;border:1px solid #3b4a54;border-radius:6px;padding:8px 12px;color:#e9edef;font-size:13px;outline:none;box-sizing:border-box;margin-top:6px">
         </div>
 
         <button id="wcrm-msg-save" style="width:100%;background:#4d96ff;color:#fff;border:none;border-radius:8px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s"
-          onmouseover="this.style.background='#3a7ff0'" onmouseout="this.style.background='#4d96ff'">Salvar Sequencia</button>
+          onmouseover="this.style.background='#3a7ff0'" onmouseout="this.style.background='#4d96ff'">Salvar Sequência</button>
         <div id="wcrm-msg-save-status" style="font-size:10px;text-align:center;margin-top:4px;min-height:14px"></div>
       </div>
     </div>
@@ -314,7 +314,7 @@ function openMsgModal() {
   var overlay = document.getElementById("wcrm-msg-overlay");
   overlay.style.display = "flex";
   var title = document.getElementById("wcrm-msg-modal-title");
-  title.textContent = msgEditing ? "Editar Sequencia" : "Nova Sequencia";
+  title.textContent = msgEditing ? "Editar Sequência" : "Nova Sequência";
 }
 
 function closeMsgModal() {
@@ -333,7 +333,7 @@ function resetMsgEditor() {
   var schedTime = document.getElementById("wcrm-msg-schedule-time");
   if (schedTime) { schedTime.style.display = "none"; schedTime.value = ""; }
   var saveBtn = document.getElementById("wcrm-msg-save");
-  if (saveBtn) saveBtn.textContent = "Salvar Sequencia";
+  if (saveBtn) saveBtn.textContent = "Salvar Sequência";
   var statusEl = document.getElementById("wcrm-msg-save-status");
   if (statusEl) statusEl.innerHTML = "";
   renderMsgItems();
@@ -425,7 +425,7 @@ function handleFileSelect(e) {
       clearInterval(uploadTimer);
       var pg = document.getElementById(progressId);
       if (resp && resp.ok) {
-        updateUploadProgress(100, "Concluido!");
+        updateUploadProgress(100, "Concluído!");
         setTimeout(function() {
           if (pg) pg.remove();
           addMsgItem("file", resp.url, originalName);
@@ -571,7 +571,7 @@ function saveMsgSequence() {
 
   if (!name) {
     nameInput.style.borderColor = "#ff6b6b";
-    statusEl.innerHTML = '<span style="color:#ff6b6b">Digite um nome para a sequencia</span>';
+    statusEl.innerHTML = '<span style="color:#ff6b6b">Digite um nome para a sequência</span>';
     setTimeout(function() { nameInput.style.borderColor = "#3b4a54"; }, 2000);
     return;
   }
@@ -626,7 +626,7 @@ function saveMsgSequence() {
     });
   }
 
-  statusEl.innerHTML = '<span style="color:#25d366">Sequencia salva!</span>';
+  statusEl.innerHTML = '<span style="color:#25d366">Sequência salva!</span>';
   setTimeout(function() {
     closeMsgModal();
     renderSavedSequences();
@@ -640,7 +640,7 @@ function renderSavedSequences() {
 
   var keys = Object.keys(msgSequences);
   if (keys.length === 0) {
-    container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;font-style:italic">Nenhuma sequencia salva.<br>Clique em "+ Criar Sequencia" para comecar.</div>';
+    container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;font-style:italic">Nenhuma sequência salva.<br>Clique em "+ Criar Sequência" para começar.</div>';
     return;
   }
 
@@ -983,7 +983,7 @@ function typeInWhatsApp(text) {
     var input = findMessageInput();
 
     if (!input) {
-      reject("Campo de mensagem nao encontrado. Abra uma conversa primeiro.");
+      reject("Campo de mensagem não encontrado. Abra uma conversa primeiro.");
       return;
     }
 
@@ -1108,7 +1108,7 @@ function sendFileInWhatsApp(fileBase64, fileName, mimeType) {
                       document.querySelector('span[data-icon="attach-menu-plus"]');
 
       if (!attachBtn) {
-        reject("Botao de anexo nao encontrado");
+        reject("Botão de anexo não encontrado");
         return;
       }
 
@@ -1175,7 +1175,7 @@ function sendFileInWhatsApp(fileBase64, fileName, mimeType) {
               console.log("[WCRM MSG] Using fallback file input, accept:", newInput.accept);
               setFileAndSend(newInput);
             } else {
-              reject("Input de arquivo nao encontrado");
+              reject("Input de arquivo não encontrado");
             }
             return;
           }
@@ -1216,7 +1216,7 @@ function sendFileInWhatsApp(fileBase64, fileName, mimeType) {
             if (sendAttempts < maxSendAttempts) {
               setTimeout(trySendFile, 500);
             } else {
-              reject("Botao enviar nao encontrado apos anexo");
+              reject("Botão enviar não encontrado após anexo");
             }
           }
 
