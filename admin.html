@@ -2507,6 +2507,7 @@ function openEditUser(id) {
         '<div class="form-group" id="editPhonesGroup"><label>Números WhatsApp permitidos</label><input type="text" id="editUserPhones" value="' + esc(phonesVal) + '"><div class="hint">Separados por vírgula (DDD + número, sem o 55). Ex: 19993473149, 11998887777' + (isAdmin ? ' — Administradores ignoram essa validação' : '') + '</div></div>' +
         '<div class="form-group"><label>Perfil</label><select id="editUserRole">' + buildProfileOptions(user.role) + '</select></div>' +
         '<div class="form-group" id="editFeatGroup">' + featGroupContent + '</div>' +
+        '<div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="editSignatureEnabled"' + (user.signature_enabled ? ' checked' : '') + '> Assinatura nas mensagens</label><div class="hint">Quando ativado, as mensagens enviadas incluem o nome do usuario como prefixo (ex: *Diego Rosa:*)</div></div>' +
         '<div class="modal-actions">' +
           '<button class="btn-cancel" onclick="closeModalForce()">Cancelar</button>' +
           '<button class="btn-save" onclick="saveEditUser(\'' + id + '\')">Salvar</button>' +
@@ -2549,12 +2550,15 @@ function saveEditUser(id) {
 
   if (!name) { resultEl.innerHTML = '<div style="color:var(--error);font-size:13px;margin-top:12px">Preencha o nome</div>'; return; }
 
+  var sigEnabled = document.getElementById("editSignatureEnabled").checked;
+
   supa("/rest/v1/users?id=eq." + id, {
     method: "PATCH",
     body: {
       name: name, email: email || null, phone: phone || null,
       role: role, features: features,
       allowed_phones: role === "admin" ? [] : allowedPhones,
+      signature_enabled: sigEnabled,
     }
   }).then(function(data) {
     if (data && data.code) {

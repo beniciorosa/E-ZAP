@@ -2010,3 +2010,219 @@ document.addEventListener("wcrm-auth-ready", function() {
   }
 });
 if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm")) setTimeout(init, 2000);
+
+// ===================================================================
+// ===== ASSINATURA (Signature) — Prefixo de nome nas mensagens =====
+// ===================================================================
+(function() {
+  var _sigInitialized = false;
+  var _sigEnabled = false;
+  var _sigName = "";
+
+  // Toggle signature on/off and persist to Supabase
+  function toggleSignature() {
+    _sigEnabled = !_sigEnabled;
+    updateSignatureButton();
+    // Persist to DB
+    var auth = window.__wcrmAuth;
+    if (auth && auth.userId) {
+      window.ezapSendBg({
+        action: "supabase_rest",
+        path: "/rest/v1/users?id=eq." + auth.userId,
+        method: "PATCH",
+        body: { signature_enabled: _sigEnabled },
+        prefer: "return=minimal"
+      });
+      // Update local auth state
+      auth.signatureEnabled = _sigEnabled;
+    }
+    console.log("[EZAP-SIG] Signature", _sigEnabled ? "ENABLED" : "DISABLED", "for", _sigName);
+  }
+
+  // Create/update the signature toggle button
+  function updateSignatureButton() {
+    var btn = document.getElementById("ezap-sig-toggle");
+    if (!btn) return;
+    if (_sigEnabled) {
+      btn.style.background = "#25d366";
+      btn.style.color = "#111b21";
+      btn.title = "Assinatura ativada: " + _sigName;
+      btn.textContent = "✍";
+    } else {
+      btn.style.background = "#3b4a54";
+      btn.style.color = "#8696a0";
+      btn.title = "Assinatura desativada";
+      btn.textContent = "✍";
+    }
+  }
+
+  function createSignatureButton() {
+    if (document.getElementById("ezap-sig-toggle")) return;
+    var btn = document.createElement("button");
+    btn.id = "ezap-sig-toggle";
+    btn.addEventListener("click", toggleSignature);
+    Object.assign(btn.style, {
+      width: "40px",
+      height: "40px",
+      borderRadius: "50%",
+      border: "none",
+      fontSize: "18px",
+      cursor: "pointer",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      transition: "background 0.2s",
+    });
+    var container = document.getElementById("ezap-float-container");
+    if (container) container.appendChild(btn);
+    updateSignatureButton();
+  }
+
+  // ===== Compose box interceptor =====
+  // Intercepts Enter key and Send button to prepend signature
+
+  function getComposeInput() {
+    return document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
+           document.querySelector('#main footer div[contenteditable="true"][role="textbox"]') ||
+           document.querySelector('[data-testid="conversation-compose-box-input"]');
+  }
+
+  function prependSignature(input) {
+    if (!_sigEnabled || !_sigName) return;
+    var text = input.textContent || input.innerText || "";
+    if (!text.trim()) return;
+    // Don't prepend if text already starts with the signature
+    if (text.indexOf("*" + _sigName + ":*") === 0) return;
+    // Don't prepend if it's a command (starts with /)
+    if (text.trim().charAt(0) === "/") return;
+
+    var prefix = "*" + _sigName + ":*\n";
+
+    // Clear and re-type with signature prefix
+    input.focus();
+    document.execCommand("selectAll", false, null);
+    document.execCommand("delete", false, null);
+
+    // Use clipboard paste to preserve formatting
+    var clipData = new DataTransfer();
+    clipData.setData("text/plain", prefix + text);
+    var pasteEvent = new ClipboardEvent("paste", {
+      bubbles: true, cancelable: true, clipboardData: clipData
+    });
+    input.dispatchEvent(pasteEvent);
+
+    // Verify paste worked
+    setTimeout(function() {
+      var newText = input.textContent || input.innerText || "";
+      if (newText.indexOf(_sigName) === -1) {
+        // Paste failed, use insertText fallback
+        input.focus();
+        document.execCommand("selectAll", false, null);
+        document.execCommand("delete", false, null);
+        var lines = (prefix + text).split("\n");
+        lines.forEach(function(line, i) {
+          if (line) document.execCommand("insertText", false, line);
+          if (i < lines.length - 1) {
+            input.dispatchEvent(new KeyboardEvent("keydown", {
+              key: "Enter", code: "Enter", keyCode: 13, which: 13,
+              shiftKey: true, bubbles: true, cancelable: true
+            }));
+            input.dispatchEvent(new InputEvent("beforeinput", {
+              bubbles: true, cancelable: true, inputType: "insertLineBreak",
+            }));
+          }
+        });
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }, 50);
+  }
+
+  // Listen for Enter key (send) on compose box
+  function handleKeydown(e) {
+    if (!_sigEnabled) return;
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey) return;
+    var input = getComposeInput();
+    if (!input || !input.contains(e.target)) return;
+    var text = (input.textContent || input.innerText || "").trim();
+    if (!text) return;
+    // Already has signature?
+    if (text.indexOf("*" + _sigName + ":*") === 0) return;
+
+    // Prevent the original send, add signature, then re-trigger
+    e.stopImmediatePropagation();
+    e.preventDefault();
+
+    prependSignature(input);
+
+    // After signature is prepended, simulate Enter to send
+    setTimeout(function() {
+      // Click the send button instead of simulating Enter (more reliable)
+      var sendBtn = document.querySelector('button[aria-label="Enviar"]') ||
+                    document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
+                    document.querySelector('button[aria-label="Send"]') ||
+                    document.querySelector('[data-testid="send"]') ||
+                    document.querySelector('span[data-icon="send"]');
+      if (sendBtn) {
+        var button = sendBtn.closest("button") || sendBtn;
+        button.click();
+      } else {
+        // Fallback: dispatch Enter
+        input.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "Enter", code: "Enter", keyCode: 13, which: 13,
+          bubbles: true, cancelable: true
+        }));
+      }
+    }, 150);
+  }
+
+  // Listen for Send button click
+  function handleSendClick(e) {
+    if (!_sigEnabled) return;
+    var btn = e.target.closest && e.target.closest("button");
+    if (!btn) return;
+    var icon = btn.querySelector('span[data-icon="send"], span[data-icon="wds-ic-send-filled"]');
+    var isAriaLabel = btn.getAttribute("aria-label") === "Enviar" || btn.getAttribute("aria-label") === "Send";
+    if (!icon && !isAriaLabel) return;
+
+    var input = getComposeInput();
+    if (!input) return;
+    var text = (input.textContent || input.innerText || "").trim();
+    if (!text) return;
+    if (text.indexOf("*" + _sigName + ":*") === 0) return;
+
+    // Prevent original click, add signature, re-click
+    e.stopImmediatePropagation();
+    e.preventDefault();
+
+    prependSignature(input);
+
+    setTimeout(function() {
+      btn.click();
+    }, 150);
+  }
+
+  function initSignature() {
+    if (_sigInitialized) return;
+    var auth = window.__wcrmAuth;
+    if (!auth) return;
+
+    _sigName = auth.userName || "";
+    _sigEnabled = auth.signatureEnabled || false;
+    _sigInitialized = true;
+
+    createSignatureButton();
+
+    // Capture phase listeners to intercept BEFORE WhatsApp's handlers
+    document.addEventListener("keydown", handleKeydown, true);
+    document.addEventListener("click", handleSendClick, true);
+
+    console.log("[EZAP-SIG] Initialized. Enabled:", _sigEnabled, "Name:", _sigName);
+  }
+
+  // Start after auth
+  document.addEventListener("wcrm-auth-ready", function() {
+    setTimeout(initSignature, 1000);
+  });
+  if (window.__wcrmAuth) setTimeout(initSignature, 2500);
+})();

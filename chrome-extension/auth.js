@@ -151,6 +151,7 @@ function setAuthGlobal(data) {
     token: data.token,
     features: data.features || [],
     allowedPhones: data.allowedPhones || [],
+    signatureEnabled: data.signatureEnabled || false,
   };
 }
 
@@ -620,6 +621,7 @@ function silentRevalidate(token) {
           userRole: response.data.user_role,
           features: response.data.user_features || [],
           allowedPhones: response.data.user_allowed_phones || [],
+          signatureEnabled: response.data.user_signature_enabled || false,
           validatedAt: new Date().toISOString(),
         };
         chrome.storage.local.set(saved);
@@ -741,6 +743,7 @@ function setupLoginEvents() {
               userRole: response.data.user_role,
               features: response.data.user_features || [],
               allowedPhones: response.data.user_allowed_phones || [],
+              signatureEnabled: response.data.user_signature_enabled || false,
               validatedAt: new Date().toISOString(),
             };
 

@@ -1471,6 +1471,16 @@
               // Received msg in group: participant is the client who sent it
               mmClientPhone = mmParticipant.replace(/[^0-9]/g, '');
             }
+            // Detect signature prefix: *Name:*\n at start of body
+            var mmSignatureAuthor = '';
+            if (mmSent && mmBody) {
+              var sigMatch = mmBody.match(/^\*([^*:]+):\*\n?/);
+              if (sigMatch) {
+                mmSignatureAuthor = sigMatch[1].trim();
+                // Remove signature prefix from stored body
+                mmBody = mmBody.substring(sigMatch[0].length);
+              }
+            }
             // For sent msgs in groups, clientPhone stays empty (I'm the sender, not a client)
             allMsgEvents.push({
               wid: mmWid,
@@ -1481,7 +1491,8 @@
               messageType: normType,
               body: mmBody ? String(mmBody).substring(0, 4000) : '',
               caption: (mm.caption || mm.__x_caption) ? String(mm.caption || mm.__x_caption).substring(0, 1000) : '',
-              senderName: mmSender,
+              senderName: mmSignatureAuthor || mmSender,
+              signatureAuthor: mmSignatureAuthor || null,
               groupParticipant: mmParticipant,
               duration: mmDuration > 0 ? Math.round(mmDuration) : 0,
               mediaMime: mmMime,

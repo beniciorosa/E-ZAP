@@ -154,6 +154,7 @@
         caption: e.caption || null,
         char_count: e.charCount || 0,
         sender_name: e.senderName || null,
+        signature_author: e.signatureAuthor || null,
         is_group: e.isGroup || false,
         group_participant: e.groupParticipant || null,
         duration_seconds: e.duration > 0 ? e.duration : null,
