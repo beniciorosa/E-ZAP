@@ -2014,39 +2014,40 @@
                      document.querySelector('[data-testid="conversation-compose-box-input"]');
       if (!sigInput) return;
 
-      var sigFull = sigPrefix + sigText;
       sigInput.focus();
 
-      // Step 1: Force-clear by removing DOM children (execCommand does NOT work)
-      while (sigInput.firstChild) {
-        sigInput.removeChild(sigInput.firstChild);
+      // Move cursor to the very beginning of the compose box
+      var sel = window.getSelection();
+      var range = document.createRange();
+      if (sigInput.firstChild) {
+        range.setStartBefore(sigInput.firstChild);
+      } else {
+        range.setStart(sigInput, 0);
       }
-      // Notify React of the empty state
-      sigInput.dispatchEvent(new Event('input', { bubbles: true }));
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
 
-      // Step 2: Wait for React to sync, then paste new text
+      // Paste signature + line break at position 0 (text stays after it)
+      var sigClip = new DataTransfer();
+      sigClip.setData('text/plain', sigPrefix);
+      sigInput.dispatchEvent(new ClipboardEvent('paste', {
+        bubbles: true, cancelable: true, clipboardData: sigClip
+      }));
+
+      // Wait for paste, then send
       setTimeout(function() {
-        sigInput.focus();
-        var sigClip = new DataTransfer();
-        sigClip.setData('text/plain', sigFull);
-        sigInput.dispatchEvent(new ClipboardEvent('paste', {
-          bubbles: true, cancelable: true, clipboardData: sigClip
-        }));
-
-        // Step 3: Wait for paste, then send
-        setTimeout(function() {
-          var sigSendBtn = document.querySelector('button[aria-label="Enviar"]') ||
-                           document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
-                           document.querySelector('button[aria-label="Send"]') ||
-                           document.querySelector('[data-testid="send"]') ||
-                           document.querySelector('span[data-icon="send"]');
-          if (sigSendBtn) {
-            var btn = sigSendBtn.closest('button') || sigSendBtn;
-            btn.click();
-          }
-          window.postMessage({ type: '_ezap_sig_done' }, '*');
-        }, 200);
-      }, 100);
+        var sigSendBtn = document.querySelector('button[aria-label="Enviar"]') ||
+                         document.querySelector('span[data-icon="wds-ic-send-filled"]') ||
+                         document.querySelector('button[aria-label="Send"]') ||
+                         document.querySelector('[data-testid="send"]') ||
+                         document.querySelector('span[data-icon="send"]');
+        if (sigSendBtn) {
+          var btn = sigSendBtn.closest('button') || sigSendBtn;
+          btn.click();
+        }
+        window.postMessage({ type: '_ezap_sig_done' }, '*');
+      }, 200);
     }
   });
 
