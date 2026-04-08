@@ -1474,14 +1474,29 @@ function _showCustomAbaList(abaTab, chatIndex) {
       unreadText.textContent = _unreadFilterActive ? 'Nao lidas (filtro ativo)' : 'Nao lidas';
       // Show/hide rows based on unread count OR custom unread marks
       var allCustomRows = document.querySelectorAll('#wcrm-custom-list .wcrm-custom-row');
+      var visibleCount = 0;
+      var visiblePinned = 0;
       for (var ur = 0; ur < allCustomRows.length; ur++) {
         var unreadVal = parseInt(allCustomRows[ur].getAttribute('data-ezap-unread') || '0', 10);
         var hasCustomMark = allCustomRows[ur].getAttribute('data-ezap-custom-unread') === '1';
         if (_unreadFilterActive) {
-          allCustomRows[ur].style.display = (unreadVal > 0 || hasCustomMark) ? '' : 'none';
+          var show = (unreadVal > 0 || hasCustomMark);
+          allCustomRows[ur].style.display = show ? '' : 'none';
+          if (show) {
+            visibleCount++;
+            if (allCustomRows[ur].querySelector('.wcrm-custom-pin')) visiblePinned++;
+          }
         } else {
           allCustomRows[ur].style.display = '';
+          visibleCount++;
+          if (allCustomRows[ur].querySelector('.wcrm-custom-pin')) visiblePinned++;
         }
+      }
+      // Update count label
+      var countEl = document.getElementById('ezap-overlay-count');
+      if (countEl) {
+        countEl.textContent = visibleCount + ' conversa' + (visibleCount !== 1 ? 's' : '') +
+          (visiblePinned > 0 ? ' \u00b7 ' + visiblePinned + ' fixado' + (visiblePinned !== 1 ? 's' : '') : '');
       }
     });
     custom.appendChild(unreadRow);
