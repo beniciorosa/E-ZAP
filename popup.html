@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 320px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111b21;
+      color: #e9edef;
+      margin: 0;
+    }
+    h2 {
+      font-size: 16px;
+      color: #25d366;
+      margin: 0 0 12px 0;
+    }
+    label {
+      font-size: 12px;
+      color: #8696a0;
+      display: block;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      padding: 8px 10px;
+      background: #2a3942;
+      border: 1px solid #3b4a54;
+      border-radius: 8px;
+      color: #e9edef;
+      font-size: 13px;
+      outline: none;
+      box-sizing: border-box;
+      margin-bottom: 12px;
+    }
+    input:focus { border-color: #25d366; }
+    input::placeholder { color: #8696a0; }
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #25d366;
+      color: #111b21;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #1da851; }
+    .status {
+      font-size: 12px;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 16px;
+    }
+    .status.ok { color: #25d366; }
+    .status.err { color: #ff6b6b; }
+    .info {
+      font-size: 11px;
+      color: #8696a0;
+      margin-top: 12px;
+      line-height: 1.5;
+      border-top: 1px solid #2a3942;
+      padding-top: 12px;
+    }
+    a { color: #25d366; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <!-- User Info Section -->
+  <div id="user-section" style="display:none;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #2a3942">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="user-avatar" style="width:36px;height:36px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#111b21"></div>
+        <div>
+          <div id="user-name" style="font-size:14px;font-weight:600;color:#e9edef"></div>
+          <div id="user-role" style="font-size:11px;color:#8696a0"></div>
+        </div>
+      </div>
+      <button id="logoutBtn" style="background:#2a3942;color:#ff6b6b;border:1px solid #3b4a54;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;width:auto">Sair</button>
+    </div>
+    <div id="user-token" style="font-size:10px;color:#3b4a54;font-family:monospace;text-align:center"></div>
+  </div>
+
+  <div id="no-user-section" style="display:none;margin-bottom:16px;padding:12px;background:#2a3942;border-radius:8px;text-align:center">
+    <p style="margin:0;font-size:12px;color:#8696a0">Nenhum usuário conectado. Abra o WhatsApp Web e insira seu token.</p>
+  </div>
+
+  <!-- HubSpot section: only visible for admins -->
+  <div id="hubspot-section" style="display:none">
+    <h2>E-ZAP Settings</h2>
+    <label>HubSpot API Key (Private App Token)</label>
+    <input type="password" id="apiKey" placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    <button id="saveBtn">Salvar</button>
+    <div class="status" id="status"></div>
+    <div class="info">
+      Para criar um Private App Token no HubSpot:<br>
+      1. HubSpot > Settings > Integrations > Private Apps<br>
+      2. Create a Private App<br>
+      3. Scopes: <b>crm.objects.contacts.read</b>, <b>crm.objects.deals.read</b><br>
+      4. Copie o token e cole aqui
+    </div>
+  </div>
+
+  <!-- Non-admin users see this -->
+  <div id="user-info-section" style="display:none">
+    <div style="text-align:center;padding:12px;background:#202c33;border-radius:8px;border:1px solid #2a3942">
+      <div id="version-label" style="font-size:11px;color:#25d366;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">E-ZAP</div>
+      <div style="font-size:11px;color:#8696a0">Configurado pelo administrador</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

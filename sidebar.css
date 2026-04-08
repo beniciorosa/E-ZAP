@@ -1,0 +1,455 @@
+/* ===== WhatsApp CRM Sidebar ===== */
+
+#wcrm-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100vh;
+  background: #111b21;
+  border-left: 1px solid #2a3942;
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #e9edef;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+#wcrm-sidebar.open {
+  display: flex;
+}
+
+/* Header */
+#wcrm-sidebar .wcrm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #202c33;
+  border-bottom: 1px solid #2a3942;
+  min-height: 48px;
+}
+
+#wcrm-sidebar .wcrm-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #e9edef;
+}
+
+#wcrm-sidebar .wcrm-close {
+  background: none;
+  border: none;
+  color: #8696a0;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+#wcrm-sidebar .wcrm-close:hover {
+  background: #2a3942;
+  color: #e9edef;
+}
+
+/* Content area */
+#wcrm-sidebar .wcrm-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* Section */
+.wcrm-section {
+  margin-bottom: 20px;
+}
+
+.wcrm-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #8696a0;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+/* Contact name */
+.wcrm-contact-name {
+  font-size: 17px;
+  font-weight: 600;
+  color: #e9edef;
+  margin-bottom: 4px;
+}
+
+.wcrm-contact-phone {
+  font-size: 13px;
+  color: #8696a0;
+  margin-bottom: 16px;
+}
+
+/* Labels */
+.wcrm-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.wcrm-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  color: #111b21;
+}
+
+.wcrm-label .wcrm-label-remove {
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+.wcrm-label .wcrm-label-remove:hover {
+  opacity: 1;
+}
+
+/* Add label */
+.wcrm-add-label-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.wcrm-add-label-row input {
+  flex: 1;
+  background: #2a3942;
+  border: 1px solid #3b4a54;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #e9edef;
+  font-size: 12px;
+  outline: none;
+}
+
+.wcrm-add-label-row input:focus {
+  border-color: #25d366;
+}
+
+.wcrm-add-label-row input::placeholder {
+  color: #8696a0;
+}
+
+/* Color picker */
+.wcrm-color-picker {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.wcrm-color-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.wcrm-color-dot:hover,
+.wcrm-color-dot.selected {
+  border-color: #e9edef;
+}
+
+/* Button */
+.wcrm-btn {
+  background: #25d366;
+  color: #111b21;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wcrm-btn:hover {
+  background: #1da851;
+}
+
+.wcrm-btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+/* Notes */
+.wcrm-notes textarea {
+  width: 100%;
+  min-height: 80px;
+  background: #2a3942;
+  border: 1px solid #3b4a54;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #e9edef;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.wcrm-notes textarea:focus {
+  border-color: #25d366;
+}
+
+/* HubSpot section */
+.wcrm-hubspot-card {
+  background: #202c33;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.wcrm-hubspot-card .wcrm-hs-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.wcrm-hubspot-card .wcrm-hs-label {
+  color: #8696a0;
+  font-size: 12px;
+}
+
+.wcrm-hubspot-card .wcrm-hs-value {
+  color: #e9edef;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: right;
+  max-width: 60%;
+}
+
+.wcrm-hs-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wcrm-hs-status.found { background: #25d36620; color: #25d366; }
+.wcrm-hs-status.not-found { background: #f4433620; color: #f44336; }
+.wcrm-hs-status.loading { background: #ff980020; color: #ff9800; }
+.wcrm-hs-status.no-key { background: #9e9e9e20; color: #9e9e9e; }
+
+/* Deal cards */
+.wcrm-deal {
+  background: #1a2730;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 6px;
+  border-left: 3px solid #25d366;
+}
+
+.wcrm-deal-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.wcrm-deal-amount {
+  color: #25d366;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.wcrm-deal-stage {
+  color: #8696a0;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.wcrm-deal-date {
+  color: #8696a0;
+  font-size: 11px;
+}
+
+/* Toggle buttons are now managed by #ezap-float-container in content.js */
+
+/* Separator */
+.wcrm-separator {
+  height: 1px;
+  background: #2a3942;
+  margin: 16px 0;
+}
+
+/* Loading */
+.wcrm-loading {
+  color: #8696a0;
+  font-size: 12px;
+  text-align: center;
+  padding: 8px;
+}
+
+/* Empty state */
+.wcrm-empty {
+  color: #8696a0;
+  font-size: 12px;
+  text-align: center;
+  padding: 12px;
+  font-style: italic;
+}
+
+/* Rich text editor */
+#wcrm-notes-editor:empty:not(:focus)::before {
+  content: attr(data-placeholder);
+  color: #8696a0;
+  font-style: italic;
+}
+
+#wcrm-notes-editor b, #wcrm-notes-editor strong { font-weight: 700; }
+#wcrm-notes-editor i, #wcrm-notes-editor em { font-style: italic; }
+#wcrm-notes-editor u { text-decoration: underline; }
+#wcrm-notes-editor ul { margin: 4px 0; padding-left: 18px; list-style-type: disc !important; }
+#wcrm-notes-editor ol { margin: 4px 0; padding-left: 18px; list-style-type: decimal !important; }
+#wcrm-notes-editor li { margin-bottom: 2px; display: list-item !important; list-style: inherit !important; }
+
+#wcrm-editor-toolbar button:hover {
+  background: #3b4a54;
+  color: #e9edef;
+}
+
+/* Label in chat list (injected next to chat name) */
+.wcrm-chat-label-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* ===== Audio Transcription ===== */
+.ezap-tr-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1a2e23;
+  color: #25d366;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: Georgia, serif;
+  cursor: pointer;
+  position: absolute;
+  right: -34px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  transition: background 0.2s, transform 0.15s;
+  user-select: none;
+  border: none;
+  line-height: 1;
+}
+.ezap-tr-btn:hover {
+  background: #25503a;
+  transform: translateY(-50%) scale(1.12);
+}
+.ezap-tr-done {
+  color: #00a884;
+  background: #1a2a28;
+}
+
+/* Spinner */
+.ezap-tr-spin {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(37, 211, 102, 0.25);
+  border-top-color: #25d366;
+  border-radius: 50%;
+  animation: ezapTrSpin 0.7s linear infinite;
+}
+@keyframes ezapTrSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Transcript box - inside the audio bubble */
+.ezap-tr-box {
+  padding: 8px 12px 6px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(134, 150, 160, 0.2);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: inherit;
+}
+.ezap-tr-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ezap-tr-actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  padding-top: 4px;
+}
+.ezap-tr-action {
+  color: #25d366;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.ezap-tr-action:hover {
+  text-decoration: underline;
+}
+.ezap-tr-err {
+  color: #ff6b6b;
+  font-size: 12px;
+  border-top: none;
+}
+
+/* ===== GEIA Sidebar ===== */
+#geia-sidebar {
+  display: none;
+  flex-direction: column;
+}
+#geia-sidebar.open {
+  display: flex;
+}
+
+/* GEIA inline suggest button (next to received messages) */
+.geia-suggest-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2a1a3a;
+  color: #cc5de8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  cursor: pointer;
+  position: absolute;
+  right: -34px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  transition: background 0.2s, transform 0.15s;
+  user-select: none;
+  border: none;
+  line-height: 1;
+}
+.geia-suggest-btn:hover {
+  background: #3d2557;
+  transform: translateY(-50%) scale(1.12);
+}
