@@ -95,7 +95,65 @@ function _applyUnreadMarksBadges() {
   }
 }
 
-// Load marks when auth is ready (retry a few times)
+// ===== Hidden Chats (DB-backed) =====
+// Persists "hidden" state in Supabase so users can permanently hide
+// conversations from the overlay (e.g., ghost groups they left).
+var _ezapHiddenChats = {}; // { jid: true }
+var _ezapHiddenChatsLoaded = false;
+
+function _loadHiddenChats() {
+  var userId = _getAuthUserId();
+  if (!userId) return;
+  try {
+    chrome.runtime.sendMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/chat_hidden?user_id=eq." + userId + "&select=jid",
+      method: "GET"
+    }, function(resp) {
+      if (chrome.runtime.lastError) return;
+      _ezapHiddenChats = {};
+      if (Array.isArray(resp)) {
+        for (var i = 0; i < resp.length; i++) {
+          if (resp[i].jid) _ezapHiddenChats[resp[i].jid] = true;
+        }
+      }
+      _ezapHiddenChatsLoaded = true;
+      console.log("[EZAP] Loaded", Object.keys(_ezapHiddenChats).length, "hidden chats");
+    });
+  } catch(e) { console.warn("[EZAP] Failed to load hidden chats:", e); }
+}
+
+function _hideChat(jid) {
+  var userId = _getAuthUserId();
+  if (!userId) return;
+  _ezapHiddenChats[jid] = true;
+  try {
+    chrome.runtime.sendMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/chat_hidden",
+      method: "POST",
+      body: { user_id: userId, jid: jid },
+      prefer: "return=minimal"
+    }, function() {});
+  } catch(e) {}
+}
+
+function _unhideChat(jid) {
+  if (!_ezapHiddenChats[jid]) return;
+  delete _ezapHiddenChats[jid];
+  var userId = _getAuthUserId();
+  if (!userId) return;
+  try {
+    chrome.runtime.sendMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/chat_hidden?user_id=eq." + userId + "&jid=eq." + encodeURIComponent(jid),
+      method: "DELETE",
+      prefer: "return=minimal"
+    }, function() {});
+  } catch(e) {}
+}
+
+// Load marks + hidden chats when auth is ready
 (function() {
   var attempts = 0;
   var timer = setInterval(function() {
@@ -103,6 +161,7 @@ function _applyUnreadMarksBadges() {
     if (_getAuthUserId()) {
       clearInterval(timer);
       _loadUnreadMarks();
+      _loadHiddenChats();
     } else if (attempts > 30) {
       clearInterval(timer);
     }
@@ -657,7 +716,7 @@ function _showContextMenu(e, rowData) {
   var items = [
     { icon: _waIcons.pin, label: isPinned ? 'Desafixar conversa' : 'Fixar conversa', action: 'togglePin' },
     { icon: isCustomUnread ? readIcon : unreadIcon, label: isCustomUnread ? 'Marcar como lido' : 'Marcar como não lido', action: isCustomUnread ? 'unmarkUnread' : 'markUnread' },
-    { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/></svg>', label: 'Arquivar conversa', action: 'archive' }
+    { icon: '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><path fill="#8696a0" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/><line x1="4" y1="20" x2="20" y2="4" stroke="#8696a0" stroke-width="2"/></svg>', label: 'Ocultar conversa', action: 'hide' }
   ];
 
   items.forEach(function(item) {
@@ -813,25 +872,26 @@ function _handleContextAction(action, jid, displayName, rowData) {
       console.log('[EZAP-CTX] Unmarked as unread (DB):', jid);
       break;
 
-    case 'archive':
-      if (window.ezapChatAction) {
-        window.ezapChatAction(jid, 'archive').then(function(r) {
-          console.log('[EZAP-CTX] Archive result:', r);
-          if (r && r.ok) {
-            // Remove row do overlay com animacao
-            var archRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
-            if (archRow) {
-              archRow.style.transition = 'opacity 0.3s, height 0.3s';
-              archRow.style.opacity = '0';
-              archRow.style.height = '0';
-              archRow.style.overflow = 'hidden';
-              setTimeout(function() { if (archRow.parentNode) archRow.parentNode.removeChild(archRow); }, 300);
-            }
-          } else {
-            if (window.ezapOpenChat) window.ezapOpenChat(jid);
-          }
-        });
+    case 'hide':
+      _hideChat(jid);
+      // Remove row do overlay com animação
+      var hideRow = document.querySelector('.wcrm-custom-row[data-ezap-jid="' + jid + '"]');
+      if (hideRow) {
+        hideRow.style.transition = 'opacity 0.3s, height 0.3s';
+        hideRow.style.opacity = '0';
+        hideRow.style.height = '0';
+        hideRow.style.overflow = 'hidden';
+        setTimeout(function() { if (hideRow.parentNode) hideRow.parentNode.removeChild(hideRow); }, 300);
       }
+      // Atualiza contagem
+      setTimeout(function() {
+        var countEl = document.querySelector('.wcrm-header-count');
+        var visibleRows = document.querySelectorAll('.wcrm-custom-row[data-ezap-jid]');
+        var visibleCount = 0;
+        visibleRows.forEach(function(r) { if (r.style.display !== 'none' && r.style.opacity !== '0') visibleCount++; });
+        if (countEl) countEl.textContent = visibleCount + ' conversas';
+      }, 350);
+      console.log('[EZAP-CTX] Chat hidden (DB):', jid);
       break;
   }
 }
@@ -1143,6 +1203,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
       if (!meta || !meta.name || meta.isArchived) return;
+      if (_ezapHiddenChats[jid]) return; // Oculto pelo usuário
       if (jid.indexOf('@g.us') >= 0) return; // Pula grupos neste passo
 
       var key = _dedupKey(meta.name);
@@ -1161,6 +1222,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
       if (!meta || !meta.name || meta.isArchived) return;
+      if (_ezapHiddenChats[jid]) return; // Oculto pelo usuário
       if (jid.indexOf('@g.us') < 0) return; // Só grupos neste passo
 
       var key = _dedupKey(meta.name);
