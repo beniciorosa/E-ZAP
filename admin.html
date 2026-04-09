@@ -2252,13 +2252,77 @@ function toggleUserDetail(tr, userId) {
 
   var detailRow = document.createElement("tr");
   detailRow.className = "user-detail-row";
-  detailRow.innerHTML = '<td colspan="6"><div class="user-detail-content">' +
-    '<div class="user-detail-field"><div class="ud-label">Token</div><div class="ud-value"><span class="token-cell" onclick="event.stopPropagation();copyToken(this, \'' + esc(user.token) + '\')">' + esc(user.token) + '</span></div></div>' +
+  detailRow.innerHTML = '<td colspan="7"><div class="user-detail-content">' +
     '<div class="user-detail-field"><div class="ud-label">Telefones</div><div class="ud-value">' + phoneHtml + '</div></div>' +
     '<div class="user-detail-field"><div class="ud-label">Features</div><div class="ud-value">' + featHtml + '</div></div>' +
-    '<div class="user-detail-field"><div class="ud-label">Dispositivo</div><div class="ud-value">' + deviceHtml + '</div></div>' +
+    '<div class="user-detail-field"><div class="ud-label">Dispositivo (token principal)</div><div class="ud-value">' + deviceHtml + '</div></div>' +
+    '<div class="user-detail-field" style="grid-column:1/-1"><div class="ud-label" style="margin-bottom:8px">Tokens de acesso</div><div class="ud-value" id="tokens-list-' + userId + '"><span style="color:var(--on-surface-variant);font-size:11px">Carregando...</span></div></div>' +
     '</div></td>';
   tr.parentNode.insertBefore(detailRow, tr.nextSibling);
+  loadUserTokens(userId);
+}
+
+function loadUserTokens(userId) {
+  var container = document.getElementById("tokens-list-" + userId);
+  if (!container) return;
+  supa("/rest/v1/user_tokens?user_id=eq." + userId + "&order=created_at.asc&select=id,token,label,active,token_redeemed,device_fingerprint,redeemed_location,redeemed_ip,last_active,created_at").then(function(tokens) {
+    if (!tokens || tokens.length === 0) {
+      container.innerHTML = '<span style="color:var(--on-surface-variant);font-size:11px">Nenhum token encontrado</span>';
+      return;
+    }
+    var html = '<div style="display:flex;flex-direction:column;gap:8px;width:100%">';
+    tokens.forEach(function(t) {
+      var statusBadge = t.active
+        ? '<span class="badge active" style="font-size:10px;padding:2px 6px">Ativo</span>'
+        : '<span class="badge inactive" style="font-size:10px;padding:2px 6px">Inativo</span>';
+      var deviceInfo = '';
+      if (t.token_redeemed && t.redeemed_location) {
+        deviceInfo = '<span style="font-size:10px;color:var(--on-surface-variant)">' + esc(t.redeemed_location) + '</span>';
+      } else if (!t.token_redeemed) {
+        deviceInfo = '<span style="font-size:10px;color:var(--primary);opacity:0.7">Não resgatado</span>';
+      }
+      var lastUse = t.last_active ? formatDate(t.last_active) : '-';
+      var toggleBtn = t.active
+        ? '<button class="btn-icon" onclick="event.stopPropagation();toggleToken(\'' + t.id + '\',false,\'' + userId + '\')" title="Desativar token" style="width:24px;height:24px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></button>'
+        : '<button class="btn-icon primary" onclick="event.stopPropagation();toggleToken(\'' + t.id + '\',true,\'' + userId + '\')" title="Ativar token" style="width:24px;height:24px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></button>';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px">';
+      html += '<span class="token-cell" onclick="event.stopPropagation();copyToken(this,\'' + esc(t.token) + '\')" style="font-size:12px;flex-shrink:0">' + esc(t.token) + '</span>';
+      html += '<span style="font-size:11px;color:var(--on-surface-variant);min-width:60px">' + esc(t.label || 'Principal') + '</span>';
+      html += statusBadge;
+      html += deviceInfo;
+      html += '<span style="font-size:10px;color:var(--on-surface-variant);margin-left:auto">' + lastUse + '</span>';
+      html += toggleBtn;
+      html += '</div>';
+    });
+    html += '<div style="display:flex;gap:8px;margin-top:4px">';
+    html += '<input type="text" id="new-token-label-' + userId + '" placeholder="Label (ex: Chrome 2, Notebook)" style="flex:1;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--on-surface);font-size:12px">';
+    html += '<button onclick="event.stopPropagation();generateExtraToken(\'' + userId + '\')" style="padding:6px 14px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">+ Novo Token</button>';
+    html += '</div>';
+    html += '</div>';
+    container.innerHTML = html;
+  });
+}
+
+function generateExtraToken(userId) {
+  var labelInput = document.getElementById("new-token-label-" + userId);
+  var label = (labelInput && labelInput.value.trim()) || "Extra";
+  supa("/rest/v1/rpc/generate_extra_token", {
+    method: "POST",
+    body: { p_user_id: userId, p_label: label }
+  }).then(function(newToken) {
+    if (labelInput) labelInput.value = "";
+    loadUserTokens(userId);
+    alert("Novo token gerado: " + newToken);
+  });
+}
+
+function toggleToken(tokenId, active, userId) {
+  supa("/rest/v1/user_tokens?id=eq." + tokenId, {
+    method: "PATCH",
+    body: { active: active }
+  }).then(function() {
+    loadUserTokens(userId);
+  });
 }
 
 function copyToken(el, token) {
