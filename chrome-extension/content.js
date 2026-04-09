@@ -2142,17 +2142,16 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
 })();
 
 // ===================================================================
-// ===== GROUP SYNC — Members + Chat Name History ===================
-// Syncs group participants and tracks chat name changes.
-// Lazy: only syncs when user opens a group. Max 1x per 10min per group.
+// ===== CHAT NAME HISTORY — Tracks group/chat name changes =========
+// Polls every 5s. Only records after JID is stable for 4+ checks (20s).
+// Group members sync disabled (WA GroupMetadata API unreliable).
 // ===================================================================
 (function() {
   "use strict";
-  var _syncCache = {};    // groupJid -> lastSyncTime
   var _nameCache = {};    // chatJid -> lastKnownName
-  var SYNC_COOLDOWN = 10 * 60 * 1000; // 10 minutes
-  var _lastChatJid = null;
-  var _lastDebugName = null;
+  var _stableJid = null;
+  var _stableCount = 0;
+  var _stableName = null;
 
   function getUserId() {
     return (window.__wcrmAuth && window.__wcrmAuth.userId) || null;
@@ -2162,177 +2161,70 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     return window.ezapSupaRest ? window.ezapSupaRest(path, method, body, prefer) : Promise.resolve(null);
   }
 
-  // ===== Detect current chat JID and name =====
-  // Reuses the same name detected by detectCurrentChat() (already running)
-  function getCurrentChat() {
-    // Use the global currentName that detectCurrentChat() already maintains
-    var name = (typeof currentName !== 'undefined') ? currentName : '';
-    if (!name) return null;
-
-    // Get JID: try extracting from a visible message WID
-    var msgRows = document.querySelectorAll('div[role="row"] [data-id]');
-    var jid = '';
-    for (var ri = 0; ri < msgRows.length; ri++) {
-      var wid = msgRows[ri].getAttribute('data-id') || '';
+  function getJidFromMessages() {
+    var els = document.querySelectorAll('div[role="row"] [data-id]');
+    for (var i = 0; i < els.length; i++) {
+      var wid = els[i].getAttribute('data-id') || '';
       var parts = wid.split('_');
-      if (parts.length >= 2 && parts[1].indexOf('@') >= 0) {
-        jid = parts[1];
-        break;
-      }
+      if (parts.length >= 2 && parts[1].indexOf('@') >= 0) return parts[1];
     }
-
-    var isGroup = jid.indexOf('@g.us') >= 0 || jid.indexOf('@lid') >= 0;
-    return { jid: jid, name: name, isGroup: isGroup };
+    return '';
   }
 
-  // ===== Sync group members to DB =====
-  function syncGroupMembers(groupJid, groupName) {
-    if (!groupJid || !getUserId()) return;
+  function check() {
+    var name = (typeof currentName !== 'undefined') ? currentName : '';
+    if (!name || !getUserId()) return;
 
-    // Cooldown check
-    var now = Date.now();
-    if (_syncCache[groupJid] && (now - _syncCache[groupJid]) < SYNC_COOLDOWN) return;
-    _syncCache[groupJid] = now;
+    var jid = getJidFromMessages();
+    if (!jid) return;
 
-    if (typeof window.ezapGetGroupMembers !== 'function') {
-      console.log("[EZAP-SYNC] ezapGetGroupMembers not available");
-      return;
-    }
-
-    console.log("[EZAP-SYNC] Fetching members for:", groupName);
-    window.ezapGetGroupMembers(groupJid).then(function(result) {
-      console.log("[EZAP-SYNC] Members result:", result ? { ok: result.ok, count: result.members ? result.members.length : 0, error: result.error } : null);
-      if (!result || !result.ok || !result.members || !result.members.length) return;
-
-      var members = result.members;
-      var userId = getUserId();
-      console.log("[EZAP-SYNC] Syncing", members.length, "members for group:", groupName || groupJid);
-
-      // Step 1: Mark all current members as left_at = now (will be cleared for active members)
-      // Step 2: Upsert each member
-      // Using individual upserts (Supabase REST doesn't support bulk upsert easily)
-      members.forEach(function(m) {
-        if (!m.phone) return;
-        var role = m.isSuperAdmin ? 'superadmin' : (m.isAdmin ? 'admin' : 'member');
-        supa("/rest/v1/group_members", "POST", {
-          group_jid: groupJid,
-          group_name: groupName || null,
-          member_phone: m.phone,
-          member_name: m.name || null,
-          role: role,
-          last_seen: new Date().toISOString(),
-          left_at: null,
-          recorded_by: userId
-        }, "resolution=merge-duplicates,return=minimal");
-      });
-
-      // Step 3: Mark members NOT in the current list as left
-      // Get all DB members for this group, compare with current list
-      var currentPhones = {};
-      members.forEach(function(m) { if (m.phone) currentPhones[m.phone] = true; });
-
-      supa("/rest/v1/group_members?group_jid=eq." + encodeURIComponent(groupJid) + "&left_at=is.null&select=member_phone", "GET").then(function(dbMembers) {
-        if (!Array.isArray(dbMembers)) return;
-        dbMembers.forEach(function(dbm) {
-          if (!currentPhones[dbm.member_phone]) {
-            // This member left the group
-            supa("/rest/v1/group_members?group_jid=eq." + encodeURIComponent(groupJid) + "&member_phone=eq." + encodeURIComponent(dbm.member_phone), "PATCH", {
-              left_at: new Date().toISOString()
-            }, "return=minimal");
-          }
-        });
-      });
-    });
-  }
-
-  // ===== Track chat name changes =====
-  var _stableJid = null;    // JID that's been stable for 2+ checks
-  var _stableCount = 0;     // how many consecutive checks with same JID
-  var _stableName = null;   // name first seen when JID stabilized
-
-  function trackNameChange(chatJid, currentName) {
-    if (!chatJid || !currentName || !getUserId()) return;
-
-    // Track JID stability — must be same JID for 3+ consecutive checks (9s)
-    if (chatJid === _stableJid) {
+    // JID stability: must be same JID for 4+ consecutive checks (20s)
+    if (jid === _stableJid) {
       _stableCount++;
     } else {
-      _stableJid = chatJid;
+      _stableJid = jid;
       _stableCount = 1;
-      _stableName = currentName; // record the name we first saw for this JID
+      _stableName = name;
       return;
     }
 
-    // On the 3rd stable check, record the name (now we trust the JID is correct)
-    if (_stableCount === 3) {
-      _nameCache[chatJid] = _stableName;
+    // Cache the name once stable
+    if (_stableCount === 4) {
+      _nameCache[jid] = _stableName;
+      return;
+    }
+    if (_stableCount < 5) return;
+
+    // Check for name change
+    var lastKnown = _nameCache[jid];
+    if (!lastKnown || lastKnown === name) {
+      _nameCache[jid] = name;
       return;
     }
 
-    // After stabilization, check for actual name changes
-    if (_stableCount < 4) return;
+    // Real name change detected
+    console.log("[EZAP-SYNC] Name change:", lastKnown, "->", name, "(" + jid + ")");
+    _nameCache[jid] = name;
 
-    var lastKnown = _nameCache[chatJid];
-    if (!lastKnown || lastKnown === currentName) {
-      _nameCache[chatJid] = currentName;
-      return;
-    }
-
-    // Name changed on a stable JID! Record it
-    console.log("[EZAP-SYNC] Name change detected:", lastKnown, "->", currentName);
     supa("/rest/v1/chat_name_history", "POST", {
-      chat_jid: chatJid,
+      chat_jid: jid,
       old_name: lastKnown,
-      new_name: currentName,
+      new_name: name,
       detected_by: getUserId()
     }, "return=minimal");
 
-    // Also update chat_name in message_notes for this chat
-    supa("/rest/v1/message_notes?chat_jid=eq." + encodeURIComponent(chatJid), "PATCH", {
-      chat_name: currentName
+    // Update message_notes chat_name for this JID
+    supa("/rest/v1/message_notes?chat_jid=eq." + encodeURIComponent(jid), "PATCH", {
+      chat_name: name
     }, "return=minimal");
   }
 
-  // ===== Poll for chat changes =====
-  var _checkCount = 0;
-  function checkCurrentChat() {
-    var chat = getCurrentChat();
-    // Debug: log first 3 checks
-    if (_checkCount < 3) {
-      _checkCount++;
-      console.log("[EZAP-SYNC] Check #" + _checkCount, "currentName:", (typeof currentName !== 'undefined' ? currentName : 'UNDEF'), "chat:", chat);
-    }
-    if (!chat) return;
-    if (!chat.jid) {
-      if (chat.name && chat.name !== _lastDebugName) {
-        _lastDebugName = chat.name;
-        console.log("[EZAP-SYNC] Chat detected but no JID:", chat.name);
-      }
-      return;
-    }
-
-    // Sync group members (only for groups)
-    if (chat.isGroup) {
-      syncGroupMembers(chat.jid, chat.name);
-    }
-
-    _lastChatJid = chat.jid;
-  }
-
-  // ===== Init =====
   function init() {
     if (!getUserId()) return;
-    console.log("[EZAP-SYNC] Group sync + name history initialized");
-
-    // Check every 3 seconds for chat changes
-    setInterval(checkCurrentChat, 3000);
-
-    // Initial check after a delay
-    setTimeout(checkCurrentChat, 3000);
+    console.log("[EZAP-SYNC] Chat name history initialized");
+    setInterval(check, 5000);
   }
 
-  document.addEventListener("wcrm-auth-ready", function() {
-    setTimeout(init, 3000);
-  });
+  document.addEventListener("wcrm-auth-ready", function() { setTimeout(init, 3000); });
   if (window.__wcrmAuth) setTimeout(init, 5000);
 })();
