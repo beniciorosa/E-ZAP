@@ -2163,9 +2163,18 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
 
   // ===== Detect current chat JID and name =====
   function getCurrentChat() {
-    // Get name from header
-    var hdr = document.querySelector('#main header span[title]');
-    var name = hdr ? hdr.getAttribute('title') : '';
+    // Get name from header — first span[title] only (not the subtitle)
+    var hdrSpans = document.querySelectorAll('#main header span[title]');
+    var name = '';
+    for (var si = 0; si < hdrSpans.length; si++) {
+      var t = hdrSpans[si].getAttribute('title') || '';
+      // Skip subtitles: "clique para mostrar dados", participant lists, "digitando..."
+      if (t.indexOf('clique para') >= 0 || t.indexOf('digitando') >= 0 || t.indexOf('online') === 0) continue;
+      // Skip if it looks like a participant list (has commas + phone numbers)
+      if ((t.match(/,/g) || []).length >= 2 && /\d{4,}/.test(t)) continue;
+      name = t;
+      break;
+    }
     if (!name) return null;
 
     // Get JID: try extracting from a visible message WID
