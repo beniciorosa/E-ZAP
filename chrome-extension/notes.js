@@ -413,43 +413,57 @@
         var jidKeys = Object.keys(chatJids);
         if (!jidKeys.length) return;
 
-        if (typeof window.ezapGetAllChats === 'function') {
-          window.ezapGetAllChats().then(function(chats) {
-            _chatsWithNoteNames = {};
-            if (chats && chats.length) {
-              // Log first 3 chats to see JID format
-              console.log("[EZAP-NOTES] Sample chats from API:", chats.slice(0, 3).map(function(c) { return { jid: c.jid, name: c.name }; }));
-              console.log("[EZAP-NOTES] Looking for JIDs:", jidKeys);
-              for (var c = 0; c < chats.length; c++) {
-                var chat = chats[c];
-                if (chat.jid && chatJids[chat.jid] && chat.name) {
-                  _chatsWithNoteNames[chat.name.toLowerCase()] = true;
-                }
-              }
-            } else {
-              console.log("[EZAP-NOTES] ezapGetAllChats returned:", chats);
-            }
-            // Fallback: also store phone numbers for @c.us JIDs
-            for (var j = 0; j < jidKeys.length; j++) {
-              var phone = jidKeys[j].split('@')[0];
-              if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
-            }
-            _dotDataReady = true;
-            console.log("[EZAP-NOTES] Chats with notes (names):", Object.keys(_chatsWithNoteNames));
-            injectChatDots();
-          });
-        } else {
-          // No chat API available — fallback to phone numbers only
-          _chatsWithNoteNames = {};
-          for (var j = 0; j < jidKeys.length; j++) {
-            var phone = jidKeys[j].split('@')[0];
-            if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
-          }
-          _dotDataReady = true;
-          injectChatDots();
-        }
+        _pendingJids = chatJids;
+        _pendingJidKeys = jidKeys;
+        resolveJidsToNames(0);
       });
     } catch(e) {}
+  }
+
+  var _pendingJids = {};
+  var _pendingJidKeys = [];
+
+  function resolveJidsToNames(attempt) {
+    if (typeof window.ezapGetAllChats !== 'function') {
+      applyFallbackPhones();
+      return;
+    }
+    window.ezapGetAllChats({ force: attempt > 0 }).then(function(chats) {
+      _chatsWithNoteNames = {};
+      if (chats && chats.length) {
+        for (var c = 0; c < chats.length; c++) {
+          var chat = chats[c];
+          if (chat.jid && _pendingJids[chat.jid] && chat.name) {
+            _chatsWithNoteNames[chat.name.toLowerCase()] = true;
+          }
+        }
+      }
+      // Also store phone numbers as fallback
+      for (var j = 0; j < _pendingJidKeys.length; j++) {
+        var phone = _pendingJidKeys[j].split('@')[0];
+        if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
+      }
+      _dotDataReady = true;
+      var nameCount = Object.keys(_chatsWithNoteNames).filter(function(k) { return k.indexOf('@') < 0 && !/^\d+$/.test(k); }).length;
+      console.log("[EZAP-NOTES] Chats with notes:", nameCount, "names +", _pendingJidKeys.length, "phone fallbacks");
+      injectChatDots();
+
+      // If no names resolved and bridge might not be ready, retry
+      if (nameCount === 0 && attempt < 5) {
+        console.log("[EZAP-NOTES] No names resolved, retrying in 5s (attempt " + (attempt + 1) + ")");
+        setTimeout(function() { resolveJidsToNames(attempt + 1); }, 5000);
+      }
+    });
+  }
+
+  function applyFallbackPhones() {
+    _chatsWithNoteNames = {};
+    for (var j = 0; j < _pendingJidKeys.length; j++) {
+      var phone = _pendingJidKeys[j].split('@')[0];
+      if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
+    }
+    _dotDataReady = true;
+    injectChatDots();
   }
 
   // Inject yellow dots — match by chat name (from span[title])
