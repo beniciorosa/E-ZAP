@@ -1664,7 +1664,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
   custom.appendChild(header);
 
   // "Limpar filtro" row — shown when aba is selected, same style as Arquivadas
-  if (isAbaFilterMode) {
+  if (!isOverlayMode && abaTab) {
     var _tClear = (typeof getTheme === 'function') ? getTheme() : { bgSecondary: '#202c33', text: '#e9edef', textSecondary: '#8696a0', border: '#2a3942' };
     var clearRow = document.createElement('div');
     clearRow.style.cssText = 'display:flex;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid ' + _tClear.border + ';';
