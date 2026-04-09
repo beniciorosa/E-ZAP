@@ -2188,16 +2188,20 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   // ===== Sync group members to DB =====
   function syncGroupMembers(groupJid, groupName) {
     if (!groupJid || !getUserId()) return;
-    console.log("[EZAP-SYNC] syncGroupMembers called for:", groupName, groupJid);
 
     // Cooldown check
     var now = Date.now();
     if (_syncCache[groupJid] && (now - _syncCache[groupJid]) < SYNC_COOLDOWN) return;
     _syncCache[groupJid] = now;
 
-    if (typeof window.ezapGetGroupMembers !== 'function') return;
+    if (typeof window.ezapGetGroupMembers !== 'function') {
+      console.log("[EZAP-SYNC] ezapGetGroupMembers not available");
+      return;
+    }
 
+    console.log("[EZAP-SYNC] Fetching members for:", groupName);
     window.ezapGetGroupMembers(groupJid).then(function(result) {
+      console.log("[EZAP-SYNC] Members result:", result ? { ok: result.ok, count: result.members ? result.members.length : 0, error: result.error } : null);
       if (!result || !result.ok || !result.members || !result.members.length) return;
 
       var members = result.members;
