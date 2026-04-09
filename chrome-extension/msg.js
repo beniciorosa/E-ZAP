@@ -651,11 +651,11 @@ function renderSavedSequences() {
       html += '<div class="ezap-seq-preview">' + escapeHtml(plainPreview) + '</div>';
     }
 
-    // Buttons — original inline style (green send, dark edit/delete)
-    html += '<div style="display:flex;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--ezap-border)">';
-    html += '<button class="wcrm-msg-send" data-id="' + id + '" style="flex:1;background:#00a884;color:#111b21;border:none;border-radius:6px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.15s">\u25B6 Enviar</button>';
-    html += '<button class="wcrm-msg-edit" data-id="' + id + '" style="background:#2a3942;color:#4d96ff;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;transition:background 0.15s" title="Editar">\u270F</button>';
-    html += '<button class="wcrm-msg-delete" data-id="' + id + '" style="background:#2a3942;color:#ef4444;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;transition:background 0.15s" title="Excluir">\u2715</button>';
+    // Buttons
+    html += '<div style="display:flex;gap:4px">';
+    html += '<button class="wcrm-msg-send" data-id="' + id + '" style="flex:1;background:#00a884;color:#111b21;border:none;border-radius:6px;padding:6px;font-size:11px;font-weight:600;cursor:pointer">\u25B6 Enviar</button>';
+    html += '<button class="wcrm-msg-edit" data-id="' + id + '" style="background:#2a3942;color:#4d96ff;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer" title="Editar">\u270F</button>';
+    html += '<button class="wcrm-msg-delete" data-id="' + id + '" style="background:#2a3942;color:#ef4444;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer" title="Excluir">\u2715</button>';
     html += '</div>';
 
     html += '</div>';
