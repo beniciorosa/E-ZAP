@@ -111,7 +111,26 @@
         }, function(resp) {
           if (chrome.runtime.lastError) { resolve(false); return; }
           delete _noteCache[wid];
-          console.log("[EZAP-NOTES] Note deleted:", wid);
+          // Check if this chat still has other notes; if not, remove dot
+          var chatName = getCurrentChatName();
+          if (chatName) {
+            // Re-check DB for remaining notes in this chat
+            var uid = getUserId();
+            try {
+              chrome.runtime.sendMessage({
+                action: "supabase_rest",
+                path: "/rest/v1/message_notes?user_id=eq." + uid + "&chat_name=eq." + encodeURIComponent(chatName) + "&select=id&limit=1",
+                method: "GET"
+              }, function(r2) {
+                if (!Array.isArray(r2) || r2.length === 0) {
+                  // No more notes in this chat — remove from cache and dots
+                  delete _chatsWithNoteNames[chatName.toLowerCase()];
+                  removeChatDots(chatName);
+                }
+              });
+            } catch(e2) {}
+          }
+          console.log("[EZAP-NOTES] Note deleted:", wid, "chat:", chatName);
           resolve(true);
         });
       } catch(e) { resolve(false); }
@@ -442,6 +461,18 @@
       dot.className = 'ezap-note-dot';
       dot.title = 'Tem anotações';
       span.appendChild(dot);
+    }
+  }
+
+  // Remove dots for a specific chat name
+  function removeChatDots(chatName) {
+    var lower = chatName.toLowerCase();
+    var dots = document.querySelectorAll('.ezap-note-dot');
+    for (var i = 0; i < dots.length; i++) {
+      var parent = dots[i].parentElement;
+      if (parent && (parent.getAttribute('title') || '').toLowerCase() === lower) {
+        dots[i].remove();
+      }
     }
   }
 

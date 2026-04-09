@@ -619,6 +619,16 @@
   margin-left: 4px;
   vertical-align: middle;
   box-shadow: 0 0 4px rgba(251,191,36,0.4);
+  flex-shrink: 0;
+}
+/* Ensure chat name truncates to make room for dot */
+span[title]:has(.ezap-note-dot) {
+  display: inline-flex !important;
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ===== 32. ADMIN OVERLAY (injected into WA DOM — uses ao- prefix) ===== */
