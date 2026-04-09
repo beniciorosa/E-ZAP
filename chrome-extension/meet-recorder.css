@@ -1,0 +1,71 @@
+/* ===== E-ZAP Meet Auto-Recorder ===== */
+
+.ezap-meet-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #00a884 0%, #008f6f 100%);
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  animation: ezapMeetSlideDown 0.3s ease-out;
+}
+
+@keyframes ezapMeetSlideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+.ezap-meet-banner-icon {
+  font-size: 18px;
+  animation: ezapMeetPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ezapMeetPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.ezap-meet-banner-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.ezap-meet-banner-btn--record {
+  background: #fff;
+  color: #00a884;
+}
+.ezap-meet-banner-btn--record:hover {
+  background: #e0f7ef;
+}
+
+.ezap-meet-banner-btn--skip {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+}
+.ezap-meet-banner-btn--skip:hover {
+  background: rgba(255,255,255,0.35);
+}
+
+.ezap-meet-banner--recording {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.ezap-meet-banner--done {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+}
