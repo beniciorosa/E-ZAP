@@ -22,6 +22,8 @@
   var _banner = null;
   var _checkInterval = null;
   var _meetingTitle = "";
+  var _recordingStartTime = 0;
+  var _timerInterval = null;
 
   // ===== UTILS =====
   function log(msg) { console.log("[EZAP-MEET] " + msg); }
@@ -291,9 +293,24 @@
       _banner.innerHTML = '<span class="ezap-meet-banner-icon">⏳</span><span>' + message + '</span>';
     } else if (type === "recording") {
       _banner.className = "ezap-meet-banner ezap-meet-banner--recording";
-      _banner.innerHTML = '<span class="ezap-meet-banner-icon">🔴</span><span>' + message + '</span>';
-      // Auto-hide after 5 seconds
-      setTimeout(hideBanner, 5000);
+      _banner.style.display = "flex";
+      _recordingStartTime = Date.now();
+      _banner.innerHTML =
+        '<span class="ezap-meet-banner-icon">🔴</span>' +
+        '<span>E-ZAP Gravando</span>' +
+        '<span id="ezap-meet-timer" style="font-variant-numeric:tabular-nums;min-width:56px">00:00</span>';
+      // Start timer
+      if (_timerInterval) clearInterval(_timerInterval);
+      _timerInterval = setInterval(function() {
+        var el = document.getElementById("ezap-meet-timer");
+        if (!el) return;
+        var elapsed = Math.floor((Date.now() - _recordingStartTime) / 1000);
+        var h = Math.floor(elapsed / 3600);
+        var m = Math.floor((elapsed % 3600) / 60);
+        var s = elapsed % 60;
+        var pad = function(n) { return n < 10 ? "0" + n : "" + n; };
+        el.textContent = h > 0 ? pad(h) + ":" + pad(m) + ":" + pad(s) : pad(m) + ":" + pad(s);
+      }, 1000);
     } else if (type === "error") {
       _banner.className = "ezap-meet-banner ezap-meet-banner--recording";
       _banner.innerHTML = '<span>⚠️ ' + message + '</span>';
@@ -306,6 +323,7 @@
   }
 
   function hideBanner() {
+    if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
     if (_banner) _banner.style.display = "none";
   }
 
