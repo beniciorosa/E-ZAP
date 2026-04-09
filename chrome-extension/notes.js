@@ -56,11 +56,18 @@
     });
   }
 
-  // Save note to DB (upsert)
+  // Get current chat name from header
+  function getCurrentChatName() {
+    var hdr = document.querySelector('#main header span[title]');
+    return hdr ? (hdr.getAttribute('title') || '') : '';
+  }
+
+  // Save note to DB (upsert) — includes chat_name for dot queries
   function saveNote(wid, text, chatJid) {
     return new Promise(function(resolve) {
       var userId = getUserId();
       if (!userId || !isExtValid()) { resolve(false); return; }
+      var chatName = getCurrentChatName();
       try {
         chrome.runtime.sendMessage({
           action: "supabase_rest",
@@ -70,6 +77,7 @@
             user_id: userId,
             message_wid: wid,
             chat_jid: chatJid || null,
+            chat_name: chatName || null,
             note_text: text,
             updated_at: new Date().toISOString()
           },
@@ -81,10 +89,9 @@
             return;
           }
           _noteCache[wid] = text;
-          // Update dot cache — add current chat name
-          var hdr = document.querySelector('header span[title]');
-          if (hdr) { _chatsWithNoteNames[(hdr.getAttribute('title') || '').toLowerCase()] = true; injectChatDots(); }
-          console.log("[EZAP-NOTES] Note saved:", wid);
+          // Update dot cache immediately
+          if (chatName) { _chatsWithNoteNames[chatName.toLowerCase()] = true; injectChatDots(); }
+          console.log("[EZAP-NOTES] Note saved:", wid, "chat:", chatName);
           resolve(true);
         });
       } catch(e) { resolve(false); }
@@ -381,8 +388,7 @@
   }
 
   // ===== Chat list dot indicators =====
-  // Strategy: track which conversations have notes by watching scan results.
-  // When notes are found for messages in a chat, we record the chat name.
+  // Simple: query DISTINCT chat_name from DB, match against span[title] in chat list
   var _chatsWithNoteNames = {};  // chatName (lowercase) -> true
   var _dotDataReady = false;
 
@@ -392,78 +398,20 @@
     try {
       chrome.runtime.sendMessage({
         action: "supabase_rest",
-        path: "/rest/v1/message_notes?user_id=eq." + userId + "&select=chat_jid,message_wid",
+        path: "/rest/v1/message_notes?user_id=eq." + userId + "&chat_name=not.is.null&select=chat_name",
         method: "GET"
       }, function(resp) {
         if (chrome.runtime.lastError) return;
         if (!Array.isArray(resp)) return;
-
-        // Collect unique chat JIDs from message WIDs
-        var chatJids = {};
+        _chatsWithNoteNames = {};
         for (var i = 0; i < resp.length; i++) {
-          var jid = resp[i].chat_jid;
-          if (!jid && resp[i].message_wid) {
-            var parts = resp[i].message_wid.split('_');
-            if (parts.length >= 2 && parts[1].indexOf('@') >= 0) jid = parts[1];
-          }
-          if (jid) chatJids[jid] = true;
+          if (resp[i].chat_name) _chatsWithNoteNames[resp[i].chat_name.toLowerCase()] = true;
         }
-
-        // Resolve JIDs to chat names via ezapGetAllChats (api.js)
-        var jidKeys = Object.keys(chatJids);
-        if (!jidKeys.length) return;
-
-        _pendingJids = chatJids;
-        _pendingJidKeys = jidKeys;
-        resolveJidsToNames(0);
+        _dotDataReady = true;
+        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames).length, Object.keys(_chatsWithNoteNames));
+        injectChatDots();
       });
     } catch(e) {}
-  }
-
-  var _pendingJids = {};
-  var _pendingJidKeys = [];
-
-  function resolveJidsToNames(attempt) {
-    if (typeof window.ezapGetAllChats !== 'function') {
-      applyFallbackPhones();
-      return;
-    }
-    window.ezapGetAllChats({ force: attempt > 0 }).then(function(chats) {
-      _chatsWithNoteNames = {};
-      if (chats && chats.length) {
-        for (var c = 0; c < chats.length; c++) {
-          var chat = chats[c];
-          if (chat.jid && _pendingJids[chat.jid] && chat.name) {
-            _chatsWithNoteNames[chat.name.toLowerCase()] = true;
-          }
-        }
-      }
-      // Also store phone numbers as fallback
-      for (var j = 0; j < _pendingJidKeys.length; j++) {
-        var phone = _pendingJidKeys[j].split('@')[0];
-        if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
-      }
-      _dotDataReady = true;
-      var nameCount = Object.keys(_chatsWithNoteNames).filter(function(k) { return k.indexOf('@') < 0 && !/^\d+$/.test(k); }).length;
-      console.log("[EZAP-NOTES] Chats with notes:", nameCount, "names +", _pendingJidKeys.length, "phone fallbacks");
-      injectChatDots();
-
-      // If no names resolved and bridge might not be ready, retry
-      if (nameCount === 0 && attempt < 5) {
-        console.log("[EZAP-NOTES] No names resolved, retrying in 5s (attempt " + (attempt + 1) + ")");
-        setTimeout(function() { resolveJidsToNames(attempt + 1); }, 5000);
-      }
-    });
-  }
-
-  function applyFallbackPhones() {
-    _chatsWithNoteNames = {};
-    for (var j = 0; j < _pendingJidKeys.length; j++) {
-      var phone = _pendingJidKeys[j].split('@')[0];
-      if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
-    }
-    _dotDataReady = true;
-    injectChatDots();
   }
 
   // Inject yellow dots — match by chat name (from span[title])
