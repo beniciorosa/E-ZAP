@@ -81,8 +81,9 @@
             return;
           }
           _noteCache[wid] = text;
-          // Update dot cache for this chat
-          if (chatJid) { _chatsWithNotes[chatJid] = true; injectChatDots(); }
+          // Update dot cache — add current chat name
+          var hdr = document.querySelector('header span[title]');
+          if (hdr) { _chatsWithNoteNames[(hdr.getAttribute('title') || '').toLowerCase()] = true; injectChatDots(); }
           console.log("[EZAP-NOTES] Note saved:", wid);
           resolve(true);
         });
@@ -380,11 +381,13 @@
   }
 
   // ===== Chat list dot indicators =====
-  var _chatsWithNotes = {};  // chatJid -> true
-  var _dotScanDone = false;
+  // Strategy: track which conversations have notes by watching scan results.
+  // When notes are found for messages in a chat, we record the chat name.
+  var _chatsWithNoteNames = {};  // chatName (lowercase) -> true
+  var _dotDataReady = false;
 
-  // Fetch all chats that have notes for this user
-  // Uses both chat_jid (if saved) and message_wid (extract chat from WID)
+  // Build the set of chat names that have notes — uses the message_wid
+  // to identify the chat, then resolves the name from the WA DOM or cache.
   function fetchChatsWithNotes() {
     var userId = getUserId();
     if (!userId || !isExtValid()) return;
@@ -396,67 +399,71 @@
       }, function(resp) {
         if (chrome.runtime.lastError) return;
         if (!Array.isArray(resp)) return;
-        _chatsWithNotes = {};
+
+        // Collect unique chat JIDs from message WIDs
+        var chatJids = {};
         for (var i = 0; i < resp.length; i++) {
           var jid = resp[i].chat_jid;
-          // Extract chat JID from message_wid if chat_jid is null
-          // WID format: true_5511999999999@c.us_3EB0... or false_...@g.us_...
           if (!jid && resp[i].message_wid) {
             var parts = resp[i].message_wid.split('_');
             if (parts.length >= 2 && parts[1].indexOf('@') >= 0) jid = parts[1];
           }
-          if (jid) _chatsWithNotes[jid] = true;
+          if (jid) chatJids[jid] = true;
         }
-        _dotScanDone = true;
-        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNotes).length, Object.keys(_chatsWithNotes));
+
+        // Now resolve JIDs to chat names using the chatIndex from slice.js
+        var chatIndex = window._ezapChatIndex || {};
+        var jidKeys = Object.keys(chatJids);
+        _chatsWithNoteNames = {};
+
+        for (var j = 0; j < jidKeys.length; j++) {
+          var cjid = jidKeys[j];
+          // Try chatIndex (populated by slice.js / store-bridge)
+          if (chatIndex[cjid] && chatIndex[cjid].name) {
+            _chatsWithNoteNames[chatIndex[cjid].name.toLowerCase()] = true;
+            continue;
+          }
+          // Try phone number extraction (for @c.us JIDs)
+          var phone = cjid.split('@')[0];
+          if (phone) _chatsWithNoteNames[phone] = true;
+        }
+
+        _dotDataReady = true;
+        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames).length);
         injectChatDots();
       });
     } catch(e) {}
   }
 
-  // Inject yellow dots next to chat names in the conversation list
+  // Inject yellow dots — match by chat name (from span[title])
   function injectChatDots() {
-    if (!_dotScanDone || Object.keys(_chatsWithNotes).length === 0) return;
+    if (!_dotDataReady || Object.keys(_chatsWithNoteNames).length === 0) return;
 
-    // Find all chat name spans in the sidebar (they have title + dir attributes)
     var pane = document.getElementById('pane-side');
     if (!pane) return;
 
-    // WA chat rows: role="listitem" or role="row"
-    var rows = pane.querySelectorAll('[role="listitem"], [role="row"]');
-    var debugFirst = !window._ezapDotDebugDone;
-    if (debugFirst) {
-      console.log("[EZAP-NOTES] DOT DEBUG: found", rows.length, "rows in pane-side");
-      window._ezapDotDebugDone = true;
-    }
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i];
-      if (row.querySelector('.ezap-note-dot')) continue;
+    // Find all name spans directly (more reliable than row-based approach)
+    var nameSpans = pane.querySelectorAll('span[title][dir]');
+    for (var i = 0; i < nameSpans.length; i++) {
+      var span = nameSpans[i];
+      if (span.querySelector('.ezap-note-dot')) continue;
 
-      // Find JID: look for data-id on the row or any ancestor/descendant
-      var jidEl = row.querySelector('[data-id]') || row.closest('[data-id]');
-      var jid = jidEl ? jidEl.getAttribute('data-id') : '';
+      var title = (span.getAttribute('title') || '').toLowerCase();
+      if (!title) continue;
 
-      // Also check custom rows (E-ZAP overlay) which use data-jid
-      if (!jid || jid.indexOf('@') < 0) {
-        var customRow = row.closest('[data-jid]') || row.querySelector('[data-jid]');
-        if (customRow) jid = customRow.getAttribute('data-jid');
+      // Check exact name match or phone number match
+      var hasNotes = _chatsWithNoteNames[title];
+      if (!hasNotes) {
+        // Try matching by phone number in the title
+        var digits = title.replace(/\D/g, '');
+        if (digits.length >= 10) hasNotes = _chatsWithNoteNames[digits];
       }
-
-      if (debugFirst && i < 3) {
-        console.log("[EZAP-NOTES] DOT DEBUG row", i, "jid:", jid, "match:", !!_chatsWithNotes[jid]);
-      }
-
-      if (!jid || !_chatsWithNotes[jid]) continue;
-
-      // Find the name span
-      var nameSpan = row.querySelector('span[title][dir]');
-      if (!nameSpan || nameSpan.querySelector('.ezap-note-dot')) continue;
+      if (!hasNotes) continue;
 
       var dot = document.createElement('span');
       dot.className = 'ezap-note-dot';
       dot.title = 'Tem anotações';
-      nameSpan.appendChild(dot);
+      span.appendChild(dot);
     }
   }
 
