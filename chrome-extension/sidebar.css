@@ -231,7 +231,7 @@
 .escalada-crm .ezap-timeline-source { font-size: 9px; padding: 1px 5px; border-radius: var(--ezap-radius-sm); font-weight: var(--ezap-font-semibold); text-transform: uppercase; letter-spacing: 0.04em; }
 .escalada-crm .ezap-timeline-source--local { background: var(--ezap-primary-subtle); color: var(--ezap-primary); }
 .escalada-crm .ezap-timeline-source--hs { background: var(--ezap-warning-subtle); color: var(--ezap-warning); }
-.escalada-crm .ezap-timeline-content { background: var(--ezap-bg-elevated); border-radius: var(--ezap-radius-md); padding: var(--ezap-space-2) var(--ezap-space-3); font-size: var(--ezap-text-sm); line-height: 1.5; border: 1px solid transparent; transition: border-color var(--ezap-transition-fast); }
+.escalada-crm .ezap-timeline-content { background: var(--ezap-bg-elevated); border-radius: var(--ezap-radius-md); padding: var(--ezap-space-2) var(--ezap-space-3); font-size: var(--ezap-text-sm); line-height: 1.5; border: 1px solid transparent; transition: border-color var(--ezap-transition-fast); word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; max-width: 100%; }
 .escalada-crm .ezap-timeline-content:hover { border-color: var(--ezap-border); }
 
 /* ===== 15. STATUS ===== */

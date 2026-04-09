@@ -1587,7 +1587,7 @@ function renderNotesHistory(hubspotNotes) {
     html += '</div>';
     // Card content
     html += '<div class="wcrm-note-item ezap-timeline-content">';
-    html += '<div class="wcrm-note-content" style="font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative">' + noteBody + '</div>';
+    html += '<div class="wcrm-note-content" style="font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative;word-wrap:break-word;overflow-wrap:break-word;word-break:break-word">' + noteBody + '</div>';
     if (authorSig) {
       html += '<div style="color:var(--ezap-text-muted);font-size:10px;font-style:italic;margin-top:3px;border-top:1px solid var(--ezap-border);padding-top:2px">' + authorSig + '</div>';
     }
