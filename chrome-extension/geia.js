@@ -148,22 +148,12 @@ function createGeiaButton() {
   if (document.getElementById("geia-toggle")) return;
   var btn = document.createElement("button");
   btn.id = "geia-toggle";
+  btn.className = "escalada-crm ezap-float-btn";
+  btn.setAttribute("data-tooltip", "GEIA");
   btn.title = "GEIA - Inteligência Artificial";
   btn.addEventListener("click", toggleGeiaSidebar);
-  Object.assign(btn.style, {
-    width: "50px",
-    height: "50px",
-    borderRadius: "50%",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  });
   if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "geia");
-  else { btn.textContent = "GEIA"; btn.style.background = "#cc5de8"; btn.style.color = "#fff"; btn.style.fontSize = "10px"; }
+  else { btn.textContent = "GEIA"; btn.style.background = "#8b5cf6"; btn.style.color = "#fff"; }
   var container = document.getElementById("ezap-float-container");
   if (container) container.appendChild(btn);
   else document.body.appendChild(btn);
@@ -196,35 +186,18 @@ function createGeiaSidebar() {
 
   var sidebar = document.createElement("div");
   sidebar.id = "geia-sidebar";
-  Object.assign(sidebar.style, {
-    position: "fixed",
-    top: "0",
-    right: "0",
-    width: "320px",
-    height: "100vh",
-    background: "#111b21",
-    borderLeft: "1px solid #2a3942",
-    zIndex: "100000",
-    flexDirection: "column",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    color: "#e9edef",
-    fontSize: "13px",
-    overflow: "hidden",
-  });
+  sidebar.className = "escalada-crm ezap-sidebar";
 
   // Build header
   var header = document.createElement("div");
-  Object.assign(header.style, {
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "12px 16px", background: "#202c33", borderBottom: "1px solid #2a3942", minHeight: "48px",
-  });
+  header.className = "ezap-header";
   header.innerHTML =
     '<div style="display:flex;align-items:center;gap:10px">' +
-      '<div style="width:32px;height:32px;border-radius:50%;background:#cc5de8;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">G</div>' +
-      '<h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">GEIA</h3>' +
+      '<div style="width:32px;height:32px;border-radius:50%;background:#8b5cf6;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">G</div>' +
+      '<h3 class="ezap-header-title">GEIA</h3>' +
     '</div>';
   var closeBtn = document.createElement("button");
-  Object.assign(closeBtn.style, { background: "none", border: "none", color: "#8696a0", fontSize: "20px", cursor: "pointer", padding: "4px 8px", borderRadius: "4px" });
+  closeBtn.className = "ezap-header-close";
   closeBtn.innerHTML = "&times;";
   closeBtn.addEventListener("click", toggleGeiaSidebar);
   header.appendChild(closeBtn);
@@ -232,7 +205,7 @@ function createGeiaSidebar() {
 
   var contentDiv = document.createElement("div");
   contentDiv.id = "geia-content";
-  Object.assign(contentDiv.style, { flex: "1", overflowY: "auto", padding: "16px" });
+  contentDiv.className = "ezap-content";
   sidebar.appendChild(contentDiv);
 
   document.body.appendChild(sidebar);
@@ -271,19 +244,19 @@ function updateGeiaContent() {
 
   // Contact name section
   var contactSection = document.createElement("div");
-  contactSection.style.marginBottom = "16px";
+  contactSection.className = "ezap-section";
   contactSection.innerHTML =
-    '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">Conversa atual</div>' +
-    '<div style="font-size:15px;font-weight:600;color:#e9edef">' + escGeia(contactName) + '</div>';
+    '<div class="ezap-section-title">Conversa atual</div>' +
+    '<div class="ezap-contact-name">' + escGeia(contactName) + '</div>';
   content.appendChild(contactSection);
 
   if (hasResumo) {
     var resumoDiv = document.createElement("div");
-    resumoDiv.style.marginBottom = "16px";
+    resumoDiv.className = "ezap-section";
     var resumoBtn = document.createElement("button");
     resumoBtn.id = "geia-btn-resumo";
-    Object.assign(resumoBtn.style, { width: "100%", padding: "12px", background: "#202c33", border: "1px solid #2a3942", borderRadius: "8px", color: "#e9edef", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", textAlign: "left" });
-    resumoBtn.innerHTML = '<span style="font-size:18px">&#128203;</span><div><div style="font-weight:600">Resumo da Conversa</div><div style="font-size:11px;color:#8696a0;margin-top:2px">Gera um resumo inteligente das mensagens</div></div>';
+    resumoBtn.className = "ezap-geia-action";
+    resumoBtn.innerHTML = '<span class="ezap-geia-action-icon">&#128203;</span><div><div class="ezap-geia-action-title">Resumo da Conversa</div><div class="ezap-geia-action-desc">Gera um resumo inteligente das mensagens</div></div>';
     resumoBtn.addEventListener("click", geiaGenerateSummary);
     resumoDiv.appendChild(resumoBtn);
     var resumoResult = document.createElement("div");
@@ -295,11 +268,11 @@ function updateGeiaContent() {
 
   if (hasSugestao) {
     var sugestaoDiv = document.createElement("div");
-    sugestaoDiv.style.marginBottom = "16px";
+    sugestaoDiv.className = "ezap-section";
     var sugestaoBtn = document.createElement("button");
     sugestaoBtn.id = "geia-btn-sugestao";
-    Object.assign(sugestaoBtn.style, { width: "100%", padding: "12px", background: "#202c33", border: "1px solid #2a3942", borderRadius: "8px", color: "#e9edef", fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "10px", textAlign: "left" });
-    sugestaoBtn.innerHTML = '<span style="font-size:18px">&#128172;</span><div><div style="font-weight:600">Sugestão de Resposta</div><div style="font-size:11px;color:#8696a0;margin-top:2px">Sugere uma resposta baseada no contexto</div></div>';
+    sugestaoBtn.className = "ezap-geia-action";
+    sugestaoBtn.innerHTML = '<span class="ezap-geia-action-icon">&#128172;</span><div><div class="ezap-geia-action-title">Sugestão de Resposta</div><div class="ezap-geia-action-desc">Sugere uma resposta baseada no contexto</div></div>';
     sugestaoBtn.addEventListener("click", geiaSuggestReply);
     sugestaoDiv.appendChild(sugestaoBtn);
     var sugestaoResult = document.createElement("div");
@@ -310,7 +283,7 @@ function updateGeiaContent() {
   }
 
   if (!hasResumo && !hasSugestao) {
-    content.innerHTML = '<div style="text-align:center;padding:30px;color:#8696a0;font-style:italic">Nenhuma função GEIA habilitada para seu perfil.</div>';
+    content.innerHTML = '<div class="ezap-empty">Nenhuma função GEIA habilitada para seu perfil.</div>';
   }
 }
 
@@ -320,14 +293,14 @@ async function geiaGenerateSummary() {
   var btnEl = document.getElementById("geia-btn-resumo");
   if (!resultEl) return;
 
-  resultEl.innerHTML = '<div style="text-align:center;padding:12px;color:#8696a0"><span class="ezap-tr-spin" style="display:inline-block;margin-right:8px"></span>Gerando resumo...</div>';
+  resultEl.innerHTML = '<div class="ezap-loading"><span class="ezap-spinner ezap-spinner--sm" style="margin-right:8px"></span>Gerando resumo...</div>';
   if (btnEl) btnEl.style.pointerEvents = "none";
 
   var config = await geiaLoadConfig();
   var messages = extractConversationMessages(60);
 
   if (messages.length === 0) {
-    resultEl.innerHTML = '<div style="padding:10px;color:#ff6b6b;font-size:12px">Nenhuma mensagem encontrada nesta conversa.</div>';
+    resultEl.innerHTML = '<div class="ezap-empty" style="color:var(--ezap-danger)">Nenhuma mensagem encontrada nesta conversa.</div>';
     if (btnEl) btnEl.style.pointerEvents = "";
     return;
   }
@@ -346,9 +319,9 @@ async function geiaGenerateSummary() {
   var resp = await geiaChat(chatMessages, 800);
 
   if (resp.error) {
-    resultEl.innerHTML = '<div style="padding:10px;background:#1a2730;border-radius:8px;color:#ff6b6b;font-size:12px">' + escGeia(resp.error) + '</div>';
+    resultEl.innerHTML = '<div class="ezap-card" style="color:var(--ezap-danger)">' + escGeia(resp.error) + '</div>';
   } else {
-    renderResultBox(resultEl, "Resumo", "#cc5de8", resp.text, { showCopy: true });
+    renderResultBox(resultEl, "Resumo", "#8b5cf6", resp.text, { showCopy: true });
   }
   if (btnEl) btnEl.style.pointerEvents = "";
 }
@@ -359,14 +332,14 @@ async function geiaSuggestReply() {
   var btnEl = document.getElementById("geia-btn-sugestao");
   if (!resultEl) return;
 
-  resultEl.innerHTML = '<div style="text-align:center;padding:12px;color:#8696a0"><span class="ezap-tr-spin" style="display:inline-block;margin-right:8px"></span>Gerando sugestão...</div>';
+  resultEl.innerHTML = '<div class="ezap-loading"><span class="ezap-spinner ezap-spinner--sm" style="margin-right:8px"></span>Gerando sugestão...</div>';
   if (btnEl) btnEl.style.pointerEvents = "none";
 
   var config = await geiaLoadConfig();
   var messages = extractConversationMessages(30);
 
   if (messages.length === 0) {
-    resultEl.innerHTML = '<div style="padding:10px;color:#ff6b6b;font-size:12px">Nenhuma mensagem encontrada.</div>';
+    resultEl.innerHTML = '<div class="ezap-empty" style="color:var(--ezap-danger)">Nenhuma mensagem encontrada.</div>';
     if (btnEl) btnEl.style.pointerEvents = "";
     return;
   }
@@ -385,7 +358,7 @@ async function geiaSuggestReply() {
   var resp = await geiaChat(chatMessages, 500);
 
   if (resp.error) {
-    resultEl.innerHTML = '<div style="padding:10px;background:#1a2730;border-radius:8px;color:#ff6b6b;font-size:12px">' + escGeia(resp.error) + '</div>';
+    resultEl.innerHTML = '<div class="ezap-card" style="color:var(--ezap-danger)">' + escGeia(resp.error) + '</div>';
   } else {
     renderResultBox(resultEl, "Sugestão de Resposta", "#25d366", resp.text, { showUse: true, showCopy: true, showRegenerate: true });
   }
@@ -398,26 +371,29 @@ function renderResultBox(container, title, color, text, opts) {
   container.innerHTML = '';
 
   var box = document.createElement("div");
-  Object.assign(box.style, { padding: "12px", background: "#1a2730", borderRadius: "8px", borderLeft: "3px solid " + color });
+  box.className = "ezap-card ezap-card--geia";
+  box.style.borderLeftColor = color;
 
   var titleEl = document.createElement("div");
-  Object.assign(titleEl.style, { fontSize: "11px", color: color, fontWeight: "600", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px" });
+  titleEl.className = "ezap-section-title";
+  titleEl.style.color = color;
   titleEl.textContent = title;
   box.appendChild(titleEl);
 
   var textEl = document.createElement("div");
-  Object.assign(textEl.style, { whiteSpace: "pre-wrap", lineHeight: "1.6", fontSize: "13px", color: "#e9edef" });
+  textEl.style.whiteSpace = "pre-wrap";
+  textEl.style.lineHeight = "1.6";
   textEl.textContent = text;
   box.appendChild(textEl);
 
   var actions = document.createElement("div");
-  Object.assign(actions.style, { display: "flex", gap: "12px", marginTop: "10px", paddingTop: "8px", borderTop: "1px solid rgba(134,150,160,0.2)" });
+  actions.style.cssText = "display:flex;gap:12px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(134,150,160,0.2)";
 
   if (opts.showUse) {
     var useBtn = document.createElement("span");
-    useBtn.className = "ezap-tr-action";
+    useBtn.className = "ezap-action-link";
     useBtn.textContent = "Usar resposta";
-    Object.assign(useBtn.style, { color: "#25d366", fontWeight: "600" });
+    useBtn.style.color = "var(--ezap-success)";
     useBtn.addEventListener("click", function() {
       if (writeToInputBox(text.trim())) {
         useBtn.textContent = "Colado!";
@@ -429,7 +405,7 @@ function renderResultBox(container, title, color, text, opts) {
 
   if (opts.showCopy) {
     var copyBtn = document.createElement("span");
-    copyBtn.className = "ezap-tr-action";
+    copyBtn.className = "ezap-action-link";
     copyBtn.textContent = "Copiar";
     copyBtn.addEventListener("click", function() {
       navigator.clipboard.writeText(text).then(function() {
@@ -442,7 +418,7 @@ function renderResultBox(container, title, color, text, opts) {
 
   if (opts.showRegenerate) {
     var regenBtn = document.createElement("span");
-    regenBtn.className = "ezap-tr-action";
+    regenBtn.className = "ezap-action-link";
     regenBtn.textContent = "Gerar outra";
     regenBtn.addEventListener("click", geiaSuggestReply);
     actions.appendChild(regenBtn);

@@ -12,8 +12,8 @@
     var appEl = document.getElementById("app");
     if (!appEl) return;
     if (open) {
-      appEl.style.width = "calc(100% - 320px)";
-      appEl.style.maxWidth = "calc(100% - 320px)";
+      appEl.style.width = "calc(100% - 340px)";
+      appEl.style.maxWidth = "calc(100% - 340px)";
       appEl.style.marginRight = "0";
     } else {
       appEl.style.width = "";
@@ -36,7 +36,7 @@
       return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
     });
     if (anyShrinkOpen) {
-      container.style.right = "336px";
+      container.style.right = "356px";
     } else {
       container.style.right = "16px";
     }
@@ -101,11 +101,9 @@
       if (!btn) return;
       var sb = _sidebars[name];
       if (sb && sb.isOpen) {
-        btn.style.outline = "2.5px solid #25d366";
-        btn.style.outlineOffset = "2px";
+        btn.classList.add("active");
       } else {
-        btn.style.outline = "";
-        btn.style.outlineOffset = "";
+        btn.classList.remove("active");
       }
     });
   }

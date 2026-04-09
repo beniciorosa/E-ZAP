@@ -10,7 +10,7 @@ function getWidgetStyleVariants() {
   return {
     pill: dark ? {
       bg: "rgba(32,44,51,0.92)", border: "rgba(255,255,255,0.08)", shadow: "0 4px 20px rgba(0,0,0,0.35)",
-      icon: "#d1d7db", iconHover: "#ffffff", accent: "#25d366", accentGlow: "#25d36630",
+      icon: "#d1d7db", iconHover: "#ffffff", accent: "#00a884", accentGlow: "#00a88430",
       dividerColor: "rgba(255,255,255,0.10)", backdropFilter: "blur(10px) saturate(140%)"
     } : {
       bg: "rgba(255,255,255,0.92)", border: "rgba(0,0,0,0.06)", shadow: "0 4px 20px rgba(0,0,0,0.12)",
@@ -18,9 +18,9 @@ function getWidgetStyleVariants() {
       dividerColor: "rgba(0,0,0,0.08)", backdropFilter: "blur(10px) saturate(140%)"
     },
     glass: dark ? {
-      bg: "linear-gradient(135deg, rgba(37,211,102,0.12) 0%, rgba(32,44,51,0.85) 100%)",
-      border: "rgba(37,211,102,0.25)", shadow: "0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(37,211,102,0.1)",
-      icon: "#e9edef", iconHover: "#25d366", accent: "#25d366", accentGlow: "#25d36640",
+      bg: "linear-gradient(135deg, rgba(0,168,132,0.12) 0%, rgba(32,44,51,0.85) 100%)",
+      border: "rgba(0,168,132,0.25)", shadow: "0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,168,132,0.1)",
+      icon: "#e9edef", iconHover: "#00a884", accent: "#00a884", accentGlow: "#00a88440",
       dividerColor: "rgba(255,255,255,0.08)", backdropFilter: "blur(16px) saturate(180%)"
     } : {
       bg: "linear-gradient(135deg, rgba(0,168,132,0.10) 0%, rgba(255,255,255,0.92) 100%)",
@@ -30,7 +30,7 @@ function getWidgetStyleVariants() {
     },
     minimal: dark ? {
       bg: "transparent", border: "transparent", shadow: "none",
-      icon: "#8696a0", iconHover: "#25d366", accent: "#25d366", accentGlow: "#25d36625",
+      icon: "#8696a0", iconHover: "#00a884", accent: "#00a884", accentGlow: "#00a88425",
       dividerColor: "rgba(255,255,255,0.08)", backdropFilter: "none"
     } : {
       bg: "transparent", border: "transparent", shadow: "none",
@@ -39,7 +39,7 @@ function getWidgetStyleVariants() {
     },
     solid: dark ? {
       bg: "#202c33", border: "#2a3942", shadow: "0 2px 8px rgba(0,0,0,0.25)",
-      icon: "#d1d7db", iconHover: "#ffffff", accent: "#25d366", accentGlow: "#25d36630",
+      icon: "#d1d7db", iconHover: "#ffffff", accent: "#00a884", accentGlow: "#00a88430",
       dividerColor: "#2a3942", backdropFilter: "none"
     } : {
       bg: "#ffffff", border: "#e9edef", shadow: "0 2px 8px rgba(11,20,26,0.08)",
@@ -236,7 +236,7 @@ function buildWidgetButton(key, btnSize, iconSize, s) {
       Object.assign(dot.style, {
         position: "absolute", top: "4px", right: "4px",
         width: "8px", height: "8px", borderRadius: "50%",
-        background: "#cc5de8", border: "1.5px solid " + (isDarkMode() ? "#111b21" : "#ffffff"),
+        background: "#8b5cf6", border: "1.5px solid " + (isDarkMode() ? "#111b21" : "#ffffff"),
         pointerEvents: "none"
       });
       btn.appendChild(dot);

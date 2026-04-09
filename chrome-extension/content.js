@@ -19,15 +19,6 @@ function getButtonContainer() {
   if (c) return c;
   c = document.createElement("div");
   c.id = "ezap-float-container";
-  Object.assign(c.style, {
-    position: "fixed",
-    top: "80px",
-    right: "16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-    zIndex: "99999",
-  });
   document.body.appendChild(c);
   return c;
 }
@@ -38,22 +29,11 @@ function createToggleButton() {
   console.log("[WCRM] Creating toggle button");
   const btn = document.createElement("button");
   btn.id = "wcrm-toggle";
-  btn.title = "WhatsApp CRM";
+  btn.className = "escalada-crm ezap-float-btn";
+  btn.setAttribute("data-tooltip", "CRM");
   btn.addEventListener("click", toggleSidebar);
-  Object.assign(btn.style, {
-    width: "50px",
-    height: "50px",
-    borderRadius: "50%",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  });
   if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "crm");
-  else { btn.textContent = "CRM"; btn.style.background = "#25d366"; btn.style.color = "#111b21"; btn.style.fontSize = "12px"; }
+  else { btn.textContent = "CRM"; btn.style.background = "#25d366"; btn.style.color = "#111b21"; }
   getButtonContainer().appendChild(btn);
   console.log("[WCRM] Toggle button added to page");
 }
@@ -65,80 +45,54 @@ function createSidebar() {
 
   const sidebar = document.createElement("div");
   sidebar.id = "wcrm-sidebar";
-  Object.assign(sidebar.style, {
-    position: "fixed",
-    top: "0",
-    right: "0",
-    width: "320px",
-    height: "100vh",
-    background: "#111b21",
-    borderLeft: "1px solid #2a3942",
-    zIndex: "99999",
-    display: "none",
-    flexDirection: "column",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    color: "#e9edef",
-    fontSize: "13px",
-    overflow: "hidden",
-  });
+  sidebar.className = "escalada-crm ezap-sidebar";
 
   sidebar.innerHTML = `
-    <style>
-      #wcrm-notes-editor ul, #wcrm-notes-editor ol { margin:4px 0; padding-left:18px; }
-      #wcrm-notes-editor ul { list-style-type:disc !important; }
-      #wcrm-notes-editor ol { list-style-type:decimal !important; }
-      #wcrm-notes-editor li { display:list-item !important; list-style:inherit !important; margin-bottom:2px; }
-      .wcrm-note-item ul { list-style-type:disc !important; padding-left:16px; margin:2px 0; }
-      .wcrm-note-item li { display:list-item !important; list-style:inherit !important; }
-      #wcrm-notes-editor b, #wcrm-notes-editor strong, .wcrm-note-content b, .wcrm-note-content strong { font-weight:bold !important; }
-      #wcrm-notes-editor i, #wcrm-notes-editor em, .wcrm-note-content i, .wcrm-note-content em { font-style:italic !important; }
-      #wcrm-notes-editor u, .wcrm-note-content u { text-decoration:underline !important; }
-    </style>
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">
-      <h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Escalada CRM</h3>
-      <button id="wcrm-close-btn" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>
+    <div class="ezap-header">
+      <h3 class="ezap-header-title">Escalada CRM</h3>
+      <button id="wcrm-close-btn" class="ezap-header-close">&times;</button>
     </div>
-    <div id="wcrm-content" style="flex:1;overflow-y:auto;padding:16px">
-      <div id="wcrm-no-chat" style="color:#8696a0;font-size:13px;text-align:center;padding:20px;font-style:italic">
+    <div id="wcrm-content" class="ezap-content">
+      <div id="wcrm-no-chat" class="ezap-empty">
         Abra uma conversa para ver as informações do contato
       </div>
       <div id="wcrm-chat-info" style="display:none">
-        <div id="wcrm-name" style="font-size:17px;font-weight:600;color:#e9edef;margin-bottom:12px"></div>
+        <div id="wcrm-name" class="ezap-contact-name"></div>
         <div id="wcrm-phone" style="display:none"></div>
 
-        <div style="margin-bottom:16px">
+        <div class="ezap-section">
           <div id="wcrm-hubspot-container">
-            <div style="color:#8696a0;font-size:12px;text-align:center;padding:8px">Buscando no HubSpot...</div>
+            <div class="ezap-loading">Buscando no HubSpot...</div>
           </div>
         </div>
 
-        <div style="margin-bottom:20px">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">ETIQUETAS</div>
-          <div id="wcrm-labels-container" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+        <div class="ezap-section">
+          <div class="ezap-section-title">Etiquetas</div>
+          <div id="wcrm-labels-container" class="ezap-labels"></div>
         </div>
 
-        <div style="margin-bottom:20px">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">OBSERVAÇÕES</div>
-          <div style="background:#2a3942;border:1px solid #3b4a54;border-radius:8px;overflow:hidden">
-            <div id="wcrm-editor-toolbar" style="display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid #3b4a54;background:#202c33">
-              <button data-cmd="bold" style="background:none;border:none;color:#8696a0;font-size:13px;font-weight:700;cursor:pointer;padding:2px 6px;border-radius:4px" title="Negrito"><b>B</b></button>
-              <button data-cmd="italic" style="background:none;border:none;color:#8696a0;font-size:13px;font-style:italic;cursor:pointer;padding:2px 6px;border-radius:4px" title="Itálico"><i>I</i></button>
-              <button data-cmd="underline" style="background:none;border:none;color:#8696a0;font-size:13px;text-decoration:underline;cursor:pointer;padding:2px 6px;border-radius:4px" title="Sublinhado"><u>U</u></button>
-              <button data-cmd="insertUnorderedList" style="background:none;border:none;color:#8696a0;font-size:13px;cursor:pointer;padding:2px 6px;border-radius:4px" title="Lista">• ≡</button>
+        <div class="ezap-section">
+          <div class="ezap-section-title">Observações</div>
+          <div class="ezap-editor-wrapper">
+            <div id="wcrm-editor-toolbar" class="ezap-editor-toolbar">
+              <button data-cmd="bold" title="Negrito"><b>B</b></button>
+              <button data-cmd="italic" title="Itálico"><i>I</i></button>
+              <button data-cmd="underline" title="Sublinhado"><u>U</u></button>
+              <button data-cmd="insertUnorderedList" title="Lista">&bull; &equiv;</button>
             </div>
-            <div id="wcrm-notes-editor" contenteditable="true" style="min-height:70px;padding:8px 10px;color:#e9edef;font-size:12px;font-family:inherit;outline:none;max-height:150px;overflow-y:auto" data-placeholder="Escreva uma observação..."></div>
+            <div id="wcrm-notes-editor" class="ezap-editor-body" contenteditable="true" data-placeholder="Escreva uma observação..."></div>
           </div>
-          <button id="wcrm-save-note-btn" style="margin-top:6px;width:100%;background:#4d96ff;color:#fff;border:none;border-radius:6px;padding:7px;font-size:12px;font-weight:600;cursor:pointer">Salvar Observação</button>
+          <button id="wcrm-save-note-btn" class="ezap-btn ezap-btn--secondary ezap-btn--full" style="margin-top:6px">Salvar Observação</button>
           <div id="wcrm-save-status" style="font-size:10px;text-align:center;margin-top:4px;min-height:14px"></div>
           <div id="wcrm-notes-history" style="margin-top:8px"></div>
         </div>
 
-        <div style="height:1px;background:#2a3942;margin:16px 0"></div>
+        <hr class="ezap-separator">
 
-        <div>
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">REUNIOES</div>
+        <div class="ezap-section">
+          <div class="ezap-section-title">Reuniões</div>
           <div id="wcrm-meetings-container">
-            <div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Aguardando dados do HubSpot...</div>
+            <div class="ezap-empty">Aguardando dados do HubSpot...</div>
           </div>
         </div>
       </div>
@@ -201,8 +155,8 @@ function createSidebar() {
   // Register with sidebar manager
   if (window.ezapSidebar) {
     window.ezapSidebar.register('crm', {
-      show: function() { sidebarOpen = true; document.getElementById("wcrm-sidebar").style.display = "flex"; },
-      hide: function() { sidebarOpen = false; document.getElementById("wcrm-sidebar").style.display = "none"; },
+      show: function() { sidebarOpen = true; document.getElementById("wcrm-sidebar").classList.add("open"); },
+      hide: function() { sidebarOpen = false; document.getElementById("wcrm-sidebar").classList.remove("open"); },
       onOpen: function() { if (currentPhone) renderContactInfo(); }
     });
   }
@@ -214,7 +168,8 @@ function toggleSidebar() {
   // Fallback (shouldn't happen — sidebar-manager loads before content.js)
   var sidebar = document.getElementById("wcrm-sidebar");
   sidebarOpen = !sidebarOpen;
-  sidebar.style.display = sidebarOpen ? "flex" : "none";
+  if (sidebarOpen) sidebar.classList.add("open");
+  else sidebar.classList.remove("open");
 }
 
 function updateFloatingButtons() {
@@ -230,33 +185,25 @@ function createTagSidebar() {
   if (document.getElementById("wcrm-tag-sidebar")) return;
   var sidebar = document.createElement("div");
   sidebar.id = "wcrm-tag-sidebar";
-  Object.assign(sidebar.style, {
-    position: "fixed", top: "0", right: "0",
-    width: "320px", height: "100vh",
-    background: "#111b21", borderLeft: "1px solid #2a3942",
-    zIndex: "99999", display: "none", flexDirection: "column",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    color: "#e9edef", fontSize: "13px", overflow: "hidden",
-  });
+  sidebar.className = "escalada-crm ezap-sidebar";
   sidebar.innerHTML = [
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">',
-    '  <h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Gerenciar Etiquetas</h3>',
-    '  <button id="wcrm-tag-close" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>',
+    '<div class="ezap-header">',
+    '  <h3 class="ezap-header-title">Gerenciar Etiquetas</h3>',
+    '  <button id="wcrm-tag-close" class="ezap-header-close">&times;</button>',
     '</div>',
-    '<div style="flex:1;overflow-y:auto;padding:16px">',
-    '  <div style="margin-bottom:16px">',
-    '    <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">NOVA ETIQUETA</div>',
+    '<div class="ezap-content">',
+    '  <div class="ezap-section">',
+    '    <div class="ezap-section-title">Nova Etiqueta</div>',
     '    <div style="display:flex;gap:6px">',
-    '      <input type="text" id="wcrm-tag-input" placeholder="Nome da etiqueta..." maxlength="30"',
-    '        style="flex:1;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:8px 10px;color:#e9edef;font-size:12px;outline:none">',
-    '      <button id="wcrm-tag-add-btn" style="background:#20c997;color:#111b21;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer">Criar</button>',
+    '      <input type="text" id="wcrm-tag-input" class="ezap-input" placeholder="Nome da etiqueta..." maxlength="30" style="flex:1">',
+    '      <button id="wcrm-tag-add-btn" class="ezap-btn ezap-btn--primary">Criar</button>',
     '    </div>',
-    '    <div id="wcrm-tag-color-picker" style="display:flex;gap:4px;margin-top:8px"></div>',
+    '    <div id="wcrm-tag-color-picker" class="ezap-color-picker" style="margin-top:8px"></div>',
     '  </div>',
-    '  <div style="height:1px;background:#2a3942;margin:12px 0"></div>',
-    '  <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">ETIQUETAS CRIADAS</div>',
+    '  <hr class="ezap-separator">',
+    '  <div class="ezap-section-title">Etiquetas Criadas</div>',
     '  <div id="wcrm-tag-list"></div>',
-    '  <div style="height:1px;background:#2a3942;margin:16px 0"></div>',
+    '  <hr class="ezap-separator">',
     '  <div id="wcrm-tag-contact-section"></div>',
     '</div>',
   ].join("\n");
@@ -272,8 +219,8 @@ function createTagSidebar() {
   // Register with sidebar manager
   if (window.ezapSidebar) {
     window.ezapSidebar.register('tag', {
-      show: function() { tagSidebarOpen = true; document.getElementById("wcrm-tag-sidebar").style.display = "flex"; },
-      hide: function() { tagSidebarOpen = false; document.getElementById("wcrm-tag-sidebar").style.display = "none"; },
+      show: function() { tagSidebarOpen = true; document.getElementById("wcrm-tag-sidebar").classList.add("open"); },
+      hide: function() { tagSidebarOpen = false; document.getElementById("wcrm-tag-sidebar").classList.remove("open"); },
       onOpen: function() { renderTagList(); renderTagContactSection(); }
     });
   }
@@ -285,7 +232,8 @@ function toggleTagSidebar() {
   // Fallback
   var sidebar = document.getElementById("wcrm-tag-sidebar");
   tagSidebarOpen = !tagSidebarOpen;
-  sidebar.style.display = tagSidebarOpen ? "flex" : "none";
+  if (tagSidebarOpen) sidebar.classList.add("open");
+  else sidebar.classList.remove("open");
 }
 
 // ===== Header Tag Dropdown (floating widget) =====
@@ -302,20 +250,13 @@ function showHeaderTagDropdown(anchorBtn, chatName) {
   var minW = 220;
   var dropdown = document.createElement("div");
   dropdown.id = "wcrm-header-tag-dropdown";
+  dropdown.className = "escalada-crm ezap-dropdown";
   Object.assign(dropdown.style, {
     position: "fixed",
     top: (rect.bottom + 12) + "px",
     left: Math.max(8, rect.left + (rect.width / 2) - (minW / 2)) + "px",
-    background: t.bgSecondary,
-    border: "1px solid " + t.border,
-    borderRadius: "10px",
-    padding: "6px",
-    zIndex: "999999",
     minWidth: minW + "px",
     maxHeight: "360px",
-    overflowY: "auto",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
   });
 
   renderHeaderTagDropdown(dropdown, chatName, t);
@@ -340,23 +281,20 @@ function renderHeaderTagDropdown(dropdown, chatName, t) {
   // Existing templates
   if (!labelTemplates || labelTemplates.length === 0) {
     var empty = document.createElement("div");
-    empty.style.cssText = "padding:10px 12px;color:" + t.textSecondary + ";font-size:12px;font-style:italic;text-align:center";
+    empty.className = "ezap-empty";
     empty.textContent = "Nenhuma etiqueta criada";
     dropdown.appendChild(empty);
   } else {
     labelTemplates.forEach(function(tmpl) {
       var isAssigned = assigned.indexOf(tmpl.name.toLowerCase()) >= 0;
       var row = document.createElement("div");
-      row.className = "wcrm-header-tag-opt";
-      row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s";
+      row.className = "wcrm-header-tag-opt ezap-dropdown-item";
       var iconChar = isAssigned ? '&#10003;' : '&plus;';
-      var iconColor = isAssigned ? tmpl.color : t.textSecondary;
+      var iconColor = isAssigned ? tmpl.color : 'var(--ezap-text-secondary)';
       row.innerHTML =
-        '<span style="width:10px;height:10px;border-radius:50%;background:' + tmpl.color + ';display:inline-block;flex-shrink:0"></span>' +
-        '<span style="font-size:12px;color:' + t.text + ';flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tmpl.name + '</span>' +
+        '<span class="ezap-aba-color" style="width:10px;height:10px;background:' + tmpl.color + '"></span>' +
+        '<span style="font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tmpl.name + '</span>' +
         '<span style="color:' + iconColor + ';font-size:14px;font-weight:bold">' + iconChar + '</span>';
-      row.addEventListener('mouseenter', function() { row.style.background = t.bgHover; });
-      row.addEventListener('mouseleave', function() { row.style.background = 'transparent'; });
       row.addEventListener('click', function(e) {
         e.stopPropagation();
         if (isAssigned) {
@@ -385,18 +323,16 @@ function renderHeaderTagDropdown(dropdown, chatName, t) {
 
   // Divider
   var divider = document.createElement("div");
-  divider.style.cssText = "height:1px;background:" + t.border + ";margin:6px 4px";
+  divider.className = "ezap-dropdown-divider";
   dropdown.appendChild(divider);
 
-  // "Criar nova etiqueta" → opens tag sidebar
+  // "Criar nova etiqueta" -> opens tag sidebar
   var createRow = document.createElement("div");
   createRow.id = "wcrm-header-tag-create";
-  createRow.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s";
+  createRow.className = "ezap-dropdown-item";
   createRow.innerHTML =
-    '<span style="color:#20c997;font-size:16px;font-weight:bold;width:10px;display:inline-block;text-align:center">+</span>' +
-    '<span style="font-size:12px;color:' + t.text + ';font-weight:500">Criar nova etiqueta</span>';
-  createRow.addEventListener('mouseenter', function() { createRow.style.background = t.bgHover; });
-  createRow.addEventListener('mouseleave', function() { createRow.style.background = 'transparent'; });
+    '<span style="color:var(--ezap-primary);font-size:16px;font-weight:bold;width:10px;display:inline-block;text-align:center">+</span>' +
+    '<span style="font-size:12px;font-weight:500">Criar nova etiqueta</span>';
   createRow.addEventListener('click', function(e) {
     e.stopPropagation();
     dropdown.remove();
@@ -411,13 +347,14 @@ function renderTagColorPicker() {
   picker.innerHTML = "";
   LABEL_COLORS.forEach(function(color, i) {
     var dot = document.createElement("div");
-    dot.style.cssText = "width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;background:" + color;
+    dot.className = "ezap-color-dot";
+    dot.style.background = color;
     dot.dataset.color = color;
-    if (i === 0) { dot.dataset.selected = "1"; dot.style.borderColor = "#e9edef"; }
+    if (i === 0) { dot.dataset.selected = "1"; dot.classList.add("selected"); }
     dot.addEventListener("click", function() {
-      picker.querySelectorAll("div").forEach(function(d) { d.dataset.selected = ""; d.style.borderColor = "transparent"; });
+      picker.querySelectorAll(".ezap-color-dot").forEach(function(d) { d.dataset.selected = ""; d.classList.remove("selected"); });
       dot.dataset.selected = "1";
-      dot.style.borderColor = "#e9edef";
+      dot.classList.add("selected");
     });
     picker.appendChild(dot);
   });
@@ -481,15 +418,16 @@ function renderTagList() {
   var container = document.getElementById("wcrm-tag-list");
   if (!container) return;
   if (labelTemplates.length === 0) {
-    container.innerHTML = '<div style="color:#8696a0;font-size:12px;font-style:italic;text-align:center;padding:12px">Nenhuma etiqueta criada</div>';
+    container.innerHTML = '<div class="ezap-empty">Nenhuma etiqueta criada</div>';
     return;
   }
   container.innerHTML = "";
   labelTemplates.forEach(function(tmpl, i) {
     var row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:#202c33";
-    row.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:14px;height:14px;border-radius:50%;background:' + tmpl.color + ';flex-shrink:0"></span><span style="font-size:13px;color:#e9edef">' + tmpl.name + '</span></span>' +
-      '<span class="wcrm-tag-del" data-idx="' + i + '" style="cursor:pointer;color:#8696a0;font-size:16px;padding:0 4px" title="Remover">&times;</span>';
+    row.className = "ezap-card";
+    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:8px 10px";
+    row.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px"><span class="ezap-aba-color" style="background:' + tmpl.color + '"></span><span style="font-size:13px">' + tmpl.name + '</span></span>' +
+      '<span class="wcrm-tag-del ezap-label-remove" data-idx="' + i + '" title="Remover">&times;</span>';
     row.querySelector(".wcrm-tag-del").addEventListener("click", function() { removeLabelTemplate(i); });
     container.appendChild(row);
   });
@@ -501,7 +439,7 @@ function renderTagContactSection() {
   if (!container) return;
 
   if (!currentPhone) {
-    container.innerHTML = '<div style="color:#8696a0;font-size:12px;font-style:italic;text-align:center;padding:12px">Selecione um contato para atribuir etiquetas</div>';
+    container.innerHTML = '<div class="ezap-empty">Selecione um contato para atribuir etiquetas</div>';
     return;
   }
 
@@ -509,15 +447,15 @@ function renderTagContactSection() {
   var pipeIdx = displayName.indexOf("|");
   if (pipeIdx > 0) displayName = displayName.substring(0, pipeIdx).trim();
 
-  var html = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">CONTATO SELECIONADO</div>';
-  html += '<div style="background:#202c33;border-radius:8px;padding:10px 12px;margin-bottom:10px">';
-  html += '<div style="font-size:14px;font-weight:600;color:#e9edef">' + displayName + '</div>';
+  var html = '<div class="ezap-section-title">Contato Selecionado</div>';
+  html += '<div class="ezap-card" style="padding:10px 12px;margin-bottom:10px">';
+  html += '<div class="ezap-contact-name" style="font-size:14px;margin-bottom:0">' + displayName + '</div>';
   html += '</div>';
 
   container.innerHTML = html;
 
   if (labelTemplates.length === 0) {
-    container.innerHTML += '<div style="color:#8696a0;font-size:12px;font-style:italic;text-align:center;padding:8px">Crie etiquetas acima para atribuir</div>';
+    container.innerHTML += '<div class="ezap-empty">Crie etiquetas acima para atribuir</div>';
     return;
   }
 
@@ -528,11 +466,12 @@ function renderTagContactSection() {
   labelTemplates.forEach(function(tmpl) {
     var isAssigned = assigned.indexOf(tmpl.name.toLowerCase()) >= 0;
     var row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:4px;cursor:pointer;transition:background 0.1s;background:" + (isAssigned ? tmpl.color + "20" : "transparent");
-    row.innerHTML = '<span style="width:14px;height:14px;border-radius:50%;background:' + tmpl.color + ';flex-shrink:0"></span>' +
-      '<span style="font-size:13px;color:#e9edef;flex:1">' + tmpl.name + '</span>' +
-      '<span style="color:' + (isAssigned ? tmpl.color : '#8696a0') + ';font-size:14px;font-weight:bold">' + (isAssigned ? '&#10003;' : '&plus;') + '</span>';
-    row.addEventListener("mouseenter", function() { row.style.background = isAssigned ? tmpl.color + "30" : "#202c33"; });
+    row.className = "ezap-dropdown-item";
+    row.style.cssText = "margin-bottom:4px;background:" + (isAssigned ? tmpl.color + "20" : "transparent");
+    row.innerHTML = '<span class="ezap-aba-color" style="width:14px;height:14px;background:' + tmpl.color + '"></span>' +
+      '<span style="font-size:13px;flex:1">' + tmpl.name + '</span>' +
+      '<span style="color:' + (isAssigned ? tmpl.color : 'var(--ezap-text-secondary)') + ';font-size:14px;font-weight:bold">' + (isAssigned ? '&#10003;' : '&plus;') + '</span>';
+    row.addEventListener("mouseenter", function() { row.style.background = isAssigned ? tmpl.color + "30" : "var(--ezap-bg-surface)"; });
     row.addEventListener("mouseleave", function() { row.style.background = isAssigned ? tmpl.color + "20" : "transparent"; });
     row.addEventListener("click", function() {
       if (isAssigned) {
@@ -717,14 +656,16 @@ function renderLabels() {
   container.innerHTML = "";
 
   if (!data.labels || data.labels.length === 0) {
-    container.innerHTML = '<span style="color:#8696a0;font-size:12px;font-style:italic">Nenhuma etiqueta</span>';
+    container.innerHTML = '<span class="ezap-empty" style="padding:4px 0">Nenhuma etiqueta</span>';
     return;
   }
 
   data.labels.forEach(function(label, i) {
     var el = document.createElement("span");
-    el.style.cssText = "display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:500;color:#111b21;background:" + label.color;
-    el.innerHTML = label.name + '<span style="cursor:pointer;font-size:14px;opacity:0.6;margin-left:2px" data-idx="' + i + '">&times;</span>';
+    el.className = "ezap-label";
+    el.style.background = label.color;
+    el.style.color = "#111b21";
+    el.innerHTML = label.name + '<span class="ezap-label-remove" data-idx="' + i + '">&times;</span>';
     el.querySelector("span[data-idx]").addEventListener("click", function() { removeLabel(i); });
     container.appendChild(el);
   });
@@ -794,32 +735,13 @@ function showLoadingBar(show) {
     if (!existing) {
       var bar = document.createElement("div");
       bar.id = "wcrm-loading-bar";
-      Object.assign(bar.style, {
-        width: "100%",
-        height: "3px",
-        background: "#2a3942",
-        overflow: "hidden",
-        borderRadius: "2px",
-        margin: "4px 0 8px",
-      });
+      bar.className = "ezap-loading-bar";
+      bar.style.position = "relative";
+      bar.style.margin = "4px 0 8px";
       var fill = document.createElement("div");
       fill.id = "wcrm-loading-bar-fill";
-      Object.assign(fill.style, {
-        width: "30%",
-        height: "100%",
-        background: "#25d366",
-        borderRadius: "2px",
-        animation: "wcrm-loading 1.2s ease-in-out infinite",
-      });
+      fill.className = "ezap-loading-bar-fill";
       bar.appendChild(fill);
-
-      // Inject animation keyframes if not yet present
-      if (!document.getElementById("wcrm-loading-css")) {
-        var style = document.createElement("style");
-        style.id = "wcrm-loading-css";
-        style.textContent = "@keyframes wcrm-loading { 0% { margin-left: 0; width: 30%; } 50% { margin-left: 40%; width: 50%; } 100% { margin-left: 100%; width: 10%; } }";
-        document.head.appendChild(style);
-      }
 
       // Insert after phone number
       var phoneEl = document.getElementById("wcrm-phone");
@@ -962,7 +884,7 @@ function fetchHubSpotData() {
   if (!container || !currentPhone) return;
 
   var loadId = window._wcrmLoadId; // Capture current load ID to detect stale responses
-  container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px">Buscando no HubSpot...</div>';
+  container.innerHTML = '<div class="ezap-loading">Buscando no HubSpot...</div>';
   var chatName = currentName || currentPhone || "";
   console.log("[WCRM] Searching HubSpot for:", currentPhone, "name:", chatName);
 
@@ -1059,7 +981,7 @@ function fetchHubSpotData() {
       if (!ticket && !contactMatches) {
         container.innerHTML = hsCard("not-found", "Não encontrado", "Nenhum ticket de mentoria encontrado para este contato.");
         var meetingsC = document.getElementById("wcrm-meetings-container");
-        if (meetingsC) meetingsC.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Sem dados</div>';
+        if (meetingsC) meetingsC.innerHTML = '<div class="ezap-empty">Sem dados</div>';
         showLoadingBar(false);
         return;
       }
@@ -1107,12 +1029,12 @@ function fetchHubSpotData() {
         var ticketUrl = ticket ? "https://app.hubspot.com/contacts/49377285/record/0-5/" + ticket.id : "";
         var ticketEmail = (ticket && ticket.properties.contrato__e_mail) ? ticket.properties.contrato__e_mail : "";
 
-        var html = '<div style="background:#202c33;border-radius:8px;padding:12px">';
+        var html = '<div class="ezap-card ezap-card--hubspot">';
         html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-        html += '<span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#25d36620;color:#25d366">Encontrado no HubSpot</span>';
+        html += '<span class="ezap-status ezap-status--found">Encontrado no HubSpot</span>';
         if (ticket) {
-          html += '<a href="' + ticketUrl + '" target="_blank" style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#cc5de820;color:#cc5de8;text-decoration:none;cursor:pointer" title="Abrir ticket no HubSpot">Ver Ticket ↗</a>';
-          html += '<span class="wcrm-copy-btn" data-copy="' + ticketUrl + '" style="cursor:pointer;font-size:11px;color:#8696a0;padding:2px 4px;border-radius:3px" title="Copiar link do ticket">📋</span>';
+          html += '<a href="' + ticketUrl + '" target="_blank" class="ezap-badge ezap-badge--accent" style="text-decoration:none" title="Abrir ticket no HubSpot">Ver Ticket &#x2197;</a>';
+          html += '<span class="wcrm-copy-btn ezap-copy-btn" data-copy="' + ticketUrl + '" title="Copiar link do ticket">&#x1F4CB;</span>';
           window._wcrmTicketId = ticket.id;
         }
         html += '</div>';
@@ -1132,7 +1054,7 @@ function fetchHubSpotData() {
         if (ticketEmail) html += row("E-mail", ticketEmail);
         // Calls adquiridas from ticket
         if (ticket && ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_) {
-          html += row("Reuniões Adquiridas", ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_);
+          html += row("Reuniões adquiridas", ticket.properties.nm__total_de_calls_adquiridas__starter__pro__business_);
         }
         html += '</div></div>';
         container.innerHTML = html;
@@ -1145,9 +1067,9 @@ function fetchHubSpotData() {
             var text = btn.dataset.copy;
             navigator.clipboard.writeText(text).then(function() {
               var orig = btn.textContent;
-              btn.textContent = "✓";
-              btn.style.color = "#25d366";
-              setTimeout(function() { btn.textContent = orig; btn.style.color = "#8696a0"; }, 1500);
+              btn.textContent = "\u2713";
+              btn.style.color = "var(--ezap-primary)";
+              setTimeout(function() { btn.textContent = orig; btn.style.color = ""; }, 1500);
             });
           });
         });
@@ -1180,18 +1102,18 @@ function fetchMeetings(ticketId, contactId) {
   var loadId = window._wcrmLoadId;
 
   if (!ticketId && !contactId) {
-    container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Sem ticket/contato para buscar reuniões</div>';
+    container.innerHTML = '<div class="ezap-empty">Sem ticket/contato para buscar reuniões</div>';
     return;
   }
 
-  container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px">Buscando reuniões...</div>';
+  container.innerHTML = '<div class="ezap-loading">Buscando reuniões...</div>';
 
   sendBgMessage({ action: "hubspot_get_meetings", ticketId: ticketId, contactId: contactId }).then(function(result) {
     if (window._wcrmLoadId !== loadId) return; // Contact changed, abort
     console.log("[WCRM] Meetings result:", result);
 
     if (!result || !result.meetings || result.meetings.length === 0) {
-      container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:8px;font-style:italic">Nenhuma reunião encontrada</div>';
+      container.innerHTML = '<div class="ezap-empty">Nenhuma reunião encontrada</div>';
       return;
     }
 
@@ -1230,15 +1152,15 @@ function fetchMeetings(ticketId, contactId) {
       var visibleFuturas = futurasExpanded ? futuras : futuras.slice(0, MEET_DEFAULT_SHOW);
       var hasMoreFuturas = futuras.length > MEET_DEFAULT_SHOW;
 
-      html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#ff922b;margin-bottom:6px;font-weight:600">Proximas (' + futuras.length + ')</div>';
+      html += '<div class="ezap-section-title" style="color:var(--ezap-warning)">Próximas (' + futuras.length + ')</div>';
       visibleFuturas.forEach(function(m) {
         html += renderMeetingItem(m, true);
       });
       if (hasMoreFuturas) {
         if (futurasExpanded) {
-          html += '<div id="wcrm-futuras-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#ff922b;font-size:11px;font-weight:600">▲ Ver menos</div>';
+          html += '<button id="wcrm-futuras-toggle" class="ezap-toggle-btn" style="color:var(--ezap-warning)">&blacktriangle; Ver menos</button>';
         } else {
-          html += '<div id="wcrm-futuras-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#ff922b;font-size:11px;font-weight:600">▼ Ver mais (' + (futuras.length - MEET_DEFAULT_SHOW) + ')</div>';
+          html += '<button id="wcrm-futuras-toggle" class="ezap-toggle-btn" style="color:var(--ezap-warning)">&blacktriangledown; Ver mais (' + (futuras.length - MEET_DEFAULT_SHOW) + ')</button>';
         }
       }
     }
@@ -1249,15 +1171,15 @@ function fetchMeetings(ticketId, contactId) {
       var visibleRealizadas = realizadasExpanded ? realizadas : realizadas.slice(0, MEET_DEFAULT_SHOW);
       var hasMoreRealizadas = realizadas.length > MEET_DEFAULT_SHOW;
 
-      html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin:' + (futuras.length > 0 ? '10px' : '0') + ' 0 6px;font-weight:600">Realizadas (' + realizadas.length + ')</div>';
+      html += '<div class="ezap-section-title" style="margin-top:' + (futuras.length > 0 ? '10px' : '0') + '">Realizadas (' + realizadas.length + ')</div>';
       visibleRealizadas.forEach(function(m) {
         html += renderMeetingItem(m, false);
       });
       if (hasMoreRealizadas) {
         if (realizadasExpanded) {
-          html += '<div id="wcrm-realizadas-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#4d96ff;font-size:11px;font-weight:600">▲ Ver menos</div>';
+          html += '<button id="wcrm-realizadas-toggle" class="ezap-toggle-btn" style="color:var(--ezap-secondary)">&blacktriangle; Ver menos</button>';
         } else {
-          html += '<div id="wcrm-realizadas-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#4d96ff;font-size:11px;font-weight:600">▼ Ver mais (' + (realizadas.length - MEET_DEFAULT_SHOW) + ')</div>';
+          html += '<button id="wcrm-realizadas-toggle" class="ezap-toggle-btn" style="color:var(--ezap-secondary)">&blacktriangledown; Ver mais (' + (realizadas.length - MEET_DEFAULT_SHOW) + ')</button>';
         }
       }
     }
@@ -1290,14 +1212,14 @@ function renderMeetingItem(meeting, isFuture) {
   if (startTime) {
     var d = new Date(startTime);
     dateStr = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) +
-      " as " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      " às " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   }
 
-  var borderColor = isFuture ? "#ff922b" : "#3b4a54";
-  var dateColor = isFuture ? "#ff922b" : "#8696a0";
+  var meetingClass = "ezap-card ezap-card--meeting " + (isFuture ? "ezap-card--meeting-future" : "ezap-card--meeting-past");
+  var dateColor = isFuture ? "var(--ezap-warning)" : "var(--ezap-text-secondary)";
 
-  var html = '<div style="background:#1a2730;border-radius:6px;padding:8px 10px;margin-bottom:4px;border-left:3px solid ' + borderColor + '">';
-  html += '<div style="font-size:12px;font-weight:600;color:#e9edef;line-height:1.3">' + title + '</div>';
+  var html = '<div class="' + meetingClass + '">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--ezap-text-primary);line-height:1.3">' + title + '</div>';
   if (dateStr) {
     html += '<div style="font-size:10px;color:' + dateColor + ';margin-top:3px">' + dateStr + '</div>';
   }
@@ -1310,7 +1232,7 @@ function handleImageUpload(file, editor) {
   // Show placeholder while uploading
   var placeholder = document.createElement("div");
   placeholder.className = "wcrm-img-uploading";
-  placeholder.style.cssText = "background:#1a2730;border:1px dashed #3b4a54;border-radius:6px;padding:12px;text-align:center;margin:6px 0;color:#8696a0;font-size:11px";
+  placeholder.style.cssText = "background:var(--ezap-bg-elevated);border:1px dashed var(--ezap-border-light);border-radius:6px;padding:12px;text-align:center;margin:6px 0;color:var(--ezap-text-secondary);font-size:11px";
   placeholder.textContent = "Enviando imagem...";
   editor.appendChild(placeholder);
 
@@ -1334,7 +1256,7 @@ function handleImageUpload(file, editor) {
         // Show loading spinner while fetching image via blob (CSP bypass)
         var imgWrap = document.createElement("div");
         imgWrap.style.cssText = "background:#1a2730;border-radius:6px;padding:16px;text-align:center;margin:6px 0";
-        imgWrap.innerHTML = '<div style="color:#8696a0;font-size:11px"><span style="display:inline-block;animation:ezapSpin 1s linear infinite;font-size:14px">⏳</span> Carregando imagem...</div>';
+        imgWrap.innerHTML = '<div style="color:var(--ezap-text-secondary);font-size:11px"><span class="ezap-spinner"></span> Carregando imagem...</div>';
         editor.appendChild(imgWrap);
 
         var img = document.createElement("img");
@@ -1367,7 +1289,7 @@ function handleImageUpload(file, editor) {
       } else {
         // Upload failed — show error
         var errDiv = document.createElement("div");
-        errDiv.style.cssText = "color:#ff6b6b;font-size:11px;padding:4px;margin:4px 0";
+        errDiv.style.cssText = "color:var(--ezap-danger);font-size:11px;padding:4px;margin:4px 0";
         errDiv.textContent = "Erro ao enviar imagem: " + (result && result.error || "erro desconhecido");
         editor.appendChild(errDiv);
         setTimeout(function() { if (errDiv.parentNode) errDiv.remove(); }, 5000);
@@ -1436,13 +1358,13 @@ function saveNote() {
   var noteHtml = prepareNoteHtml(editor);
 
   if (!noteHtml || noteHtml === "<br>" || noteHtml === '<div><br></div>') {
-    statusEl.innerHTML = '<span style="color:#ff6b6b">Escreva algo antes de salvar</span>';
+    statusEl.innerHTML = '<span style="color:var(--ezap-danger)">Escreva algo antes de salvar</span>';
     return;
   }
 
   // Append author signature
   var authorName = (window.__wcrmAuth && window.__wcrmAuth.userName) || "Desconhecido";
-  noteHtml += '<br><span class="wcrm-note-author" style="color:#8696a0;font-size:11px;font-style:italic">Observação criada por: ' + authorName + '</span>';
+  noteHtml += '<br><span class="wcrm-note-author" style="color:var(--ezap-text-secondary);font-size:11px;font-style:italic">Observação criada por: ' + authorName + '</span>';
 
   var btn = document.getElementById("wcrm-save-note-btn");
   btn.disabled = true;
@@ -1468,9 +1390,9 @@ function saveNote() {
             }
           });
         }
-        statusEl.innerHTML = '<span style="color:#25d366">Atualizado no HubSpot ✓</span>';
+        statusEl.innerHTML = '<span style="color:var(--ezap-primary)">Atualizado no HubSpot \u2713</span>';
       } else {
-        statusEl.innerHTML = '<span style="color:#ff6b6b">Erro ao atualizar: ' + (result && result.error || "erro") + '</span>';
+        statusEl.innerHTML = '<span style="color:var(--ezap-danger)">Erro ao atualizar: ' + (result && result.error || "erro") + '</span>';
       }
       editor.innerHTML = "";
       renderNotesHistory();
@@ -1513,9 +1435,9 @@ function saveNote() {
         noteEntry.synced = true;
         noteEntry.hsId = result.noteId; // Store HubSpot note ID for future delete/edit
         setContactData(key, data);
-        statusEl.innerHTML = '<span style="color:#25d366">Salvo no HubSpot ✓</span>';
+        statusEl.innerHTML = '<span style="color:var(--ezap-primary)">Salvo no HubSpot \u2713</span>';
       } else {
-        statusEl.innerHTML = '<span style="color:#ff922b">Salvo local. HubSpot: ' + (result && result.error || "erro") + '</span>';
+        statusEl.innerHTML = '<span style="color:var(--ezap-warning)">Salvo local. HubSpot: ' + (result && result.error || "erro") + '</span>';
       }
       editor.innerHTML = "";
       renderNotesHistory();
@@ -1523,7 +1445,7 @@ function saveNote() {
   } else {
     btn.disabled = false;
     btn.textContent = "Salvar Observação"; window._wcrmEditingIdx = null;
-    statusEl.innerHTML = '<span style="color:#ff922b">Salvo localmente (sem ticket vinculado)</span>';
+    statusEl.innerHTML = '<span style="color:var(--ezap-warning)">Salvo localmente (sem ticket vinculado)</span>';
     editor.innerHTML = "";
     renderNotesHistory();
   }
@@ -1592,7 +1514,7 @@ function renderNotesHistory(hubspotNotes) {
   var visibleNotes = expanded ? allNotes : allNotes.slice(0, DEFAULT_SHOW);
   var hasMore = allNotes.length > DEFAULT_SHOW;
 
-  var html = '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:6px;font-weight:600">HISTÓRICO</div>';
+  var html = '<div class="ezap-section-title">Histórico</div>';
 
   // Store allNotes on window so event handlers can access them
   window._wcrmAllNotes = allNotes;
@@ -1600,8 +1522,8 @@ function renderNotesHistory(hubspotNotes) {
   visibleNotes.forEach(function(note, visIdx) {
     var dateStr = note.date ? new Date(note.date).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
     var sourceTag = note.source === "hs"
-      ? '<span style="color:#25d366;font-size:10px" title="Do HubSpot">HS</span>'
-      : '<span style="color:#8696a0;font-size:10px">local</span>';
+      ? '<span class="ezap-timeline-source ezap-timeline-source--hs" title="Do HubSpot">HS</span>'
+      : '<span class="ezap-timeline-source ezap-timeline-source--local">local</span>';
 
     // Use visIdx to find the note in allNotes; store note type + id
     var noteType = note.hsId ? "hs" : "local";
@@ -1619,9 +1541,9 @@ function renderNotesHistory(hubspotNotes) {
       noteBody = noteBody.substring(0, noteBody.indexOf(sigMatch[0]));
     }
 
-    html += '<div class="wcrm-note-item" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="background:#1a2730;border-radius:6px;padding:6px 8px;margin-bottom:4px;border-left:2px solid #3b4a54;transition:background 0.15s" onmouseover="this.style.background=\'#243340\'" onmouseout="this.style.background=\'#1a2730\'">';
+    html += '<div class="wcrm-note-item ezap-timeline-content" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="margin-bottom:4px;border-left:2px solid var(--ezap-border-light);padding:6px 8px">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
-    html += '<span style="color:#8696a0;font-size:10px">' + dateStr + '</span>';
+    html += '<span class="ezap-timeline-date">' + dateStr + '</span>';
     html += '<div style="display:flex;align-items:center;gap:6px">';
     html += sourceTag;
     // Only show edit/delete if user is admin OR the note was created by them
@@ -1629,15 +1551,15 @@ function renderNotesHistory(hubspotNotes) {
     var currentUser = (window.__wcrmAuth && window.__wcrmAuth.userName) || "";
     var isOwner = currentUser && note.html && note.html.indexOf("Observação criada por: " + currentUser) !== -1;
     if (isAdmin || isOwner) {
-      html += '<span class="wcrm-note-edit" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="color:#4d96ff;font-size:12px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:3px;transition:background 0.15s" title="Editar" onmouseover="this.style.background=\'#2a3942\'" onmouseout="this.style.background=\'none\'">✏️</span>';
-      html += '<span class="wcrm-note-delete" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="color:#ff6b6b;font-size:12px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:3px;transition:background 0.15s" title="Excluir" onmouseover="this.style.background=\'#2a3942\'" onmouseout="this.style.background=\'none\'">🗑️</span>';
+      html += '<span class="wcrm-note-edit ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Editar" style="color:var(--ezap-secondary)">&#x270F;&#xFE0F;</span>';
+      html += '<span class="wcrm-note-delete ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Excluir" style="color:var(--ezap-danger)">&#x1F5D1;&#xFE0F;</span>';
     }
     html += '</div></div>';
     // Content with max-height and click-to-expand
-    html += '<div class="wcrm-note-content" style="color:#e9edef;font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative">' + noteBody + '</div>';
+    html += '<div class="wcrm-note-content" style="font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative">' + noteBody + '</div>';
     // Author signature - always visible below content
     if (authorSig) {
-      html += '<div style="color:#8696a0;font-size:10px;font-style:italic;margin-top:3px;border-top:1px solid #2a3942;padding-top:2px">' + authorSig + '</div>';
+      html += '<div style="color:var(--ezap-text-muted);font-size:10px;font-style:italic;margin-top:3px;border-top:1px solid var(--ezap-border);padding-top:2px">' + authorSig + '</div>';
     }
     html += '</div>';
   });
@@ -1645,9 +1567,9 @@ function renderNotesHistory(hubspotNotes) {
   // "Ver mais" / "Ver menos" toggle
   if (hasMore) {
     if (expanded) {
-      html += '<div id="wcrm-notes-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#4d96ff;font-size:11px;font-weight:600">▲ Ver menos</div>';
+      html += '<button id="wcrm-notes-toggle" class="ezap-toggle-btn" style="color:var(--ezap-secondary)">&blacktriangle; Ver menos</button>';
     } else {
-      html += '<div id="wcrm-notes-toggle" style="text-align:center;padding:6px;cursor:pointer;color:#4d96ff;font-size:11px;font-weight:600">▼ Ver mais (' + (allNotes.length - DEFAULT_SHOW) + ')</div>';
+      html += '<button id="wcrm-notes-toggle" class="ezap-toggle-btn" style="color:var(--ezap-secondary)">&blacktriangledown; Ver mais (' + (allNotes.length - DEFAULT_SHOW) + ')</button>';
     }
   }
 
@@ -1663,7 +1585,7 @@ function renderNotesHistory(hubspotNotes) {
       img.alt = "";
       img.style.cssText = "display:none";
       var loader = document.createElement("div");
-      loader.style.cssText = "background:#111b21;border-radius:6px;padding:10px;text-align:center;margin:4px 0;font-size:10px;color:#8696a0";
+      loader.style.cssText = "background:var(--ezap-bg-primary);border-radius:6px;padding:10px;text-align:center;margin:4px 0;font-size:10px;color:var(--ezap-text-secondary)";
       loader.textContent = "Carregando imagem...";
       img.parentNode.insertBefore(loader, img);
 
@@ -1692,7 +1614,7 @@ function renderNotesHistory(hubspotNotes) {
   container.querySelectorAll(".wcrm-note-content").forEach(function(contentEl) {
     if (contentEl.scrollHeight > contentEl.clientHeight) {
       contentEl.style.cursor = "pointer";
-      contentEl.insertAdjacentHTML("beforeend", '<div style="position:absolute;bottom:0;left:0;right:0;height:20px;background:linear-gradient(transparent,#1a2730);pointer-events:none" class="wcrm-fade-overlay"></div>');
+      contentEl.insertAdjacentHTML("beforeend", '<div style="position:absolute;bottom:0;left:0;right:0;height:20px;background:linear-gradient(transparent,var(--ezap-bg-elevated));pointer-events:none" class="wcrm-fade-overlay"></div>');
       contentEl.addEventListener("click", function(e) {
         e.stopPropagation();
         if (contentEl.style.maxHeight === "none") {
@@ -1765,10 +1687,10 @@ function renderNotesHistory(hubspotNotes) {
                 if (window._wcrmHubspotNotes) {
                   window._wcrmHubspotNotes = window._wcrmHubspotNotes.filter(function(n) { return n.id !== localHsId; });
                 }
-                if (statusEl) statusEl.innerHTML = '<span style="color:#25d366">Excluído do HubSpot ✓</span>';
+                if (statusEl) statusEl.innerHTML = '<span style="color:var(--ezap-primary)">Exclu\u00eddo do HubSpot \u2713</span>';
                 renderNotesHistory();
               } else {
-                if (statusEl) statusEl.innerHTML = '<span style="color:#ff922b">Removido local, erro no HubSpot</span>';
+                if (statusEl) statusEl.innerHTML = '<span style="color:var(--ezap-warning)">Removido local, erro no HubSpot</span>';
               }
             });
           }
@@ -1785,11 +1707,11 @@ function renderNotesHistory(hubspotNotes) {
             }
             renderNotesHistory();
             var statusEl = document.getElementById("wcrm-save-status");
-            if (statusEl) statusEl.innerHTML = '<span style="color:#25d366">Nota excluída do HubSpot ✓</span>';
+            if (statusEl) statusEl.innerHTML = '<span style="color:var(--ezap-primary)">Nota exclu\u00edda do HubSpot \u2713</span>';
           } else {
             btn.textContent = "🗑️";
             var statusEl = document.getElementById("wcrm-save-status");
-            if (statusEl) statusEl.innerHTML = '<span style="color:#ff6b6b">Erro ao excluir: ' + (result && result.error || "erro") + '</span>';
+            if (statusEl) statusEl.innerHTML = '<span style="color:var(--ezap-danger)">Erro ao excluir: ' + (result && result.error || "erro") + '</span>';
           }
         });
       }
@@ -1804,11 +1726,10 @@ function renderTicketLinks(tickets) {
     var stageName = tp._stageName || tp.hs_pipeline_stage || "-";
     var ticketUrl = "https://app.hubspot.com/contacts/49377285/record/0-5/" + ticket.id;
 
-    html += '<a href="' + ticketUrl + '" target="_blank" style="display:block;background:#1a2730;border-radius:6px;padding:10px;margin-bottom:6px;border-left:3px solid #cc5de8;text-decoration:none;cursor:pointer;transition:background 0.2s"';
-    html += ' onmouseover="this.style.background=\'#243340\'" onmouseout="this.style.background=\'#1a2730\'">';
-    html += '<div style="font-weight:600;font-size:12px;color:#e9edef;margin-bottom:4px">' + (tp.subject || "Ticket sem nome") + '</div>';
-    html += '<div style="color:#ff922b;font-size:11px;margin-bottom:4px">Status: ' + stageName + '</div>';
-    html += '<div style="display:flex;align-items:center;gap:4px;color:#4d96ff;font-size:11px">Abrir no HubSpot <span style="font-size:13px">→</span></div>';
+    html += '<a href="' + ticketUrl + '" target="_blank" class="ezap-card ezap-card--accent" style="display:block;text-decoration:none;cursor:pointer">';
+    html += '<div style="font-weight:600;font-size:12px;margin-bottom:4px">' + (tp.subject || "Ticket sem nome") + '</div>';
+    html += '<div class="ezap-badge ezap-badge--warning" style="margin-bottom:4px">Status: ' + stageName + '</div>';
+    html += '<div class="ezap-action-link" style="display:flex;align-items:center;gap:4px">Abrir no HubSpot &rarr;</div>';
     html += '</a>';
   });
   return html;
@@ -1834,20 +1755,20 @@ function renderTicketCard(ticket) {
     return isNaN(d.getTime()) ? "-" : d.toLocaleDateString("pt-BR");
   }
 
-  var html = '<div style="background:#1a2730;border-radius:6px;padding:10px;margin-bottom:6px;border-left:3px solid #cc5de8">';
+  var html = '<div class="ezap-card ezap-card--accent">';
   html += '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + (tp.subject || "Ticket sem nome") + '</div>';
-  html += '<div style="color:#ff922b;font-size:11px;margin-bottom:6px">Status: ' + stageName + '</div>';
+  html += '<div class="ezap-badge ezap-badge--warning" style="margin-bottom:6px">Status: ' + stageName + '</div>';
 
-  if (modelo) html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#8696a0;font-size:11px">Modelo</span><span style="color:#cc5de8;font-size:11px;font-weight:600">' + modelo + '</span></div>';
+  if (modelo) html += '<div class="ezap-row"><span class="ezap-row-label">Modelo</span><span class="ezap-row-value" style="color:var(--ezap-accent);font-weight:600">' + modelo + '</span></div>';
 
-  html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#8696a0;font-size:11px">Calls Adquiridas</span><span style="color:#e9edef;font-size:11px;font-weight:600">' + callsTotal + '</span></div>';
-  html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#8696a0;font-size:11px">Calls Realizadas</span><span style="color:#ffd93d;font-size:11px;font-weight:600">' + callsRealizadas + ' <span style="color:#8696a0;font-size:10px">(Meli: ' + callsMeli + ' | Espec: ' + callsEspec + ')</span></span></div>';
-  html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#8696a0;font-size:11px">Calls Restantes</span><span style="color:#25d366;font-size:11px;font-weight:600">' + callsRest + '</span></div>';
+  html += '<div class="ezap-row"><span class="ezap-row-label">Calls adquiridas</span><span class="ezap-row-value" style="font-weight:600">' + callsTotal + '</span></div>';
+  html += '<div class="ezap-row"><span class="ezap-row-label">Calls realizadas</span><span class="ezap-row-value" style="color:var(--ezap-warning);font-weight:600">' + callsRealizadas + ' <span style="color:var(--ezap-text-secondary);font-size:10px">(Meli: ' + callsMeli + ' | Espec: ' + callsEspec + ')</span></span></div>';
+  html += '<div class="ezap-row"><span class="ezap-row-label">Calls restantes</span><span class="ezap-row-value" style="color:var(--ezap-success);font-weight:600">' + callsRest + '</span></div>';
 
-  html += '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #2a3942">';
-  html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#8696a0;font-size:11px">Inicio dos Blocos</span><span style="color:#e9edef;font-size:11px">' + fmtDate(dataInicio) + '</span></div>';
-  html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#8696a0;font-size:11px">Termino 1o bloco</span><span style="color:#e9edef;font-size:11px">' + fmtDate(dataFim1) + '</span></div>';
-  html += '<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#8696a0;font-size:11px">Termino 2o bloco</span><span style="color:#e9edef;font-size:11px">' + fmtDate(dataFim) + '</span></div>';
+  html += '<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--ezap-border)">';
+  html += '<div class="ezap-row"><span class="ezap-row-label">Início dos blocos</span><span class="ezap-row-value">' + fmtDate(dataInicio) + '</span></div>';
+  html += '<div class="ezap-row"><span class="ezap-row-label">Término 1º bloco</span><span class="ezap-row-value">' + fmtDate(dataFim1) + '</span></div>';
+  html += '<div class="ezap-row"><span class="ezap-row-label">Término 2º bloco</span><span class="ezap-row-value">' + fmtDate(dataFim) + '</span></div>';
   html += '</div>';
 
   html += '</div>';
@@ -1856,43 +1777,43 @@ function renderTicketCard(ticket) {
 
 // ===== Supabase / Mercado Livre Data =====
 function fetchSellerData(container, sellerId) {
-  container.innerHTML += '<div id="wcrm-ml-loading" style="color:#8696a0;font-size:11px;text-align:center;padding:8px;margin-top:8px">Carregando dados Mercado Livre...</div>';
+  container.innerHTML += '<div id="wcrm-ml-loading" class="ezap-loading" style="margin-top:8px">Carregando dados Mercado Livre...</div>';
 
   sendBgMessage({ action: "supabase_seller_data", sellerId: sellerId }).then(function(data) {
     var loadingEl = document.getElementById("wcrm-ml-loading");
     if (loadingEl) loadingEl.remove();
 
     if (!data || data.error) {
-      container.innerHTML += '<div style="color:#f44336;font-size:11px;padding:4px">Erro ML: ' + (data && data.error || "desconhecido") + '</div>';
+      container.innerHTML += '<div style="color:var(--ezap-danger);font-size:11px;padding:4px">Erro ML: ' + (data && data.error || "desconhecido") + '</div>';
       return;
     }
 
     var html = sectionTitle("MERCADO LIVRE");
 
     // Revenue cards
-    html += '<div style="background:#1a2730;border-radius:6px;padding:10px;margin-bottom:6px;border-left:3px solid #ffd93d">';
-    html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#ffd93d;margin-bottom:6px;font-weight:600">FATURAMENTO</div>';
-    html += revenueRow("Ultimos 7 dias", data.revenue.days7);
-    html += revenueRow("Ultimos 14 dias", data.revenue.days14);
-    html += revenueRow("Ultimos 30 dias", data.revenue.days30);
+    html += '<div class="ezap-card" style="border-left:3px solid var(--ezap-warning)">';
+    html += '<div class="ezap-section-title" style="color:var(--ezap-warning)">Faturamento</div>';
+    html += revenueRow("Últimos 7 dias", data.revenue.days7);
+    html += revenueRow("Últimos 14 dias", data.revenue.days14);
+    html += revenueRow("Últimos 30 dias", data.revenue.days30);
     html += '</div>';
 
     // Top products
     if (data.topProducts && data.topProducts.length > 0) {
-      html += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#4d96ff;margin:8px 0 6px;font-weight:600">TOP PRODUTOS (all-time)</div>';
+      html += '<div class="ezap-section-title" style="color:var(--ezap-secondary);margin-top:8px">Top Produtos (all-time)</div>';
       data.topProducts.forEach(function(p, i) {
         var thumb = p.thumbnail ? p.thumbnail.replace("http://", "https://") : "";
         var revenue = (p.sold_quantity * p.price);
 
-        html += '<div style="background:#1a2730;border-radius:6px;padding:8px;margin-bottom:4px;display:flex;align-items:center;gap:8px">';
+        html += '<div class="ezap-card" style="display:flex;align-items:center;gap:8px;padding:8px">';
         if (thumb) {
           html += '<img src="' + thumb + '" style="width:40px;height:40px;border-radius:4px;object-fit:cover;flex-shrink:0" onerror="this.style.display=\'none\'">';
         }
         html += '<div style="flex:1;min-width:0">';
-        html += '<div style="font-size:11px;font-weight:600;color:#e9edef;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (i + 1) + '. ' + (p.family_name || "Produto") + '</div>';
+        html += '<div style="font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (i + 1) + '. ' + (p.family_name || "Produto") + '</div>';
         html += '<div style="display:flex;gap:8px;margin-top:2px">';
-        html += '<span style="color:#25d366;font-size:10px;font-weight:600">' + p.sold_quantity + ' vendas</span>';
-        html += '<span style="color:#ffd93d;font-size:10px">R$ ' + revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span>';
+        html += '<span style="color:var(--ezap-success);font-size:10px;font-weight:600">' + p.sold_quantity + ' vendas</span>';
+        html += '<span style="color:var(--ezap-warning);font-size:10px">R$ ' + revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span>';
         html += '</div>';
         html += '</div></div>';
       });
@@ -1904,31 +1825,31 @@ function fetchSellerData(container, sellerId) {
 
 function revenueRow(label, value) {
   var formatted = "R$ " + (value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  var color = value > 0 ? "#25d366" : "#8696a0";
-  return '<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8696a0;font-size:12px">' + label + '</span><span style="color:' + color + ';font-size:12px;font-weight:700">' + formatted + '</span></div>';
+  var color = value > 0 ? "var(--ezap-success)" : "var(--ezap-text-secondary)";
+  return '<div class="ezap-row"><span class="ezap-row-label">' + label + '</span><span class="ezap-row-value" style="color:' + color + ';font-weight:700">' + formatted + '</span></div>';
 }
 
 function sectionTitle(text) {
-  return '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin:12px 0 8px;font-weight:600">' + text + '</div>';
+  return '<div class="ezap-section-title" style="margin-top:12px">' + text + '</div>';
 }
 
 function hsCard(type, title, msg) {
-  var colors = { "no-key": "#9e9e9e", "not-found": "#f44336", "error": "#f44336" };
-  var c = colors[type] || "#9e9e9e";
-  return '<div style="background:#202c33;border-radius:8px;padding:12px"><span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:' + c + '20;color:' + c + '">' + title + '</span><p style="margin:8px 0 0;color:#8696a0;font-size:12px">' + msg + '</p></div>';
+  var statusClass = { "no-key": "ezap-status--no-key", "not-found": "ezap-status--not-found", "error": "ezap-status--not-found" };
+  var cls = statusClass[type] || "ezap-status--no-key";
+  return '<div class="ezap-card"><span class="ezap-status ' + cls + '">' + title + '</span><p style="margin:8px 0 0;color:var(--ezap-text-secondary);font-size:12px">' + msg + '</p></div>';
 }
 
 function row(label, value) {
-  return '<div style="display:flex;justify-content:space-between;padding:4px 0;gap:8px"><span style="color:#8696a0;font-size:12px;flex-shrink:0">' + label + '</span><span style="color:#e9edef;font-size:12px;font-weight:500;text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + value + '">' + value + '</span></div>';
+  return '<div class="ezap-row"><span class="ezap-row-label">' + label + '</span><span class="ezap-row-value" title="' + value + '">' + value + '</span></div>';
 }
 
 function rowCopy(label, value, copyValue) {
   var cv = (copyValue || value || "").replace(/"/g, '&quot;');
-  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;gap:8px">' +
-    '<span style="color:#8696a0;font-size:12px;flex-shrink:0">' + label + '</span>' +
+  return '<div class="ezap-row" style="align-items:center">' +
+    '<span class="ezap-row-label">' + label + '</span>' +
     '<span style="display:flex;align-items:center;gap:4px;max-width:65%;min-width:0">' +
-      '<span style="color:#e9edef;font-size:12px;font-weight:500;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + value + '">' + value + '</span>' +
-      '<span class="wcrm-copy-btn" data-copy="' + cv + '" style="cursor:pointer;font-size:11px;color:#8696a0;padding:2px 4px;border-radius:3px;flex-shrink:0" title="Copiar">📋</span>' +
+      '<span class="ezap-row-value" style="max-width:none" title="' + value + '">' + value + '</span>' +
+      '<span class="wcrm-copy-btn ezap-copy-btn" data-copy="' + cv + '" title="Copiar">&#x1F4CB;</span>' +
     '</span></div>';
 }
 

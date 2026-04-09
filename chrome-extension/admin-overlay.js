@@ -62,22 +62,12 @@
     if (document.getElementById("admin-overlay-toggle")) return;
     var btn = document.createElement("button");
     btn.id = "admin-overlay-toggle";
-    btn.title = "Supervisao - Visualizar conversas de usuarios";
+    btn.className = "escalada-crm ezap-float-btn";
+    btn.setAttribute("data-tooltip", "Supervisão");
+    btn.title = "Supervisão - Visualizar conversas de usuários";
     btn.addEventListener("click", toggleAdminSidebar);
-    Object.assign(btn.style, {
-      width: "50px",
-      height: "50px",
-      borderRadius: "50%",
-      border: "none",
-      fontWeight: "bold",
-      cursor: "pointer",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-    });
     if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "admin_overlay");
-    else { btn.textContent = "SPV"; btn.style.background = "#ff922b"; btn.style.color = "#fff"; btn.style.fontSize = "10px"; }
+    else { btn.textContent = "SPV"; btn.style.background = "#ff922b"; btn.style.color = "#fff"; }
     var container = document.getElementById("ezap-float-container");
     if (container) container.appendChild(btn);
     else document.body.appendChild(btn);
@@ -94,7 +84,10 @@
     }
     // Fallback
     var sb = document.getElementById("admin-overlay-sidebar");
-    if (sb) sb.style.display = sb.style.display === "flex" ? "none" : "flex";
+    if (sb) {
+      if (sb.classList.contains("open")) sb.classList.remove("open");
+      else { sb.classList.add("open"); loadUsers(); }
+    }
   }
 
   // ===== CREATE SIDEBAR =====
@@ -104,36 +97,18 @@
 
     var sidebar = document.createElement("div");
     sidebar.id = "admin-overlay-sidebar";
-    Object.assign(sidebar.style, {
-      position: "fixed",
-      top: "0",
-      right: "0",
-      width: "320px",
-      height: "100vh",
-      background: "#111b21",
-      borderLeft: "1px solid #2a3942",
-      zIndex: "100000",
-      flexDirection: "column",
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-      color: "#e9edef",
-      fontSize: "13px",
-      overflow: "hidden",
-      display: "none",
-    });
+    sidebar.className = "escalada-crm ezap-sidebar";
 
     // Header
     var header = document.createElement("div");
-    Object.assign(header.style, {
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "12px 16px", background: "#202c33", borderBottom: "1px solid #2a3942", minHeight: "48px",
-    });
+    header.className = "ezap-header";
     header.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px">' +
         '<div style="width:32px;height:32px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">S</div>' +
-        '<h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Supervisao</h3>' +
+        '<h3 class="ezap-header-title">Supervisão</h3>' +
       '</div>';
     var closeBtn = document.createElement("button");
-    Object.assign(closeBtn.style, { background: "none", border: "none", color: "#8696a0", fontSize: "20px", cursor: "pointer", padding: "4px 8px", borderRadius: "4px" });
+    closeBtn.className = "ezap-header-close";
     closeBtn.innerHTML = "&times;";
     closeBtn.addEventListener("click", toggleAdminSidebar);
     header.appendChild(closeBtn);
@@ -142,16 +117,14 @@
     // User selector
     var selectorDiv = document.createElement("div");
     selectorDiv.id = "admin-overlay-selector";
-    Object.assign(selectorDiv.style, {
-      padding: "12px 16px", borderBottom: "1px solid #2a3942", background: "#1a2530",
-    });
+    selectorDiv.style.cssText = "padding:var(--ezap-space-3) var(--ezap-space-4);border-bottom:1px solid var(--ezap-border);background:var(--ezap-bg-elevated)";
     selectorDiv.innerHTML =
-      '<label style="font-size:11px;color:#8696a0;font-weight:600;display:block;margin-bottom:6px">Selecionar usuario</label>' +
-      '<select id="admin-overlay-user-select" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #3b4a54;background:#2a3942;color:#e9edef;font-size:13px;font-family:inherit;cursor:pointer;outline:none">' +
-        '<option value="">Carregando usuarios...</option>' +
+      '<label class="ezap-section-title" style="display:block;margin-bottom:6px">Selecionar usuário</label>' +
+      '<select id="admin-overlay-user-select" class="ezap-input">' +
+        '<option value="">Carregando usuários...</option>' +
       '</select>' +
-      '<div id="admin-overlay-stats" style="font-size:11px;color:#8696a0;margin-top:6px"></div>' +
-      '<button id="ao-immersive-btn" style="display:block;width:100%;margin-top:8px;padding:8px;border:none;border-radius:8px;background:#ff922b;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:background 0.15s;opacity:0.5" disabled>' +
+      '<div id="admin-overlay-stats" style="font-size:var(--ezap-text-sm);color:var(--ezap-text-secondary);margin-top:6px"></div>' +
+      '<button id="ao-immersive-btn" class="ezap-btn ezap-btn--orange ezap-btn--full ezap-btn--sm" style="margin-top:8px;opacity:0.5" disabled>' +
         '&#128065; Modo Imersivo' +
       '</button>';
     sidebar.appendChild(selectorDiv);
@@ -159,16 +132,14 @@
     // Content area (conversations list or chat viewer)
     var contentDiv = document.createElement("div");
     contentDiv.id = "admin-overlay-content";
-    Object.assign(contentDiv.style, { flex: "1", overflowY: "auto", display: "flex", flexDirection: "column" });
+    contentDiv.className = "ezap-content";
+    contentDiv.style.cssText = "display:flex;flex-direction:column;padding:0";
     sidebar.appendChild(contentDiv);
 
     // Footer
     var footer = document.createElement("div");
-    Object.assign(footer.style, {
-      padding: "8px 16px", borderTop: "1px solid #2a3942", textAlign: "center",
-      fontSize: "10px", color: "#8696a0", background: "#1a2530",
-    });
-    footer.textContent = "Visualizacao somente leitura";
+    footer.style.cssText = "padding:var(--ezap-space-2) var(--ezap-space-4);border-top:1px solid var(--ezap-border);text-align:center;font-size:var(--ezap-text-xs);color:var(--ezap-text-secondary);background:var(--ezap-bg-elevated);flex-shrink:0";
+    footer.textContent = "Visualização somente leitura";
     sidebar.appendChild(footer);
 
     document.body.appendChild(sidebar);
@@ -178,11 +149,11 @@
       window.ezapSidebar.register("admin_overlay", {
         show: function() {
           var sb = document.getElementById("admin-overlay-sidebar");
-          if (sb) sb.style.display = "flex";
+          if (sb) sb.classList.add("open");
         },
         hide: function() {
           var sb = document.getElementById("admin-overlay-sidebar");
-          if (sb) sb.style.display = "none";
+          if (sb) sb.classList.remove("open");
         },
         onOpen: function() { loadUsers(); },
         shrinkApp: true,
@@ -213,15 +184,8 @@
   function _updateImmersiveBtn() {
     var btn = document.getElementById("ao-immersive-btn");
     if (!btn) return;
-    if (_selectedUserId) {
-      btn.disabled = false;
-      btn.style.opacity = "1";
-      btn.style.cursor = "pointer";
-    } else {
-      btn.disabled = true;
-      btn.style.opacity = "0.5";
-      btn.style.cursor = "not-allowed";
-    }
+    btn.disabled = !_selectedUserId;
+    btn.style.opacity = _selectedUserId ? "1" : "";
   }
 
   // ===== LOAD USERS =====
@@ -241,8 +205,8 @@
     var sel = document.getElementById("admin-overlay-user-select");
     if (!sel || !_users) return;
     var currentUserId = window.__wcrmAuth ? window.__wcrmAuth.userId : null;
-    var html = '<option value="">-- Selecione um usuario --</option>';
-    html += '<option value="__all__">Todos os usuarios</option>';
+    var html = '<option value="">-- Selecione um usuário --</option>';
+    html += '<option value="__all__">Todos os usuários</option>';
     _users.forEach(function(u) {
       // Don't show current admin user
       if (u.id === currentUserId) return;
@@ -263,7 +227,7 @@
     var content = document.getElementById("admin-overlay-content");
     if (!content) return;
     content.innerHTML =
-      '<div style="text-align:center;padding:40px;color:#8696a0">' +
+      '<div class="ezap-loading" style="padding:40px">' +
         '<div style="font-size:24px;margin-bottom:8px">&#9203;</div>Carregando conversas...' +
       '</div>';
 
@@ -276,7 +240,7 @@
     supa(query).then(function(msgs) {
       if (!Array.isArray(msgs) || !msgs.length) {
         content.innerHTML =
-          '<div style="text-align:center;padding:40px;color:#8696a0">' +
+          '<div class="ezap-empty" style="padding:40px">' +
             '<div style="font-size:24px;margin-bottom:8px">&#128172;</div>Nenhuma conversa encontrada' +
           '</div>';
         updateStats(0, 0);
@@ -332,7 +296,7 @@
 
     if (!_conversations.length) {
       content.innerHTML =
-        '<div style="text-align:center;padding:40px;color:#8696a0">Nenhuma conversa</div>';
+        '<div class="ezap-empty" style="padding:40px">Nenhuma conversa</div>';
       return;
     }
 
@@ -474,7 +438,7 @@
         else if (typeLabel === "document") { typeLabel = "📄 Documento"; }
         else if (typeLabel === "sticker") { typeLabel = "🏷 Sticker"; }
         else if (typeLabel === "vcard") { typeLabel = "👤 Contato"; }
-        else if (typeLabel === "location") { typeLabel = "📍 Localizacao"; }
+        else if (typeLabel === "location") { typeLabel = "📍 Localização"; }
         html += '<div class="ao-msg-badge">' + typeLabel + '</div>';
       }
 
@@ -507,10 +471,10 @@
     var content = document.getElementById("admin-overlay-content");
     if (!content) return;
     content.innerHTML =
-      '<div style="text-align:center;padding:60px 20px;color:#8696a0">' +
+      '<div class="ezap-empty" style="padding:60px 20px">' +
         '<div style="font-size:48px;margin-bottom:16px;opacity:0.3">&#128101;</div>' +
-        '<div style="font-size:14px;font-weight:600;margin-bottom:6px">Supervisao de conversas</div>' +
-        '<div style="font-size:12px;line-height:1.5">Selecione um usuario acima para visualizar suas conversas em tempo real.</div>' +
+        '<div style="font-size:var(--ezap-text-md);font-weight:var(--ezap-font-semibold);margin-bottom:6px">Supervisão de conversas</div>' +
+        '<div style="font-size:var(--ezap-text-sm);line-height:1.5">Selecione um usuário acima para visualizar suas conversas em tempo real.</div>' +
       '</div>';
   }
 
@@ -543,7 +507,7 @@
       boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
     });
     banner.innerHTML =
-      '<span>&#128065; Supervisao: <strong>' + esc(_selectedUserName) + '</strong> &mdash; Somente leitura</span>' +
+      '<span>&#128065; Supervisão: <strong>' + esc(_selectedUserName) + '</strong> &mdash; Somente leitura</span>' +
       '<button id="ao-imm-exit" style="position:absolute;right:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Sair</button>';
     document.body.appendChild(banner);
     document.getElementById("ao-imm-exit").addEventListener("click", exitImmersiveMode);
@@ -580,7 +544,7 @@
     });
 
     // Build user options for immersive dropdown
-    var immUserOpts = '<option value="__all__">Todos os usuarios</option>';
+    var immUserOpts = '<option value="__all__">Todos os usuários</option>';
     var currentUserId = window.__wcrmAuth ? window.__wcrmAuth.userId : null;
     if (_users) {
       _users.forEach(function(u) {
@@ -637,7 +601,7 @@
       var avatar = document.querySelector("#ao-imm-left div[style*='border-radius:50']");
       // Update banner
       var bannerSpan = document.querySelector("#ao-imm-banner span");
-      if (bannerSpan) bannerSpan.innerHTML = '&#128065; Supervisao: <strong>' + esc(_selectedUserName) + '</strong> &mdash; Somente leitura';
+      if (bannerSpan) bannerSpan.innerHTML = '&#128065; Supervisão: <strong>' + esc(_selectedUserName) + '</strong> &mdash; Somente leitura';
       // Clear search
       var searchInput = document.getElementById("ao-imm-search-input");
       if (searchInput) searchInput.value = "";
@@ -812,7 +776,7 @@
         '<div style="text-align:center;padding:60px;color:#8696a0">Carregando...</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;padding:12px 60px;background:#202c33;border-top:1px solid #2a3942;color:#8696a0;font-size:13px;gap:8px">' +
-        '<span style="opacity:0.5">&#128274;</span> Visualizacao somente leitura' +
+        '<span style="opacity:0.5">&#128274;</span> Visualização somente leitura' +
       '</div>';
 
     // Fetch messages
@@ -888,7 +852,7 @@
         else if (typeLabel === "document") { typeLabel = "📄 Documento"; }
         else if (typeLabel === "sticker") { typeLabel = "🏷 Sticker"; }
         else if (typeLabel === "vcard") { typeLabel = "👤 Contato"; }
-        else if (typeLabel === "location") { typeLabel = "📍 Localizacao"; }
+        else if (typeLabel === "location") { typeLabel = "📍 Localização"; }
         html += '<div style="display:inline-block;font-size:12px;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.06);color:#8696a0;margin-bottom:3px">' + typeLabel + '</div>';
       }
 

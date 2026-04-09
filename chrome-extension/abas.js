@@ -714,22 +714,11 @@ function createAbasButton() {
   if (document.getElementById("wcrm-abas-toggle")) return;
   var btn = document.createElement("button");
   btn.id = "wcrm-abas-toggle";
-  btn.title = "Abas personalizadas";
+  btn.className = "escalada-crm ezap-float-btn";
+  btn.setAttribute("data-tooltip", "Abas personalizadas");
   btn.addEventListener("click", toggleAbasSidebar);
-  Object.assign(btn.style, {
-    width: "50px",
-    height: "50px",
-    borderRadius: "50%",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  });
   if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "abas");
-  else { btn.textContent = "ABAS"; btn.style.background = "#cc5de8"; btn.style.color = "#fff"; btn.style.fontSize = "9px"; }
+  else { btn.textContent = "ABAS"; btn.style.background = "#cc5de8"; btn.style.color = "#fff"; }
   var container = document.getElementById("ezap-float-container");
   if (container) container.appendChild(btn);
   else document.body.appendChild(btn);
@@ -741,35 +730,20 @@ function createAbasSidebar() {
 
   var sidebar = document.createElement("div");
   sidebar.id = "wcrm-abas-sidebar";
-  Object.assign(sidebar.style, {
-    position: "fixed",
-    top: "0",
-    right: "0",
-    width: "320px",
-    height: "100vh",
-    background: "#111b21",
-    borderLeft: "1px solid #2a3942",
-    zIndex: "99999",
-    display: "none",
-    flexDirection: "column",
-    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-    color: "#e9edef",
-    fontSize: "13px",
-    overflow: "hidden",
-  });
+  sidebar.className = "escalada-crm ezap-sidebar";
 
   sidebar.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">' +
-      '<h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">ABAS</h3>' +
-      '<button id="wcrm-abas-close" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>' +
+    '<div class="ezap-header">' +
+      '<h3 class="ezap-header-title">ABAS</h3>' +
+      '<button id="wcrm-abas-close" class="ezap-header-close">&times;</button>' +
     '</div>' +
-    '<div style="padding:12px 16px;flex:1;overflow-y:auto">' +
-      '<button id="wcrm-abas-create" style="width:100%;background:#cc5de8;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:12px">+ Criar Aba</button>' +
-      '<div id="wcrm-abas-active-filter" style="display:none;background:#cc5de820;border:1px solid #cc5de8;border-radius:8px;padding:8px 12px;margin-bottom:12px;align-items:center;justify-content:space-between">' +
-        '<span style="color:#cc5de8;font-size:12px;font-weight:600">Filtro: <span id="wcrm-abas-filter-name"></span></span>' +
-        '<button id="wcrm-abas-clear-filter" style="background:none;border:none;color:#ff6b6b;font-size:11px;cursor:pointer;font-weight:600;padding:2px 6px">Limpar</button>' +
+    '<div class="ezap-content">' +
+      '<button id="wcrm-abas-create" class="ezap-btn ezap-btn--accent ezap-btn--full" style="margin-bottom:12px">+ Criar Aba</button>' +
+      '<div id="wcrm-abas-active-filter" class="ezap-card ezap-card--accent" style="display:none;margin-bottom:12px;align-items:center;justify-content:space-between">' +
+        '<span style="color:var(--ezap-accent);font-size:var(--ezap-text-sm);font-weight:var(--ezap-font-semibold)">Filtro: <span id="wcrm-abas-filter-name"></span></span>' +
+        '<button id="wcrm-abas-clear-filter" class="ezap-btn ezap-btn--danger ezap-btn--sm">Limpar</button>' +
       '</div>' +
-      '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#8696a0;margin-bottom:8px;font-weight:600">SUAS ABAS</div>' +
+      '<div class="ezap-section-title" style="margin-bottom:8px">SUAS ABAS</div>' +
       '<div id="wcrm-abas-list"></div>' +
     '</div>';
 
@@ -782,8 +756,8 @@ function createAbasSidebar() {
   // Register with sidebar manager
   if (window.ezapSidebar) {
     window.ezapSidebar.register('abas', {
-      show: function() { abasSidebarOpen = true; document.getElementById("wcrm-abas-sidebar").style.display = "flex"; },
-      hide: function() { abasSidebarOpen = false; var sb = document.getElementById("wcrm-abas-sidebar"); if (sb) sb.style.display = "none"; },
+      show: function() { abasSidebarOpen = true; document.getElementById("wcrm-abas-sidebar").classList.add("open"); },
+      hide: function() { abasSidebarOpen = false; var sb = document.getElementById("wcrm-abas-sidebar"); if (sb) sb.classList.remove("open"); },
       onOpen: function() {
         loadAbasData().then(function(data) {
           renderAbasList(data);
@@ -799,7 +773,8 @@ function toggleAbasSidebar() {
   if (window.ezapSidebar) { ezapSidebar.toggle('abas'); return; }
   // Fallback
   abasSidebarOpen = !abasSidebarOpen;
-  document.getElementById("wcrm-abas-sidebar").style.display = abasSidebarOpen ? "flex" : "none";
+  var sb = document.getElementById("wcrm-abas-sidebar");
+  if (abasSidebarOpen) sb.classList.add("open"); else sb.classList.remove("open");
   if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
   if (abasSidebarOpen) {
     loadAbasData().then(function(data) { renderAbasList(data); updateAbasIndicator(); });
@@ -811,7 +786,7 @@ function closeAbasSidebar() {
   if (!abasSidebarOpen) return;
   abasSidebarOpen = false;
   var sb = document.getElementById("wcrm-abas-sidebar");
-  if (sb) sb.style.display = "none";
+  if (sb) sb.classList.remove("open");
   if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
 }
 
@@ -828,7 +803,7 @@ function renderAbasList(data) {
   if (!list) return;
 
   if (!data.tabs || data.tabs.length === 0) {
-    list.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:16px;font-style:italic">Nenhuma aba criada</div>';
+    list.innerHTML = '<div class="ezap-empty">Nenhuma aba criada</div>';
     return;
   }
 
@@ -840,32 +815,32 @@ function renderAbasList(data) {
     var count = (tab.contacts || []).length;
     var expandedKey = '_wcrmAbaExpanded_' + tab.id;
 
-    html += '<div class="wcrm-aba-item" data-aba-id="' + tab.id + '" style="background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:all 0.15s">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
-    html += '<div style="display:flex;align-items:center;gap:8px">';
-    html += '<span style="width:12px;height:12px;border-radius:50%;background:' + tab.color + ';display:inline-block;flex-shrink:0"></span>';
-    html += '<span style="font-size:13px;font-weight:500;color:#e9edef">' + tab.name + '</span>';
-    if (isSelected) html += '<span style="color:' + tab.color + ';font-size:11px">&#10003;</span>';
+    html += '<div class="wcrm-aba-item ezap-aba-item" data-aba-id="' + tab.id + '" style="background:' + bgColor + ';border-color:' + borderColor + '">';
+    html += '<div class="ezap-aba-header">';
+    html += '<div class="ezap-aba-name">';
+    html += '<span class="ezap-aba-color" style="background:' + tab.color + '"></span>';
+    html += '<span>' + tab.name + '</span>';
+    if (isSelected) html += '<span style="color:' + tab.color + ';font-size:var(--ezap-text-sm)">&#10003;</span>';
     html += '</div>';
-    html += '<div style="display:flex;align-items:center;gap:4px">';
-    html += '<span style="color:#8696a0;font-size:11px;margin-right:2px">' + count + '</span>';
+    html += '<div class="ezap-aba-actions">';
+    html += '<span class="ezap-badge ezap-badge--muted">' + count + '</span>';
     // Expand/collapse contacts button
     if (count > 0) {
-      html += '<span class="wcrm-aba-expand" data-aba-id="' + tab.id + '" style="color:#8696a0;font-size:12px;cursor:pointer;padding:2px 4px" title="Ver contatos">&#9660;</span>';
+      html += '<button class="wcrm-aba-expand ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Ver contatos">&#9660;</button>';
     }
-    html += '<span class="wcrm-aba-add-contacts" data-aba-id="' + tab.id + '" style="color:#25d366;font-size:14px;cursor:pointer;padding:2px 4px" title="Adicionar/Remover contatos">&#128101;</span>';
-    html += '<span class="wcrm-aba-edit" data-aba-id="' + tab.id + '" style="color:#4d96ff;font-size:12px;cursor:pointer;padding:2px 4px" title="Editar">&#9998;</span>';
-    html += '<span class="wcrm-aba-delete" data-aba-id="' + tab.id + '" style="color:#ff6b6b;font-size:12px;cursor:pointer;padding:2px 4px" title="Excluir">&#128465;</span>';
+    html += '<button class="wcrm-aba-add-contacts ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Adicionar/Remover contatos" style="color:var(--ezap-success)">&#128101;</button>';
+    html += '<button class="wcrm-aba-edit ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Editar" style="color:var(--ezap-secondary)">&#9998;</button>';
+    html += '<button class="wcrm-aba-delete ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Excluir" style="color:var(--ezap-danger)">&#128465;</button>';
     html += '</div>';
     html += '</div>';
     // Expandable contacts list (hidden by default)
     if (count > 0) {
-      html += '<div class="wcrm-aba-contacts-list" data-aba-id="' + tab.id + '" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid #3b4a5440">';
+      html += '<div class="wcrm-aba-contacts-list" data-aba-id="' + tab.id + '" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--ezap-border)">';
       tab.contacts.forEach(function(contact, ci) {
         var displayName = contact.split(/\s*\|\s*/)[0].trim();
         html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0">';
-        html += '<span style="color:#8696a0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">' + displayName + '</span>';
-        html += '<span class="wcrm-aba-remove-contact" data-aba-id="' + tab.id + '" data-contact-idx="' + ci + '" style="color:#ff6b6b;font-size:10px;cursor:pointer;flex-shrink:0" title="Remover">&times;</span>';
+        html += '<span style="color:var(--ezap-text-secondary);font-size:var(--ezap-text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">' + displayName + '</span>';
+        html += '<span class="wcrm-aba-remove-contact" data-aba-id="' + tab.id + '" data-contact-idx="' + ci + '" style="color:var(--ezap-danger);font-size:var(--ezap-text-xs);cursor:pointer;flex-shrink:0" title="Remover">&times;</span>';
         html += '</div>';
       });
       html += '</div>';
@@ -1009,46 +984,31 @@ function openContactPickerModal(abaId) {
 
     var overlay = document.createElement("div");
     overlay.id = "wcrm-contact-picker-overlay";
-    Object.assign(overlay.style, {
-      position: "fixed",
-      top: "0",
-      left: "0",
-      width: "100%",
-      height: "100%",
-      background: "rgba(0,0,0,0.6)",
-      zIndex: "999999",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-    });
+    overlay.className = "escalada-crm ezap-overlay";
 
     var modal = document.createElement("div");
+    modal.className = "ezap-modal";
     Object.assign(modal.style, {
-      background: "#fff",
-      borderRadius: "12px",
-      padding: "24px",
       width: "460px",
-      maxWidth: "90%",
       maxHeight: "80vh",
       display: "flex",
       flexDirection: "column",
-      color: "#111",
     });
 
     modal.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
         '<div>' +
-          '<h3 style="margin:0;font-size:18px;font-weight:700;color:#111">Adicionar/Remover contatos na aba</h3>' +
-          '<p style="margin:4px 0 0;font-size:13px;color:#666">Selecione os contatos para adicionar ou remover da aba</p>' +
+          '<div class="ezap-modal-title" style="margin-bottom:4px">Adicionar/Remover contatos na aba</div>' +
+          '<p style="margin:0;font-size:var(--ezap-text-base);color:var(--ezap-text-secondary)">Selecione os contatos para adicionar ou remover da aba</p>' +
         '</div>' +
-        '<button id="wcrm-picker-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;padding:0 4px">&times;</button>' +
+        '<button id="wcrm-picker-close" class="ezap-header-close">&times;</button>' +
       '</div>' +
       '<div style="display:flex;gap:8px;margin-bottom:12px">' +
-        '<input id="wcrm-picker-search" type="text" placeholder="Pesquise por nome ou número do contato" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;outline:none">' +
-        '<button id="wcrm-picker-select-all" style="background:#25d366;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Selecionar tudo</button>' +
+        '<input id="wcrm-picker-search" class="ezap-input" type="text" placeholder="Pesquise por nome ou número do contato" style="flex:1">' +
+        '<button id="wcrm-picker-select-all" class="ezap-btn ezap-btn--primary ezap-btn--sm" style="white-space:nowrap">Selecionar tudo</button>' +
       '</div>' +
-      '<div id="wcrm-picker-list" style="flex:1;overflow-y:auto;border:1px solid #eee;border-radius:8px;max-height:50vh"></div>' +
-      '<button id="wcrm-picker-save" style="margin-top:12px;background:#25d366;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;width:auto;align-self:center;padding-left:40px;padding-right:40px">Salvar</button>';
+      '<div id="wcrm-picker-list" style="flex:1;overflow-y:auto;border:1px solid var(--ezap-border);border-radius:var(--ezap-radius-md);max-height:50vh"></div>' +
+      '<button id="wcrm-picker-save" class="ezap-btn ezap-btn--primary" style="margin-top:12px;align-self:center;padding-left:40px;padding-right:40px">Salvar</button>';
 
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
@@ -1068,14 +1028,14 @@ function openContactPickerModal(abaId) {
         var checkIcon = isSelected ? '&#10003;' : '';
         var displayName = contact.length > 45 ? contact.substring(0, 45) + '...' : contact;
 
-        html += '<div class="wcrm-picker-item" data-contact="' + contact.replace(/"/g, '&quot;') + '" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f0f0f0;cursor:pointer;transition:background 0.1s">';
-        html += '<span class="wcrm-picker-check" style="width:22px;height:22px;border-radius:50%;border:2px solid ' + checkColor + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#fff;background:' + (isSelected ? '#25d366' : 'transparent') + '">' + checkIcon + '</span>';
-        html += '<span style="font-size:13px;color:#111;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + displayName + '</span>';
+        html += '<div class="wcrm-picker-item" data-contact="' + contact.replace(/"/g, '&quot;') + '" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--ezap-border);cursor:pointer;transition:background var(--ezap-transition-fast)">';
+        html += '<span class="wcrm-picker-check" style="width:22px;height:22px;border-radius:50%;border:2px solid ' + checkColor + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:#fff;background:' + (isSelected ? 'var(--ezap-primary)' : 'transparent') + '">' + checkIcon + '</span>';
+        html += '<span style="font-size:var(--ezap-text-base);color:var(--ezap-text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + displayName + '</span>';
         html += '</div>';
       });
 
       if (filtered.length === 0) {
-        html = '<div style="padding:20px;text-align:center;color:#999;font-size:13px">Nenhum contato encontrado</div>';
+        html = '<div class="ezap-empty">Nenhum contato encontrado</div>';
       }
 
       listEl.innerHTML = html;
@@ -1163,9 +1123,7 @@ function updateAbasIndicator() {
 
   var btn = document.getElementById("wcrm-abas-toggle");
   if (btn) {
-    btn.style.boxShadow = selectedAbaId
-      ? "0 0 0 3px #cc5de880, 0 4px 12px rgba(0,0,0,0.4)"
-      : "0 4px 12px rgba(0,0,0,0.4)";
+    if (selectedAbaId) btn.classList.add("active"); else btn.classList.remove("active");
   }
 
   // Update quick aba selector active states
@@ -1542,47 +1500,38 @@ function _showHeaderAbasDropdownInner(anchorBtn, chatName, data) {
   var isWidget = anchorBtn.id && anchorBtn.id.indexOf("ezap-widget-btn-") === 0;
   var dropdown = document.createElement("div");
   dropdown.id = "wcrm-header-abas-dropdown";
+  dropdown.className = "escalada-crm ezap-dropdown";
   var minW = 200;
   var posStyle = isWidget
     ? { top: (rect.bottom + 12) + "px", left: Math.max(8, rect.left + (rect.width / 2) - (minW / 2)) + "px" }
     : { top: rect.top + "px", left: (rect.right + 8) + "px" };
   Object.assign(dropdown.style, {
-    position: "fixed",
     top: posStyle.top,
     left: posStyle.left,
-    background: t.bgSecondary,
-    border: "1px solid " + t.border,
-    borderRadius: "10px",
-    padding: "6px",
-    zIndex: "999999",
     minWidth: minW + "px",
-    maxHeight: "360px",
-    overflowY: "auto",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
   });
 
   var html = '';
   if (!data.tabs || data.tabs.length === 0) {
-    html += '<div style="padding:10px 12px;color:' + t.textSecondary + ';font-size:12px;font-style:italic;text-align:center">Nenhuma aba criada</div>';
+    html += '<div class="ezap-empty">Nenhuma aba criada</div>';
   }
   data.tabs.forEach(function(tab) {
     var isIn = (tab.contacts || []).some(function(c) {
       return window.ezapMatchContact && window.ezapMatchContact(c, chatName);
     });
     var icon = isIn ? '&#10003;' : '&plus;';
-    var iconColor = isIn ? tab.color : t.textSecondary;
-    html += '<div class="wcrm-header-aba-opt" data-aba-id="' + tab.id + '" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s">';
-    html += '<span style="width:10px;height:10px;border-radius:50%;background:' + tab.color + ';display:inline-block;flex-shrink:0"></span>';
-    html += '<span style="font-size:12px;color:' + t.text + ';flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tab.name + '</span>';
+    var iconColor = isIn ? tab.color : 'var(--ezap-text-secondary)';
+    html += '<div class="wcrm-header-aba-opt ezap-dropdown-item" data-aba-id="' + tab.id + '">';
+    html += '<span class="ezap-aba-color" style="background:' + tab.color + ';width:10px;height:10px"></span>';
+    html += '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tab.name + '</span>';
     html += '<span style="color:' + iconColor + ';font-size:14px;font-weight:bold">' + icon + '</span>';
     html += '</div>';
   });
   // Divider + "Criar nova aba"
-  html += '<div style="height:1px;background:' + t.border + ';margin:6px 4px"></div>';
-  html += '<div id="wcrm-header-abas-create" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:background 0.1s">';
-  html += '<span style="color:#20c997;font-size:16px;font-weight:bold;width:10px;display:inline-block;text-align:center">+</span>';
-  html += '<span style="font-size:12px;color:' + t.text + ';font-weight:500">Criar nova aba</span>';
+  html += '<div class="ezap-dropdown-divider"></div>';
+  html += '<div id="wcrm-header-abas-create" class="ezap-dropdown-item">';
+  html += '<span style="color:var(--ezap-success);font-size:16px;font-weight:bold;width:10px;display:inline-block;text-align:center">+</span>';
+  html += '<span style="font-weight:var(--ezap-font-medium)">Criar nova aba</span>';
   html += '</div>';
 
   dropdown.innerHTML = html;
@@ -1590,8 +1539,6 @@ function _showHeaderAbasDropdownInner(anchorBtn, chatName, data) {
 
   // Hover effects
   dropdown.querySelectorAll('.wcrm-header-aba-opt').forEach(function(el) {
-    el.addEventListener('mouseenter', function() { el.style.background = t.bgHover; });
-    el.addEventListener('mouseleave', function() { el.style.background = 'transparent'; });
     el.addEventListener('click', function() {
       toggleContactInAba(el.dataset.abaId, chatName);
       dropdown.remove();
@@ -1599,8 +1546,6 @@ function _showHeaderAbasDropdownInner(anchorBtn, chatName, data) {
   });
   var createBtn = document.getElementById("wcrm-header-abas-create");
   if (createBtn) {
-    createBtn.addEventListener('mouseenter', function() { createBtn.style.background = t.bgHover; });
-    createBtn.addEventListener('mouseleave', function() { createBtn.style.background = 'transparent'; });
     createBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       dropdown.remove();
@@ -1639,45 +1584,28 @@ function showAbaModal(editId) {
 
   var overlay = document.createElement("div");
   overlay.id = "wcrm-aba-modal-overlay";
-  Object.assign(overlay.style, {
-    position: "fixed",
-    top: "0",
-    left: "0",
-    width: "100%",
-    height: "100%",
-    background: "rgba(0,0,0,0.6)",
-    zIndex: "999999",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  });
+  overlay.className = "escalada-crm ezap-overlay";
 
   var modal = document.createElement("div");
-  Object.assign(modal.style, {
-    background: "#111b21",
-    border: "1px solid #2a3942",
-    borderRadius: "12px",
-    padding: "24px",
-    width: "340px",
-    maxWidth: "90%",
-  });
+  modal.className = "ezap-modal";
+  modal.style.width = "340px";
 
   var selectedColor = editTab ? editTab.color : ABAS_COLORS[0];
 
   var colorsHtml = '';
   ABAS_COLORS.forEach(function(c) {
     var sel = c === selectedColor;
-    colorsHtml += '<span class="wcrm-aba-color-opt" data-color="' + c + '" style="width:28px;height:28px;border-radius:50%;background:' + c + ';cursor:pointer;border:3px solid ' + (sel ? '#fff' : 'transparent') + ';display:inline-block"></span>';
+    colorsHtml += '<span class="wcrm-aba-color-opt ezap-color-dot' + (sel ? ' selected' : '') + '" data-color="' + c + '" style="width:28px;height:28px;background:' + c + '"></span>';
   });
 
   modal.innerHTML =
-    '<h3 style="margin:0 0 16px;font-size:16px;font-weight:600;color:#e9edef">' + (editTab ? 'Editar Aba' : 'Criar Aba') + '</h3>' +
-    '<input id="wcrm-aba-name-input" type="text" placeholder="Nome da aba..." maxlength="30" value="' + (editTab ? editTab.name : '') + '" style="width:100%;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:10px 12px;color:#e9edef;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box">' +
-    '<div style="font-size:11px;color:#8696a0;margin-bottom:6px">COR</div>' +
-    '<div id="wcrm-aba-color-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">' + colorsHtml + '</div>' +
+    '<div class="ezap-modal-title">' + (editTab ? 'Editar Aba' : 'Criar Aba') + '</div>' +
+    '<input id="wcrm-aba-name-input" class="ezap-input" type="text" placeholder="Nome da aba..." maxlength="30" value="' + (editTab ? editTab.name : '') + '" style="margin-bottom:12px">' +
+    '<div class="ezap-section-title" style="margin-bottom:6px">COR</div>' +
+    '<div id="wcrm-aba-color-picker" class="ezap-color-picker" style="margin-bottom:20px">' + colorsHtml + '</div>' +
     '<div style="display:flex;gap:8px">' +
-      '<button id="wcrm-aba-modal-cancel" style="flex:1;background:#2a3942;color:#8696a0;border:1px solid #3b4a54;border-radius:8px;padding:10px;font-size:13px;cursor:pointer">Cancelar</button>' +
-      '<button id="wcrm-aba-modal-save" style="flex:1;background:#cc5de8;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">' + (editTab ? 'Salvar' : 'Criar') + '</button>' +
+      '<button id="wcrm-aba-modal-cancel" class="ezap-btn ezap-btn--ghost" style="flex:1;border:1px solid var(--ezap-border-light)">Cancelar</button>' +
+      '<button id="wcrm-aba-modal-save" class="ezap-btn ezap-btn--accent" style="flex:1">' + (editTab ? 'Salvar' : 'Criar') + '</button>' +
     '</div>';
 
   overlay.appendChild(modal);
@@ -1688,9 +1616,9 @@ function showAbaModal(editId) {
     dot.addEventListener('click', function() {
       selectedColor = dot.dataset.color;
       pickerEl.querySelectorAll('.wcrm-aba-color-opt').forEach(function(d) {
-        d.style.border = '3px solid transparent';
+        d.classList.remove('selected');
       });
-      dot.style.border = '3px solid #fff';
+      dot.classList.add('selected');
     });
   });
 

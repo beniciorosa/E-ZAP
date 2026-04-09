@@ -111,22 +111,11 @@ function createMsgButton() {
   if (document.getElementById("wcrm-msg-toggle")) return;
   var btn = document.createElement("button");
   btn.id = "wcrm-msg-toggle";
-  btn.title = "Mensagens Automáticas";
+  btn.className = "escalada-crm ezap-float-btn";
+  btn.setAttribute("data-tooltip", "Mensagens Automáticas");
   btn.addEventListener("click", toggleMsgSidebar);
-  Object.assign(btn.style, {
-    width: "50px",
-    height: "50px",
-    borderRadius: "50%",
-    border: "none",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  });
   if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "msg");
-  else { btn.textContent = "MSG"; btn.style.background = "#4d96ff"; btn.style.color = "#fff"; btn.style.fontSize = "11px"; }
+  else { btn.textContent = "MSG"; btn.style.background = "#4d96ff"; btn.style.color = "#fff"; }
   var container = document.getElementById("ezap-float-container");
   if (container) container.appendChild(btn);
   else document.body.appendChild(btn);
@@ -138,34 +127,18 @@ function createMsgSidebar() {
 
   var sidebar = document.createElement("div");
   sidebar.id = "wcrm-msg-sidebar";
-  Object.assign(sidebar.style, {
-    position: "fixed",
-    top: "0",
-    right: "0",
-    width: "320px",
-    height: "100vh",
-    background: "#111b21",
-    borderLeft: "1px solid #2a3942",
-    zIndex: "99999",
-    display: "none",
-    flexDirection: "column",
-    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-    color: "#e9edef",
-    fontSize: "13px",
-    overflow: "hidden",
-  });
+  sidebar.className = "escalada-crm ezap-sidebar";
 
   sidebar.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#202c33;border-bottom:1px solid #2a3942;min-height:48px">
-      <h3 style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Mensagens</h3>
-      <button id="wcrm-msg-sidebar-close" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>
+    <div class="ezap-header">
+      <h3 class="ezap-header-title">Mensagens</h3>
+      <button id="wcrm-msg-sidebar-close" class="ezap-header-close">&times;</button>
     </div>
     <div style="padding:12px 16px">
-      <button id="wcrm-msg-create-btn" style="width:100%;background:#4d96ff;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s"
-        onmouseover="this.style.background='#3a7ff0'" onmouseout="this.style.background='#4d96ff'">+ Criar Sequência</button>
+      <button id="wcrm-msg-create-btn" class="ezap-btn ezap-btn--secondary ezap-btn--full">+ Criar Sequência</button>
     </div>
-    <div id="wcrm-msg-sidebar-list" style="flex:1;overflow-y:auto;padding:0 16px 16px">
-      <div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;font-style:italic">Nenhuma sequência salva</div>
+    <div id="wcrm-msg-sidebar-list" class="ezap-content">
+      <div class="ezap-empty">Nenhuma sequência salva</div>
     </div>
   `;
 
@@ -180,8 +153,8 @@ function createMsgSidebar() {
   // Register with sidebar manager
   if (window.ezapSidebar) {
     window.ezapSidebar.register('msg', {
-      show: function() { msgSidebarOpen = true; document.getElementById("wcrm-msg-sidebar").style.display = "flex"; },
-      hide: function() { msgSidebarOpen = false; var sb = document.getElementById("wcrm-msg-sidebar"); if (sb) sb.style.display = "none"; },
+      show: function() { msgSidebarOpen = true; document.getElementById("wcrm-msg-sidebar").classList.add("open"); },
+      hide: function() { msgSidebarOpen = false; var sb = document.getElementById("wcrm-msg-sidebar"); if (sb) sb.classList.remove("open"); },
       onOpen: function() { renderSavedSequences(); }
     });
   }
@@ -191,7 +164,8 @@ function toggleMsgSidebar() {
   if (window.ezapSidebar) { ezapSidebar.toggle('msg'); return; }
   // Fallback
   msgSidebarOpen = !msgSidebarOpen;
-  document.getElementById("wcrm-msg-sidebar").style.display = msgSidebarOpen ? "flex" : "none";
+  var sb = document.getElementById("wcrm-msg-sidebar");
+  if (msgSidebarOpen) sb.classList.add("open"); else sb.classList.remove("open");
   if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
   if (msgSidebarOpen) renderSavedSequences();
 }
@@ -202,7 +176,7 @@ function closeMsgSidebar() {
   if (!msgSidebarOpen) return;
   msgSidebarOpen = false;
   var sb = document.getElementById("wcrm-msg-sidebar");
-  if (sb) sb.style.display = "none";
+  if (sb) sb.classList.remove("open");
   if (typeof updateFloatingButtons === 'function') updateFloatingButtons();
 }
 
@@ -212,69 +186,56 @@ function createMsgModal() {
 
   var overlay = document.createElement("div");
   overlay.id = "wcrm-msg-overlay";
-  Object.assign(overlay.style, {
-    position: "fixed",
-    inset: "0",
-    background: "rgba(0,0,0,0.6)",
-    zIndex: "100000",
-    display: "none",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-  });
+  overlay.className = "escalada-crm ezap-overlay";
+  overlay.style.display = "none";
 
   overlay.innerHTML = `
-    <div style="width:520px;max-height:85vh;background:#111b21;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;border:1px solid #2a3942;box-shadow:0 8px 32px rgba(0,0,0,0.5)">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#202c33;border-bottom:1px solid #2a3942">
-        <h3 id="wcrm-msg-modal-title" style="margin:0;font-size:15px;font-weight:600;color:#e9edef">Nova Sequência</h3>
-        <button id="wcrm-msg-modal-close" style="background:none;border:none;color:#8696a0;font-size:22px;cursor:pointer;padding:4px 8px">&times;</button>
+    <div class="ezap-modal" style="width:520px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;padding:0">
+      <div class="ezap-header">
+        <h3 id="wcrm-msg-modal-title" class="ezap-header-title">Nova Sequência</h3>
+        <button id="wcrm-msg-modal-close" class="ezap-header-close">&times;</button>
       </div>
-      <div id="wcrm-msg-modal-content" style="flex:1;overflow-y:auto;padding:16px;color:#e9edef;font-size:13px">
+      <div id="wcrm-msg-modal-content" class="ezap-content">
 
         <div style="margin-bottom:12px">
-          <input id="wcrm-msg-seq-name" type="text" placeholder="Nome da sequência (ex: Boas Vindas Mentoria)" maxlength="50"
-            style="width:100%;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:10px 12px;color:#e9edef;font-size:13px;outline:none;box-sizing:border-box">
+          <input id="wcrm-msg-seq-name" class="ezap-input" type="text" placeholder="Nome da sequência (ex: Boas Vindas Mentoria)" maxlength="50">
         </div>
 
-        <div style="margin-bottom:12px;background:#1a2730;border-radius:8px;padding:10px;border:1px solid #2a3942">
-          <div style="font-size:11px;font-weight:600;color:#4d96ff;margin-bottom:6px">Variaveis disponiveis (dados do HubSpot):</div>
-          <div style="font-size:11px;color:#8696a0;line-height:1.7">
-            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@nome</code> Primeiro nome &nbsp;
-            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@nomeCompleto</code> Nome completo<br>
-            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@email</code> E-mail &nbsp;
-            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@telefone</code> Telefone<br>
-            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@consultor</code> Consultor &nbsp;
-            <code style="background:#2a3942;padding:1px 5px;border-radius:3px;color:#25d366">@reunioes</code> Reunioes adquiridas
+        <div class="ezap-card" style="margin-bottom:12px">
+          <div style="font-size:var(--ezap-text-sm);font-weight:600;color:var(--ezap-secondary);margin-bottom:6px">Variáveis disponíveis (dados do HubSpot):</div>
+          <div style="font-size:var(--ezap-text-sm);color:var(--ezap-text-secondary);line-height:1.7">
+            <code style="background:var(--ezap-bg-hover);padding:1px 5px;border-radius:3px;color:var(--ezap-success)">@nome</code> Primeiro nome &nbsp;
+            <code style="background:var(--ezap-bg-hover);padding:1px 5px;border-radius:3px;color:var(--ezap-success)">@nomeCompleto</code> Nome completo<br>
+            <code style="background:var(--ezap-bg-hover);padding:1px 5px;border-radius:3px;color:var(--ezap-success)">@email</code> E-mail &nbsp;
+            <code style="background:var(--ezap-bg-hover);padding:1px 5px;border-radius:3px;color:var(--ezap-success)">@telefone</code> Telefone<br>
+            <code style="background:var(--ezap-bg-hover);padding:1px 5px;border-radius:3px;color:var(--ezap-success)">@consultor</code> Consultor &nbsp;
+            <code style="background:var(--ezap-bg-hover);padding:1px 5px;border-radius:3px;color:var(--ezap-success)">@reunioes</code> Reuniões adquiridas
           </div>
         </div>
 
         <div id="wcrm-msg-items" style="margin-bottom:12px">
-          <div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;border:1px dashed #3b4a54;border-radius:8px;font-style:italic">
+          <div class="ezap-empty" style="border:1px dashed var(--ezap-border-light);border-radius:var(--ezap-radius-md)">
             Clique em "+ Mensagem" ou "+ Arquivo" para adicionar
           </div>
         </div>
 
         <div style="display:flex;gap:6px;margin-bottom:16px">
-          <button id="wcrm-msg-add-text" style="flex:1;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:9px;color:#4d96ff;font-size:12px;font-weight:600;cursor:pointer;transition:background 0.15s"
-            onmouseover="this.style.background='#344250'" onmouseout="this.style.background='#2a3942'">+ Mensagem</button>
-          <button id="wcrm-msg-add-file" style="flex:1;background:#2a3942;border:1px solid #3b4a54;border-radius:8px;padding:9px;color:#ff922b;font-size:12px;font-weight:600;cursor:pointer;transition:background 0.15s"
-            onmouseover="this.style.background='#344250'" onmouseout="this.style.background='#2a3942'">+ Arquivo</button>
+          <button id="wcrm-msg-add-text" class="ezap-btn ezap-btn--ghost ezap-btn--sm" style="flex:1;border:1px solid var(--ezap-border-light);color:var(--ezap-secondary)">+ Mensagem</button>
+          <button id="wcrm-msg-add-file" class="ezap-btn ezap-btn--ghost ezap-btn--sm" style="flex:1;border:1px solid var(--ezap-border-light);color:var(--ezap-orange)">+ Arquivo</button>
         </div>
 
         <input type="file" id="wcrm-msg-file-input" style="display:none" accept=".pdf,.doc,.docx,.mp3,.ogg,.wav,.opus,.m4a,.mp4,.jpg,.jpeg,.png">
 
-        <div style="margin-bottom:16px;background:#1a2730;border-radius:8px;padding:10px">
+        <div class="ezap-card" style="margin-bottom:16px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <input type="checkbox" id="wcrm-msg-schedule-check" style="accent-color:#4d96ff;width:16px;height:16px;cursor:pointer">
-            <label for="wcrm-msg-schedule-check" style="font-size:12px;color:#8696a0;cursor:pointer">Agendar envio automático</label>
+            <input type="checkbox" id="wcrm-msg-schedule-check" style="accent-color:var(--ezap-secondary);width:16px;height:16px;cursor:pointer">
+            <label for="wcrm-msg-schedule-check" style="font-size:var(--ezap-text-sm);color:var(--ezap-text-secondary);cursor:pointer">Agendar envio automático</label>
           </div>
-          <input id="wcrm-msg-schedule-time" type="datetime-local"
-            style="display:none;width:100%;background:#2a3942;border:1px solid #3b4a54;border-radius:6px;padding:8px 12px;color:#e9edef;font-size:13px;outline:none;box-sizing:border-box;margin-top:6px">
+          <input id="wcrm-msg-schedule-time" class="ezap-input" type="datetime-local" style="display:none;margin-top:6px">
         </div>
 
-        <button id="wcrm-msg-save" style="width:100%;background:#4d96ff;color:#fff;border:none;border-radius:8px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s"
-          onmouseover="this.style.background='#3a7ff0'" onmouseout="this.style.background='#4d96ff'">Salvar Sequência</button>
-        <div id="wcrm-msg-save-status" style="font-size:10px;text-align:center;margin-top:4px;min-height:14px"></div>
+        <button id="wcrm-msg-save" class="ezap-btn ezap-btn--secondary ezap-btn--full">Salvar Sequência</button>
+        <div id="wcrm-msg-save-status" style="font-size:var(--ezap-text-xs);text-align:center;margin-top:4px;min-height:14px"></div>
       </div>
     </div>
   `;
@@ -362,7 +323,7 @@ function handleFileSelect(e) {
   var statusEl = document.getElementById("wcrm-msg-save-status");
 
   if (file.size > 50 * 1024 * 1024) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:#ff6b6b">Arquivo muito grande (max 50MB)</span>';
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--ezap-danger)">Arquivo muito grande (max 50MB)</span>';
     e.target.value = "";
     return;
   }
@@ -376,15 +337,16 @@ function handleFileSelect(e) {
   var container = document.getElementById("wcrm-msg-items");
   var progressDiv = document.createElement("div");
   progressDiv.id = progressId;
-  progressDiv.style.cssText = "background:#1a2730;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #ff922b";
+  progressDiv.className = "ezap-card";
+  progressDiv.style.cssText = "border-left:3px solid var(--ezap-orange)";
   progressDiv.innerHTML =
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-      '<span style="color:#ff922b;font-size:11px;font-weight:600">\uD83D\uDCCE ' + escapeHtml(originalName) + '</span>' +
+      '<span style="color:var(--ezap-orange);font-size:var(--ezap-text-sm);font-weight:var(--ezap-font-semibold)">\uD83D\uDCCE ' + escapeHtml(originalName) + '</span>' +
     '</div>' +
-    '<div style="background:#2a3942;border-radius:4px;height:6px;overflow:hidden">' +
-      '<div id="wcrm-msg-upload-fill" style="background:#ff922b;height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div>' +
+    '<div class="ezap-progress-bar">' +
+      '<div id="wcrm-msg-upload-fill" class="ezap-progress-fill" style="background:var(--ezap-orange);width:0%"></div>' +
     '</div>' +
-    '<div id="wcrm-msg-upload-text" style="font-size:10px;color:#8696a0;margin-top:4px">Lendo arquivo...</div>';
+    '<div id="wcrm-msg-upload-text" style="font-size:var(--ezap-text-xs);color:var(--ezap-text-secondary);margin-top:4px">Lendo arquivo...</div>';
   if (container) container.appendChild(progressDiv);
 
   function updateUploadProgress(pct, text) {
@@ -434,7 +396,7 @@ function handleFileSelect(e) {
         }, 600);
       } else {
         if (pg) {
-          pg.style.borderLeftColor = "#ff6b6b";
+          pg.style.borderLeftColor = "var(--ezap-danger)";
           updateUploadProgress(0, "Erro: " + (resp ? resp.error : "desconhecido"));
           setTimeout(function() { if (pg) pg.remove(); }, 4000);
         }
@@ -461,7 +423,7 @@ function renderMsgItems() {
   if (!container) return;
 
   if (msgTempItems.length === 0) {
-    container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;border:1px dashed #3b4a54;border-radius:8px;font-style:italic">Clique em "+ Mensagem" ou "+ Arquivo" para adicionar</div>';
+    container.innerHTML = '<div class="ezap-empty" style="border:1px dashed var(--ezap-border-light);border-radius:var(--ezap-radius-md)">Clique em "+ Mensagem" ou "+ Arquivo" para adicionar</div>';
     return;
   }
 
@@ -472,25 +434,25 @@ function renderMsgItems() {
     var typeLabel = isText ? 'Mensagem' : (item.fileName || 'Arquivo');
     var typeIcon = isText ? '' : '\uD83D\uDCCE ';
 
-    html += '<div class="wcrm-msg-item" style="background:#1a2730;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid ' + borderColor + '">';
+    html += '<div class="wcrm-msg-item ezap-card" style="border-left:3px solid ' + borderColor + '">';
 
     // Header
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
-    html += '<span style="font-size:11px;font-weight:600;color:' + borderColor + '">' + (idx + 1) + '. ' + typeIcon + typeLabel + '</span>';
-    html += '<span class="wcrm-msg-remove" data-idx="' + idx + '" style="color:#ff6b6b;font-size:16px;cursor:pointer;padding:0 4px;line-height:1" title="Remover">&times;</span>';
+    html += '<span style="font-size:var(--ezap-text-sm);font-weight:var(--ezap-font-semibold);color:' + borderColor + '">' + (idx + 1) + '. ' + typeIcon + typeLabel + '</span>';
+    html += '<span class="wcrm-msg-remove" data-idx="' + idx + '" style="color:var(--ezap-danger);font-size:16px;cursor:pointer;padding:0 4px;line-height:1" title="Remover">&times;</span>';
     html += '</div>';
 
     // Content
     if (isText) {
       // Formatting toolbar
-      html += '<div class="wcrm-msg-toolbar" data-idx="' + idx + '" style="display:flex;gap:2px;margin-bottom:4px">';
-      html += '<button data-cmd="bold" style="background:#2a3942;border:1px solid #3b4a54;border-radius:4px;color:#e9edef;font-size:12px;font-weight:bold;cursor:pointer;padding:3px 8px;min-width:28px" title="Negrito">B</button>';
-      html += '<button data-cmd="italic" style="background:#2a3942;border:1px solid #3b4a54;border-radius:4px;color:#e9edef;font-size:12px;font-style:italic;cursor:pointer;padding:3px 8px;min-width:28px" title="Italico">I</button>';
-      html += '<button data-cmd="insertUnorderedList" style="background:#2a3942;border:1px solid #3b4a54;border-radius:4px;color:#e9edef;font-size:12px;cursor:pointer;padding:3px 8px;min-width:28px" title="Lista">\u2022</button>';
+      html += '<div class="wcrm-msg-toolbar ezap-editor-toolbar" data-idx="' + idx + '">';
+      html += '<button data-cmd="bold" title="Negrito"><b>B</b></button>';
+      html += '<button data-cmd="italic" title="Itálico"><i>I</i></button>';
+      html += '<button data-cmd="insertUnorderedList" title="Lista">\u2022</button>';
       html += '</div>';
       // Rich text editor
       var contentHtml = item.content || '';
-      html += '<div class="wcrm-msg-editor" contenteditable="true" data-idx="' + idx + '" style="width:100%;min-height:60px;max-height:150px;overflow-y:auto;background:#2a3942;border:1px solid #3b4a54;border-radius:6px;padding:8px;color:#e9edef;font-size:12px;font-family:inherit;outline:none;box-sizing:border-box;white-space:pre-wrap;word-wrap:break-word" data-placeholder="Digite a mensagem...">' + contentHtml + '</div>';
+      html += '<div class="wcrm-msg-editor ezap-editor-body" contenteditable="true" data-idx="' + idx + '" data-placeholder="Digite a mensagem..." style="white-space:pre-wrap;word-wrap:break-word">' + contentHtml + '</div>';
     } else {
       // File info - show from URL or legacy base64
       var sizeInfo = '';
@@ -499,10 +461,10 @@ function renderMsgItems() {
       } else if (item.content && item.content.indexOf('http') !== 0) {
         try { sizeInfo = ' (' + Math.round(atob(item.content).length / 1024) + ' KB)'; } catch(e) {}
       }
-      html += '<div style="font-size:11px;color:#8696a0;padding:4px 0;display:flex;align-items:center;gap:4px">';
-      html += '<span style="color:#ff922b">\uD83D\uDCC4</span> ' + escapeHtml(item.fileName || 'Arquivo') + '<span style="color:#3b4a54">' + sizeInfo + '</span>';
+      html += '<div style="font-size:var(--ezap-text-sm);color:var(--ezap-text-secondary);padding:4px 0;display:flex;align-items:center;gap:4px">';
+      html += '<span style="color:var(--ezap-orange)">\uD83D\uDCC4</span> ' + escapeHtml(item.fileName || 'Arquivo') + '<span style="color:var(--ezap-border-light)">' + sizeInfo + '</span>';
       if (item.content && item.content.indexOf('http') === 0) {
-        html += ' <span style="color:#25d366;font-size:10px">☁ Na nuvem</span>';
+        html += ' <span style="color:var(--ezap-success);font-size:var(--ezap-text-xs)">&#9729; Na nuvem</span>';
       }
       html += '</div>';
     }
@@ -510,9 +472,9 @@ function renderMsgItems() {
     // Interval
     var intervalLabel = idx === 0 ? 'Aguardar antes de iniciar' : 'Aguardar antes de enviar';
     html += '<div style="display:flex;align-items:center;gap:6px;margin-top:8px">';
-    html += '<span style="font-size:11px;color:#8696a0">' + intervalLabel + '</span>';
-    html += '<input type="number" class="wcrm-msg-interval" data-idx="' + idx + '" value="' + item.interval + '" min="0" max="3600" style="width:55px;background:#2a3942;border:1px solid #3b4a54;border-radius:4px;padding:4px 6px;color:#e9edef;font-size:12px;text-align:center;outline:none">';
-    html += '<span style="font-size:11px;color:#8696a0">seg</span>';
+    html += '<span style="font-size:var(--ezap-text-sm);color:var(--ezap-text-secondary)">' + intervalLabel + '</span>';
+    html += '<input type="number" class="wcrm-msg-interval ezap-input ezap-input--sm" data-idx="' + idx + '" value="' + item.interval + '" min="0" max="3600" style="width:55px;text-align:center">';
+    html += '<span style="font-size:var(--ezap-text-sm);color:var(--ezap-text-secondary)">seg</span>';
     html += '</div>';
 
     html += '</div>';
@@ -570,14 +532,14 @@ function saveMsgSequence() {
   var name = nameInput.value.trim();
 
   if (!name) {
-    nameInput.style.borderColor = "#ff6b6b";
-    statusEl.innerHTML = '<span style="color:#ff6b6b">Digite um nome para a sequência</span>';
-    setTimeout(function() { nameInput.style.borderColor = "#3b4a54"; }, 2000);
+    nameInput.style.borderColor = "var(--ezap-danger)";
+    statusEl.innerHTML = '<span style="color:var(--ezap-danger)">Digite um nome para a sequência</span>';
+    setTimeout(function() { nameInput.style.borderColor = ""; }, 2000);
     return;
   }
 
   if (msgTempItems.length === 0) {
-    statusEl.innerHTML = '<span style="color:#ff6b6b">Adicione pelo menos uma mensagem</span>';
+    statusEl.innerHTML = '<span style="color:var(--ezap-danger)">Adicione pelo menos uma mensagem</span>';
     return;
   }
 
@@ -626,7 +588,7 @@ function saveMsgSequence() {
     });
   }
 
-  statusEl.innerHTML = '<span style="color:#25d366">Sequência salva!</span>';
+  statusEl.innerHTML = '<span style="color:var(--ezap-success)">Sequência salva!</span>';
   setTimeout(function() {
     closeMsgModal();
     renderSavedSequences();
@@ -640,7 +602,7 @@ function renderSavedSequences() {
 
   var keys = Object.keys(msgSequences);
   if (keys.length === 0) {
-    container.innerHTML = '<div style="color:#8696a0;font-size:12px;text-align:center;padding:20px;font-style:italic">Nenhuma sequência salva.<br>Clique em "+ Criar Sequência" para começar.</div>';
+    container.innerHTML = '<div class="ezap-empty">Nenhuma sequência salva.<br>Clique em "+ Criar Sequência" para começar.</div>';
     return;
   }
 
@@ -660,21 +622,21 @@ function renderSavedSequences() {
     if (fileMsgs > 0) desc += (desc ? ', ' : '') + fileMsgs + ' arquivo' + (fileMsgs > 1 ? 's' : '');
     desc += ' | ~' + totalInterval + 's';
 
-    html += '<div style="background:#1a2730;border-radius:8px;padding:10px;margin-bottom:8px;border-left:3px solid #4d96ff">';
+    html += '<div class="ezap-card ezap-card--sequence">';
 
     // Name + schedule badge
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
-    html += '<span style="font-size:13px;font-weight:600;color:#e9edef">' + escapeHtml(seq.name) + '</span>';
+    html += '<div class="ezap-seq-name">';
+    html += '<span>' + escapeHtml(seq.name) + '</span>';
     if (seq.schedule && !seq.sent) {
       var sd = new Date(seq.schedule);
-      html += '<span style="font-size:9px;color:#ff922b;background:#ff922b15;padding:2px 5px;border-radius:4px">';
+      html += '<span class="ezap-badge ezap-badge--warning" style="font-size:9px">';
       html += '\u23F0 ' + sd.toLocaleString("pt-BR", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
       html += '</span>';
     }
     html += '</div>';
 
     // Description
-    html += '<div style="font-size:11px;color:#8696a0;margin-bottom:6px">' + desc + '</div>';
+    html += '<div class="ezap-seq-meta">' + desc + '</div>';
 
     // Preview - extract plain text from HTML content
     var firstText = seq.messages.find(function(m) { return m.type === 'text' && m.content; });
@@ -683,14 +645,14 @@ function renderSavedSequences() {
       tmpDiv.innerHTML = firstText.content;
       var plainPreview = (tmpDiv.textContent || tmpDiv.innerText || "").substring(0, 50);
       if (plainPreview.length >= 50) plainPreview += '...';
-      html += '<div style="font-size:10px;color:#8696a0;margin-bottom:8px;padding:3px 6px;background:#111b21;border-radius:4px;border-left:2px solid #3b4a54;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(plainPreview) + '</div>';
+      html += '<div class="ezap-seq-preview">' + escapeHtml(plainPreview) + '</div>';
     }
 
     // Buttons
-    html += '<div style="display:flex;gap:4px">';
-    html += '<button class="wcrm-msg-send" data-id="' + id + '" style="flex:1;background:#25d366;color:#111b21;border:none;border-radius:6px;padding:6px;font-size:11px;font-weight:600;cursor:pointer">\u25B6 Enviar</button>';
-    html += '<button class="wcrm-msg-edit" data-id="' + id + '" style="background:#2a3942;color:#4d96ff;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer" title="Editar">\u270F</button>';
-    html += '<button class="wcrm-msg-delete" data-id="' + id + '" style="background:#2a3942;color:#ff6b6b;border:1px solid #3b4a54;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer" title="Excluir">\u2715</button>';
+    html += '<div class="ezap-seq-actions">';
+    html += '<button class="wcrm-msg-send ezap-btn ezap-btn--primary ezap-btn--sm" data-id="' + id + '" style="flex:1">\u25B6 Enviar</button>';
+    html += '<button class="wcrm-msg-edit ezap-btn ezap-btn--ghost ezap-btn--sm" data-id="' + id + '" title="Editar">\u270F</button>';
+    html += '<button class="wcrm-msg-delete ezap-btn ezap-btn--danger ezap-btn--sm" data-id="' + id + '" title="Excluir">\u2715</button>';
     html += '</div>';
 
     html += '</div>';
@@ -732,7 +694,7 @@ function editMsgSequence(id) {
     document.getElementById("wcrm-msg-schedule-time").style.display = "none";
   }
 
-  document.getElementById("wcrm-msg-save").textContent = "Salvar Edicao";
+  document.getElementById("wcrm-msg-save").textContent = "Salvar Edição";
   renderMsgItems();
 }
 
@@ -853,25 +815,17 @@ function executeMsgSequence(id) {
   // Progress indicator
   var progress = document.createElement("div");
   progress.id = "wcrm-msg-progress";
+  progress.className = "escalada-crm ezap-card ezap-card--sequence";
   Object.assign(progress.style, {
     position: "fixed",
     bottom: "20px",
     right: "20px",
-    background: "#202c33",
-    border: "1px solid #2a3942",
-    borderRadius: "12px",
-    padding: "14px 18px",
     zIndex: "100001",
-    color: "#e9edef",
-    fontSize: "12px",
-    fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
     minWidth: "240px",
-    borderLeft: "3px solid #4d96ff",
   });
-  progress.innerHTML = '<div style="font-weight:600;margin-bottom:6px">\uD83D\uDCE4 ' + escapeHtml(seq.name) + '</div>' +
-    '<div id="wcrm-msg-progress-bar" style="background:#2a3942;border-radius:4px;height:6px;margin-bottom:6px;overflow:hidden"><div id="wcrm-msg-progress-fill" style="background:#4d96ff;height:100%;width:0%;transition:width 0.3s;border-radius:4px"></div></div>' +
-    '<div id="wcrm-msg-progress-text" style="color:#8696a0;font-size:11px">Preparando...</div>';
+  progress.innerHTML = '<div class="ezap-seq-name" style="margin-bottom:6px">\uD83D\uDCE4 ' + escapeHtml(seq.name) + '</div>' +
+    '<div class="ezap-progress-bar" id="wcrm-msg-progress-bar" style="margin-bottom:6px"><div id="wcrm-msg-progress-fill" class="ezap-progress-fill ezap-progress-fill--secondary" style="width:0%"></div></div>' +
+    '<div id="wcrm-msg-progress-text" class="ezap-seq-meta">Preparando...</div>';
   document.body.appendChild(progress);
 
   var messages = seq.messages.slice();
@@ -889,7 +843,7 @@ function executeMsgSequence(id) {
     if (idx >= messages.length) {
       updateProgress("\u2713 Todas as " + total + " mensagens enviadas!", 100);
       var pg = document.getElementById("wcrm-msg-progress");
-      if (pg) pg.style.borderLeftColor = "#25d366";
+      if (pg) pg.style.borderLeftColor = "var(--ezap-success)";
       setTimeout(function() {
         var pg = document.getElementById("wcrm-msg-progress");
         if (pg) pg.remove();
@@ -948,7 +902,7 @@ function executeMsgSequence(id) {
       }).catch(function(err) {
         updateProgress("\u274C Erro na msg " + (idx + 1) + ": " + err, Math.round((idx / total) * 100));
         var pg = document.getElementById("wcrm-msg-progress");
-        if (pg) pg.style.borderLeftColor = "#ff6b6b";
+        if (pg) pg.style.borderLeftColor = "var(--ezap-danger)";
         setTimeout(function() {
           var pg = document.getElementById("wcrm-msg-progress");
           if (pg) pg.remove();
