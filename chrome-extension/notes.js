@@ -147,6 +147,8 @@
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       if (row.querySelector('.ezap-note-btn')) continue;
+      // Skip audio messages — notes only on text messages
+      if (row.querySelector('[data-testid="audio-play"], [data-testid="ptt-play"], [data-testid="audio-seekbar"]')) continue;
       var wid = getRowWid(row);
       if (!wid) continue;
       newRows.push({ row: row, wid: wid });
@@ -165,33 +167,22 @@
     });
   }
 
-  // Find the visual message bubble inside a row
+  // Find the visual message bubble inside a row (text messages only)
   function findBubble(row) {
-    // Strategy 1: walk UP from copyable-text (text messages)
-    var anchor = row.querySelector('[class*="copyable-text"]');
-    // Strategy 2: walk UP from audio indicator (audio messages)
-    if (!anchor) {
-      anchor = row.querySelector('[data-testid="audio-play"]') ||
-               row.querySelector('[data-testid="ptt-play"]') ||
-               row.querySelector('[data-testid="audio-seekbar"]') ||
-               row.querySelector('[data-testid="ptt-duration"]');
-    }
-    if (anchor) {
-      var el = anchor;
-      for (var i = 0; i < 12; i++) {
+    var copyText = row.querySelector('[class*="copyable-text"]');
+    if (copyText) {
+      var el = copyText;
+      for (var i = 0; i < 10; i++) {
         if (!el.parentElement || el.parentElement === row) break;
         el = el.parentElement;
         try {
           var bg = window.getComputedStyle(el).backgroundColor;
-          if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' &&
-              el.offsetWidth > 100 && el.offsetWidth < 600) {
+          if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' && el.offsetWidth > 100) {
             return el;
           }
         } catch(e) {}
       }
     }
-
-    // Strategy 3: msg-container fallback
     return row.querySelector('[data-testid="msg-container"]') || row;
   }
 
