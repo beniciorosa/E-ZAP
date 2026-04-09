@@ -633,30 +633,15 @@ function _buildAbaPillsRow(theme) {
     // Pill inativa: bolinha colorida + texto neutro, fundo sutil
     // Pill ativa: fundo da cor da aba, texto com contraste, sombra
     var pill = document.createElement('button');
+    pill.className = 'wcrm-quick-aba-pill' + (isActive ? ' active' : '');
     pill.setAttribute('data-aba-id', tab.id);
     if (isActive) {
-      // Cores claras (amarelo, verde claro) precisam de borda mais escura
-      var borderDarken = _darkenColor(tabColor, 0.25);
-      var shadowColor = _darkenColor(tabColor, 0.3);
-      pill.style.cssText = 'display:inline-flex;align-items:center;gap:5px;' +
-        'background:' + tabColor + ';' +
-        'color:' + textOnColor + ';' +
-        'border:1.5px solid ' + borderDarken + ';' +
-        'border-radius:20px;padding:4px 14px;font-size:12px;font-weight:700;' +
-        'cursor:pointer;white-space:nowrap;font-family:inherit;transition:all 0.15s;flex-shrink:0;' +
-        'box-shadow:0 2px 6px ' + shadowColor + '50;';
-    } else {
-      pill.style.cssText = 'display:inline-flex;align-items:center;gap:5px;' +
-        'background:transparent;' +
-        'color:' + t.text + ';' +
-        'border:1px solid ' + (t.border || '#3b4a54') + ';' +
-        'border-radius:20px;padding:4px 12px;font-size:12px;font-weight:500;' +
-        'cursor:pointer;white-space:nowrap;font-family:inherit;transition:all 0.15s;flex-shrink:0;';
+      pill.style.cssText = 'background:' + tabColor + ';border-color:' + tabColor + ';color:' + textOnColor + ';box-shadow:0 1px 4px rgba(0,0,0,0.2);';
     }
     var dotColor = isActive ? textOnColor : tabColor;
-    pill.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0"></span>' +
+    pill.innerHTML = '<span class="ezap-pill-dot" style="background:' + dotColor + '"></span>' +
       '<span>' + (tab.name.length > 15 ? tab.name.substring(0, 15) + '..' : tab.name) + '</span>' +
-      '<span style="font-size:10px;opacity:0.6">' + count + '</span>';
+      '<span class="ezap-pill-count">' + count + '</span>';
     pill.addEventListener('click', function(ev) {
       ev.stopPropagation();
       if (typeof selectedAbaId !== 'undefined' && selectedAbaId === tab.id) {
@@ -1435,8 +1420,8 @@ function _showCustomAbaList(abaTab, chatIndex) {
     if (!isOverlayMode) {
       var emptyBtn = document.createElement('button');
       emptyBtn.textContent = 'Limpar filtro';
-      emptyBtn.style.cssText = 'margin-top:16px;background:none;border:1px solid #ff6b6b40;color:#ff6b6b;font-size:13px;cursor:pointer;font-weight:600;padding:8px 20px;border-radius:8px;font-family:inherit;';
-      emptyBtn.addEventListener('mouseenter', function() { emptyBtn.style.background = '#ff6b6b20'; });
+      emptyBtn.style.cssText = 'margin-top:16px;background:none;border:1px solid rgba(239,68,68,0.25);color:#ef4444;font-size:13px;cursor:pointer;font-weight:600;padding:8px 20px;border-radius:8px;font-family:inherit;transition:all 0.15s;';
+      emptyBtn.addEventListener('mouseenter', function() { emptyBtn.style.background = 'rgba(239,68,68,0.12)'; });
       emptyBtn.addEventListener('mouseleave', function() { emptyBtn.style.background = 'none'; });
       emptyBtn.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -1674,19 +1659,17 @@ function _showCustomAbaList(abaTab, chatIndex) {
       (pinnedCount > 0 ? ' \u00b7 ' + pinnedCount + ' fixado' + (pinnedCount !== 1 ? 's' : '') : '');
     countRowAba.appendChild(countLabelAba);
 
-    var _abaColor = (abaTab && abaTab.color) ? abaTab.color : '#cc5de8';
+    var _abaColor = (abaTab && abaTab.color) ? abaTab.color : '#8b5cf6';
     var _abaTextOnBg = _pillTextColor(_abaColor);
     var abaNameBadge = document.createElement('span');
     abaNameBadge.style.cssText = 'font-size:10px;font-weight:700;color:' + _abaTextOnBg + ';letter-spacing:0.3px;' +
-      'background:' + _abaColor + ';padding:2px 10px;border-radius:10px;text-transform:uppercase;';
+      'background:' + _abaColor + ';padding:2px 10px;border-radius:6px;text-transform:uppercase;';
     abaNameBadge.textContent = abaTab ? abaTab.name : '';
     countRowAba.appendChild(abaNameBadge);
 
     var clearBtn = document.createElement('button');
+    clearBtn.className = 'wcrm-quick-aba-clear';
     clearBtn.innerHTML = '&#10005; Limpar';
-    clearBtn.style.cssText = 'background:#ff6b6b18;border:1px solid #ff6b6b50;color:#ff6b6b;font-size:10px;cursor:pointer;font-weight:600;padding:3px 10px;border-radius:10px;font-family:inherit;transition:all 0.15s;';
-    clearBtn.addEventListener('mouseenter', function() { clearBtn.style.background = '#ff6b6b30'; clearBtn.style.borderColor = '#ff6b6b'; });
-    clearBtn.addEventListener('mouseleave', function() { clearBtn.style.background = '#ff6b6b18'; clearBtn.style.borderColor = '#ff6b6b50'; });
     clearBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       if (typeof clearAbasFilter === 'function') clearAbasFilter();
@@ -2132,7 +2115,7 @@ function _createCustomRow(data) {
       var tag = document.createElement('span');
       tag.className = 'wcrm-custom-label-tag';
       tag.textContent = contactLabels[li].name || '';
-      var tagColor = contactLabels[li].color || '#25d366';
+      var tagColor = contactLabels[li].color || '#00a884';
       tag.style.background = tagColor + '30';
       tag.style.color = tagColor;
       labelsRow.appendChild(tag);

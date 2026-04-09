@@ -1547,21 +1547,22 @@ function renderNotesHistory(hubspotNotes) {
     // Timeline item with dot indicator (--hs variant for HubSpot notes)
     var hsClass = note.source === "hs" ? " ezap-timeline-item--hs" : "";
     html += '<div class="ezap-timeline-item' + hsClass + '" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '">';
-    html += '<div class="ezap-timeline-date">' + dateStr + ' ' + sourceTag + '</div>';
-    html += '<div class="wcrm-note-item ezap-timeline-content">';
-    html += '<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:2px">';
-    // Only show edit/delete if user is admin OR the note was created by them
+    // Date + source + actions on the same row outside the card
+    html += '<div class="ezap-timeline-date" style="display:flex;align-items:center;justify-content:space-between">';
+    html += '<span>' + dateStr + ' ' + sourceTag + '</span>';
     var isAdmin = window.__wcrmAuth && window.__wcrmAuth.userRole === "admin";
     var currentUser = (window.__wcrmAuth && window.__wcrmAuth.userName) || "";
     var isOwner = currentUser && note.html && note.html.indexOf("Observação criada por: " + currentUser) !== -1;
     if (isAdmin || isOwner) {
-      html += '<span class="wcrm-note-edit ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Editar" style="color:var(--ezap-secondary)">&#x270F;&#xFE0F;</span>';
-      html += '<span class="wcrm-note-delete ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Excluir" style="color:var(--ezap-danger)">&#x1F5D1;&#xFE0F;</span>';
+      html += '<span style="display:flex;gap:4px">';
+      html += '<span class="wcrm-note-edit ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Editar" style="color:var(--ezap-secondary);font-size:11px;cursor:pointer">&#9998;</span>';
+      html += '<span class="wcrm-note-delete ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Excluir" style="color:var(--ezap-danger);font-size:11px;cursor:pointer">&times;</span>';
+      html += '</span>';
     }
     html += '</div>';
-    // Content with max-height and click-to-expand
+    // Card content
+    html += '<div class="wcrm-note-item ezap-timeline-content">';
     html += '<div class="wcrm-note-content" style="font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative">' + noteBody + '</div>';
-    // Author signature - always visible below content
     if (authorSig) {
       html += '<div style="color:var(--ezap-text-muted);font-size:10px;font-style:italic;margin-top:3px;border-top:1px solid var(--ezap-border);padding-top:2px">' + authorSig + '</div>';
     }

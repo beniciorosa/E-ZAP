@@ -1694,52 +1694,30 @@ function injectQuickAbaSelector() {
 
   var existing = document.getElementById('wcrm-quick-aba-bar');
 
-  // Build pills HTML
+  // Build pills HTML using CSS classes
   var pillsHtml = '';
   data.tabs.forEach(function(tab) {
     var isActive = selectedAbaId === tab.id;
     var count = (tab.contacts || []).length;
-    var bgColor = isActive ? tab.color : 'transparent';
-    var textColor = isActive ? '#fff' : t.textSecondary;
-    var borderCol = isActive ? tab.color : t.border;
     var displayName = _truncateAbaName(tab.name, 15);
+    // Active pill gets background color + .active class; inactive uses CSS defaults
+    var activeStyle = isActive ? 'background:' + tab.color + ';border-color:' + tab.color + ';' : '';
     pillsHtml +=
-      '<button class="wcrm-quick-aba-pill" data-aba-id="' + tab.id + '" title="' + tab.name + '" style="' +
-        'display:inline-flex;align-items:center;gap:4px;' +
-        'background:' + bgColor + ';' +
-        'color:' + textColor + ';' +
-        'border:1px solid ' + borderCol + ';' +
-        'border-radius:20px;' +
-        'padding:3px 10px;' +
-        'font-size:11px;font-weight:500;' +
-        'cursor:pointer;white-space:nowrap;' +
-        'font-family:inherit;' +
-        'transition:all 0.15s;' +
-        'flex-shrink:0;' +
-      '">' +
-        '<span style="width:7px;height:7px;border-radius:50%;background:' + (isActive ? '#fff' : tab.color) + ';flex-shrink:0"></span>' +
+      '<button class="wcrm-quick-aba-pill' + (isActive ? ' active' : '') + '" data-aba-id="' + tab.id + '" title="' + tab.name + '"' +
+        (activeStyle ? ' style="' + activeStyle + '"' : '') + '>' +
+        '<span class="ezap-pill-dot" style="background:' + (isActive ? '#fff' : tab.color) + '"></span>' +
         '<span>' + displayName + '</span>' +
-        '<span style="font-size:10px;opacity:0.7">' + count + '</span>' +
+        '<span class="ezap-pill-count">' + count + '</span>' +
       '</button>';
   });
 
-  // Arrow button style
-  var arrowBtnStyle =
-    'display:none;align-items:center;justify-content:center;' +
-    'background:' + t.headerBg + ';' +
-    'border:none;color:' + t.textSecondary + ';' +
-    'cursor:pointer;padding:0 4px;font-size:14px;' +
-    'flex-shrink:0;height:100%;min-width:20px;' +
-    'font-family:inherit;';
-
   var barHtml =
     '<div style="display:flex;align-items:center;position:relative">' +
-      '<button class="wcrm-quick-aba-arrow wcrm-quick-aba-arrow-left" style="' + arrowBtnStyle + '">&#9664;</button>' +
-      '<div class="wcrm-quick-aba-scroll" style="display:flex;align-items:center;gap:5px;padding:5px 8px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;-ms-overflow-style:none;flex:1;min-width:0">' +
-        '<span style="color:' + t.textSecondary + ';font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;flex-shrink:0">Abas</span>' +
+      '<button class="wcrm-quick-aba-arrow wcrm-quick-aba-arrow-left">&#9664;</button>' +
+      '<div class="wcrm-quick-aba-scroll">' +
         pillsHtml +
       '</div>' +
-      '<button class="wcrm-quick-aba-arrow wcrm-quick-aba-arrow-right" style="' + arrowBtnStyle + '">&#9654;</button>' +
+      '<button class="wcrm-quick-aba-arrow wcrm-quick-aba-arrow-right">&#9654;</button>' +
     '</div>';
 
   // Preserve scroll position across re-renders
@@ -1749,14 +1727,13 @@ function injectQuickAbaSelector() {
     if (oldScroll) savedScroll = oldScroll.scrollLeft;
     existing.innerHTML = barHtml;
     existing.style.background = t.headerBg;
-    existing.style.borderBottom = '1px solid ' + t.border;
     // Restore scroll position
     var newScroll = existing.querySelector('.wcrm-quick-aba-scroll');
     if (newScroll && savedScroll > 0) newScroll.scrollLeft = savedScroll;
   } else {
     var bar = document.createElement('div');
     bar.id = 'wcrm-quick-aba-bar';
-    bar.style.cssText = 'background:' + t.headerBg + ';border-bottom:1px solid ' + t.border + ';z-index:1000;position:sticky;top:0;';
+    bar.style.cssText = 'background:' + t.headerBg + ';';
     bar.innerHTML = barHtml;
 
     // Inject before the scrollable chat list container
@@ -1845,11 +1822,7 @@ function _injectQuickAbaCSS() {
   if (document.getElementById('wcrm-quick-aba-css')) return;
   var style = document.createElement('style');
   style.id = 'wcrm-quick-aba-css';
-  style.textContent = [
-    '.wcrm-quick-aba-scroll::-webkit-scrollbar { display: none; }',
-    '.wcrm-quick-aba-pill:hover { filter: brightness(1.2); }',
-    '.wcrm-quick-aba-arrow:hover { color: #e9edef !important; background: rgba(134,150,160,0.15) !important; }'
-  ].join('\n');
+  style.textContent = '';  // Styles now in sidebar.css
   document.head.appendChild(style);
 }
 
