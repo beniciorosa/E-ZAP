@@ -2152,6 +2152,7 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   var _nameCache = {};    // chatJid -> lastKnownName
   var SYNC_COOLDOWN = 10 * 60 * 1000; // 10 minutes
   var _lastChatJid = null;
+  var _lastDebugName = null;
 
   function getUserId() {
     return (window.__wcrmAuth && window.__wcrmAuth.userId) || null;
@@ -2276,7 +2277,15 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   // ===== Poll for chat changes =====
   function checkCurrentChat() {
     var chat = getCurrentChat();
-    if (!chat || !chat.jid) return;
+    if (!chat) return;
+    if (!chat.jid) {
+      // JID not found — log once per chat name to debug
+      if (chat.name && chat.name !== _lastDebugName) {
+        _lastDebugName = chat.name;
+        console.log("[EZAP-SYNC] Chat detected but no JID:", chat.name);
+      }
+      return;
+    }
 
     // Track name changes (for all chats, not just groups)
     trackNameChange(chat.jid, chat.name);
