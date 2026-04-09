@@ -439,6 +439,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleAsync(() => fetchMeetSummary(request.meetingTitle, request.meetRecordingId), sendResponse);
     return true;
   }
+  if (request.action === "process_meet_summary") {
+    handleAsync(() => processMeetSummary(request.meetRecordingId, request.meetingTitle, request.geminiText), sendResponse);
+    return true;
+  }
 
   // ===== Generic Supabase REST (for data sync) =====
   if (request.action === "supabase_rest") {
@@ -542,6 +546,119 @@ async function fetchMeetSummary(meetingTitle, meetRecordingId) {
     text: docData.text,
     webViewLink: results.files[0].webViewLink
   };
+}
+
+// ===== Process Meet Summary: AI rewrite + Supabase + HubSpot =====
+async function processMeetSummary(meetRecordingId, meetingTitle, geminiText) {
+  const log = (msg) => console.log("[EZAP MEET-SUMMARY] " + msg);
+  const result = { steps: {} };
+
+  try {
+    // Step 1: Rewrite summary with AI (sales/consultoria language)
+    log("Step 1: Rewriting summary with AI...");
+    const apiKey = await getOpenAIKey();
+    if (!apiKey) throw new Error("OpenAI API key não configurada");
+
+    const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "Você é um assistente especializado em consultoria de vendas online e e-commerce. " +
+              "Reescreva o resumo da reunião abaixo em formato profissional de relatório de consultoria. " +
+              "Use linguagem objetiva e estruturada. Inclua as seguintes seções:\n\n" +
+              "📋 **RESUMO DA REUNIÃO**\nResumo executivo em 2-3 frases.\n\n" +
+              "🎯 **PONTOS PRINCIPAIS**\nListe os tópicos discutidos como bullet points.\n\n" +
+              "⚠️ **OBJEÇÕES / DIFICULDADES DO CLIENTE**\nProblemas, frustrações ou obstáculos mencionados.\n\n" +
+              "✅ **DECISÕES TOMADAS**\nO que foi decidido durante a reunião.\n\n" +
+              "📌 **PRÓXIMOS PASSOS**\nAções concretas com responsáveis, se mencionados.\n\n" +
+              "Mantenha o texto conciso e acionável. Não invente informações que não estejam no resumo original."
+          },
+          {
+            role: "user",
+            content: "Título da reunião: " + meetingTitle + "\n\nResumo do Gemini:\n" + geminiText
+          }
+        ],
+        max_tokens: 2000,
+        temperature: 0.5,
+      }),
+    });
+
+    if (!aiResp.ok) throw new Error("OpenAI API error: " + aiResp.status);
+    const aiData = await aiResp.json();
+    const salesSummary = aiData.choices[0].message.content;
+    result.steps.ai = "ok";
+    result.salesSummary = salesSummary;
+    log("AI summary generated (" + salesSummary.length + " chars)");
+
+    // Step 2: Save to Supabase
+    log("Step 2: Saving to Supabase...");
+    if (meetRecordingId) {
+      await supabaseRest("/rest/v1/meet_recordings?id=eq." + meetRecordingId, "PATCH", {
+        gemini_summary: geminiText,
+        sales_summary: salesSummary
+      });
+      result.steps.supabase = "ok";
+      log("Saved to Supabase");
+    }
+
+    // Step 3: Search HubSpot for matching ticket
+    log("Step 3: Searching HubSpot for ticket: " + meetingTitle);
+    var hubspotResult = null;
+    try {
+      hubspotResult = await searchTicketsByName(meetingTitle);
+    } catch (e) {
+      log("HubSpot search error: " + e.message);
+    }
+
+    if (hubspotResult && hubspotResult.tickets && hubspotResult.tickets.length > 0) {
+      var ticket = hubspotResult.tickets[0];
+      var ticketId = ticket.id;
+      log("Found ticket: " + ticket.properties.subject + " (ID: " + ticketId + ")");
+
+      // Step 4: Create note on ticket
+      log("Step 4: Creating note on HubSpot ticket...");
+      var noteBody = "<h3>📝 Resumo da Reunião — E-ZAP</h3>" +
+        "<p><strong>Reunião:</strong> " + meetingTitle + "</p>" +
+        "<hr>" + salesSummary.replace(/\n/g, "<br>");
+
+      var noteResult = await createHubSpotNote(ticketId, noteBody);
+      if (noteResult.ok) {
+        result.steps.hubspot = "ok";
+        result.hubspotNoteId = noteResult.noteId;
+        result.hubspotTicketId = ticketId;
+        result.hubspotTicketName = ticket.properties.subject;
+        log("Note created on ticket (noteId: " + noteResult.noteId + ")");
+
+        // Save HubSpot note ID to Supabase
+        if (meetRecordingId) {
+          await supabaseRest("/rest/v1/meet_recordings?id=eq." + meetRecordingId, "PATCH", {
+            hubspot_note_id: noteResult.noteId
+          });
+        }
+      } else {
+        result.steps.hubspot = "error: " + noteResult.error;
+        log("Failed to create note: " + noteResult.error);
+      }
+    } else {
+      result.steps.hubspot = "skipped - no ticket found";
+      log("No matching ticket found in HubSpot, skipping note creation");
+    }
+
+    result.ok = true;
+  } catch (e) {
+    result.ok = false;
+    result.error = e.message;
+    log("ERROR: " + e.message);
+  }
+
+  return result;
 }
 
 // ===== Generic Supabase REST for data sync (uses service role key to bypass RLS) =====
