@@ -136,29 +136,45 @@
     activitiesBtn.click();
     log("Clicked Activities panel");
 
-    // Step 2: Click "Gravar" / "Record" in the panel
-    setTimeout(function() {
-      // Find the "Gravar" button by aria-label (most reliable)
-      var recordBtn = document.querySelector('[role="button"][aria-label*="Gravar"], [role="button"][aria-label*="Record"]');
+    // Step 2: Click "Gravar" — retry up to 5 times with 1s interval (panel takes time to render)
+    var _recAttempt = 0;
+    var _recTimer = setInterval(function() {
+      _recAttempt++;
+      log("Looking for Record button (attempt " + _recAttempt + ")");
 
-      // Fallback: search by text content
+      // Find by aria-label containing "Gravar Grave" (specific to record card)
+      var recordBtn = document.querySelector('[aria-label*="Gravar Grave"], [aria-label*="Record Record"]');
+
+      // Fallback: find any element with "Grave a reunião" text
       if (!recordBtn) {
-        var btns = document.querySelectorAll('[role="button"]');
-        for (var bi = 0; bi < btns.length; bi++) {
-          var al = btns[bi].getAttribute('aria-label') || '';
-          var tx = (btns[bi].textContent || '').trim();
-          if (al.indexOf('Gravar') >= 0 || al.indexOf('Record') >= 0 || tx.indexOf('Grave a reunião') >= 0) {
-            recordBtn = btns[bi];
+        var all = document.querySelectorAll('div, span, li, a, button');
+        for (var ai = 0; ai < all.length; ai++) {
+          var el = all[ai];
+          var tx = (el.textContent || '').trim();
+          // Must contain "Grave a reunião" but not too much text (avoid the whole panel)
+          if (tx.indexOf('Grave a reunião') >= 0 && tx.length < 50) {
+            recordBtn = el.closest('[role="button"], [tabindex]') || el;
             break;
           }
         }
       }
 
-      if (!clickEl(recordBtn)) {
-        log("ERROR: Could not find Record button in panel");
-        updateBanner("error", "❌ Botão 'Gravar' não encontrado no painel.");
+      if (recordBtn) {
+        clearInterval(_recTimer);
+        recordBtn.click();
+        log("Clicked Record card");
+        afterRecordClick();
         return;
       }
+
+      if (_recAttempt >= 5) {
+        clearInterval(_recTimer);
+        log("ERROR: Could not find Record button after 5 attempts");
+        updateBanner("error", "❌ Botão 'Gravar' não encontrado no painel.");
+      }
+    }, 1000);
+
+    function afterRecordClick() {
       log("Clicked Record");
 
       // Step 3: Ensure all checkboxes are checked (legendas, transcrição, Gemini)
@@ -232,7 +248,7 @@
           }, 1500);
         }, 500);
       }, 1000);
-    }, 800);
+    }
   }
 
   // Legacy method: More options > Manage recording (old Meet UI)
