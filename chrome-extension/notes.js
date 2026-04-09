@@ -417,12 +417,17 @@
           window.ezapGetAllChats().then(function(chats) {
             _chatsWithNoteNames = {};
             if (chats && chats.length) {
+              // Log first 3 chats to see JID format
+              console.log("[EZAP-NOTES] Sample chats from API:", chats.slice(0, 3).map(function(c) { return { jid: c.jid, name: c.name }; }));
+              console.log("[EZAP-NOTES] Looking for JIDs:", jidKeys);
               for (var c = 0; c < chats.length; c++) {
                 var chat = chats[c];
                 if (chat.jid && chatJids[chat.jid] && chat.name) {
                   _chatsWithNoteNames[chat.name.toLowerCase()] = true;
                 }
               }
+            } else {
+              console.log("[EZAP-NOTES] ezapGetAllChats returned:", chats);
             }
             // Fallback: also store phone numbers for @c.us JIDs
             for (var j = 0; j < jidKeys.length; j++) {
