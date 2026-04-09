@@ -444,15 +444,18 @@ function renderMsgItems() {
 
     // Content
     if (isText) {
-      // Formatting toolbar — simple inline style (not ezap-editor-toolbar which is too heavy here)
-      html += '<div class="wcrm-msg-toolbar" data-idx="' + idx + '" style="display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid var(--ezap-border)">';
-      html += '<button data-cmd="bold" style="background:none;border:none;color:var(--ezap-text-secondary);font-size:13px;font-weight:700;cursor:pointer;padding:2px 6px;border-radius:4px" title="Negrito"><b>B</b></button>';
-      html += '<button data-cmd="italic" style="background:none;border:none;color:var(--ezap-text-secondary);font-size:13px;font-style:italic;cursor:pointer;padding:2px 6px;border-radius:4px" title="Itálico"><i>I</i></button>';
-      html += '<button data-cmd="insertUnorderedList" style="background:none;border:none;color:var(--ezap-text-secondary);font-size:13px;cursor:pointer;padding:2px 6px;border-radius:4px" title="Lista">\u2022</button>';
+      // Editor wrapper with visible background for contrast
+      html += '<div style="background:#2a3942;border:1px solid #3b4a54;border-radius:6px;overflow:hidden">';
+      // Formatting toolbar
+      html += '<div class="wcrm-msg-toolbar" data-idx="' + idx + '" style="display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid #3b4a54;background:#202c33">';
+      html += '<button data-cmd="bold" style="background:none;border:none;color:#8696a0;font-size:13px;font-weight:700;cursor:pointer;padding:2px 6px;border-radius:4px" title="Negrito"><b>B</b></button>';
+      html += '<button data-cmd="italic" style="background:none;border:none;color:#8696a0;font-size:13px;font-style:italic;cursor:pointer;padding:2px 6px;border-radius:4px" title="Itálico"><i>I</i></button>';
+      html += '<button data-cmd="insertUnorderedList" style="background:none;border:none;color:#8696a0;font-size:13px;cursor:pointer;padding:2px 6px;border-radius:4px" title="Lista">\u2022</button>';
       html += '</div>';
       // Rich text editor
       var contentHtml = item.content || '';
-      html += '<div class="wcrm-msg-editor" contenteditable="true" data-idx="' + idx + '" data-placeholder="Digite a mensagem..." style="min-height:60px;padding:8px 10px;color:var(--ezap-text-primary);font-size:12px;font-family:inherit;outline:none;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word">' + contentHtml + '</div>';
+      html += '<div class="wcrm-msg-editor" contenteditable="true" data-idx="' + idx + '" data-placeholder="Digite a mensagem..." style="min-height:60px;padding:8px 10px;color:#e9edef;font-size:12px;font-family:inherit;outline:none;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word">' + contentHtml + '</div>';
+      html += '</div>';
     } else {
       // File info - show from URL or legacy base64
       var sizeInfo = '';
