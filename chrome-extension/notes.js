@@ -165,25 +165,33 @@
     });
   }
 
-  // Find the visual message bubble inside a row (same strategy as GEIA)
+  // Find the visual message bubble inside a row
   function findBubble(row) {
-    // Strategy 1: walk UP from copyable-text to find colored bubble (GEIA pattern)
-    var copyText = row.querySelector('[class*="copyable-text"]');
-    if (copyText) {
-      var el = copyText;
-      for (var i = 0; i < 10; i++) {
+    // Strategy 1: walk UP from copyable-text (text messages)
+    var anchor = row.querySelector('[class*="copyable-text"]');
+    // Strategy 2: walk UP from audio indicator (audio messages)
+    if (!anchor) {
+      anchor = row.querySelector('[data-testid="audio-play"]') ||
+               row.querySelector('[data-testid="ptt-play"]') ||
+               row.querySelector('[data-testid="audio-seekbar"]') ||
+               row.querySelector('[data-testid="ptt-duration"]');
+    }
+    if (anchor) {
+      var el = anchor;
+      for (var i = 0; i < 12; i++) {
         if (!el.parentElement || el.parentElement === row) break;
         el = el.parentElement;
         try {
           var bg = window.getComputedStyle(el).backgroundColor;
-          if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' && el.offsetWidth > 100) {
+          if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' &&
+              el.offsetWidth > 100 && el.offsetWidth < 600) {
             return el;
           }
         } catch(e) {}
       }
     }
 
-    // Strategy 2: msg-container fallback
+    // Strategy 3: msg-container fallback
     return row.querySelector('[data-testid="msg-container"]') || row;
   }
 

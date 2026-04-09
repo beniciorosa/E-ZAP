@@ -577,8 +577,7 @@
   user-select: none; border: none; line-height: 1; font-size: 13px;
 }
 .ezap-note-btn:hover { background: rgba(134,150,160,0.35); color: #d1d7db; transform: translateY(-50%) scale(1.12); }
-/* When another button exists (transcribe/geia), stack below instead of further right */
-.ezap-note-btn-shift { right: -34px; top: calc(50% + 18px); }
+.ezap-note-btn-shift { right: -66px; }
 .ezap-note-has { background: #2a2a1a; color: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.35); }
 .ezap-note-has:hover { background: rgba(251,191,36,0.4); color: #fde68a; }
 .ezap-note-box { padding: 6px 10px; margin-top: 4px; background: rgba(251,191,36,0.08); border-left: 3px solid #fbbf24; border-radius: 0 6px 6px 0; font-size: 12.5px; line-height: 1.4; color: #fde68a; white-space: pre-wrap; word-break: break-word; cursor: pointer; }
