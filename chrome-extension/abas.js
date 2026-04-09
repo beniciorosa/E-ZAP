@@ -1123,7 +1123,10 @@ function updateAbasIndicator() {
 
   var btn = document.getElementById("wcrm-abas-toggle");
   if (btn) {
-    if (selectedAbaId) btn.classList.add("active"); else btn.classList.remove("active");
+    // Active state is managed by sidebar-manager (_highlightActiveButton)
+    // Only add extra glow if a filter is active, don't remove the sidebar-managed .active
+    var sidebarIsOpen = window.ezapSidebar && window.ezapSidebar.isOpen("abas");
+    if (selectedAbaId || sidebarIsOpen) btn.classList.add("active"); else btn.classList.remove("active");
   }
 
   // Update quick aba selector active states
