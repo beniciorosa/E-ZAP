@@ -113,13 +113,22 @@
 
   // ===== Get chat JID from current conversation =====
   function getCurrentChatJid() {
-    // Try to get from the open conversation header
+    // Strategy 1: conversation-info-header
     var header = document.querySelector('header [data-testid="conversation-info-header"]');
     if (header) {
       var row = header.closest('div[data-id]');
       if (row) return row.getAttribute('data-id');
     }
-    // Fallback: check _ezapStore or URL
+    // Strategy 2: extract from message WIDs visible in current chat
+    // Message WID format: true_CHATJID_MSGID or false_CHATJID_MSGID
+    var msgRow = document.querySelector('#main div[role="row"] [data-id]');
+    if (msgRow) {
+      var wid = msgRow.getAttribute('data-id') || '';
+      var parts = wid.split('_');
+      if (parts.length >= 2 && parts[1].indexOf('@') >= 0) return parts[1];
+    }
+    // Strategy 3: store-bridge exposed chat info
+    if (window._ezapCurrentChat && window._ezapCurrentChat.id) return window._ezapCurrentChat.id;
     return null;
   }
 
@@ -374,23 +383,32 @@
   var _chatsWithNotes = {};  // chatJid -> true
   var _dotScanDone = false;
 
-  // Fetch all chat_jids that have notes for this user (one-time bulk query)
+  // Fetch all chats that have notes for this user
+  // Uses both chat_jid (if saved) and message_wid (extract chat from WID)
   function fetchChatsWithNotes() {
     var userId = getUserId();
     if (!userId || !isExtValid()) return;
     try {
       chrome.runtime.sendMessage({
         action: "supabase_rest",
-        path: "/rest/v1/message_notes?user_id=eq." + userId + "&select=chat_jid",
+        path: "/rest/v1/message_notes?user_id=eq." + userId + "&select=chat_jid,message_wid",
         method: "GET"
       }, function(resp) {
         if (chrome.runtime.lastError) return;
         if (!Array.isArray(resp)) return;
         _chatsWithNotes = {};
         for (var i = 0; i < resp.length; i++) {
-          if (resp[i].chat_jid) _chatsWithNotes[resp[i].chat_jid] = true;
+          var jid = resp[i].chat_jid;
+          // Extract chat JID from message_wid if chat_jid is null
+          // WID format: true_5511999999999@c.us_3EB0... or false_...@g.us_...
+          if (!jid && resp[i].message_wid) {
+            var parts = resp[i].message_wid.split('_');
+            if (parts.length >= 2 && parts[1].indexOf('@') >= 0) jid = parts[1];
+          }
+          if (jid) _chatsWithNotes[jid] = true;
         }
         _dotScanDone = true;
+        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNotes).length);
         injectChatDots();
       });
     } catch(e) {}
@@ -398,20 +416,33 @@
 
   // Inject yellow dots next to chat names in the conversation list
   function injectChatDots() {
-    if (!_dotScanDone) return;
-    var chatRows = document.querySelectorAll('#pane-side div[role="listitem"], #pane-side div[role="row"], #pane-side div[data-id]');
-    for (var i = 0; i < chatRows.length; i++) {
-      var row = chatRows[i];
+    if (!_dotScanDone || Object.keys(_chatsWithNotes).length === 0) return;
+
+    // Find all chat name spans in the sidebar (they have title + dir attributes)
+    var pane = document.getElementById('pane-side');
+    if (!pane) return;
+
+    // WA chat rows: role="listitem" or role="row", contain spans with title=chatName
+    var rows = pane.querySelectorAll('[role="listitem"], [role="row"]');
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
       if (row.querySelector('.ezap-note-dot')) continue;
 
-      // Get chat JID from data-id
-      var jid = row.getAttribute('data-id');
+      // Find JID: look for data-id on the row or any ancestor/descendant
+      var jidEl = row.querySelector('[data-id]') || row.closest('[data-id]');
+      var jid = jidEl ? jidEl.getAttribute('data-id') : '';
+
+      // Also check custom rows (E-ZAP overlay) which use data-jid
+      if (!jid || jid.indexOf('@') < 0) {
+        var customRow = row.closest('[data-jid]') || row.querySelector('[data-jid]');
+        if (customRow) jid = customRow.getAttribute('data-jid');
+      }
+
       if (!jid || !_chatsWithNotes[jid]) continue;
 
-      // Find the name span (title attribute on span inside the row)
+      // Find the name span
       var nameSpan = row.querySelector('span[title][dir]');
-      if (!nameSpan) continue;
-      if (nameSpan.querySelector('.ezap-note-dot')) continue;
+      if (!nameSpan || nameSpan.querySelector('.ezap-note-dot')) continue;
 
       var dot = document.createElement('span');
       dot.className = 'ezap-note-dot';
