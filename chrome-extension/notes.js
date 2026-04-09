@@ -409,7 +409,7 @@
         _dotDataReady = true;
         console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames));
         // Log span count for debug
-        var allSpans = document.querySelectorAll('span[title][dir]');
+        var allSpans = document.querySelectorAll('span[title]');
         console.log("[EZAP-NOTES] Found", allSpans.length, "title spans in page");
         injectChatDots();
       });
@@ -421,7 +421,7 @@
     if (!_dotDataReady || Object.keys(_chatsWithNoteNames).length === 0) return;
 
     // Search entire page for chat name spans
-    var nameSpans = document.querySelectorAll('span[title][dir]');
+    var nameSpans = document.querySelectorAll('span[title]');
     for (var i = 0; i < nameSpans.length; i++) {
       var span = nameSpans[i];
       if (span.querySelector('.ezap-note-dot')) continue;
