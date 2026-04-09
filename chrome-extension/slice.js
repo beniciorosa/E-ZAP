@@ -1659,6 +1659,11 @@ function _showCustomAbaList(abaTab, chatIndex) {
       (pinnedCount > 0 ? ' \u00b7 ' + pinnedCount + ' fixado' + (pinnedCount !== 1 ? 's' : '') : '');
     countRowAba.appendChild(countLabelAba);
 
+    var abaBadge = document.createElement('span');
+    abaBadge.style.cssText = 'font-size:10px;font-weight:600;color:#00a884;letter-spacing:0.5px;';
+    abaBadge.textContent = 'E-ZAP';
+    countRowAba.appendChild(abaBadge);
+
     header.appendChild(countRowAba);
   }
   custom.appendChild(header);
