@@ -609,6 +609,18 @@
 /* ===== 31. CHAT LIST LABEL DOT ===== */
 .wcrm-chat-label-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 4px; vertical-align: middle; }
 
+/* Notes indicator dot in chat list */
+.ezap-note-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fbbf24;
+  margin-left: 4px;
+  vertical-align: middle;
+  box-shadow: 0 0 4px rgba(251,191,36,0.4);
+}
+
 /* ===== 32. ADMIN OVERLAY (injected into WA DOM — uses ao- prefix) ===== */
 .ao-chat-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer; border-bottom: 1px solid rgba(42,57,66,0.5); transition: background 0.15s; }
 .ao-chat-item:hover { background: #202c33; }

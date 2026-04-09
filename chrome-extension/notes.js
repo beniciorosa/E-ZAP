@@ -81,6 +81,8 @@
             return;
           }
           _noteCache[wid] = text;
+          // Update dot cache for this chat
+          if (chatJid) { _chatsWithNotes[chatJid] = true; injectChatDots(); }
           console.log("[EZAP-NOTES] Note saved:", wid);
           resolve(true);
         });
@@ -368,6 +370,56 @@
     bubble.appendChild(box);
   }
 
+  // ===== Chat list dot indicators =====
+  var _chatsWithNotes = {};  // chatJid -> true
+  var _dotScanDone = false;
+
+  // Fetch all chat_jids that have notes for this user (one-time bulk query)
+  function fetchChatsWithNotes() {
+    var userId = getUserId();
+    if (!userId || !isExtValid()) return;
+    try {
+      chrome.runtime.sendMessage({
+        action: "supabase_rest",
+        path: "/rest/v1/message_notes?user_id=eq." + userId + "&select=chat_jid",
+        method: "GET"
+      }, function(resp) {
+        if (chrome.runtime.lastError) return;
+        if (!Array.isArray(resp)) return;
+        _chatsWithNotes = {};
+        for (var i = 0; i < resp.length; i++) {
+          if (resp[i].chat_jid) _chatsWithNotes[resp[i].chat_jid] = true;
+        }
+        _dotScanDone = true;
+        injectChatDots();
+      });
+    } catch(e) {}
+  }
+
+  // Inject yellow dots next to chat names in the conversation list
+  function injectChatDots() {
+    if (!_dotScanDone) return;
+    var chatRows = document.querySelectorAll('#pane-side div[role="listitem"], #pane-side div[role="row"], #pane-side div[data-id]');
+    for (var i = 0; i < chatRows.length; i++) {
+      var row = chatRows[i];
+      if (row.querySelector('.ezap-note-dot')) continue;
+
+      // Get chat JID from data-id
+      var jid = row.getAttribute('data-id');
+      if (!jid || !_chatsWithNotes[jid]) continue;
+
+      // Find the name span (title attribute on span inside the row)
+      var nameSpan = row.querySelector('span[title][dir]');
+      if (!nameSpan) continue;
+      if (nameSpan.querySelector('.ezap-note-dot')) continue;
+
+      var dot = document.createElement('span');
+      dot.className = 'ezap-note-dot';
+      dot.title = 'Tem anotações';
+      nameSpan.appendChild(dot);
+    }
+  }
+
   // ===== Observer & Init =====
   function start() {
     console.log('[EZAP-NOTES] Starting notes observer');
@@ -396,6 +448,13 @@
 
     scan();
     setInterval(scan, 5000);
+
+    // Fetch chats with notes and inject dots
+    fetchChatsWithNotes();
+    // Re-inject dots periodically (chat list virtualizes rows)
+    setInterval(injectChatDots, 3000);
+    // Refresh the full list every 2 minutes
+    setInterval(fetchChatsWithNotes, 120000);
   }
 
   function tryStart() {
