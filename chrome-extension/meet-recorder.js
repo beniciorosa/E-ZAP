@@ -12,11 +12,8 @@
   "use strict";
 
   // ===== CONFIG =====
-  // Allowed emails for auto-record (hardcoded for testing)
-  var ALLOWED_EMAILS = [
-    "tools@grupoescalada.com.br",
-    "dhiego@grupoescalada.com.br"
-  ];
+  // Allowed domain for auto-record
+  var ALLOWED_DOMAIN = "grupoescalada.com.br";
 
   var _state = "idle"; // idle | waiting | recording | done | skipped
   var _banner = null;
@@ -443,13 +440,11 @@
         log("User: " + (auth.userName || "unknown") + " (" + _userEmail + ")");
       }
 
-      // Check if user email is in the allowed list
+      // Check if user email domain is allowed
       var emailAllowed = false;
-      for (var i = 0; i < ALLOWED_EMAILS.length; i++) {
-        if (_userEmail && _userEmail.toLowerCase() === ALLOWED_EMAILS[i].toLowerCase()) {
-          emailAllowed = true;
-          break;
-        }
+      if (_userEmail) {
+        var parts = _userEmail.toLowerCase().split("@");
+        emailAllowed = parts.length === 2 && parts[1] === ALLOWED_DOMAIN;
       }
 
       if (!emailAllowed) {
