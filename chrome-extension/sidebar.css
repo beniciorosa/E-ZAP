@@ -137,17 +137,29 @@
 .escalada-crm .ezap-card {
   background: var(--ezap-bg-elevated); border-radius: var(--ezap-radius-md);
   padding: var(--ezap-space-3); margin-bottom: var(--ezap-space-2);
-  border: 1px solid transparent; transition: border-color var(--ezap-transition-fast), box-shadow var(--ezap-transition-fast);
+  border: 1px solid transparent; transition: background var(--ezap-transition-fast), box-shadow var(--ezap-transition-fast);
 }
-.escalada-crm .ezap-card:hover { border-color: var(--ezap-border); box-shadow: var(--ezap-shadow-sm); }
-.escalada-crm .ezap-card--hubspot { border-left: 3px solid var(--ezap-primary); }
-.escalada-crm .ezap-card--deal { border-left: 3px solid var(--ezap-success); }
-.escalada-crm .ezap-card--meeting { border-left: 3px solid var(--ezap-border-light); padding: var(--ezap-space-2) var(--ezap-space-3); margin-bottom: var(--ezap-space-1); }
+.escalada-crm .ezap-card:hover { box-shadow: var(--ezap-shadow-sm); }
+/* Hubspot card — thick green border, hover tints green */
+.escalada-crm .ezap-card--hubspot { border-left: 4px solid var(--ezap-primary); }
+.escalada-crm .ezap-card--hubspot:hover { background: rgba(0,168,132,0.06); }
+/* Deal */
+.escalada-crm .ezap-card--deal { border-left: 4px solid var(--ezap-success); }
+.escalada-crm .ezap-card--deal:hover { background: rgba(34,197,94,0.06); }
+/* Meeting — future has orange, past has muted */
+.escalada-crm .ezap-card--meeting { border-left: 4px solid var(--ezap-border-light); padding: var(--ezap-space-2) var(--ezap-space-3); margin-bottom: var(--ezap-space-1); }
 .escalada-crm .ezap-card--meeting-future { border-left-color: var(--ezap-warning); }
+.escalada-crm .ezap-card--meeting-future:hover { background: rgba(245,158,11,0.06); }
 .escalada-crm .ezap-card--meeting-past { border-left-color: var(--ezap-border-light); }
-.escalada-crm .ezap-card--sequence { border-left: 3px solid var(--ezap-secondary); }
-.escalada-crm .ezap-card--accent { border-left: 3px solid var(--ezap-accent); }
-.escalada-crm .ezap-card--geia { border-left: 3px solid var(--ezap-accent); }
+.escalada-crm .ezap-card--meeting-past:hover { background: var(--ezap-bg-hover); }
+/* Sequence */
+.escalada-crm .ezap-card--sequence { border-left: 4px solid var(--ezap-secondary); }
+.escalada-crm .ezap-card--sequence:hover { background: rgba(77,150,255,0.06); }
+/* Accent / GEIA */
+.escalada-crm .ezap-card--accent { border-left: 4px solid var(--ezap-accent); }
+.escalada-crm .ezap-card--accent:hover { background: rgba(139,92,246,0.06); }
+.escalada-crm .ezap-card--geia { border-left: 4px solid var(--ezap-accent); }
+.escalada-crm .ezap-card--geia:hover { background: rgba(139,92,246,0.06); }
 
 /* ===== 9. BADGES ===== */
 .escalada-crm .ezap-badge { display: inline-flex; align-items: center; gap: var(--ezap-space-1); padding: 2px 10px; border-radius: var(--ezap-radius-full); font-size: var(--ezap-text-sm); font-weight: var(--ezap-font-medium); white-space: nowrap; }
