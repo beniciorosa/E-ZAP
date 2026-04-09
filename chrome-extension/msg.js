@@ -812,21 +812,25 @@ function executeMsgSequence(id) {
   // Close sidebar
   if (msgSidebarOpen) toggleMsgSidebar();
 
-  // Progress indicator
-  var progress = document.createElement("div");
-  progress.id = "wcrm-msg-progress";
-  progress.className = "escalada-crm ezap-card ezap-card--sequence";
-  Object.assign(progress.style, {
+  // Progress indicator — wrapper has .escalada-crm for CSS vars, card is a child
+  var progressWrap = document.createElement("div");
+  progressWrap.id = "wcrm-msg-progress";
+  progressWrap.className = "escalada-crm";
+  Object.assign(progressWrap.style, {
     position: "fixed",
     bottom: "20px",
     right: "20px",
     zIndex: "100001",
-    minWidth: "240px",
+    minWidth: "260px",
+    maxWidth: "320px",
   });
+  var progress = document.createElement("div");
+  progress.className = "ezap-card ezap-card--sequence";
   progress.innerHTML = '<div class="ezap-seq-name" style="margin-bottom:6px">\uD83D\uDCE4 ' + escapeHtml(seq.name) + '</div>' +
     '<div class="ezap-progress-bar" id="wcrm-msg-progress-bar" style="margin-bottom:6px"><div id="wcrm-msg-progress-fill" class="ezap-progress-fill ezap-progress-fill--secondary" style="width:0%"></div></div>' +
     '<div id="wcrm-msg-progress-text" class="ezap-seq-meta">Preparando...</div>';
-  document.body.appendChild(progress);
+  progressWrap.appendChild(progress);
+  document.body.appendChild(progressWrap);
 
   var messages = seq.messages.slice();
   var total = messages.length;
@@ -843,7 +847,7 @@ function executeMsgSequence(id) {
     if (idx >= messages.length) {
       updateProgress("\u2713 Todas as " + total + " mensagens enviadas!", 100);
       var pg = document.getElementById("wcrm-msg-progress");
-      if (pg) pg.style.borderLeftColor = "var(--ezap-success)";
+      if (pg) { var card = pg.querySelector(".ezap-card"); if (card) card.style.borderLeftColor = "var(--ezap-success)"; }
       setTimeout(function() {
         var pg = document.getElementById("wcrm-msg-progress");
         if (pg) pg.remove();
@@ -902,7 +906,7 @@ function executeMsgSequence(id) {
       }).catch(function(err) {
         updateProgress("\u274C Erro na msg " + (idx + 1) + ": " + err, Math.round((idx / total) * 100));
         var pg = document.getElementById("wcrm-msg-progress");
-        if (pg) pg.style.borderLeftColor = "var(--ezap-danger)";
+        if (pg) { var card = pg.querySelector(".ezap-card"); if (card) card.style.borderLeftColor = "var(--ezap-danger)"; }
         setTimeout(function() {
           var pg = document.getElementById("wcrm-msg-progress");
           if (pg) pg.remove();
