@@ -386,8 +386,6 @@
   var _chatsWithNoteNames = {};  // chatName (lowercase) -> true
   var _dotDataReady = false;
 
-  // Build the set of chat names that have notes — uses the message_wid
-  // to identify the chat, then resolves the name from the WA DOM or cache.
   function fetchChatsWithNotes() {
     var userId = getUserId();
     if (!userId || !isExtValid()) return;
@@ -411,26 +409,40 @@
           if (jid) chatJids[jid] = true;
         }
 
-        // Now resolve JIDs to chat names using the chatIndex from slice.js
-        var chatIndex = window._ezapChatIndex || {};
+        // Resolve JIDs to chat names via ezapGetAllChats (api.js)
         var jidKeys = Object.keys(chatJids);
-        _chatsWithNoteNames = {};
+        if (!jidKeys.length) return;
 
-        for (var j = 0; j < jidKeys.length; j++) {
-          var cjid = jidKeys[j];
-          // Try chatIndex (populated by slice.js / store-bridge)
-          if (chatIndex[cjid] && chatIndex[cjid].name) {
-            _chatsWithNoteNames[chatIndex[cjid].name.toLowerCase()] = true;
-            continue;
+        if (typeof window.ezapGetAllChats === 'function') {
+          window.ezapGetAllChats().then(function(chats) {
+            _chatsWithNoteNames = {};
+            if (chats && chats.length) {
+              for (var c = 0; c < chats.length; c++) {
+                var chat = chats[c];
+                if (chat.jid && chatJids[chat.jid] && chat.name) {
+                  _chatsWithNoteNames[chat.name.toLowerCase()] = true;
+                }
+              }
+            }
+            // Fallback: also store phone numbers for @c.us JIDs
+            for (var j = 0; j < jidKeys.length; j++) {
+              var phone = jidKeys[j].split('@')[0];
+              if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
+            }
+            _dotDataReady = true;
+            console.log("[EZAP-NOTES] Chats with notes (names):", Object.keys(_chatsWithNoteNames));
+            injectChatDots();
+          });
+        } else {
+          // No chat API available — fallback to phone numbers only
+          _chatsWithNoteNames = {};
+          for (var j = 0; j < jidKeys.length; j++) {
+            var phone = jidKeys[j].split('@')[0];
+            if (phone && phone.length >= 8) _chatsWithNoteNames[phone] = true;
           }
-          // Try phone number extraction (for @c.us JIDs)
-          var phone = cjid.split('@')[0];
-          if (phone) _chatsWithNoteNames[phone] = true;
+          _dotDataReady = true;
+          injectChatDots();
         }
-
-        _dotDataReady = true;
-        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames).length);
-        injectChatDots();
       });
     } catch(e) {}
   }
