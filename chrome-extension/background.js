@@ -188,6 +188,66 @@ chrome.alarms.create("ezap_version_check", { delayInMinutes: 1, periodInMinutes:
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "ezap_version_check") {
     checkForUpdate();
+    return;
+  }
+
+  // Meet summary processing alarm
+  if (alarm.name.startsWith("meet_summary_")) {
+    console.log("[EZAP BG] Meet summary alarm fired: " + alarm.name);
+    chrome.storage.local.get(alarm.name, async (data) => {
+      var info = data[alarm.name];
+      if (!info || !info.meetingTitle) {
+        console.log("[EZAP BG] No meeting info found for alarm: " + alarm.name);
+        chrome.storage.local.remove(alarm.name);
+        return;
+      }
+
+      console.log("[EZAP BG] Processing summary for: " + info.meetingTitle);
+      try {
+        // Step 1: Find the Gemini doc in Drive
+        var searchTitle = info.meetingTitle.replace(/\[.*\]/, "").trim();
+        var searchQuery = "mimeType='application/vnd.google-apps.document' and modifiedTime > '" +
+          new Date(Date.now() - 3600000).toISOString() + "'";
+        var driveResults = await googleDriveSearch(searchQuery);
+
+        if (!driveResults.files || driveResults.files.length === 0) {
+          console.log("[EZAP BG] No Gemini doc found yet, retrying in 5 min...");
+          // Retry once more in 5 minutes
+          var retryKey = alarm.name + "_retry";
+          var retried = await chrome.storage.local.get(retryKey);
+          if (!retried[retryKey]) {
+            chrome.storage.local.set({ [retryKey]: true });
+            chrome.alarms.create(alarm.name, { delayInMinutes: 5 });
+            return;
+          }
+          console.log("[EZAP BG] Already retried, giving up on summary for: " + info.meetingTitle);
+          chrome.storage.local.remove([alarm.name, retryKey]);
+          return;
+        }
+
+        // Find the most recent doc (likely the Gemini summary)
+        var docId = driveResults.files[0].id;
+        var docData = await googleDocsRead(docId);
+        console.log("[EZAP BG] Found Gemini doc: " + docData.title + " (" + docData.text.length + " chars)");
+
+        // Step 2: Find the meet_recording ID for this meeting
+        var recordings = await supabaseRest(
+          "/rest/v1/meet_recordings?meeting_title=eq." + encodeURIComponent(info.meetingTitle) +
+          "&event_type=eq.recording_started&order=created_at.desc&limit=1", "GET"
+        );
+        var meetRecordingId = (recordings && recordings.length > 0) ? recordings[0].id : null;
+
+        // Step 3: Run full pipeline
+        var result = await processMeetSummary(meetRecordingId, info.meetingTitle, docData.text);
+        console.log("[EZAP BG] Summary pipeline complete:", JSON.stringify(result.steps));
+
+        // Cleanup
+        chrome.storage.local.remove([alarm.name, alarm.name + "_retry"]);
+      } catch (e) {
+        console.error("[EZAP BG] Summary processing error:", e.message);
+        chrome.storage.local.remove([alarm.name, alarm.name + "_retry"]);
+      }
+    });
   }
 });
 
@@ -441,6 +501,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.action === "process_meet_summary") {
     handleAsync(() => processMeetSummary(request.meetRecordingId, request.meetingTitle, request.geminiText), sendResponse);
+    return true;
+  }
+  if (request.action === "schedule_meet_summary") {
+    // Save meeting info and schedule alarm for 5 minutes
+    var alarmName = "meet_summary_" + Date.now();
+    chrome.storage.local.set({
+      [alarmName]: { meetingTitle: request.meetingTitle, userId: request.userId }
+    }, () => {
+      chrome.alarms.create(alarmName, { delayInMinutes: 5 });
+      console.log("[EZAP BG] Scheduled summary processing in 5 min: " + request.meetingTitle);
+    });
+    sendResponse({ ok: true, alarm: alarmName });
     return true;
   }
 

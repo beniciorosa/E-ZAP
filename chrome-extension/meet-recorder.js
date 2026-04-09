@@ -388,8 +388,25 @@
         log("Meeting ended");
         _state = "done";
         saveMeetingEvent("meeting_ended");
-        updateBanner("done", "Reunião encerrada. Gravação salva no Drive.");
+        updateBanner("done", "Reunião encerrada. Processando resumo...");
         clearInterval(_checkInterval);
+
+        // Schedule summary processing (5 min delay for Gemini to generate)
+        try {
+          chrome.runtime.sendMessage({
+            action: "schedule_meet_summary",
+            meetingTitle: _meetingTitle || getMeetingTitle(),
+            userId: _userId
+          }, function() {
+            if (chrome.runtime.lastError) {
+              log("Failed to schedule summary: " + chrome.runtime.lastError.message);
+            } else {
+              log("Summary processing scheduled (5 min delay)");
+            }
+          });
+        } catch(e) {
+          log("Error scheduling summary: " + e.message);
+        }
       }
       return;
     }
