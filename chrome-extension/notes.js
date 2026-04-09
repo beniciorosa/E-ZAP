@@ -408,11 +408,9 @@
         }
         _dotDataReady = true;
         console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames));
-        if (Object.keys(_chatsWithNoteNames).length > 0) {
-          var p = document.getElementById('pane-side');
-          var c = document.getElementById('wcrm-custom-list');
-          console.log("[EZAP-NOTES] pane-side:", !!p, "custom-list:", !!c);
-        }
+        // Log span count for debug
+        var allSpans = document.querySelectorAll('span[title][dir]');
+        console.log("[EZAP-NOTES] Found", allSpans.length, "title spans in page");
         injectChatDots();
       });
     } catch(e) {}
@@ -422,18 +420,8 @@
   function injectChatDots() {
     if (!_dotDataReady || Object.keys(_chatsWithNoteNames).length === 0) return;
 
-    // Search in both native WA pane-side AND E-ZAP custom overlay
-    var pane = document.getElementById('pane-side');
-    var customList = document.getElementById('wcrm-custom-list');
-    var searchIn = pane || customList || document.body;
-
-    var nameSpans = searchIn.querySelectorAll('span[title][dir]');
-    // Also check the other container if both exist
-    if (pane && customList) {
-      var extraSpans = customList.querySelectorAll('span[title][dir]');
-      var combined = Array.prototype.slice.call(nameSpans).concat(Array.prototype.slice.call(extraSpans));
-      nameSpans = combined;
-    }
+    // Search entire page for chat name spans
+    var nameSpans = document.querySelectorAll('span[title][dir]');
     for (var i = 0; i < nameSpans.length; i++) {
       var span = nameSpans[i];
       if (span.querySelector('.ezap-note-dot')) continue;
