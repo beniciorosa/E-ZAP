@@ -120,7 +120,7 @@
     }
   });
 
-  function _ezapRpc(reqType, timeoutMs) {
+  function _ezapRpc(reqType, timeoutMs, extraData) {
     return new Promise(function(resolve) {
       var id = ++_ezapRpcId;
       var timer = setTimeout(function() {
@@ -128,7 +128,9 @@
         resolve(null);
       }, timeoutMs || 3000);
       _ezapRpcPending[id] = function(data) { clearTimeout(timer); resolve(data); };
-      try { window.postMessage({ type: reqType, id: id }, '*'); }
+      var msg = { type: reqType, id: id };
+      if (extraData) { for (var k in extraData) { if (extraData.hasOwnProperty(k)) msg[k] = extraData[k]; } }
+      try { window.postMessage(msg, '*'); }
       catch (e) { clearTimeout(timer); delete _ezapRpcPending[id]; resolve(null); }
     });
   }
@@ -776,4 +778,13 @@
   window.ezapOpenChatViaSearch = ezapOpenChatViaSearch;
   window.ezapFetchProfilePics = ezapFetchProfilePics;
   window.ezapChatAction = ezapChatAction;
+
+  // Get group members via store-bridge GroupMetadata
+  function ezapGetGroupMembers(groupJid) {
+    return _ezapRpc('_ezap_get_group_members_req', 5000, { groupJid: groupJid }).then(function(resp) {
+      if (!resp || !resp.result) return null;
+      return resp.result;
+    });
+  }
+  window.ezapGetGroupMembers = ezapGetGroupMembers;
 })();

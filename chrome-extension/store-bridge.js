@@ -1262,6 +1262,52 @@
           window.postMessage({ type: '_ezap_get_profile_pics_res', id: d.id, results: [] }, '*');
         });
       }
+    } else if (d.type === '_ezap_get_group_members_req') {
+      // Return participants of a group chat
+      var gmResult = { ok: false, members: [] };
+      try {
+        var gmStore = window._ezapStore && window._ezapStore.GroupMetadata;
+        if (gmStore && d.groupJid) {
+          var models = gmStore._models || gmStore.models || [];
+          if (gmStore.getModelsArray) models = gmStore.getModelsArray();
+          else if (typeof gmStore.toArray === 'function') models = gmStore.toArray();
+          for (var gmi = 0; gmi < models.length; gmi++) {
+            var gm = models[gmi];
+            var gmJid = gm.id ? (gm.id._serialized || gm.id.toString()) : '';
+            if (gmJid === d.groupJid && gm.participants) {
+              var parts = gm.participants._models || gm.participants.models || gm.participants;
+              if (gm.participants.getModelsArray) parts = gm.participants.getModelsArray();
+              else if (typeof gm.participants.toArray === 'function') parts = gm.participants.toArray();
+              for (var pi = 0; pi < parts.length; pi++) {
+                var p = parts[pi];
+                var pJid = p.id ? (p.id._serialized || p.id.user || p.id.toString()) : '';
+                var pPhone = pJid.split('@')[0] || '';
+                var pName = '';
+                // Try to get contact name
+                var contactStore = window._ezapStore && window._ezapStore.Contact;
+                if (contactStore && p.id) {
+                  try {
+                    var contact = null;
+                    if (typeof contactStore.get === 'function') contact = contactStore.get(p.id);
+                    if (contact) pName = contact.name || contact.pushname || contact.verifiedName || contact.formattedName || '';
+                  } catch(ce) {}
+                }
+                gmResult.members.push({
+                  phone: pPhone,
+                  name: pName,
+                  jid: pJid,
+                  isAdmin: !!(p.isAdmin || p.isSuperAdmin),
+                  isSuperAdmin: !!p.isSuperAdmin
+                });
+              }
+              gmResult.ok = true;
+              gmResult.groupName = gm.subject || '';
+              break;
+            }
+          }
+        }
+      } catch(gme) { gmResult.ok = false; gmResult.error = gme && gme.message; }
+      window.postMessage({ type: '_ezap_get_group_members_res', id: d.id, result: gmResult }, '*');
     } else if (d.type === '_ezap_get_msgs_req') {
       // Return recent messages from all chats for capture
       // IMPORTANT: We need RAW chat model objects (which have .msgs collections),
