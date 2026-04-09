@@ -2034,34 +2034,36 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  // ===== Inject signature text at the end of compose box =====
+  // ===== Inject signature at the TOP of the message =====
+  // Replaces entire compose box content in one shot: signature + original text
   function injectSignature(input) {
     if (!_sigEnabled || !_sigName) return;
 
-    // Check there's actual text to send (not just whitespace)
     var text = (input.textContent || input.innerText || "").trim();
     if (!text) return;
 
-    // Don't double-inject if signature is already at the end
-    var sigText = "\n\n_*" + _sigName + ":*_";
-    if (text.endsWith("_*" + _sigName + ":*_")) return;
+    // Don't double-inject if signature is already at the top
+    var sigPrefix = "_*" + _sigName + ":*_";
+    if (text.startsWith(sigPrefix)) return;
 
-    // Move cursor to end
+    // Build full message: signature on top + original message
+    var fullText = sigPrefix + "\n" + text;
+
+    // Select all content and replace in one paste (no visual jump)
+    input.focus();
     var sel = window.getSelection();
     var range = document.createRange();
     range.selectNodeContents(input);
-    range.collapse(false);
     sel.removeAllRanges();
     sel.addRange(range);
 
-    // Paste signature at cursor (end)
     var clipData = new DataTransfer();
-    clipData.setData("text/plain", sigText);
+    clipData.setData("text/plain", fullText);
     input.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true, cancelable: true, clipboardData: clipData
     }));
 
-    console.log("[EZAP-SIG] Signature injected on send");
+    console.log("[EZAP-SIG] Signature injected at top on send");
   }
 
   // ===== Intercept send button click =====
