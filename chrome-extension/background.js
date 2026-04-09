@@ -422,6 +422,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // ===== Google OAuth + Drive/Docs =====
+  if (request.action === "google_auth") {
+    handleAsync(() => getGoogleAuthToken(request.interactive), sendResponse);
+    return true;
+  }
+  if (request.action === "google_drive_search") {
+    handleAsync(() => googleDriveSearch(request.query, request.mimeType), sendResponse);
+    return true;
+  }
+  if (request.action === "google_docs_read") {
+    handleAsync(() => googleDocsRead(request.documentId), sendResponse);
+    return true;
+  }
+  if (request.action === "google_fetch_meet_summary") {
+    handleAsync(() => fetchMeetSummary(request.meetingTitle, request.meetRecordingId), sendResponse);
+    return true;
+  }
+
   // ===== Generic Supabase REST (for data sync) =====
   if (request.action === "supabase_rest") {
     handleAsync(() => supabaseRest(request.path, request.method, request.body, request.prefer), sendResponse);
@@ -439,6 +457,91 @@ function handleAsync(fn, sendResponse) {
   fn()
     .then((result) => sendResponse(result))
     .catch((err) => sendResponse({ error: err.message || "Unknown error" }));
+}
+
+// ===== Google OAuth + Drive/Docs API =====
+async function getGoogleAuthToken(interactive) {
+  return new Promise((resolve, reject) => {
+    chrome.identity.getAuthToken({ interactive: interactive !== false }, (token) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve({ token: token });
+      }
+    });
+  });
+}
+
+async function googleDriveSearch(query, mimeType) {
+  const { token } = await getGoogleAuthToken(false);
+  let q = query;
+  if (mimeType) q += " and mimeType='" + mimeType + "'";
+  const url = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(q) +
+    "&orderBy=modifiedTime desc&pageSize=10&fields=files(id,name,mimeType,createdTime,modifiedTime,webViewLink)";
+  const resp = await fetch(url, {
+    headers: { "Authorization": "Bearer " + token }
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error("Drive API error: " + err);
+  }
+  return resp.json();
+}
+
+async function googleDocsRead(documentId) {
+  const { token } = await getGoogleAuthToken(false);
+  const url = "https://docs.googleapis.com/v1/documents/" + documentId;
+  const resp = await fetch(url, {
+    headers: { "Authorization": "Bearer " + token }
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error("Docs API error: " + err);
+  }
+  const doc = await resp.json();
+  // Extract plain text from doc body
+  let text = "";
+  if (doc.body && doc.body.content) {
+    doc.body.content.forEach((block) => {
+      if (block.paragraph && block.paragraph.elements) {
+        block.paragraph.elements.forEach((el) => {
+          if (el.textRun && el.textRun.content) text += el.textRun.content;
+        });
+      }
+    });
+  }
+  return { documentId: doc.documentId, title: doc.title, text: text };
+}
+
+async function fetchMeetSummary(meetingTitle, meetRecordingId) {
+  // Step 1: Search for the Gemini summary doc in Drive
+  const searchQuery = "name contains '" + meetingTitle.replace(/'/g, "\\'") + "' and mimeType='application/vnd.google-apps.document'";
+  const results = await googleDriveSearch(searchQuery);
+
+  if (!results.files || results.files.length === 0) {
+    return { found: false, error: "Documento de resumo não encontrado no Drive para: " + meetingTitle };
+  }
+
+  // Step 2: Read the doc content
+  const docId = results.files[0].id;
+  const docData = await googleDocsRead(docId);
+
+  // Step 3: Save raw summary to meet_recordings
+  if (meetRecordingId) {
+    await supabaseRest("/rest/v1/meet_recordings?id=eq." + meetRecordingId, "PATCH", {
+      gemini_summary: docData.text,
+      summary_doc_id: docId,
+      summary_doc_url: results.files[0].webViewLink || ""
+    });
+  }
+
+  return {
+    found: true,
+    docId: docId,
+    title: docData.title,
+    text: docData.text,
+    webViewLink: results.files[0].webViewLink
+  };
 }
 
 // ===== Generic Supabase REST for data sync (uses service role key to bypass RLS) =====
