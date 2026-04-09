@@ -2241,23 +2241,33 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   }
 
   // ===== Track chat name changes =====
+  var _stableJid = null;    // JID that's been stable for 2+ checks
+  var _stableCount = 0;     // how many consecutive checks with same JID
+
   function trackNameChange(chatJid, currentName) {
     if (!chatJid || !currentName || !getUserId()) return;
+
+    // Track JID stability — must be same JID for 3+ consecutive checks (9s)
+    if (chatJid === _stableJid) {
+      _stableCount++;
+    } else {
+      _stableJid = chatJid;
+      _stableCount = 1;
+      // First time on this JID — just record the name, don't compare
+      _nameCache[chatJid] = currentName;
+      return;
+    }
 
     var lastKnown = _nameCache[chatJid];
     _nameCache[chatJid] = currentName;
 
-    // First time seeing this chat — no change to record
-    if (!lastKnown) return;
+    // Need at least 3 stable checks before detecting changes
+    if (_stableCount < 3) return;
 
-    // Name didn't change
-    if (lastKnown === currentName) return;
+    // No previous name or same name
+    if (!lastKnown || lastKnown === currentName) return;
 
-    // Only record if we've been on this SAME JID for at least 2 consecutive checks
-    // This prevents false positives during chat switching (JID from old messages)
-    if (_lastChatJid !== chatJid) return;
-
-    // Name changed! Record it
+    // Name changed on a stable JID! Record it
     console.log("[EZAP-SYNC] Name change detected:", lastKnown, "->", currentName);
     supa("/rest/v1/chat_name_history", "POST", {
       chat_jid: chatJid,
