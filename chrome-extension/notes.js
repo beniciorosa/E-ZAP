@@ -408,7 +408,7 @@
           if (jid) _chatsWithNotes[jid] = true;
         }
         _dotScanDone = true;
-        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNotes).length);
+        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNotes).length, Object.keys(_chatsWithNotes));
         injectChatDots();
       });
     } catch(e) {}
@@ -422,8 +422,13 @@
     var pane = document.getElementById('pane-side');
     if (!pane) return;
 
-    // WA chat rows: role="listitem" or role="row", contain spans with title=chatName
+    // WA chat rows: role="listitem" or role="row"
     var rows = pane.querySelectorAll('[role="listitem"], [role="row"]');
+    var debugFirst = !window._ezapDotDebugDone;
+    if (debugFirst) {
+      console.log("[EZAP-NOTES] DOT DEBUG: found", rows.length, "rows in pane-side");
+      window._ezapDotDebugDone = true;
+    }
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       if (row.querySelector('.ezap-note-dot')) continue;
@@ -436,6 +441,10 @@
       if (!jid || jid.indexOf('@') < 0) {
         var customRow = row.closest('[data-jid]') || row.querySelector('[data-jid]');
         if (customRow) jid = customRow.getAttribute('data-jid');
+      }
+
+      if (debugFirst && i < 3) {
+        console.log("[EZAP-NOTES] DOT DEBUG row", i, "jid:", jid, "match:", !!_chatsWithNotes[jid]);
       }
 
       if (!jid || !_chatsWithNotes[jid]) continue;
