@@ -320,7 +320,7 @@
       _banner.innerHTML =
         '<span class="ezap-meet-banner-icon">🔴</span>' +
         '<span>E-ZAP Gravando</span>' +
-        '<span id="ezap-meet-timer" style="font-variant-numeric:tabular-nums;min-width:56px">00:00</span>';
+        '<span id="ezap-meet-timer" style="font-variant-numeric:tabular-nums;min-width:72px;font-size:22px;letter-spacing:1px">00:00</span>';
       // Start timer
       if (_timerInterval) clearInterval(_timerInterval);
       _timerInterval = setInterval(function() {
