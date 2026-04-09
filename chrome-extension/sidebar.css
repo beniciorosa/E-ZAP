@@ -273,25 +273,79 @@
 .escalada-crm .ezap-color-dot:hover { transform: scale(1.15); }
 .escalada-crm .ezap-color-dot.selected { border-color: var(--ezap-text-primary); box-shadow: 0 0 0 2px var(--ezap-bg-primary); }
 
-/* ===== 19. FLOATING BUTTONS ===== */
-#ezap-float-container { position: fixed; top: 80px; right: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 99999; }
-.escalada-crm.ezap-float-btn {
-  width: 48px; height: 48px; border-radius: 50%; border: none;
-  font-weight: var(--ezap-font-bold); cursor: pointer;
-  box-shadow: var(--ezap-shadow-md); display: flex; align-items: center; justify-content: center;
-  font-size: var(--ezap-text-sm); transition: transform var(--ezap-transition-fast), box-shadow var(--ezap-transition-fast); position: relative;
+/* ===== 19. FLOATING BUTTONS — Right rail ===== */
+#ezap-float-container {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 62px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 80px;
+  gap: 10px;
+  z-index: 99999;
+  pointer-events: none;
+  /* Subtle transparent rail — matches WA left nav width */
+  background: linear-gradient(to left, rgba(11,20,26,0.35) 0%, transparent 100%);
+  border-left: 1px solid rgba(42,57,66,0.3);
 }
-.escalada-crm.ezap-float-btn:hover { transform: scale(1.08); box-shadow: var(--ezap-shadow-lg); }
+#ezap-float-container > * {
+  pointer-events: auto;
+}
+/* When sidebar is open, rail shifts left */
+#ezap-float-container.ezap-rail--shifted {
+  right: 340px;
+}
+
+.escalada-crm.ezap-float-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: none;
+  font-weight: 700; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;
+  font-size: 11px; transition: transform 0.12s ease, box-shadow 0.12s ease; position: relative;
+}
+.escalada-crm.ezap-float-btn:hover { transform: scale(1.08); box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
 .escalada-crm.ezap-float-btn:active { transform: scale(0.95); }
 .escalada-crm.ezap-float-btn::after {
   content: attr(data-tooltip); position: absolute; right: calc(100% + 10px); top: 50%; transform: translateY(-50%);
-  padding: 4px 10px; background: var(--ezap-bg-surface); color: var(--ezap-text-primary);
-  font-size: var(--ezap-text-xs); font-weight: var(--ezap-font-medium);
-  border-radius: var(--ezap-radius-sm); white-space: nowrap; pointer-events: none;
-  opacity: 0; transition: opacity var(--ezap-transition-fast); box-shadow: var(--ezap-shadow-sm);
+  padding: 4px 10px; background: #202c33; color: #e9edef;
+  font-size: 10px; font-weight: 500;
+  border-radius: 4px; white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity 0.12s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 .escalada-crm.ezap-float-btn:hover::after { opacity: 1; }
-.escalada-crm.ezap-float-btn.active { outline: 2.5px solid var(--ezap-primary); outline-offset: 3px; }
+.escalada-crm.ezap-float-btn.active { outline: 2.5px solid #00a884; outline-offset: 3px; }
+
+/* Collapse toggle — half-moon attached to right edge */
+#ezap-collapse-btn {
+  position: fixed;
+  right: 0;
+  width: 18px;
+  height: 44px;
+  border: none;
+  border-radius: 8px 0 0 8px;
+  background: rgba(42,57,66,0.7);
+  color: #8696a0;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  transition: background 0.15s, color 0.15s, width 0.15s;
+  backdrop-filter: blur(4px);
+}
+#ezap-collapse-btn:hover {
+  background: rgba(42,57,66,0.95);
+  color: #e9edef;
+  width: 22px;
+}
+/* When collapsed, move to where rail was */
+#ezap-collapse-btn.collapsed {
+  background: rgba(0,168,132,0.2);
+  color: #00a884;
+}
 
 /* ===== 20. DROPDOWN ===== */
 .escalada-crm.ezap-dropdown {

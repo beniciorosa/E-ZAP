@@ -19,7 +19,15 @@ function getButtonContainer() {
   if (c) return c;
   c = document.createElement("div");
   c.id = "ezap-float-container";
+  // CSS handles all positioning via #ezap-float-container rule
   document.body.appendChild(c);
+  // Shrink WA app slightly to make room for the rail
+  var appEl = document.getElementById("app");
+  if (appEl && !appEl.dataset.ezapRail) {
+    appEl.dataset.ezapRail = "1";
+    appEl.style.width = "calc(100% - 62px)";
+    appEl.style.maxWidth = "calc(100% - 62px)";
+  }
   return c;
 }
 

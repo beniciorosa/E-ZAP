@@ -4,6 +4,8 @@
 (function() {
   "use strict";
   var _sidebars = {};
+  var SIDEBAR_W = 340;
+  var RAIL_W = 62;
 
   /**
    * Adjust WhatsApp app width when sidebar opens/closes
@@ -12,75 +14,97 @@
     var appEl = document.getElementById("app");
     if (!appEl) return;
     if (open) {
-      appEl.style.width = "calc(100% - 340px)";
-      appEl.style.maxWidth = "calc(100% - 340px)";
+      appEl.style.width = "calc(100% - " + (SIDEBAR_W + RAIL_W) + "px)";
+      appEl.style.maxWidth = "calc(100% - " + (SIDEBAR_W + RAIL_W) + "px)";
       appEl.style.marginRight = "0";
     } else {
-      appEl.style.width = "";
-      appEl.style.maxWidth = "";
+      // Restore to just rail width
+      appEl.style.width = "calc(100% - " + RAIL_W + "px)";
+      appEl.style.maxWidth = "calc(100% - " + RAIL_W + "px)";
       appEl.style.marginRight = "";
     }
   }
 
   /**
-   * Reposition floating buttons when sidebar opens/closes
-   * Instead of hiding, moves them beside the sidebar so user can switch directly
+   * Reposition floating rail when sidebar opens/closes
    */
   var _collapsed = false;
 
   function _updateFloats() {
     var container = document.getElementById("ezap-float-container");
     if (!container) return;
-    _ensureCollapseButton(container);
+    _ensureCollapseButton();
     var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
       return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
     });
     if (anyShrinkOpen) {
-      container.style.right = "356px";
+      container.classList.add("ezap-rail--shifted");
     } else {
-      container.style.right = "16px";
+      container.classList.remove("ezap-rail--shifted");
     }
     container.style.display = "flex";
-    _applyCollapse(container);
+    _applyCollapse();
     _highlightActiveButton();
+    _positionCollapseBtn();
   }
 
-  function _ensureCollapseButton(container) {
+  function _ensureCollapseButton() {
     if (document.getElementById("ezap-collapse-btn")) return;
     var btn = document.createElement("button");
     btn.id = "ezap-collapse-btn";
-    Object.assign(btn.style, {
-      width: "28px", height: "28px", borderRadius: "50%",
-      border: "none", background: "#2a3942", color: "#8696a0",
-      fontSize: "14px", cursor: "pointer", display: "flex",
-      alignItems: "center", justifyContent: "center",
-      boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-      transition: "background 0.15s, transform 0.2s",
-      order: "-1", flexShrink: "0",
-    });
-    btn.textContent = "\u00BB"; // »
+    // Styled by CSS — half-moon shape attached to right edge
+    btn.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M1 1l6 6-6 6"/></svg>';
     btn.title = "Recolher menu";
-    btn.addEventListener("mouseenter", function() { btn.style.background = "#3b4a54"; });
-    btn.addEventListener("mouseleave", function() { btn.style.background = "#2a3942"; });
     btn.addEventListener("click", function(e) {
       e.stopPropagation();
       _collapsed = !_collapsed;
-      _applyCollapse(container);
+      _applyCollapse();
     });
-    container.insertBefore(btn, container.firstChild);
+    document.body.appendChild(btn);
   }
 
-  function _applyCollapse(container) {
+  function _positionCollapseBtn() {
     var btn = document.getElementById("ezap-collapse-btn");
+    if (!btn) return;
+    var container = document.getElementById("ezap-float-container");
+    if (!container) return;
+    // Position vertically centered with the buttons
+    var rect = container.getBoundingClientRect();
+    var firstBtn = container.querySelector(".ezap-float-btn");
+    if (firstBtn) {
+      var btnRect = firstBtn.getBoundingClientRect();
+      btn.style.top = (btnRect.top - 10) + "px";
+    } else {
+      btn.style.top = (rect.top + 70) + "px";
+    }
+    // Horizontal: match container's right edge
+    var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
+      return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
+    });
+    btn.style.right = anyShrinkOpen ? (SIDEBAR_W + RAIL_W) + "px" : RAIL_W + "px";
+  }
+
+  function _applyCollapse() {
+    var container = document.getElementById("ezap-float-container");
+    var btn = document.getElementById("ezap-collapse-btn");
+    if (!container) return;
+
+    // Hide/show all buttons in the container
     var children = container.children;
     for (var i = 0; i < children.length; i++) {
-      if (children[i].id === "ezap-collapse-btn") continue;
       children[i].style.display = _collapsed ? "none" : "flex";
     }
+    // Hide/show the rail background
+    container.style.background = _collapsed ? "none" : "";
+    container.style.borderLeft = _collapsed ? "none" : "";
+
     if (btn) {
-      btn.textContent = _collapsed ? "\u00AB" : "\u00BB"; // « or »
+      btn.innerHTML = _collapsed
+        ? '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M7 1L1 7l6 6"/></svg>'
+        : '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M1 1l6 6-6 6"/></svg>';
       btn.title = _collapsed ? "Expandir menu" : "Recolher menu";
-      btn.style.transform = _collapsed ? "rotate(0deg)" : "rotate(0deg)";
+      if (_collapsed) btn.classList.add("collapsed");
+      else btn.classList.remove("collapsed");
     }
   }
 
@@ -109,16 +133,6 @@
   }
 
   window.ezapSidebar = {
-    /**
-     * Register a sidebar with the manager
-     * @param {string} name - Unique sidebar name (e.g. "crm", "msg", "abas", "tag", "geia")
-     * @param {object} opts
-     * @param {function} opts.show - Function to show the sidebar DOM
-     * @param {function} opts.hide - Function to hide the sidebar DOM
-     * @param {function} [opts.onOpen] - Callback after sidebar opens (e.g. load data)
-     * @param {boolean} [opts.shrinkApp=true] - Whether to shrink WhatsApp app when open
-     * @param {boolean} [opts.closesOthers=true] - Whether opening this sidebar closes others
-     */
     register: function(name, opts) {
       _sidebars[name] = {
         isOpen: false,
@@ -130,14 +144,9 @@
       };
     },
 
-    /**
-     * Open a sidebar (closes mutually exclusive ones first)
-     */
     open: function(name) {
       var sb = _sidebars[name];
       if (!sb || sb.isOpen) return;
-
-      // Close mutually exclusive sidebars
       if (sb.closesOthers) {
         Object.keys(_sidebars).forEach(function(key) {
           if (key !== name && _sidebars[key].isOpen && _sidebars[key].closesOthers) {
@@ -145,40 +154,27 @@
           }
         });
       }
-
       sb.isOpen = true;
       sb.show();
-
       if (sb.shrinkApp) _setAppWidth(true);
       _updateFloats();
-
       if (sb.onOpen) sb.onOpen();
       if (window.ezapBus) window.ezapBus.emit("sidebar:opened", { name: name });
     },
 
-    /**
-     * Close a sidebar
-     */
     close: function(name) {
       var sb = _sidebars[name];
       if (!sb || !sb.isOpen) return;
-
       sb.isOpen = false;
       sb.hide();
-
-      // Restore app width if no shrinkApp sidebar remains open
       var anyShrink = Object.keys(_sidebars).some(function(k) {
         return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
       });
       if (!anyShrink) _setAppWidth(false);
-
       _updateFloats();
       if (window.ezapBus) window.ezapBus.emit("sidebar:closed", { name: name });
     },
 
-    /**
-     * Toggle a sidebar open/closed
-     */
     toggle: function(name) {
       var sb = _sidebars[name];
       if (!sb) return;
@@ -186,23 +182,14 @@
       else window.ezapSidebar.open(name);
     },
 
-    /**
-     * Check if a sidebar is currently open
-     */
     isOpen: function(name) {
       return _sidebars[name] ? _sidebars[name].isOpen : false;
     },
 
-    /**
-     * Check if any sidebar is currently open
-     */
     anyOpen: function() {
       return Object.keys(_sidebars).some(function(k) { return _sidebars[k].isOpen; });
     },
 
-    /**
-     * Close all open sidebars
-     */
     closeAll: function() {
       Object.keys(_sidebars).forEach(function(k) {
         if (_sidebars[k].isOpen) window.ezapSidebar.close(k);
