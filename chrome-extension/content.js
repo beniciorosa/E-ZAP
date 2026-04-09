@@ -2034,37 +2034,34 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  // ===== Inject signature at the TOP of the message =====
-  // Clears compose box, then pastes signature + original text
+  // ===== Inject signature at the END of the message =====
   function injectSignature(input, callback) {
     if (!_sigEnabled || !_sigName) { if (callback) callback(); return; }
 
     var text = (input.textContent || input.innerText || "").trim();
     if (!text) { if (callback) callback(); return; }
 
-    // Don't double-inject if signature is already at the top
-    var sigPrefix = "_*" + _sigName + ":*_";
-    if (text.startsWith(sigPrefix)) { if (callback) callback(); return; }
+    // Don't double-inject
+    var sigSuffix = "_*" + _sigName + ":*_";
+    if (text.endsWith(sigSuffix)) { if (callback) callback(); return; }
 
-    // Build full message: signature on top + original message
-    var fullText = sigPrefix + "\n" + text;
-
-    // Step 1: Clear the compose box completely
+    // Move cursor to end and paste signature
     input.focus();
-    input.innerHTML = "";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    var sel = window.getSelection();
+    var range = document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
 
-    // Step 2: Paste the full text (signature + message) after WA processes the clear
-    setTimeout(function() {
-      input.focus();
-      var clipData = new DataTransfer();
-      clipData.setData("text/plain", fullText);
-      input.dispatchEvent(new ClipboardEvent("paste", {
-        bubbles: true, cancelable: true, clipboardData: clipData
-      }));
-      console.log("[EZAP-SIG] Signature injected at top on send");
-      if (callback) setTimeout(callback, 60);
-    }, 30);
+    var clipData = new DataTransfer();
+    clipData.setData("text/plain", "\n\n" + sigSuffix);
+    input.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true, cancelable: true, clipboardData: clipData
+    }));
+
+    console.log("[EZAP-SIG] Signature appended at end");
+    if (callback) setTimeout(callback, 80);
   }
 
   function triggerSend() {
