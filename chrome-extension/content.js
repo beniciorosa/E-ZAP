@@ -2163,28 +2163,22 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   }
 
   // ===== Detect current chat JID and name =====
+  // Reuses the same name detected by detectCurrentChat() (already running)
   function getCurrentChat() {
-    // Get name from header — first span[title] only (not the subtitle)
-    var hdrSpans = document.querySelectorAll('#main header span[title]');
-    var name = '';
-    for (var si = 0; si < hdrSpans.length; si++) {
-      var t = hdrSpans[si].getAttribute('title') || '';
-      // Skip subtitles: "clique para mostrar dados", participant lists, "digitando..."
-      if (t.indexOf('clique para') >= 0 || t.indexOf('digitando') >= 0 || t.indexOf('online') === 0) continue;
-      // Skip if it looks like a participant list (has commas + phone numbers)
-      if ((t.match(/,/g) || []).length >= 2 && /\d{4,}/.test(t)) continue;
-      name = t;
-      break;
-    }
+    // Use the global currentName that detectCurrentChat() already maintains
+    var name = (typeof currentName !== 'undefined') ? currentName : '';
     if (!name) return null;
 
     // Get JID: try extracting from a visible message WID
-    var msgEl = document.querySelector('#main div[role="row"] [data-id]');
+    var msgRows = document.querySelectorAll('div[role="row"] [data-id]');
     var jid = '';
-    if (msgEl) {
-      var wid = msgEl.getAttribute('data-id') || '';
+    for (var ri = 0; ri < msgRows.length; ri++) {
+      var wid = msgRows[ri].getAttribute('data-id') || '';
       var parts = wid.split('_');
-      if (parts.length >= 2 && parts[1].indexOf('@') >= 0) jid = parts[1];
+      if (parts.length >= 2 && parts[1].indexOf('@') >= 0) {
+        jid = parts[1];
+        break;
+      }
     }
 
     var isGroup = jid.indexOf('@g.us') >= 0 || jid.indexOf('@lid') >= 0;
