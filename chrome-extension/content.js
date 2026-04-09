@@ -2273,11 +2273,16 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   }
 
   // ===== Poll for chat changes =====
+  var _checkCount = 0;
   function checkCurrentChat() {
     var chat = getCurrentChat();
+    // Debug: log first 3 checks
+    if (_checkCount < 3) {
+      _checkCount++;
+      console.log("[EZAP-SYNC] Check #" + _checkCount, "currentName:", (typeof currentName !== 'undefined' ? currentName : 'UNDEF'), "chat:", chat);
+    }
     if (!chat) return;
     if (!chat.jid) {
-      // JID not found — log once per chat name to debug
       if (chat.name && chat.name !== _lastDebugName) {
         _lastDebugName = chat.name;
         console.log("[EZAP-SYNC] Chat detected but no JID:", chat.name);
