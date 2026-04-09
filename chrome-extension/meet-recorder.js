@@ -24,6 +24,8 @@
   var _meetingTitle = "";
   var _recordingStartTime = 0;
   var _timerInterval = null;
+  var _userId = null;
+  var _userEmail = null;
 
   // ===== UTILS =====
   function log(msg) { console.log("[EZAP-MEET] " + msg); }
@@ -353,16 +355,21 @@
   // ===== SUPABASE LOGGING =====
   function saveMeetingEvent(eventType) {
     try {
+      var body = {
+        meet_url: window.location.href,
+        meeting_title: _meetingTitle || getMeetingTitle(),
+        event_type: eventType,
+        recorded_at: new Date().toISOString()
+      };
+      if (_userId) body.user_id = _userId;
+      if (eventType === "meeting_ended" && _recordingStartTime) {
+        body.duration_seconds = Math.floor((Date.now() - _recordingStartTime) / 1000);
+      }
       chrome.runtime.sendMessage({
         action: "supabase_rest",
         path: "/rest/v1/meet_recordings",
         method: "POST",
-        body: {
-          meet_url: window.location.href,
-          meeting_title: _meetingTitle || getMeetingTitle(),
-          event_type: eventType,
-          recorded_at: new Date().toISOString()
-        },
+        body: body,
         prefer: "return=minimal"
       }, function() {
         if (chrome.runtime.lastError) {
@@ -427,13 +434,37 @@
       return;
     }
 
-    // Start monitoring
-    _checkInterval = setInterval(mainLoop, 3000);
+    // Load user info from extension storage and validate access
+    chrome.storage.local.get("wcrm_auth", function(result) {
+      var auth = result.wcrm_auth;
+      if (auth && auth.userId) {
+        _userId = auth.userId;
+        _userEmail = auth.userEmail || "";
+        log("User: " + (auth.userName || "unknown") + " (" + _userEmail + ")");
+      }
 
-    // Also run immediately after a delay (let Meet UI load)
-    setTimeout(mainLoop, 5000);
+      // Check if user email is in the allowed list
+      var emailAllowed = false;
+      for (var i = 0; i < ALLOWED_EMAILS.length; i++) {
+        if (_userEmail && _userEmail.toLowerCase() === ALLOWED_EMAILS[i].toLowerCase()) {
+          emailAllowed = true;
+          break;
+        }
+      }
 
-    log("Monitoring started");
+      if (!emailAllowed) {
+        log("User email not in allowed list, skipping auto-record");
+        return;
+      }
+
+      // Start monitoring
+      _checkInterval = setInterval(mainLoop, 3000);
+
+      // Also run immediately after a delay (let Meet UI load)
+      setTimeout(mainLoop, 5000);
+
+      log("Monitoring started");
+    });
   }
 
   // Start after page loads
