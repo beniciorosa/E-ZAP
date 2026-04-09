@@ -2107,10 +2107,8 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     e.preventDefault();
 
     injectSignature(input, function() {
-      // For Enter key, need extra delay for WA to register the new content
       setTimeout(triggerSend, 50);
-      }
-    }, 80);
+    });
   }
 
   // ===== Attach listeners (use MutationObserver to catch send button) =====
