@@ -2253,6 +2253,10 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     // Name didn't change
     if (lastKnown === currentName) return;
 
+    // Only record if we've been on this SAME JID for at least 2 consecutive checks
+    // This prevents false positives during chat switching (JID from old messages)
+    if (_lastChatJid !== chatJid) return;
+
     // Name changed! Record it
     console.log("[EZAP-SYNC] Name change detected:", lastKnown, "->", currentName);
     supa("/rest/v1/chat_name_history", "POST", {
