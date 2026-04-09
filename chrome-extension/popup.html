@@ -4,25 +4,29 @@
   <meta charset="UTF-8">
   <style>
     body {
-      width: 320px;
-      padding: 16px;
+      width: 300px;
+      padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #111b21;
       color: #e9edef;
       margin: 0;
     }
-    h2 {
+    /* === Login screen === */
+    #no-user-section {
+      padding: 20px 16px;
+    }
+    #no-user-section h2 {
       font-size: 16px;
       color: #00a884;
       margin: 0 0 12px 0;
     }
-    label {
+    #no-user-section label {
       font-size: 12px;
       color: #8696a0;
       display: block;
       margin-bottom: 4px;
     }
-    input {
+    #no-user-section input {
       width: 100%;
       padding: 8px 10px;
       background: #2a3942;
@@ -33,14 +37,14 @@
       outline: none;
       box-sizing: border-box;
       margin-bottom: 12px;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      transition: border-color 0.2s ease;
     }
-    input:focus {
+    #no-user-section input:focus {
       border-color: #00a884;
       box-shadow: 0 0 0 3px rgba(0,168,132,0.12);
     }
-    input::placeholder { color: #8696a0; }
-    button {
+    #no-user-section input::placeholder { color: #8696a0; }
+    #no-user-section button {
       width: 100%;
       padding: 10px;
       background: #00a884;
@@ -50,77 +54,148 @@
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s ease, box-shadow 0.2s ease;
     }
-    button:hover {
-      background: #008f6f;
-      box-shadow: 0 2px 8px rgba(0,168,132,0.3);
-    }
-    .status {
-      font-size: 12px;
-      margin-top: 8px;
-      text-align: center;
-      min-height: 16px;
-    }
+    #no-user-section button:hover { background: #008f6f; }
+    .status { font-size: 12px; margin-top: 8px; text-align: center; min-height: 16px; }
     .status.ok { color: #00a884; }
     .status.err { color: #ef4444; }
-    .info {
+
+    /* === Logged-in screen === */
+    #user-section { display: none; }
+
+    .popup-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #2a3942;
+    }
+    .popup-avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #00a884, #008f6f);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: #111b21;
+      flex-shrink: 0;
+    }
+    .popup-user-name { font-size: 14px; font-weight: 600; }
+    .popup-user-role { font-size: 11px; color: #8696a0; }
+
+    .popup-body { padding: 12px 16px; }
+
+    .popup-info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(42,57,66,0.5);
+    }
+    .popup-info-row:last-child { border-bottom: none; }
+    .popup-info-label { font-size: 11px; color: #8696a0; }
+    .popup-info-value { font-size: 12px; color: #e9edef; text-align: right; }
+
+    .popup-token-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .popup-token-text {
+      font-family: monospace;
       font-size: 11px;
       color: #8696a0;
-      margin-top: 12px;
-      line-height: 1.5;
-      border-top: 1px solid #2a3942;
-      padding-top: 12px;
+      cursor: pointer;
+      transition: color 0.15s;
     }
-    a { color: #00a884; text-decoration: none; }
+    .popup-token-text:hover { color: #e9edef; }
+    .popup-eye-btn {
+      background: none;
+      border: none;
+      color: #8696a0;
+      cursor: pointer;
+      padding: 2px;
+      width: auto;
+      display: flex;
+      align-items: center;
+    }
+    .popup-eye-btn:hover { color: #e9edef; background: none; }
+
+    .popup-footer {
+      padding: 10px 16px 14px;
+      border-top: 1px solid #2a3942;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .popup-logout-btn {
+      width: 100%;
+      padding: 8px;
+      background: #2a3942;
+      color: #ef4444;
+      border: 1px solid #3b4a54;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .popup-logout-btn:hover { background: #3b4a54; }
+    .popup-dev {
+      font-size: 9px;
+      color: #3b4a54;
+      text-align: center;
+      letter-spacing: 0.3px;
+    }
   </style>
 </head>
 <body>
-  <!-- User Info Section -->
-  <div id="user-section" style="display:none;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #2a3942">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div id="user-avatar" style="width:36px;height:36px;border-radius:50%;background:#00a884;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#111b21"></div>
-        <div>
-          <div id="user-name" style="font-size:14px;font-weight:600;color:#e9edef"></div>
-          <div id="user-role" style="font-size:11px;color:#8696a0"></div>
+  <!-- === Logged-in view === -->
+  <div id="user-section" style="display:none">
+    <div class="popup-header">
+      <div class="popup-avatar" id="user-avatar"></div>
+      <div>
+        <div class="popup-user-name" id="user-name"></div>
+        <div class="popup-user-role" id="user-role"></div>
+      </div>
+    </div>
+    <div class="popup-body">
+      <div class="popup-info-row">
+        <span class="popup-info-label">Email</span>
+        <span class="popup-info-value" id="user-email"></span>
+      </div>
+      <div class="popup-info-row">
+        <span class="popup-info-label">Token</span>
+        <div class="popup-token-row">
+          <span class="popup-token-text" id="user-token" title="Clique para copiar"></span>
+          <button class="popup-eye-btn" id="tokenEyeBtn" title="Mostrar/ocultar token">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
       </div>
-      <button id="logoutBtn" style="background:#2a3942;color:#ef4444;border:1px solid #3b4a54;border-radius:8px;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;width:auto;transition:background 0.2s ease">Sair</button>
+      <div class="popup-info-row">
+        <span class="popup-info-label">Versão</span>
+        <span class="popup-info-value" id="version-label" style="color:#00a884;font-weight:600;font-family:monospace"></span>
+      </div>
     </div>
-    <div id="user-token" style="font-size:10px;color:#3b4a54;font-family:monospace;text-align:center"></div>
+    <div class="popup-footer">
+      <button class="popup-logout-btn" id="logoutBtn">Sair</button>
+      <div class="popup-dev">Desenvolvido por Grupo Escalada Ltda.</div>
+    </div>
   </div>
 
-  <div id="no-user-section" style="display:none;margin-bottom:16px">
+  <!-- === Login view === -->
+  <div id="no-user-section" style="display:none">
     <h2>Conectar ao E-ZAP</h2>
     <label>Token de acesso</label>
     <input type="text" id="tokenInput" placeholder="WCRM-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
     <button id="tokenBtn">Entrar</button>
     <div class="status" id="tokenStatus"></div>
-  </div>
-
-  <!-- HubSpot section: only visible for admins -->
-  <div id="hubspot-section" style="display:none">
-    <h2>E-ZAP Settings</h2>
-    <label>HubSpot API Key (Private App Token)</label>
-    <input type="password" id="apiKey" placeholder="pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-    <button id="saveBtn">Salvar</button>
-    <div class="status" id="status"></div>
-    <div class="info">
-      Para criar um Private App Token no HubSpot:<br>
-      1. HubSpot > Settings > Integrations > Private Apps<br>
-      2. Create a Private App<br>
-      3. Scopes: <b>crm.objects.contacts.read</b>, <b>crm.objects.deals.read</b><br>
-      4. Copie o token e cole aqui
-    </div>
-  </div>
-
-  <!-- Non-admin users see this -->
-  <div id="user-info-section" style="display:none">
-    <div style="text-align:center;padding:12px;background:#202c33;border-radius:8px;border:1px solid #2a3942">
-      <div id="version-label" style="font-size:11px;color:#00a884;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">E-ZAP</div>
-      <div style="font-size:11px;color:#8696a0">Configurado pelo administrador</div>
-    </div>
+    <div class="popup-dev" style="margin-top:16px">Desenvolvido por Grupo Escalada Ltda.</div>
   </div>
 
   <script src="popup.js"></script>

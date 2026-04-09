@@ -1,22 +1,32 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const apiKeyInput = document.getElementById("apiKey");
-  const saveBtn = document.getElementById("saveBtn");
-  const statusEl = document.getElementById("status");
   const userSection = document.getElementById("user-section");
   const noUserSection = document.getElementById("no-user-section");
   const userAvatar = document.getElementById("user-avatar");
   const userName = document.getElementById("user-name");
   const userRole = document.getElementById("user-role");
+  const userEmail = document.getElementById("user-email");
   const userToken = document.getElementById("user-token");
   const logoutBtn = document.getElementById("logoutBtn");
+  const versionLabel = document.getElementById("version-label");
+  const tokenEyeBtn = document.getElementById("tokenEyeBtn");
 
-  const hubspotSection = document.getElementById("hubspot-section");
-  const userInfoSection = document.getElementById("user-info-section");
-
-  // ===== Set version from manifest =====
+  // ===== Version =====
   var manifest = chrome.runtime.getManifest();
-  var versionLabel = document.getElementById("version-label");
-  if (versionLabel) versionLabel.textContent = "E-ZAP V" + manifest.version;
+  var version = manifest.version;
+  if (versionLabel) versionLabel.textContent = "v" + version;
+
+  // ===== Token visibility state =====
+  var tokenVisible = false;
+  var fullToken = "";
+
+  function maskToken(t) {
+    if (!t) return "";
+    var parts = t.split("-");
+    if (parts.length >= 4) {
+      return parts[0] + "-••••-••••-" + parts[parts.length - 1];
+    }
+    return t.substring(0, 5) + "••••••" + t.substring(t.length - 4);
+  }
 
   // ===== Load auth info =====
   chrome.storage.local.get("wcrm_auth", (data) => {
@@ -24,27 +34,54 @@ document.addEventListener("DOMContentLoaded", () => {
     if (auth && auth.userId) {
       userSection.style.display = "block";
       noUserSection.style.display = "none";
-      userName.textContent = auth.userName;
-      var roleMap = { admin: "Administrador", user: "Usu\u00e1rio", cx_cs: "CX/CS" };
-      userRole.textContent = roleMap[auth.userRole] || auth.userRole || "Usu\u00e1rio";
-      userAvatar.textContent = (auth.userName || "U").charAt(0).toUpperCase();
-      userToken.textContent = auth.token;
 
-      // Only admins see HubSpot API key config
+      userName.textContent = auth.userName || "Usuário";
+      var roleMap = { admin: "Administrador", user: "Usuário", cx_cs: "CX/CS" };
+      userRole.textContent = roleMap[auth.userRole] || auth.userRole || "Usuário";
+      userAvatar.textContent = (auth.userName || "U").charAt(0).toUpperCase();
+
+      // Admin gets purple avatar
       if (auth.userRole === "admin") {
-        hubspotSection.style.display = "block";
-        userInfoSection.style.display = "none";
-      } else {
-        hubspotSection.style.display = "none";
-        userInfoSection.style.display = "block";
+        userAvatar.style.background = "linear-gradient(135deg, #cc5de8, #9b59b6)";
       }
+
+      userEmail.textContent = auth.userEmail || "-";
+
+      fullToken = auth.token || "";
+      userToken.textContent = maskToken(fullToken);
     } else {
       userSection.style.display = "none";
       noUserSection.style.display = "block";
-      hubspotSection.style.display = "none";
-      userInfoSection.style.display = "none";
     }
   });
+
+  // ===== Token eye toggle =====
+  if (tokenEyeBtn) {
+    tokenEyeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      tokenVisible = !tokenVisible;
+      userToken.textContent = tokenVisible ? fullToken : maskToken(fullToken);
+      tokenEyeBtn.innerHTML = tokenVisible
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    });
+  }
+
+  // ===== Token copy on click =====
+  if (userToken) {
+    userToken.addEventListener("click", () => {
+      if (!fullToken) return;
+      navigator.clipboard.writeText(fullToken).then(() => {
+        var orig = userToken.textContent;
+        userToken.textContent = "Copiado!";
+        userToken.style.color = "#00a884";
+        setTimeout(() => {
+          userToken.textContent = tokenVisible ? fullToken : maskToken(fullToken);
+          userToken.style.color = "";
+        }, 1200);
+      });
+    });
+  }
 
   // ===== Token login from popup =====
   const tokenInput = document.getElementById("tokenInput");
@@ -99,7 +136,6 @@ document.addEventListener("DOMContentLoaded", () => {
           chrome.storage.local.set({ wcrm_auth: authData }, () => {
             tokenStatus.className = "status ok";
             tokenStatus.textContent = "Bem-vindo, " + authData.userName + "!";
-            // Reload popup to show user section
             setTimeout(() => location.reload(), 800);
           });
         } else if (response && response.blocked) {
@@ -112,7 +148,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // Allow Enter key to submit
     if (tokenInput) {
       tokenInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") tokenBtn.click();
@@ -124,52 +159,9 @@ document.addEventListener("DOMContentLoaded", () => {
   logoutBtn.addEventListener("click", () => {
     if (!confirm("Deseja sair? Você precisará do token para reconectar.")) return;
     chrome.storage.local.remove("wcrm_auth", () => {
-      // Tell background to relay logout to content scripts
       chrome.runtime.sendMessage({ action: "wcrm_logout" });
-      // Update popup UI
       userSection.style.display = "none";
       noUserSection.style.display = "block";
-    });
-  });
-
-  // ===== Load saved HubSpot key =====
-  chrome.storage.local.get("hubspot_api_key", (data) => {
-    if (data.hubspot_api_key) {
-      apiKeyInput.value = data.hubspot_api_key;
-      statusEl.className = "status ok";
-      statusEl.textContent = "Chave salva anteriormente";
-    }
-  });
-
-  saveBtn.addEventListener("click", () => {
-    const key = apiKeyInput.value.trim();
-    if (!key) {
-      statusEl.className = "status err";
-      statusEl.textContent = "Insira a API key";
-      return;
-    }
-
-    statusEl.className = "status";
-    statusEl.textContent = "Salvando e testando...";
-
-    // Save first, test via background
-    chrome.storage.local.set({ hubspot_api_key: key }, () => {
-      // Test via background script
-      chrome.runtime.sendMessage({ action: "test_hubspot_key", key: key }, (response) => {
-        if (chrome.runtime.lastError) {
-          // Even if test fails, key is saved
-          statusEl.className = "status ok";
-          statusEl.textContent = "Chave salva! (teste indisponível)";
-          return;
-        }
-        if (response && response.ok) {
-          statusEl.className = "status ok";
-          statusEl.textContent = "Conectado ao HubSpot com sucesso!";
-        } else {
-          statusEl.className = "status err";
-          statusEl.textContent = "Chave salva, mas erro ao testar: " + (response?.error || "desconhecido");
-        }
-      });
     });
   });
 });
