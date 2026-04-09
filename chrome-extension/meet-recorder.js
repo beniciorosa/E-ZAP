@@ -101,65 +101,157 @@
   }
 
   // ===== RECORDING SEQUENCE =====
+  // New Meet UI (2025+): Activities panel (grid icon in footer) > "Gravar"
   function startRecording() {
     log("Starting recording sequence...");
     updateBanner("recording-start", "⏳ Iniciando gravação...");
 
-    // Step 1: Click "More options" (three dots menu)
-    var clicked = clickMaterialIcon("more_vert");
-    if (!clicked) {
-      // Try aria-label based
-      var moreBtn = document.querySelector('[aria-label*="Mais opções"], [aria-label*="More options"], [aria-label*="mais opções"]');
-      if (moreBtn) { moreBtn.click(); clicked = true; }
+    // Step 1: Open "Activities" / "Ferramentas da reunião" panel
+    // The grid icon in the bottom bar (4 dots / squares icon)
+    var activitiesBtn =
+      document.querySelector('[aria-label*="Atividades"], [aria-label*="Activities"], [aria-label*="Ferramentas"]') ||
+      document.querySelector('[data-panel-id="activities"]') ||
+      document.querySelector('[aria-label*="atividades"]');
+
+    // Fallback: find the grid/apps icon in the bottom bar
+    if (!activitiesBtn) {
+      var icons = document.querySelectorAll('i.google-material-icons[aria-hidden="true"], i.material-icons-extended');
+      for (var i = icons.length - 1; i >= 0; i--) {
+        var txt = (icons[i].textContent || "").trim();
+        if (txt === "apps" || txt === "grid_view" || txt === "dashboard") {
+          activitiesBtn = icons[i].closest('button') || icons[i];
+          break;
+        }
+      }
     }
 
-    if (!clicked) {
-      log("ERROR: Could not find More options button");
-      updateBanner("error", "❌ Não encontrei o menu. Inicie a gravação manualmente.");
+    if (!activitiesBtn) {
+      log("ERROR: Could not find Activities button. Trying old method...");
+      startRecordingLegacy();
       return;
     }
 
-    // Step 2: Click "Manage recording" / "Gerenciar gravação"
+    activitiesBtn.click();
+    log("Clicked Activities panel");
+
+    // Step 2: Click "Gravar" / "Record" in the panel
     setTimeout(function() {
-      var manageBtn = findByText("span", ["Gerenciar gravação", "Manage recording", "Gerenciar gravações"]);
-      if (!manageBtn) {
-        // Try li or div
-        manageBtn = findByText("li", ["Gerenciar gravação", "Manage recording"]);
+      var recordBtn = findByText("span", ["Gravar", "Record", "Gravar a reunião"]);
+      if (!recordBtn) recordBtn = findByText("div", ["Gravar", "Record"]);
+      // Also try finding by the record icon description
+      if (!recordBtn) {
+        var allSpans = document.querySelectorAll('span');
+        for (var s = 0; s < allSpans.length; s++) {
+          var st = (allSpans[s].textContent || "").trim();
+          if (st === "Gravar" || st === "Record") {
+            recordBtn = allSpans[s];
+            break;
+          }
+        }
       }
+
+      if (!clickEl(recordBtn)) {
+        log("ERROR: Could not find Record button in panel");
+        updateBanner("error", "❌ Botão 'Gravar' não encontrado no painel.");
+        return;
+      }
+      log("Clicked Record");
+
+      // Step 3: Ensure all checkboxes are checked (legendas, transcrição, Gemini)
+      setTimeout(function() {
+        var checkboxes = document.querySelectorAll('input[type="checkbox"], [role="checkbox"]');
+        log("Found " + checkboxes.length + " checkboxes");
+        for (var ci = 0; ci < checkboxes.length; ci++) {
+          var cb = checkboxes[ci];
+          var isChecked = cb.checked || cb.getAttribute("aria-checked") === "true";
+          if (!isChecked) {
+            cb.click();
+            log("Checked checkbox #" + ci);
+          }
+        }
+        // Also try label-based checkboxes (Meet sometimes uses custom elements)
+        var labels = document.querySelectorAll('label');
+        for (var li = 0; li < labels.length; li++) {
+          var lbl = labels[li];
+          var txt = (lbl.textContent || "").trim().toLowerCase();
+          if (txt.indexOf("legenda") >= 0 || txt.indexOf("transcrição") >= 0 || txt.indexOf("gemini") >= 0 || txt.indexOf("caption") >= 0 || txt.indexOf("transcript") >= 0) {
+            var inp = lbl.querySelector('input[type="checkbox"]') || lbl.querySelector('[role="checkbox"]');
+            if (inp && !inp.checked && inp.getAttribute("aria-checked") !== "true") {
+              inp.click();
+              log("Checked: " + txt);
+            }
+          }
+        }
+
+        // Step 4: Click "Começar a gravar" / "Start recording"
+        setTimeout(function() {
+          var startBtn = findByText("button", ["Começar a gravar", "Start recording", "Iniciar gravação"]);
+          if (!startBtn) startBtn = findByText("span", ["Começar a gravar", "Start recording", "Iniciar gravação"]);
+          // Broader search
+          if (!startBtn) {
+            var btns = document.querySelectorAll('button');
+            for (var b = 0; b < btns.length; b++) {
+              var bt = (btns[b].textContent || "").trim();
+              if (bt.indexOf("Começar a gravar") >= 0 || bt.indexOf("Start recording") >= 0 || bt.indexOf("Iniciar gravação") >= 0) {
+                startBtn = btns[b];
+                break;
+              }
+            }
+          }
+
+          if (!clickEl(startBtn)) {
+            log("ERROR: Could not find 'Começar a gravar' button");
+            updateBanner("error", "❌ Botão 'Começar a gravar' não encontrado.");
+            return;
+          }
+          log("Clicked 'Começar a gravar'");
+
+          // Step 5: Handle any confirmation dialog
+          setTimeout(function() {
+            var confirmBtn = findByText("button", ["Iniciar", "Start", "Confirmar", "Confirm", "OK"]);
+            if (confirmBtn) {
+              clickEl(confirmBtn);
+              log("Clicked confirmation");
+            }
+
+            setTimeout(function() {
+              log("Recording started successfully!");
+              _state = "recording";
+              updateBanner("recording", "🔴 Gravação em andamento");
+              saveMeetingEvent("recording_started");
+            }, 1500);
+          }, 1000);
+        }, 500);
+      }, 1000);
+    }, 800);
+  }
+
+  // Legacy method: More options > Manage recording (old Meet UI)
+  function startRecordingLegacy() {
+    var clicked = clickMaterialIcon("more_vert");
+    if (!clicked) {
+      var moreBtn = document.querySelector('[aria-label*="Mais opções"], [aria-label*="More options"]');
+      if (moreBtn) { moreBtn.click(); clicked = true; }
+    }
+    if (!clicked) {
+      updateBanner("error", "❌ Não encontrei o menu. Inicie a gravação manualmente.");
+      return;
+    }
+    setTimeout(function() {
+      var manageBtn = findByText("span", ["Gerenciar gravação", "Manage recording"]);
       if (!clickEl(manageBtn)) {
-        log("ERROR: Could not find Manage recording");
-        updateBanner("error", "❌ Menu 'Gerenciar gravação' não encontrado. Inicie manualmente.");
-        // Close the menu
+        updateBanner("error", "❌ Menu 'Gerenciar gravação' não encontrado.");
         document.body.click();
         return;
       }
-      log("Clicked Manage recording");
-
-      // Step 3: Click "Start recording" / "Iniciar gravação"
       setTimeout(function() {
         var startBtn = findByText("span", ["Iniciar gravação", "Start recording"]);
-        if (!startBtn) startBtn = findByText("button", ["Iniciar gravação", "Start recording"]);
-        if (!clickEl(startBtn)) {
-          log("ERROR: Could not find Start recording button");
-          updateBanner("error", "❌ Botão 'Iniciar gravação' não encontrado.");
-          return;
-        }
-        log("Clicked Start recording");
-
-        // Step 4: Click "Iniciar" / "Start" confirmation
+        clickEl(startBtn);
         setTimeout(function() {
           var confirmBtn = findByText("span", ["Iniciar", "Start"]);
-          if (!confirmBtn) confirmBtn = findByText("button", ["Iniciar", "Start"]);
-          if (!clickEl(confirmBtn)) {
-            log("ERROR: Could not find Start confirmation");
-            updateBanner("error", "❌ Confirmação não encontrada.");
-            return;
-          }
-          log("Recording started successfully!");
+          clickEl(confirmBtn);
           _state = "recording";
           updateBanner("recording", "🔴 Gravação em andamento");
-
-          // Save to Supabase
           saveMeetingEvent("recording_started");
         }, 1200);
       }, 800);
