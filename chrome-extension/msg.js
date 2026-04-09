@@ -131,7 +131,10 @@ function createMsgSidebar() {
 
   sidebar.innerHTML = `
     <div class="ezap-header">
-      <h3 class="ezap-header-title">Mensagens</h3>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;border-radius:50%;background:#4d96ff;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <h3 class="ezap-header-title">Mensagens</h3>
+      </div>
       <button id="wcrm-msg-sidebar-close" class="ezap-header-close">&times;</button>
     </div>
     <div style="padding:12px 16px">

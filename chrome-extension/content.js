@@ -57,7 +57,10 @@ function createSidebar() {
 
   sidebar.innerHTML = `
     <div class="ezap-header">
-      <h3 class="ezap-header-title">Escalada CRM</h3>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;border-radius:50%;background:#00a884;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+        <h3 class="ezap-header-title">Escalada CRM</h3>
+      </div>
       <button id="wcrm-close-btn" class="ezap-header-close">&times;</button>
     </div>
     <div id="wcrm-content" class="ezap-content">
@@ -208,7 +211,10 @@ function createTagSidebar() {
   sidebar.className = "escalada-crm ezap-sidebar";
   sidebar.innerHTML = [
     '<div class="ezap-header">',
-    '  <h3 class="ezap-header-title">Gerenciar Etiquetas</h3>',
+    '  <div style="display:flex;align-items:center;gap:10px">',
+    '    <div style="width:32px;height:32px;border-radius:50%;background:#f59e0b;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/></svg></div>',
+    '    <h3 class="ezap-header-title">Gerenciar Etiquetas</h3>',
+    '  </div>',
     '  <button id="wcrm-tag-close" class="ezap-header-close">&times;</button>',
     '</div>',
     '<div class="ezap-content">',

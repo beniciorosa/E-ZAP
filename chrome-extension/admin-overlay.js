@@ -104,7 +104,7 @@
     header.className = "ezap-header";
     header.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px">' +
-        '<div style="width:32px;height:32px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">S</div>' +
+        '<div style="width:32px;height:32px;border-radius:50%;background:#ff922b;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>' +
         '<h3 class="ezap-header-title">Supervisão</h3>' +
       '</div>';
     var closeBtn = document.createElement("button");

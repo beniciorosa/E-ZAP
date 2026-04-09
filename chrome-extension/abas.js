@@ -734,7 +734,10 @@ function createAbasSidebar() {
 
   sidebar.innerHTML =
     '<div class="ezap-header">' +
-      '<h3 class="ezap-header-title">ABAS</h3>' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<div style="width:32px;height:32px;border-radius:50%;background:#8b5cf6;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z"/></svg></div>' +
+        '<h3 class="ezap-header-title">ABAS</h3>' +
+      '</div>' +
       '<button id="wcrm-abas-close" class="ezap-header-close">&times;</button>' +
     '</div>' +
     '<div class="ezap-content">' +
