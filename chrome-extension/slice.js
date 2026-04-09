@@ -1659,19 +1659,33 @@ function _showCustomAbaList(abaTab, chatIndex) {
       (pinnedCount > 0 ? ' \u00b7 ' + pinnedCount + ' fixado' + (pinnedCount !== 1 ? 's' : '') : '');
     countRowAba.appendChild(countLabelAba);
 
-    var clearBtn = document.createElement('button');
-    clearBtn.className = 'wcrm-quick-aba-clear';
-    clearBtn.innerHTML = '&#10005; Limpar';
-    clearBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      if (typeof clearAbasFilter === 'function') clearAbasFilter();
-    });
-    countRowAba.appendChild(clearBtn);
     header.appendChild(countRowAba);
   }
   custom.appendChild(header);
 
-  // Arquivadas row (estilo nativo WA) - so no overlay mode
+  // "Limpar filtro" row — shown when aba is selected, same style as Arquivadas
+  if (isAbaFilterMode) {
+    var _tClear = (typeof getTheme === 'function') ? getTheme() : { bgSecondary: '#202c33', text: '#e9edef', textSecondary: '#8696a0', border: '#2a3942' };
+    var clearRow = document.createElement('div');
+    clearRow.style.cssText = 'display:flex;align-items:center;padding:10px 15px;cursor:pointer;border-bottom:1px solid ' + _tClear.border + ';';
+    clearRow.addEventListener('mouseenter', function() { clearRow.style.background = _tClear.bgSecondary; });
+    clearRow.addEventListener('mouseleave', function() { clearRow.style.background = 'transparent'; });
+    var clearIcon = document.createElement('span');
+    clearIcon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ef4444" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    clearIcon.style.cssText = 'display:flex;align-items:center;margin-right:15px;';
+    clearRow.appendChild(clearIcon);
+    var clearText = document.createElement('span');
+    clearText.textContent = 'Limpar filtro';
+    clearText.style.cssText = 'font-size:14px;color:#ef4444;font-weight:500;';
+    clearRow.appendChild(clearText);
+    clearRow.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (typeof clearAbasFilter === 'function') clearAbasFilter();
+    });
+    custom.appendChild(clearRow);
+  }
+
+  // Arquivadas row - overlay mode only
   if (isOverlayMode) {
     var _tArch = (typeof getTheme === 'function') ? getTheme() : { bgSecondary: '#202c33', text: '#e9edef', textSecondary: '#8696a0', border: '#2a3942' };
     var archRow = document.createElement('div');
