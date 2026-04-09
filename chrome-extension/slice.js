@@ -1659,14 +1659,6 @@ function _showCustomAbaList(abaTab, chatIndex) {
       (pinnedCount > 0 ? ' \u00b7 ' + pinnedCount + ' fixado' + (pinnedCount !== 1 ? 's' : '') : '');
     countRowAba.appendChild(countLabelAba);
 
-    var _abaColor = (abaTab && abaTab.color) ? abaTab.color : '#8b5cf6';
-    var _abaTextOnBg = _pillTextColor(_abaColor);
-    var abaNameBadge = document.createElement('span');
-    abaNameBadge.style.cssText = 'font-size:10px;font-weight:700;color:' + _abaTextOnBg + ';letter-spacing:0.3px;' +
-      'background:' + _abaColor + ';padding:2px 10px;border-radius:6px;text-transform:uppercase;';
-    abaNameBadge.textContent = abaTab ? abaTab.name : '';
-    countRowAba.appendChild(abaNameBadge);
-
     var clearBtn = document.createElement('button');
     clearBtn.className = 'wcrm-quick-aba-clear';
     clearBtn.innerHTML = '&#10005; Limpar';
