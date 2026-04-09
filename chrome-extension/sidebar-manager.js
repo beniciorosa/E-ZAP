@@ -28,12 +28,9 @@
   /**
    * Reposition floating rail when sidebar opens/closes
    */
-  var _collapsed = false;
-
   function _updateFloats() {
     var container = document.getElementById("ezap-float-container");
     if (!container) return;
-    _ensureCollapseButton();
     var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
       return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
     });
@@ -43,22 +40,27 @@
       container.classList.remove("ezap-rail--shifted");
     }
     container.style.display = "flex";
-    _applyCollapse();
+    // Show/hide collapse button based on whether a sidebar is open
+    _ensureCollapseButton();
+    var btn = document.getElementById("ezap-collapse-btn");
+    if (btn) {
+      btn.style.display = anyShrinkOpen ? "flex" : "none";
+      _positionCollapseBtn();
+    }
     _highlightActiveButton();
-    _positionCollapseBtn();
   }
 
   function _ensureCollapseButton() {
     if (document.getElementById("ezap-collapse-btn")) return;
     var btn = document.createElement("button");
     btn.id = "ezap-collapse-btn";
-    // Styled by CSS — half-moon shape attached to right edge
-    btn.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M1 1l6 6-6 6"/></svg>';
-    btn.title = "Recolher menu";
+    btn.style.display = "none"; // Hidden by default, shown when sidebar opens
+    btn.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M7 1L1 7l6 6"/></svg>';
+    btn.title = "Fechar sidebar";
     btn.addEventListener("click", function(e) {
       e.stopPropagation();
-      _collapsed = !_collapsed;
-      _applyCollapse();
+      // Close all open sidebars
+      window.ezapSidebar.closeAll();
     });
     document.body.appendChild(btn);
   }
@@ -68,44 +70,12 @@
     if (!btn) return;
     var container = document.getElementById("ezap-float-container");
     if (!container) return;
-    // Position vertically centered with the buttons
-    var rect = container.getBoundingClientRect();
-    var firstBtn = container.querySelector(".ezap-float-btn");
-    if (firstBtn) {
-      var btnRect = firstBtn.getBoundingClientRect();
-      btn.style.top = (btnRect.top - 10) + "px";
-    } else {
-      btn.style.top = (rect.top + 70) + "px";
-    }
-    // Horizontal: match container's right edge
     var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
       return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
     });
+    // Position above the first button
+    btn.style.top = "82px";
     btn.style.right = anyShrinkOpen ? (SIDEBAR_W + RAIL_W) + "px" : RAIL_W + "px";
-  }
-
-  function _applyCollapse() {
-    var container = document.getElementById("ezap-float-container");
-    var btn = document.getElementById("ezap-collapse-btn");
-    if (!container) return;
-
-    // Hide/show all buttons in the container
-    var children = container.children;
-    for (var i = 0; i < children.length; i++) {
-      children[i].style.display = _collapsed ? "none" : "flex";
-    }
-    // Hide/show the rail background
-    container.style.background = _collapsed ? "none" : "";
-    container.style.borderLeft = _collapsed ? "none" : "";
-
-    if (btn) {
-      btn.innerHTML = _collapsed
-        ? '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M7 1L1 7l6 6"/></svg>'
-        : '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M1 1l6 6-6 6"/></svg>';
-      btn.title = _collapsed ? "Expandir menu" : "Recolher menu";
-      if (_collapsed) btn.classList.add("collapsed");
-      else btn.classList.remove("collapsed");
-    }
   }
 
   /**

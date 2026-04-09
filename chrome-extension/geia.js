@@ -169,14 +169,11 @@ function toggleGeiaSidebar() {
   if (window.ezapSidebar) { ezapSidebar.toggle('geia'); return; }
   // Fallback
   geiaSidebarOpen = !geiaSidebarOpen;
-  var floatContainer = document.getElementById("ezap-float-container");
   if (geiaSidebarOpen) {
     sidebar.classList.add("open");
-    if (floatContainer) floatContainer.style.display = "none";
     updateGeiaContent();
   } else {
     sidebar.classList.remove("open");
-    if (floatContainer) floatContainer.style.display = "flex";
   }
 }
 
@@ -210,7 +207,7 @@ function createGeiaSidebar() {
 
   document.body.appendChild(sidebar);
 
-  // Register with sidebar manager (overlay mode — doesn't shrink app or close others)
+  // Register with sidebar manager (same behavior as other sidebars)
   if (window.ezapSidebar) {
     window.ezapSidebar.register('geia', {
       show: function() {
@@ -224,8 +221,8 @@ function createGeiaSidebar() {
         if (sb) sb.classList.remove("open");
       },
       onOpen: function() { updateGeiaContent(); },
-      shrinkApp: false,
-      closesOthers: false,
+      shrinkApp: true,
+      closesOthers: true,
     });
   }
 }
