@@ -2188,6 +2188,7 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   // ===== Sync group members to DB =====
   function syncGroupMembers(groupJid, groupName) {
     if (!groupJid || !getUserId()) return;
+    console.log("[EZAP-SYNC] syncGroupMembers called for:", groupName, groupJid);
 
     // Cooldown check
     var now = Date.now();
@@ -2305,9 +2306,6 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
       }
       return;
     }
-
-    // Track name changes (for all chats, not just groups)
-    trackNameChange(chat.jid, chat.name);
 
     // Sync group members (only for groups)
     if (chat.isGroup) {
