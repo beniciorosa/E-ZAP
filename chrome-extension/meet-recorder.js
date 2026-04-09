@@ -138,28 +138,17 @@
 
     // Step 2: Click "Gravar" / "Record" in the panel
     setTimeout(function() {
-      // Find the "Gravar" card — it's a clickable item in the tools panel
-      // The card text includes "Gravar" + subtitle "Grave a reunião"
-      var recordBtn = null;
+      // Find the "Gravar" button by aria-label (most reliable)
+      var recordBtn = document.querySelector('[role="button"][aria-label*="Gravar"], [role="button"][aria-label*="Record"]');
 
-      // Strategy 1: find clickable element containing "Gravar" text
-      var candidates = document.querySelectorAll('[role="listitem"], [role="button"], li, a, div[jsaction], div[data-panel-id]');
-      for (var ci = 0; ci < candidates.length; ci++) {
-        var txt = (candidates[ci].textContent || "").trim();
-        if (txt.indexOf("Gravar") >= 0 && txt.indexOf("Grave a reunião") >= 0) {
-          recordBtn = candidates[ci];
-          break;
-        }
-      }
-
-      // Strategy 2: find span with exact "Gravar" text and click its parent card
+      // Fallback: search by text content
       if (!recordBtn) {
-        var spans = document.querySelectorAll('span, div');
-        for (var si = 0; si < spans.length; si++) {
-          var st = (spans[si].textContent || "").trim();
-          if (st === "Gravar" || st === "Record") {
-            // Click the closest clickable parent (li, button, a, or the card wrapper)
-            recordBtn = spans[si].closest('[role="listitem"], [role="button"], li, a') || spans[si].parentElement;
+        var btns = document.querySelectorAll('[role="button"]');
+        for (var bi = 0; bi < btns.length; bi++) {
+          var al = btns[bi].getAttribute('aria-label') || '';
+          var tx = (btns[bi].textContent || '').trim();
+          if (al.indexOf('Gravar') >= 0 || al.indexOf('Record') >= 0 || tx.indexOf('Grave a reunião') >= 0) {
+            recordBtn = btns[bi];
             break;
           }
         }
@@ -198,16 +187,15 @@
           }
         }
 
-        // Step 4: Click "Começar a gravar" / "Start recording"
+        // Step 4: Click "Começar a gravar" button (aria-label based)
         setTimeout(function() {
-          var startBtn = findByText("button", ["Começar a gravar", "Start recording", "Iniciar gravação"]);
-          if (!startBtn) startBtn = findByText("span", ["Começar a gravar", "Start recording", "Iniciar gravação"]);
-          // Broader search
+          var startBtn = document.querySelector('button[aria-label*="Começar a gravar"], button[aria-label*="Start recording"]');
+          // Fallback: find by text content
           if (!startBtn) {
             var btns = document.querySelectorAll('button');
             for (var b = 0; b < btns.length; b++) {
               var bt = (btns[b].textContent || "").trim();
-              if (bt.indexOf("Começar a gravar") >= 0 || bt.indexOf("Start recording") >= 0 || bt.indexOf("Iniciar gravação") >= 0) {
+              if (bt.indexOf("Começar a gravar") >= 0 || bt.indexOf("Start recording") >= 0) {
                 startBtn = btns[b];
                 break;
               }
@@ -221,21 +209,27 @@
           }
           log("Clicked 'Começar a gravar'");
 
-          // Step 5: Handle any confirmation dialog
+          // Step 5: Handle "Confirme se todos estão prontos" dialog → click "Iniciar"
           setTimeout(function() {
-            var confirmBtn = findByText("button", ["Iniciar", "Start", "Confirmar", "Confirm", "OK"]);
+            // The confirmation dialog has "Cancelar" and "Iniciar" buttons
+            var confirmBtn = findByText("button", ["Iniciar", "Start"]);
+            if (!confirmBtn) confirmBtn = findByText("span", ["Iniciar", "Start"]);
+            // Also try aria-label
+            if (!confirmBtn) confirmBtn = document.querySelector('button[aria-label*="Iniciar"], button[aria-label*="Start"]');
             if (confirmBtn) {
               clickEl(confirmBtn);
-              log("Clicked confirmation");
+              log("Clicked 'Iniciar' confirmation");
+            } else {
+              log("No confirmation dialog found (may have auto-started)");
             }
 
             setTimeout(function() {
-              log("Recording started successfully!");
+              log("Recording started!");
               _state = "recording";
               updateBanner("recording", "🔴 Gravação em andamento");
               saveMeetingEvent("recording_started");
-            }, 1500);
-          }, 1000);
+            }, 2000);
+          }, 1500);
         }, 500);
       }, 1000);
     }, 800);
