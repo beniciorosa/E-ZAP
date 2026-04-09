@@ -2035,35 +2035,45 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
   }
 
   // ===== Inject signature at the TOP of the message =====
-  // Replaces entire compose box content in one shot: signature + original text
-  function injectSignature(input) {
-    if (!_sigEnabled || !_sigName) return;
+  // Clears compose box, then pastes signature + original text
+  function injectSignature(input, callback) {
+    if (!_sigEnabled || !_sigName) { if (callback) callback(); return; }
 
     var text = (input.textContent || input.innerText || "").trim();
-    if (!text) return;
+    if (!text) { if (callback) callback(); return; }
 
     // Don't double-inject if signature is already at the top
     var sigPrefix = "_*" + _sigName + ":*_";
-    if (text.startsWith(sigPrefix)) return;
+    if (text.startsWith(sigPrefix)) { if (callback) callback(); return; }
 
     // Build full message: signature on top + original message
     var fullText = sigPrefix + "\n" + text;
 
-    // Select all content and replace in one paste (no visual jump)
+    // Step 1: Clear the compose box completely
     input.focus();
-    var sel = window.getSelection();
-    var range = document.createRange();
-    range.selectNodeContents(input);
-    sel.removeAllRanges();
-    sel.addRange(range);
+    input.innerHTML = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
 
-    var clipData = new DataTransfer();
-    clipData.setData("text/plain", fullText);
-    input.dispatchEvent(new ClipboardEvent("paste", {
-      bubbles: true, cancelable: true, clipboardData: clipData
-    }));
+    // Step 2: Paste the full text (signature + message) after WA processes the clear
+    setTimeout(function() {
+      input.focus();
+      var clipData = new DataTransfer();
+      clipData.setData("text/plain", fullText);
+      input.dispatchEvent(new ClipboardEvent("paste", {
+        bubbles: true, cancelable: true, clipboardData: clipData
+      }));
+      console.log("[EZAP-SIG] Signature injected at top on send");
+      if (callback) setTimeout(callback, 60);
+    }, 30);
+  }
 
-    console.log("[EZAP-SIG] Signature injected at top on send");
+  function triggerSend() {
+    var sendBtn = document.querySelector('[data-testid="send"], [aria-label="Enviar"], button[aria-label="Send"]');
+    if (sendBtn) {
+      _sigEnabled = false;
+      sendBtn.click();
+      _sigEnabled = true;
+    }
   }
 
   // ===== Intercept send button click =====
@@ -2074,29 +2084,17 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     var text = (input.textContent || input.innerText || "").trim();
     if (!text) return;
 
-    // Prevent the native send temporarily
     e.stopImmediatePropagation();
     e.preventDefault();
 
-    // Inject signature
-    injectSignature(input);
-
-    // Trigger send after a tiny delay (so WA processes the new content)
-    setTimeout(function() {
-      var sendBtn = document.querySelector('[data-testid="send"], [aria-label="Enviar"], button[aria-label="Send"]');
-      if (sendBtn) {
-        // Bypass our listener for this click
-        _sigEnabled = false;
-        sendBtn.click();
-        _sigEnabled = true;
-      }
-    }, 80);
+    // Inject signature, then send via callback
+    injectSignature(input, triggerSend);
   }
 
   // ===== Intercept Enter key =====
   function onKeyDown(e) {
     if (!_sigEnabled) return;
-    if (e.key !== "Enter" || e.shiftKey) return; // Shift+Enter = newline
+    if (e.key !== "Enter" || e.shiftKey) return;
 
     var input = getComposeInput();
     if (!input) return;
@@ -2105,19 +2103,12 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     var text = (input.textContent || input.innerText || "").trim();
     if (!text) return;
 
-    // Prevent native Enter send
     e.stopImmediatePropagation();
     e.preventDefault();
 
-    // Inject signature then trigger send
-    injectSignature(input);
-
-    setTimeout(function() {
-      var sendBtn = document.querySelector('[data-testid="send"], [aria-label="Enviar"], button[aria-label="Send"]');
-      if (sendBtn) {
-        _sigEnabled = false;
-        sendBtn.click();
-        _sigEnabled = true;
+    injectSignature(input, function() {
+      // For Enter key, need extra delay for WA to register the new content
+      setTimeout(triggerSend, 50);
       }
     }, 80);
   }
