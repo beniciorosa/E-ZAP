@@ -114,7 +114,7 @@
   window.addEventListener('message', function(event) {
     if (!event.data || event.source !== window) return;
     var d = event.data;
-    if (d.type === '_ezap_get_chats_res' || d.type === '_ezap_store_ready_res' || d.type === '_ezap_open_chat_res' || d.type === '_ezap_get_profile_pics_res' || d.type === '_ezap_chat_action_res') {
+    if (d.type && d.type.indexOf('_ezap_') === 0 && d.type.indexOf('_res') > 0 && d.id) {
       var cb = _ezapRpcPending[d.id];
       if (cb) { delete _ezapRpcPending[d.id]; cb(d); }
     }
