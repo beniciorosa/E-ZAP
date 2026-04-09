@@ -608,19 +608,31 @@ async function processMeetSummary(meetRecordingId, meetingTitle, geminiText) {
       log("Saved to Supabase");
     }
 
-    // Step 3: Search HubSpot for matching ticket
-    log("Step 3: Searching HubSpot for ticket: " + meetingTitle);
-    var hubspotResult = null;
-    try {
-      hubspotResult = await searchTicketsByName(meetingTitle);
-    } catch (e) {
-      log("HubSpot search error: " + e.message);
+    // Step 3: Extract ticket ID from meeting title [12345678] and create note
+    var ticketIdMatch = meetingTitle.match(/\[(\d+)\]/);
+    if (!ticketIdMatch) {
+      result.steps.hubspot = "skipped - no ticket ID in title";
+      log("No ticket ID found in title, skipping HubSpot");
+      result.ok = true;
+      return result;
     }
 
-    if (hubspotResult && hubspotResult.tickets && hubspotResult.tickets.length > 0) {
-      var ticket = hubspotResult.tickets[0];
-      var ticketId = ticket.id;
-      log("Found ticket: " + ticket.properties.subject + " (ID: " + ticketId + ")");
+    var ticketId = ticketIdMatch[1];
+    log("Step 3: Found ticket ID in title: " + ticketId);
+
+    // Verify ticket exists
+    var ticket = null;
+    try {
+      ticket = await hubFetch("/crm/v3/objects/tickets/" + ticketId + "?properties=subject");
+    } catch (e) {
+      log("Ticket " + ticketId + " not found in HubSpot: " + e.message);
+      result.steps.hubspot = "skipped - ticket not found: " + ticketId;
+      result.ok = true;
+      return result;
+    }
+
+    if (ticket && ticket.id) {
+      log("Found ticket: " + (ticket.properties.subject || ticketId));
 
       // Step 4: Create note on ticket
       log("Step 4: Creating note on HubSpot ticket...");
@@ -633,7 +645,7 @@ async function processMeetSummary(meetRecordingId, meetingTitle, geminiText) {
         result.steps.hubspot = "ok";
         result.hubspotNoteId = noteResult.noteId;
         result.hubspotTicketId = ticketId;
-        result.hubspotTicketName = ticket.properties.subject;
+        result.hubspotTicketName = (ticket.properties && ticket.properties.subject) || ticketId;
         log("Note created on ticket (noteId: " + noteResult.noteId + ")");
 
         // Save HubSpot note ID to Supabase
