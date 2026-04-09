@@ -2042,7 +2042,7 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     if (!text) { if (callback) callback(); return; }
 
     // Don't double-inject
-    var sigSuffix = "_*" + _sigName + ":*_";
+    var sigSuffix = "_*" + _sigName + "*_";
     if (text.endsWith(sigSuffix)) { if (callback) callback(); return; }
 
     // Move cursor to end and paste signature
