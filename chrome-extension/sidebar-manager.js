@@ -55,7 +55,7 @@
     var btn = document.createElement("button");
     btn.id = "ezap-collapse-btn";
     btn.style.display = "none"; // Hidden by default, shown when sidebar opens
-    btn.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M7 1L1 7l6 6"/></svg>';
+    btn.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M1 1l6 6-6 6"/></svg>';
     btn.title = "Fechar sidebar";
     btn.addEventListener("click", function(e) {
       e.stopPropagation();
