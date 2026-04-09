@@ -56,10 +56,9 @@
     });
   }
 
-  // Get current chat name from header
+  // Get current chat name — uses global currentName from content.js
   function getCurrentChatName() {
-    var hdr = document.querySelector('#main header span[title]');
-    return hdr ? (hdr.getAttribute('title') || '') : '';
+    return (typeof currentName !== 'undefined' && currentName) ? currentName : '';
   }
 
   // Save note to DB (upsert) — includes chat_name for dot queries
@@ -408,7 +407,17 @@
           if (resp[i].chat_name) _chatsWithNoteNames[resp[i].chat_name.toLowerCase()] = true;
         }
         _dotDataReady = true;
-        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames).length, Object.keys(_chatsWithNoteNames));
+        console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames));
+        if (Object.keys(_chatsWithNoteNames).length > 0) {
+          // Log first 3 span[title] values from pane-side for matching debug
+          var pane = document.getElementById('pane-side');
+          if (pane) {
+            var spans = pane.querySelectorAll('span[title][dir]');
+            var sample = [];
+            for (var si = 0; si < Math.min(3, spans.length); si++) sample.push(spans[si].getAttribute('title'));
+            console.log("[EZAP-NOTES] Sample chat titles:", sample);
+          }
+        }
         injectChatDots();
       });
     } catch(e) {}
