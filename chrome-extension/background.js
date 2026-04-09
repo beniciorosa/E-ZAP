@@ -106,16 +106,44 @@ function isNewerSemver(vA, vB) {
 async function tryVersionUpgradeBypass(token, newDeviceId) {
   try {
     const currentVersion = chrome.runtime.getManifest().version;
+    const patchHeaders = {
+      "apikey": AUTH_SERVICE_KEY,
+      "Authorization": "Bearer " + AUTH_SERVICE_KEY,
+      "Content-Type": "application/json",
+      "Prefer": "return=minimal",
+    };
+    const patchBody = JSON.stringify({
+      device_fingerprint: newDeviceId,
+      ext_version: currentVersion,
+      redeemed_at: new Date().toISOString(),
+    });
 
-    // Read the user's stored ext_version from database
+    // Check user_tokens first (multi-token support)
+    const tokResp = await fetch(
+      AUTH_SUPA_URL + "/rest/v1/user_tokens?token=ilike." + encodeURIComponent(token) + "&select=id,user_id,ext_version,device_fingerprint",
+      { headers: { "apikey": AUTH_SERVICE_KEY, "Authorization": "Bearer " + AUTH_SERVICE_KEY } }
+    );
+    if (tokResp.ok) {
+      const tokRows = await tokResp.json();
+      if (tokRows.length > 0) {
+        const tok = tokRows[0];
+        const storedVersion = tok.ext_version || "0.0.0";
+        if (!isNewerSemver(currentVersion, storedVersion)) return false;
+
+        // Update user_tokens
+        const r1 = await fetch(AUTH_SUPA_URL + "/rest/v1/user_tokens?id=eq." + tok.id,
+          { method: "PATCH", headers: patchHeaders, body: patchBody });
+        // Also update users table
+        await fetch(AUTH_SUPA_URL + "/rest/v1/users?id=eq." + tok.user_id,
+          { method: "PATCH", headers: patchHeaders, body: patchBody });
+        return r1.ok;
+      }
+    }
+
+    // Fallback: check users table directly
     const resp = await fetch(
       AUTH_SUPA_URL + "/rest/v1/users?token=ilike." + encodeURIComponent(token) + "&select=id,ext_version,device_fingerprint",
-      {
-        headers: {
-          "apikey": AUTH_SERVICE_KEY,
-          "Authorization": "Bearer " + AUTH_SERVICE_KEY,
-        },
-      }
+      { headers: { "apikey": AUTH_SERVICE_KEY, "Authorization": "Bearer " + AUTH_SERVICE_KEY } }
     );
     if (!resp.ok) return false;
     const rows = await resp.json();
@@ -123,33 +151,10 @@ async function tryVersionUpgradeBypass(token, newDeviceId) {
 
     const user = rows[0];
     const storedVersion = user.ext_version || "0.0.0";
+    if (!isNewerSemver(currentVersion, storedVersion)) return false;
 
-    // Only allow if current version is strictly newer
-    if (!isNewerSemver(currentVersion, storedVersion)) {
-      // Same or older version, device change blocked
-      return false;
-    }
-
-    // Version upgrade detected — re-binding device
-
-    // Update device_fingerprint + ext_version for this user
-    const patchResp = await fetch(
-      AUTH_SUPA_URL + "/rest/v1/users?id=eq." + user.id,
-      {
-        method: "PATCH",
-        headers: {
-          "apikey": AUTH_SERVICE_KEY,
-          "Authorization": "Bearer " + AUTH_SERVICE_KEY,
-          "Content-Type": "application/json",
-          "Prefer": "return=minimal",
-        },
-        body: JSON.stringify({
-          device_fingerprint: newDeviceId,
-          ext_version: currentVersion,
-          redeemed_at: new Date().toISOString(),
-        }),
-      }
-    );
+    const patchResp = await fetch(AUTH_SUPA_URL + "/rest/v1/users?id=eq." + user.id,
+      { method: "PATCH", headers: patchHeaders, body: patchBody });
     return patchResp.ok;
   } catch (e) {
     console.warn("[EZAP BG] Version bypass error:", e.message);
