@@ -91,8 +91,12 @@
     <div id="user-token" style="font-size:10px;color:#3b4a54;font-family:monospace;text-align:center"></div>
   </div>
 
-  <div id="no-user-section" style="display:none;margin-bottom:16px;padding:12px;background:#2a3942;border-radius:8px;text-align:center">
-    <p style="margin:0;font-size:12px;color:#8696a0">Nenhum usuário conectado. Abra o WhatsApp Web e insira seu token.</p>
+  <div id="no-user-section" style="display:none;margin-bottom:16px">
+    <h2>Conectar ao E-ZAP</h2>
+    <label>Token de acesso</label>
+    <input type="text" id="tokenInput" placeholder="WCRM-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
+    <button id="tokenBtn">Entrar</button>
+    <div class="status" id="tokenStatus"></div>
   </div>
 
   <!-- HubSpot section: only visible for admins -->

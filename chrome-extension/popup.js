@@ -46,6 +46,80 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // ===== Token login from popup =====
+  const tokenInput = document.getElementById("tokenInput");
+  const tokenBtn = document.getElementById("tokenBtn");
+  const tokenStatus = document.getElementById("tokenStatus");
+
+  if (tokenBtn) {
+    tokenBtn.addEventListener("click", () => {
+      const token = (tokenInput.value || "").trim();
+      if (!token || !/^WCRM-.{5,}$/i.test(token)) {
+        tokenStatus.className = "status err";
+        tokenStatus.textContent = "Token inválido. Deve começar com WCRM-";
+        return;
+      }
+
+      tokenBtn.disabled = true;
+      tokenBtn.textContent = "Verificando...";
+      tokenBtn.style.opacity = "0.7";
+      tokenStatus.className = "status";
+      tokenStatus.textContent = "";
+
+      chrome.runtime.sendMessage({
+        action: "validate_token",
+        token: token,
+        deviceId: "popup-login",
+        userAgent: navigator.userAgent,
+      }, (response) => {
+        tokenBtn.disabled = false;
+        tokenBtn.textContent = "Entrar";
+        tokenBtn.style.opacity = "1";
+
+        if (chrome.runtime.lastError) {
+          tokenStatus.className = "status err";
+          tokenStatus.textContent = "Erro de conexão. Tente novamente.";
+          return;
+        }
+
+        if (response && response.ok) {
+          const authData = {
+            token: token,
+            userId: response.data.user_id,
+            userName: response.data.user_name,
+            userEmail: response.data.user_email,
+            userPhone: response.data.user_phone || "",
+            userRole: response.data.user_role,
+            features: response.data.user_features || [],
+            allowedPhones: response.data.user_allowed_phones || [],
+            signatureEnabled: response.data.user_signature_enabled || false,
+            validatedAt: new Date().toISOString(),
+          };
+
+          chrome.storage.local.set({ wcrm_auth: authData }, () => {
+            tokenStatus.className = "status ok";
+            tokenStatus.textContent = "Bem-vindo, " + authData.userName + "!";
+            // Reload popup to show user section
+            setTimeout(() => location.reload(), 800);
+          });
+        } else if (response && response.blocked) {
+          tokenStatus.className = "status err";
+          tokenStatus.textContent = response.error || "Token bloqueado.";
+        } else {
+          tokenStatus.className = "status err";
+          tokenStatus.textContent = response?.error || "Token não encontrado ou inativo.";
+        }
+      });
+    });
+
+    // Allow Enter key to submit
+    if (tokenInput) {
+      tokenInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") tokenBtn.click();
+      });
+    }
+  }
+
   // ===== Logout =====
   logoutBtn.addEventListener("click", () => {
     if (!confirm("Deseja sair? Você precisará do token para reconectar.")) return;
