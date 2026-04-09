@@ -409,14 +409,9 @@
         _dotDataReady = true;
         console.log("[EZAP-NOTES] Chats with notes:", Object.keys(_chatsWithNoteNames));
         if (Object.keys(_chatsWithNoteNames).length > 0) {
-          // Log first 3 span[title] values from pane-side for matching debug
-          var pane = document.getElementById('pane-side');
-          if (pane) {
-            var spans = pane.querySelectorAll('span[title][dir]');
-            var sample = [];
-            for (var si = 0; si < Math.min(3, spans.length); si++) sample.push(spans[si].getAttribute('title'));
-            console.log("[EZAP-NOTES] Sample chat titles:", sample);
-          }
+          var p = document.getElementById('pane-side');
+          var c = document.getElementById('wcrm-custom-list');
+          console.log("[EZAP-NOTES] pane-side:", !!p, "custom-list:", !!c);
         }
         injectChatDots();
       });
@@ -427,11 +422,18 @@
   function injectChatDots() {
     if (!_dotDataReady || Object.keys(_chatsWithNoteNames).length === 0) return;
 
+    // Search in both native WA pane-side AND E-ZAP custom overlay
     var pane = document.getElementById('pane-side');
-    if (!pane) return;
+    var customList = document.getElementById('wcrm-custom-list');
+    var searchIn = pane || customList || document.body;
 
-    // Find all name spans directly (more reliable than row-based approach)
-    var nameSpans = pane.querySelectorAll('span[title][dir]');
+    var nameSpans = searchIn.querySelectorAll('span[title][dir]');
+    // Also check the other container if both exist
+    if (pane && customList) {
+      var extraSpans = customList.querySelectorAll('span[title][dir]');
+      var combined = Array.prototype.slice.call(nameSpans).concat(Array.prototype.slice.call(extraSpans));
+      nameSpans = combined;
+    }
     for (var i = 0; i < nameSpans.length; i++) {
       var span = nameSpans[i];
       if (span.querySelector('.ezap-note-dot')) continue;
