@@ -5,7 +5,7 @@
 (function() {
   "use strict";
 
-  var _noteCache = {};     // wid -> note_text
+  var _noteCache = {};     // wid -> { text, createdAt }
   var _dbChecked = {};     // wid -> true
   var _busy = {};          // wid -> true
 
@@ -30,7 +30,7 @@
 
     return new Promise(function(resolve) {
       var widList = toCheck.map(function(w) { return '"' + w.replace(/"/g, '') + '"'; }).join(',');
-      var path = "/rest/v1/message_notes?message_wid=in.(" + widList + ")&user_id=eq." + getUserId() + "&select=message_wid,note_text";
+      var path = "/rest/v1/message_notes?message_wid=in.(" + widList + ")&user_id=eq." + getUserId() + "&select=message_wid,note_text,created_at";
       try {
         chrome.runtime.sendMessage({
           action: "supabase_rest",
@@ -43,7 +43,7 @@
             for (var r = 0; r < resp.length; r++) {
               if (resp[r].note_text) {
                 result[resp[r].message_wid] = resp[r].note_text;
-                _noteCache[resp[r].message_wid] = resp[r].note_text;
+                _noteCache[resp[r].message_wid] = { text: resp[r].note_text, createdAt: resp[r].created_at || null };
               }
             }
           }
@@ -87,7 +87,7 @@
             resolve(false);
             return;
           }
-          _noteCache[wid] = text;
+          _noteCache[wid] = { text: text, createdAt: _noteCache[wid] && _noteCache[wid].createdAt ? _noteCache[wid].createdAt : new Date().toISOString() };
           // Update dot cache immediately
           if (chatName) { _chatsWithNoteNames[chatName.toLowerCase()] = true; injectChatDots(); }
           console.log("[EZAP-NOTES] Note saved:", wid, "chat:", chatName);
@@ -198,7 +198,7 @@
       for (var j = 0; j < newRows.length; j++) {
         if (newRows[j].row.querySelector('.ezap-note-btn')) continue;
         var wid = newRows[j].wid;
-        var hasNote = !!(dbResults[wid] || _noteCache[wid]);
+        var hasNote = !!(dbResults[wid] || (_noteCache[wid] && _noteCache[wid].text));
         injectNoteIcon(newRows[j].row, wid, hasNote);
       }
     });
@@ -250,7 +250,7 @@
 
     // If note exists, show it immediately
     if (hasNote) {
-      renderNote(row, wid, _noteCache[wid]);
+      renderNote(row, wid, _noteCache[wid] && _noteCache[wid].text, _noteCache[wid] && _noteCache[wid].createdAt);
     }
   }
 
@@ -266,12 +266,12 @@
     // If note exists and box is visible, toggle it + open editor
     var noteBox = row.querySelector('.ezap-note-box');
     if (noteBox && !noteBox.querySelector('.ezap-note-editor')) {
-      openEditor(row, wid, btn, _noteCache[wid] || '');
+      openEditor(row, wid, btn, (_noteCache[wid] && _noteCache[wid].text) || '');
       return;
     }
 
     // Open editor (empty or with existing text)
-    openEditor(row, wid, btn, _noteCache[wid] || '');
+    openEditor(row, wid, btn, (_noteCache[wid] && _noteCache[wid].text) || '');
   }
 
   function openEditor(row, wid, btn, existingText) {
@@ -307,7 +307,7 @@
         if (ok) {
           btn.classList.add('ezap-note-has');
           btn.title = 'Ver anotação';
-          renderNote(row, wid, text);
+          renderNote(row, wid, text, _noteCache[wid] && _noteCache[wid].createdAt);
         }
       });
     });
@@ -384,21 +384,45 @@
     // stopImmediatePropagation on key events is enough to keep input working.
   }
 
+  // ===== Format date for note display =====
+  function formatNoteDate(isoStr) {
+    if (!isoStr) return '';
+    try {
+      var d = new Date(isoStr);
+      var day = String(d.getDate()).padStart(2, '0');
+      var mon = String(d.getMonth() + 1).padStart(2, '0');
+      var yr = String(d.getFullYear()).slice(2);
+      var hr = String(d.getHours()).padStart(2, '0');
+      var min = String(d.getMinutes()).padStart(2, '0');
+      return day + '/' + mon + '/' + yr + ' ' + hr + ':' + min;
+    } catch(e) { return ''; }
+  }
+
   // ===== Render saved note =====
-  function renderNote(row, wid, text) {
+  function renderNote(row, wid, text, createdAt) {
     if (!text) return;
     var old = row.querySelector('.ezap-note-box');
     if (old) old.remove();
 
     var box = document.createElement('div');
     box.className = 'ezap-note-box';
-    box.textContent = text;
+
+    var dateStr = formatNoteDate(createdAt);
+    if (dateStr) {
+      var dateEl = document.createElement('span');
+      dateEl.className = 'ezap-note-date';
+      dateEl.textContent = dateStr;
+      dateEl.style.cssText = 'font-size:10px;color:#8696a0;margin-right:6px;font-style:italic;';
+      box.appendChild(dateEl);
+    }
+    var textNode = document.createTextNode(text);
+    box.appendChild(textNode);
 
     // Click on note box to edit
     box.addEventListener('click', function(e) {
       e.stopPropagation();
       var btn = row.querySelector('.ezap-note-btn');
-      openEditor(row, wid, btn, _noteCache[wid] || text);
+      openEditor(row, wid, btn, (_noteCache[wid] && _noteCache[wid].text) || text);
     });
 
     var bubble = row.querySelector('[data-ezap-note-bubble]') || findBubble(row);
