@@ -1999,19 +1999,18 @@ document.addEventListener("wcrm-auth-ready", function() {
 if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm")) setTimeout(init, 2000);
 
 // ===================================================================
-// ===== ASSINATURA (Signature) — Auto-insert na caixa de texto =====
+// ===== ASSINATURA (Signature) — On-send injection =================
+// Appends signature at the END of the message right before sending.
+// The compose box stays clean — mic button remains visible.
 // ===================================================================
 (function() {
   var _sigInitialized = false;
   var _sigEnabled = false;
   var _sigName = "";
-  var _sigInserted = false; // guard to avoid re-inserting
 
   // ===== Toggle (exposed globally for widget.js) =====
   function toggleSignature() {
     _sigEnabled = !_sigEnabled;
-    _sigInserted = false;
-    if (_sigEnabled) tryInsertSignature();
     var auth = window.__wcrmAuth;
     if (auth && auth.userId) {
       window.ezapSendBg({
@@ -2026,7 +2025,6 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     console.log("[EZAP-SIG] Signature", _sigEnabled ? "ENABLED" : "DISABLED");
   }
 
-  // Expose toggle globally so widget.js can call it
   window.__ezapToggleSignature = toggleSignature;
 
   // ===== Compose box finder =====
@@ -2036,68 +2034,104 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
            document.querySelector('[data-testid="conversation-compose-box-input"]');
   }
 
-  // ===== Auto-insert signature into compose box =====
-  function tryInsertSignature() {
-    if (!_sigEnabled || _sigInserted) return;
-    var input = getComposeInput();
-    if (!input) return;
+  // ===== Inject signature text at the end of compose box =====
+  function injectSignature(input) {
+    if (!_sigEnabled || !_sigName) return;
 
-    // Only insert when compose box is empty
+    // Check there's actual text to send (not just whitespace)
     var text = (input.textContent || input.innerText || "").trim();
-    if (text) return;
+    if (!text) return;
 
-    // Only insert when compose box has focus
-    if (document.activeElement !== input && !input.contains(document.activeElement)) return;
+    // Don't double-inject if signature is already at the end
+    var sigText = "\n\n_*" + _sigName + ":*_";
+    if (text.endsWith("_*" + _sigName + ":*_")) return;
 
-    _sigInserted = true;
-    var prefix = "_*" + _sigName + ":*_\n";
+    // Move cursor to end
+    var sel = window.getSelection();
+    var range = document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
 
-    input.focus();
+    // Paste signature at cursor (end)
     var clipData = new DataTransfer();
-    clipData.setData("text/plain", prefix);
+    clipData.setData("text/plain", sigText);
     input.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true, cancelable: true, clipboardData: clipData
     }));
 
-    console.log("[EZAP-SIG] Signature auto-inserted");
-
-    // Safety: if paste failed (input still empty), reset flag to retry
-    setTimeout(function() {
-      var t = (input.textContent || input.innerText || "").trim();
-      if (!t) _sigInserted = false;
-    }, 500);
+    console.log("[EZAP-SIG] Signature injected on send");
   }
 
-  // ===== Watch for compose box becoming empty (after send) =====
-  // Reset _sigInserted so the next focus will re-insert
-  setInterval(function() {
-    if (!_sigEnabled) return;
-    var input = getComposeInput();
-    if (!input) { _sigInserted = false; return; }
-
-    var text = (input.textContent || input.innerText || "").trim();
-    if (!text) {
-      // Compose box is empty — allow re-insert on next focus
-      if (_sigInserted) {
-        _sigInserted = false;
-      }
-      // If focused right now, insert immediately
-      if (document.activeElement === input || input.contains(document.activeElement)) {
-        tryInsertSignature();
-      }
-    }
-  }, 400);
-
-  // ===== Listen for focus on compose box =====
-  document.addEventListener("focus", function(e) {
+  // ===== Intercept send button click =====
+  function onSendClick(e) {
     if (!_sigEnabled) return;
     var input = getComposeInput();
     if (!input) return;
-    if (e.target === input || input.contains(e.target)) {
-      // Small delay to let WhatsApp finish rendering
-      setTimeout(tryInsertSignature, 150);
-    }
-  }, true);
+    var text = (input.textContent || input.innerText || "").trim();
+    if (!text) return;
+
+    // Prevent the native send temporarily
+    e.stopImmediatePropagation();
+    e.preventDefault();
+
+    // Inject signature
+    injectSignature(input);
+
+    // Trigger send after a tiny delay (so WA processes the new content)
+    setTimeout(function() {
+      var sendBtn = document.querySelector('[data-testid="send"], [aria-label="Enviar"], button[aria-label="Send"]');
+      if (sendBtn) {
+        // Bypass our listener for this click
+        _sigEnabled = false;
+        sendBtn.click();
+        _sigEnabled = true;
+      }
+    }, 80);
+  }
+
+  // ===== Intercept Enter key =====
+  function onKeyDown(e) {
+    if (!_sigEnabled) return;
+    if (e.key !== "Enter" || e.shiftKey) return; // Shift+Enter = newline
+
+    var input = getComposeInput();
+    if (!input) return;
+    if (e.target !== input && !input.contains(e.target)) return;
+
+    var text = (input.textContent || input.innerText || "").trim();
+    if (!text) return;
+
+    // Prevent native Enter send
+    e.stopImmediatePropagation();
+    e.preventDefault();
+
+    // Inject signature then trigger send
+    injectSignature(input);
+
+    setTimeout(function() {
+      var sendBtn = document.querySelector('[data-testid="send"], [aria-label="Enviar"], button[aria-label="Send"]');
+      if (sendBtn) {
+        _sigEnabled = false;
+        sendBtn.click();
+        _sigEnabled = true;
+      }
+    }, 80);
+  }
+
+  // ===== Attach listeners (use MutationObserver to catch send button) =====
+  function attachSendListener() {
+    // Listen for clicks on send button
+    document.addEventListener("click", function(e) {
+      if (!_sigEnabled) return;
+      var btn = e.target.closest('[data-testid="send"], [aria-label="Enviar"], button[aria-label="Send"]');
+      if (btn) onSendClick(e);
+    }, true); // capture phase to intercept before WA
+
+    // Listen for Enter in compose box
+    document.addEventListener("keydown", onKeyDown, true);
+  }
 
   // ===== Init =====
   function initSignature() {
@@ -2109,7 +2143,8 @@ if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("crm
     _sigEnabled = auth.signatureEnabled || false;
     _sigInitialized = true;
 
-    console.log("[EZAP-SIG] Auto-insert initialized. Enabled:", _sigEnabled, "Name:", _sigName);
+    attachSendListener();
+    console.log("[EZAP-SIG] On-send signature initialized. Enabled:", _sigEnabled, "Name:", _sigName);
   }
 
   document.addEventListener("wcrm-auth-ready", function() {
