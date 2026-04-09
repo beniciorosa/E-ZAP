@@ -360,7 +360,7 @@ async function geiaSuggestReply() {
   if (resp.error) {
     resultEl.innerHTML = '<div class="ezap-card" style="color:var(--ezap-danger)">' + escGeia(resp.error) + '</div>';
   } else {
-    renderResultBox(resultEl, "Sugestão de Resposta", "#25d366", resp.text, { showUse: true, showCopy: true, showRegenerate: true });
+    renderResultBox(resultEl, "Sugestão de Resposta", "#00a884", resp.text, { showUse: true, showCopy: true, showRegenerate: true });
   }
   if (btnEl) btnEl.style.pointerEvents = "";
 }
@@ -530,7 +530,7 @@ async function onSuggestClick(row, btn) {
   var ok = writeToInputBox(resp.text.trim());
   if (ok) {
     btn.innerHTML = "&#10003;";
-    btn.style.color = "#25d366";
+    btn.style.color = "#00a884";
     setTimeout(function() { btn.innerHTML = origHTML; btn.style.color = ""; }, 2000);
   }
 }

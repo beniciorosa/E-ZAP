@@ -718,7 +718,7 @@ function createAbasButton() {
   btn.setAttribute("data-tooltip", "Abas personalizadas");
   btn.addEventListener("click", toggleAbasSidebar);
   if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "abas");
-  else { btn.textContent = "ABAS"; btn.style.background = "#cc5de8"; btn.style.color = "#fff"; }
+  else { btn.textContent = "ABAS"; btn.style.background = "#8b5cf6"; btn.style.color = "#fff"; }
   var container = document.getElementById("ezap-float-container");
   if (container) container.appendChild(btn);
   else document.body.appendChild(btn);
@@ -1024,7 +1024,7 @@ function openContactPickerModal(abaId) {
       var html = '';
       filtered.forEach(function(contact) {
         var isSelected = !!selectedSet[contact.toLowerCase().trim()];
-        var checkColor = isSelected ? '#25d366' : '#ccc';
+        var checkColor = isSelected ? '#00a884' : '#ccc';
         var checkIcon = isSelected ? '&#10003;' : '';
         var displayName = contact.length > 45 ? contact.substring(0, 45) + '...' : contact;
 
@@ -1286,7 +1286,7 @@ function injectSidebarButtons() {
   Object.assign(hubLabel.style, {
     fontSize: sizes.labelSize + 'px',
     fontWeight: '700',
-    color: '#25d366',
+    color: '#00a884',
     textAlign: 'center',
     letterSpacing: '1px',
     marginBottom: sizes.labelMargin + 'px',
@@ -1316,7 +1316,7 @@ function injectSidebarButtons() {
   pinBtn.addEventListener('mouseleave', function() {
     var cn = typeof currentName !== 'undefined' ? currentName : null;
     var isPinned = cn && (window._wcrmPinned || {})[cn];
-    pinBtn.style.background = isPinned ? (isDarkMode() ? '#25d36615' : '#25d36610') : 'transparent';
+    pinBtn.style.background = isPinned ? (isDarkMode() ? '#00a88415' : '#00a88410') : 'transparent';
   });
   pinBtn.addEventListener('click', function(e) {
     e.stopPropagation();
@@ -1351,7 +1351,7 @@ function injectSidebarButtons() {
     width: '10px',
     height: '10px',
     borderRadius: '50%',
-    background: '#cc5de8',
+    background: '#8b5cf6',
     display: 'none',
     border: '2px solid ' + t.bg,
   });
@@ -1455,8 +1455,8 @@ function updatePinButtonState(btn, chatName, theme, iconSz) {
 }
 function _paintPinBtn(btn, isPinned, t, sz) {
   if (isPinned) {
-    btn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="#25d366"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>';
-    btn.style.background = isDarkMode() ? '#25d36615' : '#25d36610';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="#00a884"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>';
+    btn.style.background = isDarkMode() ? '#00a88415' : '#00a88410';
     btn.title = 'Desafixar contato';
   } else {
     btn.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz + '" fill="' + t.iconColor + '"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2zM9 4v7.75L7.5 14h9L15 11.75V4H9z"/></svg>';

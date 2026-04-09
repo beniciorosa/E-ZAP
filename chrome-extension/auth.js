@@ -166,10 +166,10 @@ window.__ezapHasFeature = function(feature) {
 
 // ===== Button config (label, colors, order) =====
 window.__ezapDefaultButtonConfig = {
-  crm:   { label: "CRM",   bgColor: "#25d366", textColor: "#111b21", order: 1 },
+  crm:   { label: "CRM",   bgColor: "#00a884", textColor: "#111b21", order: 1 },
   msg:   { label: "MSG",   bgColor: "#4d96ff", textColor: "#ffffff", order: 2 },
-  abas:  { label: "ABAS",  bgColor: "#cc5de8", textColor: "#ffffff", order: 4 },
-  geia:  { label: "GEIA",  bgColor: "#cc5de8", textColor: "#ffffff", order: 5 },
+  abas:  { label: "ABAS",  bgColor: "#8b5cf6", textColor: "#ffffff", order: 4 },
+  geia:  { label: "GEIA",  bgColor: "#8b5cf6", textColor: "#ffffff", order: 5 },
   admin_overlay: { label: "SPV", bgColor: "#ff922b", textColor: "#ffffff", order: 6 }
 };
 
@@ -180,7 +180,7 @@ window.__ezapGetButtonConfig = function(key) {
   var def = window.__ezapDefaultButtonConfig[key] || {};
   return {
     label: cfg.label || def.label || key.toUpperCase(),
-    bgColor: cfg.bgColor || def.bgColor || "#25d366",
+    bgColor: cfg.bgColor || def.bgColor || "#00a884",
     textColor: cfg.textColor || def.textColor || "#ffffff",
     order: (typeof cfg.order === "number") ? cfg.order : (def.order || 0)
   };
@@ -299,7 +299,7 @@ loadWidgetConfig();
 setInterval(loadWidgetConfig, 2 * 60 * 1000);
 
 // ===== Theme config (responsive vs custom accent color) =====
-window.__ezapDefaultThemeConfig = { mode: "responsive", primaryColor: "#25d366" };
+window.__ezapDefaultThemeConfig = { mode: "responsive", primaryColor: "#00a884" };
 window.__ezapThemeConfig = JSON.parse(JSON.stringify(window.__ezapDefaultThemeConfig));
 
 function loadThemeConfig() {
@@ -660,7 +660,7 @@ function showLoginOverlay() {
 
   card.innerHTML =
     '<div style="margin-bottom:24px">' +
-      '<div style="width:64px;height:64px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;margin:0 auto 16px">' +
+      '<div style="width:64px;height:64px;border-radius:50%;background:#00a884;display:flex;align-items:center;justify-content:center;margin:0 auto 16px">' +
         '<svg viewBox="0 0 24 24" width="32" height="32" fill="#111b21"><path d="M17 4v7l2 3v2h-6v5l-1 1-1-1v-5H5v-2l2-3V4c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2z"/></svg>' +
       '</div>' +
       '<h2 style="margin:0;font-size:22px;font-weight:700;color:#e9edef">E-ZAP</h2>' +
@@ -670,7 +670,7 @@ function showLoginOverlay() {
       '<label style="font-size:11px;color:#8696a0;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Token de Acesso</label>' +
       '<input id="wcrm-auth-token" type="text" placeholder="Cole seu token aqui" maxlength="30" autocomplete="off" spellcheck="false" style="width:100%;padding:12px 14px;background:#111b21;border:2px solid #3b4a54;border-radius:10px;color:#e9edef;font-size:16px;font-family:monospace;letter-spacing:1px;outline:none;box-sizing:border-box;text-align:center;transition:border-color 0.2s">' +
     '</div>' +
-    '<button id="wcrm-auth-login" style="width:100%;padding:14px;background:#25d366;color:#111b21;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s;margin-bottom:12px">Entrar</button>' +
+    '<button id="wcrm-auth-login" style="width:100%;padding:14px;background:#00a884;color:#111b21;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background 0.2s;margin-bottom:12px">Entrar</button>' +
     '<div id="wcrm-auth-status" style="font-size:13px;min-height:20px;color:#ff6b6b"></div>' +
     '<div style="margin-top:20px;padding-top:16px;border-top:1px solid #2a3942">' +
       '<p style="margin:0;font-size:11px;color:#8696a0">Solicite seu token ao administrador da equipe</p>' +
@@ -695,7 +695,7 @@ function setupLoginEvents() {
   if (!input || !btn) return;
 
   input.addEventListener("input", function() { input.value = input.value.trim(); });
-  input.addEventListener("focus", function() { input.style.borderColor = "#25d366"; });
+  input.addEventListener("focus", function() { input.style.borderColor = "#00a884"; });
   input.addEventListener("blur", function() { input.style.borderColor = "#3b4a54"; });
   input.addEventListener("keydown", function(e) { if (e.key === "Enter") doLogin(); });
   btn.addEventListener("click", doLogin);
@@ -751,10 +751,10 @@ function setupLoginEvents() {
             var saveObj = {};
             saveObj[AUTH_STORAGE_KEY] = authData;
             chrome.storage.local.set(saveObj, function() {
-              status.style.color = "#25d366";
+              status.style.color = "#00a884";
               status.textContent = "Bem-vindo, " + authData.userName + "!";
               btn.textContent = "Conectado!";
-              btn.style.background = "#25d366";
+              btn.style.background = "#00a884";
 
               setAuthGlobal(authData);
 
@@ -824,7 +824,7 @@ function showUpdateBanner(version, message, downloadUrl) {
     width: "100%",
     zIndex: "99999998",
     background: "linear-gradient(135deg, #111b21 0%, #1a2b34 100%)",
-    borderBottom: "2px solid #25d366",
+    borderBottom: "2px solid #00a884",
     padding: "12px 20px",
     display: "flex",
     alignItems: "center",
@@ -849,15 +849,15 @@ function showUpdateBanner(version, message, downloadUrl) {
 
   banner.innerHTML =
     '<div style="display:flex;align-items:center;gap:10px">' +
-      '<div style="width:32px;height:32px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;flex-shrink:0;animation:ezapPulse 2s infinite">' +
+      '<div style="width:32px;height:32px;border-radius:50%;background:#00a884;display:flex;align-items:center;justify-content:center;flex-shrink:0;animation:ezapPulse 2s infinite">' +
         '<svg viewBox="0 0 24 24" width="18" height="18" fill="#111b21"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>' +
       '</div>' +
       '<div>' +
-        '<div style="font-size:13px;font-weight:600;color:#e9edef">Nova versão disponível: <span style="color:#25d366">v' + version + '</span>' + msgText + '</div>' +
+        '<div style="font-size:13px;font-weight:600;color:#e9edef">Nova versão disponível: <span style="color:#00a884">v' + version + '</span>' + msgText + '</div>' +
       '</div>' +
     '</div>' +
     '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
-      '<a href="' + (downloadUrl || "#") + '" target="_blank" style="padding:8px 18px;background:#25d366;color:#111b21;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap">Baixar Atualização</a>' +
+      '<a href="' + (downloadUrl || "#") + '" target="_blank" style="padding:8px 18px;background:#00a884;color:#111b21;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;white-space:nowrap">Baixar Atualização</a>' +
       '<button id="ezap-update-dismiss" style="padding:6px;background:transparent;border:none;cursor:pointer;color:#8696a0;font-size:18px;line-height:1" title="Fechar">&times;</button>' +
     '</div>';
 
@@ -1030,7 +1030,7 @@ function showNotificationBanner(notif, userId, isPinned) {
   var typeColors = {
     info: { bg: "#228be6", icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" },
     warning: { bg: "#fab005", icon: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" },
-    success: { bg: "#25d366", icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" }
+    success: { bg: "#00a884", icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" }
   };
   var tc = typeColors[notif.notification_type] || typeColors.info;
 

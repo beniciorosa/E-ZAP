@@ -51,7 +51,7 @@
 
   // Generate consistent color from string
   function avatarColor(str) {
-    var colors = ["#25d366","#4d96ff","#cc5de8","#ff6b6b","#ffa94d","#51cf66","#339af0","#845ef7","#e64980","#20c997"];
+    var colors = ["#00a884","#4d96ff","#8b5cf6","#ff6b6b","#ffa94d","#51cf66","#339af0","#845ef7","#e64980","#20c997"];
     var hash = 0;
     for (var i = 0; i < (str || "").length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
     return colors[Math.abs(hash) % colors.length];
@@ -733,11 +733,11 @@
           '<div style="flex:1;min-width:0;padding-left:14px">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
               '<span style="font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;color:#e9edef">' + esc(c.chatName) + '</span>' +
-              '<span style="font-size:12px;color:' + (todayCount > 0 ? '#25d366' : '#8696a0') + ';flex-shrink:0;margin-left:8px">' + time + '</span>' +
+              '<span style="font-size:12px;color:' + (todayCount > 0 ? '#00a884' : '#8696a0') + ';flex-shrink:0;margin-left:8px">' + time + '</span>' +
             '</div>' +
             '<div style="font-size:13px;color:#8696a0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center">' +
               '<span>' + esc(lastBody) + '</span>' +
-              (todayCount > 0 ? '<span style="margin-left:auto;min-width:20px;height:20px;border-radius:50%;background:#25d366;color:#111b21;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0">' + todayCount + '</span>' : '') +
+              (todayCount > 0 ? '<span style="margin-left:auto;min-width:20px;height:20px;border-radius:50%;background:#00a884;color:#111b21;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0">' + todayCount + '</span>' : '') +
             '</div>' +
           '</div>' +
         '</div>';
@@ -868,7 +868,7 @@
 
       // Transcript
       if (m.transcript) {
-        html += '<div style="font-style:italic;font-size:12px;color:#8696a0;border-left:2px solid #25d366;padding-left:8px;margin-top:4px">📝 ' + esc(m.transcript) + '</div>';
+        html += '<div style="font-style:italic;font-size:12px;color:#8696a0;border-left:2px solid #00a884;padding-left:8px;margin-top:4px">📝 ' + esc(m.transcript) + '</div>';
       }
 
       // Time + checkmarks

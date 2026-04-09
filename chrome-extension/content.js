@@ -33,7 +33,7 @@ function createToggleButton() {
   btn.setAttribute("data-tooltip", "CRM");
   btn.addEventListener("click", toggleSidebar);
   if (window.__ezapApplyButtonStyle) window.__ezapApplyButtonStyle(btn, "crm");
-  else { btn.textContent = "CRM"; btn.style.background = "#25d366"; btn.style.color = "#111b21"; }
+  else { btn.textContent = "CRM"; btn.style.background = "#00a884"; btn.style.color = "#111b21"; }
   getButtonContainer().appendChild(btn);
   console.log("[WCRM] Toggle button added to page");
 }
@@ -1519,6 +1519,9 @@ function renderNotesHistory(hubspotNotes) {
   // Store allNotes on window so event handlers can access them
   window._wcrmAllNotes = allNotes;
 
+  // Open timeline wrapper (vertical line + dots)
+  html += '<div class="ezap-timeline">';
+
   visibleNotes.forEach(function(note, visIdx) {
     var dateStr = note.date ? new Date(note.date).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
     var sourceTag = note.source === "hs"
@@ -1541,11 +1544,12 @@ function renderNotesHistory(hubspotNotes) {
       noteBody = noteBody.substring(0, noteBody.indexOf(sigMatch[0]));
     }
 
-    html += '<div class="wcrm-note-item ezap-timeline-content" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" style="margin-bottom:4px;border-left:2px solid var(--ezap-border-light);padding:6px 8px">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">';
-    html += '<span class="ezap-timeline-date">' + dateStr + '</span>';
-    html += '<div style="display:flex;align-items:center;gap:6px">';
-    html += sourceTag;
+    // Timeline item with dot indicator (--hs variant for HubSpot notes)
+    var hsClass = note.source === "hs" ? " ezap-timeline-item--hs" : "";
+    html += '<div class="ezap-timeline-item' + hsClass + '" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '">';
+    html += '<div class="ezap-timeline-date">' + dateStr + ' ' + sourceTag + '</div>';
+    html += '<div class="wcrm-note-item ezap-timeline-content">';
+    html += '<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:2px">';
     // Only show edit/delete if user is admin OR the note was created by them
     var isAdmin = window.__wcrmAuth && window.__wcrmAuth.userRole === "admin";
     var currentUser = (window.__wcrmAuth && window.__wcrmAuth.userName) || "";
@@ -1554,15 +1558,18 @@ function renderNotesHistory(hubspotNotes) {
       html += '<span class="wcrm-note-edit ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Editar" style="color:var(--ezap-secondary)">&#x270F;&#xFE0F;</span>';
       html += '<span class="wcrm-note-delete ezap-copy-btn" data-note-type="' + noteType + '" data-note-ref="' + noteRef + '" data-vis-idx="' + visIdx + '" title="Excluir" style="color:var(--ezap-danger)">&#x1F5D1;&#xFE0F;</span>';
     }
-    html += '</div></div>';
+    html += '</div>';
     // Content with max-height and click-to-expand
     html += '<div class="wcrm-note-content" style="font-size:11px;line-height:1.4;max-height:60px;overflow:hidden;position:relative">' + noteBody + '</div>';
     // Author signature - always visible below content
     if (authorSig) {
       html += '<div style="color:var(--ezap-text-muted);font-size:10px;font-style:italic;margin-top:3px;border-top:1px solid var(--ezap-border);padding-top:2px">' + authorSig + '</div>';
     }
-    html += '</div>';
+    html += '</div>'; // .ezap-timeline-content
+    html += '</div>'; // .ezap-timeline-item
   });
+
+  html += '</div>'; // .ezap-timeline
 
   // "Ver mais" / "Ver menos" toggle
   if (hasMore) {
