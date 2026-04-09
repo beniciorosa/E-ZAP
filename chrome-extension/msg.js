@@ -444,15 +444,15 @@ function renderMsgItems() {
 
     // Content
     if (isText) {
-      // Formatting toolbar
-      html += '<div class="wcrm-msg-toolbar ezap-editor-toolbar" data-idx="' + idx + '">';
-      html += '<button data-cmd="bold" title="Negrito"><b>B</b></button>';
-      html += '<button data-cmd="italic" title="Itálico"><i>I</i></button>';
-      html += '<button data-cmd="insertUnorderedList" title="Lista">\u2022</button>';
+      // Formatting toolbar — simple inline style (not ezap-editor-toolbar which is too heavy here)
+      html += '<div class="wcrm-msg-toolbar" data-idx="' + idx + '" style="display:flex;gap:2px;padding:4px 6px;border-bottom:1px solid var(--ezap-border)">';
+      html += '<button data-cmd="bold" style="background:none;border:none;color:var(--ezap-text-secondary);font-size:13px;font-weight:700;cursor:pointer;padding:2px 6px;border-radius:4px" title="Negrito"><b>B</b></button>';
+      html += '<button data-cmd="italic" style="background:none;border:none;color:var(--ezap-text-secondary);font-size:13px;font-style:italic;cursor:pointer;padding:2px 6px;border-radius:4px" title="Itálico"><i>I</i></button>';
+      html += '<button data-cmd="insertUnorderedList" style="background:none;border:none;color:var(--ezap-text-secondary);font-size:13px;cursor:pointer;padding:2px 6px;border-radius:4px" title="Lista">\u2022</button>';
       html += '</div>';
       // Rich text editor
       var contentHtml = item.content || '';
-      html += '<div class="wcrm-msg-editor ezap-editor-body" contenteditable="true" data-idx="' + idx + '" data-placeholder="Digite a mensagem..." style="white-space:pre-wrap;word-wrap:break-word">' + contentHtml + '</div>';
+      html += '<div class="wcrm-msg-editor" contenteditable="true" data-idx="' + idx + '" data-placeholder="Digite a mensagem..." style="min-height:60px;padding:8px 10px;color:var(--ezap-text-primary);font-size:12px;font-family:inherit;outline:none;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word">' + contentHtml + '</div>';
     } else {
       // File info - show from URL or legacy base64
       var sizeInfo = '';
