@@ -288,8 +288,8 @@
   z-index: 99999;
   pointer-events: none;
   /* Subtle transparent rail — matches WA left nav width */
-  background: linear-gradient(to left, rgba(11,20,26,0.35) 0%, transparent 100%);
-  border-left: 1px solid rgba(42,57,66,0.3);
+  background: linear-gradient(to left, rgba(11,20,26,0.25) 0%, transparent 100%);
+  border-left: 1px solid rgba(42,57,66,0.15);
 }
 #ezap-float-container > * {
   pointer-events: auto;
@@ -551,7 +551,7 @@
   box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   font-size: 14px; font-weight: 700; font-family: Georgia, serif;
   cursor: pointer; position: absolute; right: -34px; top: 50%; transform: translateY(-50%);
-  z-index: 10; transition: background 0.2s, transform 0.15s;
+  z-index: 100001; transition: background 0.2s, transform 0.15s;
   user-select: none; border: none; line-height: 1;
 }
 .ezap-tr-btn:hover { background: #25503a; transform: translateY(-50%) scale(1.12); }
@@ -573,7 +573,7 @@
   background: #1a2a1a; color: #8696a0;
   box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   cursor: pointer; position: absolute; right: -34px; top: 50%; transform: translateY(-50%);
-  z-index: 10; transition: background 0.2s, transform 0.15s;
+  z-index: 100001; transition: background 0.2s, transform 0.15s;
   user-select: none; border: none; line-height: 1; font-size: 13px;
 }
 .ezap-note-btn:hover { background: rgba(134,150,160,0.35); color: #d1d7db; transform: translateY(-50%) scale(1.12); }
@@ -601,7 +601,7 @@
   background: #2a1a3a; color: #8b5cf6;
   box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   font-size: 13px; cursor: pointer; position: absolute; right: -34px; top: 50%;
-  transform: translateY(-50%); z-index: 10; transition: background 0.2s, transform 0.15s;
+  transform: translateY(-50%); z-index: 100001; transition: background 0.2s, transform 0.15s;
   user-select: none; border: none; line-height: 1;
 }
 .geia-suggest-btn:hover { background: #3d2557; transform: translateY(-50%) scale(1.12); }
