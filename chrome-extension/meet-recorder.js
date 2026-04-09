@@ -138,15 +138,28 @@
 
     // Step 2: Click "Gravar" / "Record" in the panel
     setTimeout(function() {
-      var recordBtn = findByText("span", ["Gravar", "Record", "Gravar a reunião"]);
-      if (!recordBtn) recordBtn = findByText("div", ["Gravar", "Record"]);
-      // Also try finding by the record icon description
+      // Find the "Gravar" card — it's a clickable item in the tools panel
+      // The card text includes "Gravar" + subtitle "Grave a reunião"
+      var recordBtn = null;
+
+      // Strategy 1: find clickable element containing "Gravar" text
+      var candidates = document.querySelectorAll('[role="listitem"], [role="button"], li, a, div[jsaction], div[data-panel-id]');
+      for (var ci = 0; ci < candidates.length; ci++) {
+        var txt = (candidates[ci].textContent || "").trim();
+        if (txt.indexOf("Gravar") >= 0 && txt.indexOf("Grave a reunião") >= 0) {
+          recordBtn = candidates[ci];
+          break;
+        }
+      }
+
+      // Strategy 2: find span with exact "Gravar" text and click its parent card
       if (!recordBtn) {
-        var allSpans = document.querySelectorAll('span');
-        for (var s = 0; s < allSpans.length; s++) {
-          var st = (allSpans[s].textContent || "").trim();
+        var spans = document.querySelectorAll('span, div');
+        for (var si = 0; si < spans.length; si++) {
+          var st = (spans[si].textContent || "").trim();
           if (st === "Gravar" || st === "Record") {
-            recordBtn = allSpans[s];
+            // Click the closest clickable parent (li, button, a, or the card wrapper)
+            recordBtn = spans[si].closest('[role="listitem"], [role="button"], li, a') || spans[si].parentElement;
             break;
           }
         }
