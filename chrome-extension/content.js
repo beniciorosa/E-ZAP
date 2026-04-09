@@ -104,6 +104,18 @@ function createSidebar() {
   // Events
   document.getElementById("wcrm-close-btn").addEventListener("click", toggleSidebar);
 
+  // Click name to copy
+  document.getElementById("wcrm-name").addEventListener("click", function() {
+    var name = this.textContent;
+    if (!name) return;
+    navigator.clipboard.writeText(name).then(function() {
+      var el = document.getElementById("wcrm-name");
+      var orig = el.textContent;
+      el.textContent = orig + " \u2713";
+      setTimeout(function() { el.textContent = orig; }, 1200);
+    });
+  });
+
   // Rich text toolbar buttons
   document.querySelectorAll("#wcrm-editor-toolbar button").forEach(function(btn) {
     btn.addEventListener("click", function(e) {
@@ -1033,13 +1045,12 @@ function fetchHubSpotData() {
         html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
         html += '<span class="ezap-status ezap-status--found">Encontrado no HubSpot</span>';
         if (ticket) {
-          html += '<a href="' + ticketUrl + '" target="_blank" class="ezap-badge ezap-badge--accent" style="text-decoration:none" title="Abrir ticket no HubSpot">Ver Ticket &#x2197;</a>';
-          html += '<span class="wcrm-copy-btn ezap-copy-btn" data-copy="' + ticketUrl + '" title="Copiar link do ticket">&#x1F4CB;</span>';
+          html += '<a href="' + ticketUrl + '" target="_blank" class="ezap-badge ezap-badge--warning" style="text-decoration:none" title="Abrir ticket no HubSpot">Ver Ticket &#x2197;</a>';
           window._wcrmTicketId = ticket.id;
         }
         html += '</div>';
         html += '<div style="margin-top:10px">';
-        html += rowCopy("Nome", displayName, displayName);
+        html += row("Nome", displayName);
         // Ticket creation date
         if (ticket && ticket.properties.createdate) {
           var ticketDate = new Date(ticket.properties.createdate);
