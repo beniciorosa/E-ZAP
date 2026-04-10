@@ -789,7 +789,28 @@ function renderJobCard(job) {
   }
 
   var etaSec = calculateEtaSeconds(job);
-  var etaText = (job.status === "running") ? "ETA: " + formatEtaSeconds(etaSec) : "";
+  var etaText = "";
+  if (job.status === "running") {
+    etaText = "ETA: " + formatEtaSeconds(etaSec);
+    if (etaSec > 0) {
+      var endTime = new Date(Date.now() + etaSec * 1000);
+      var now = new Date();
+      var hhmm = endTime.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      var timeStr;
+      if (endTime.getDate() === now.getDate() && endTime.getMonth() === now.getMonth() && endTime.getFullYear() === now.getFullYear()) {
+        timeStr = "termina ~" + hhmm;
+      } else {
+        var diffDays = Math.round((endTime - now) / (24 * 3600 * 1000));
+        if (diffDays === 1) {
+          timeStr = "termina amanhã ~" + hhmm;
+        } else {
+          var dayStr = endTime.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+          timeStr = "termina " + dayStr + " ~" + hhmm;
+        }
+      }
+      etaText += " (" + timeStr + ")";
+    }
+  }
 
   var configLine = "";
   if (job.type === "extract") {
