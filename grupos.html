@@ -74,6 +74,11 @@
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBarFill"></div></div>
         <div class="progress-text" id="progressText"></div>
       </div>
+      <div id="extractAutoRetry" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">
+        <button class="btn-secondary" id="extractAutoRetryBtn" onclick="startExtractAutoRetry()" style="padding:6px 12px;font-size:11px">▶️ Retomar automaticamente em 30 min</button>
+        <span id="extractAutoRetryInfo" style="color:var(--muted)"></span>
+        <button class="btn-secondary" id="extractAutoRetryCancelBtn" onclick="cancelExtractAutoRetry()" style="padding:6px 12px;font-size:11px;display:none">Cancelar</button>
+      </div>
     </div>
 
     <div class="card" id="addCard">
@@ -130,6 +135,11 @@
       <div class="progress-wrap hidden" id="addProgressWrap">
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="addProgressBarFill"></div></div>
         <div class="progress-text" id="addProgressText"></div>
+      </div>
+      <div id="addAutoRetry" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">
+        <button class="btn-secondary" id="addAutoRetryBtn" onclick="startAddAutoRetry()" style="padding:6px 12px;font-size:11px">▶️ Retomar automaticamente em 30 min</button>
+        <span id="addAutoRetryInfo" style="color:var(--muted)"></span>
+        <button class="btn-secondary" id="addAutoRetryCancelBtn" onclick="cancelAddAutoRetry()" style="padding:6px 12px;font-size:11px;display:none">Cancelar</button>
       </div>
       <div class="wrap hidden" id="addResultsWrap" style="margin-top:12px">
         <table>
@@ -338,6 +348,146 @@ function setExtractButtonRunning(running) {
   btn.textContent = running ? "Extraindo..." : "Extrair grupos";
 }
 
+// =============================================
+// ===== Auto-retry com backoff exponencial =====
+// =============================================
+// Backoff: 30min → 60min → 120min → desiste após 3 tentativas SEM PROGRESSO
+// Se a tentativa retomada extraiu links novos, o contador volta pra 0.
+var RETRY_DELAYS_MIN = [30, 60, 120];
+
+var _extractRetry = { timer:null, countdown:null, attempt:0, scheduledFor:null, prevWithLink:0 };
+var _addRetry = { timer:null, countdown:null, attempt:0, scheduledFor:null, prevDone:0 };
+
+function showExtractRetryButton(attempt) {
+  var box = document.getElementById("extractAutoRetry");
+  var btn = document.getElementById("extractAutoRetryBtn");
+  var cancelBtn = document.getElementById("extractAutoRetryCancelBtn");
+  var info = document.getElementById("extractAutoRetryInfo");
+  if (!box) return;
+  var delayMin = RETRY_DELAYS_MIN[attempt];
+  if (delayMin == null) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  btn.style.display = "";
+  btn.textContent = "▶️ Retomar automaticamente em " + delayMin + " min";
+  cancelBtn.style.display = "none";
+  info.textContent = "(tentativa " + (attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
+}
+
+function startExtractAutoRetry() {
+  var delayMin = RETRY_DELAYS_MIN[_extractRetry.attempt];
+  if (delayMin == null) {
+    cancelExtractAutoRetry();
+    return;
+  }
+  cancelExtractAutoRetryTimers();
+  _extractRetry.scheduledFor = Date.now() + (delayMin * 60 * 1000);
+  // Snapshot of current progress so we can detect "no progress" later
+  _extractRetry.prevWithLink = (typeof cache !== "undefined" && cache)
+    ? cache.filter(function(g){ return !!g.inviteLink; }).length : 0;
+  _extractRetry.timer = setTimeout(function() {
+    cancelExtractAutoRetryTimers();
+    document.getElementById("extractAutoRetry").classList.add("hidden");
+    loadGroups();
+  }, delayMin * 60 * 1000);
+  _extractRetry.countdown = setInterval(updateExtractRetryCountdown, 1000);
+  document.getElementById("extractAutoRetryBtn").style.display = "none";
+  document.getElementById("extractAutoRetryCancelBtn").style.display = "";
+  updateExtractRetryCountdown();
+}
+
+function updateExtractRetryCountdown() {
+  if (!_extractRetry.scheduledFor) return;
+  var remaining = Math.max(0, _extractRetry.scheduledFor - Date.now());
+  var min = Math.floor(remaining / 60000);
+  var sec = Math.floor((remaining % 60000) / 1000);
+  document.getElementById("extractAutoRetryInfo").textContent =
+    "⏱️ Próxima tentativa em " + min + ":" + (sec < 10 ? "0" : "") + sec
+    + " (tentativa " + (_extractRetry.attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
+}
+
+function cancelExtractAutoRetryTimers() {
+  if (_extractRetry.timer) clearTimeout(_extractRetry.timer);
+  if (_extractRetry.countdown) clearInterval(_extractRetry.countdown);
+  _extractRetry.timer = null;
+  _extractRetry.countdown = null;
+  _extractRetry.scheduledFor = null;
+}
+
+function cancelExtractAutoRetry() {
+  cancelExtractAutoRetryTimers();
+  document.getElementById("extractAutoRetry").classList.add("hidden");
+  document.getElementById("extractAutoRetryInfo").textContent = "";
+  _extractRetry.attempt = 0;
+}
+
+// === Mesma coisa pra adição em massa ===
+function showAddRetryButton(attempt) {
+  var box = document.getElementById("addAutoRetry");
+  var btn = document.getElementById("addAutoRetryBtn");
+  var cancelBtn = document.getElementById("addAutoRetryCancelBtn");
+  var info = document.getElementById("addAutoRetryInfo");
+  if (!box) return;
+  var delayMin = RETRY_DELAYS_MIN[attempt];
+  if (delayMin == null) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  btn.style.display = "";
+  btn.textContent = "▶️ Retomar automaticamente em " + delayMin + " min";
+  cancelBtn.style.display = "none";
+  info.textContent = "(tentativa " + (attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
+}
+
+function startAddAutoRetry() {
+  var delayMin = RETRY_DELAYS_MIN[_addRetry.attempt];
+  if (delayMin == null) {
+    cancelAddAutoRetry();
+    return;
+  }
+  cancelAddAutoRetryTimers();
+  _addRetry.scheduledFor = Date.now() + (delayMin * 60 * 1000);
+  _addRetry.prevDone = (typeof addResults !== "undefined" && addResults)
+    ? addResults.filter(function(g){ return g.status === "added" || g.status === "added_and_promoted" || g.status === "promoted_only"; }).length : 0;
+  _addRetry.timer = setTimeout(function() {
+    cancelAddAutoRetryTimers();
+    document.getElementById("addAutoRetry").classList.add("hidden");
+    loadAddToGroups();
+  }, delayMin * 60 * 1000);
+  _addRetry.countdown = setInterval(updateAddRetryCountdown, 1000);
+  document.getElementById("addAutoRetryBtn").style.display = "none";
+  document.getElementById("addAutoRetryCancelBtn").style.display = "";
+  updateAddRetryCountdown();
+}
+
+function updateAddRetryCountdown() {
+  if (!_addRetry.scheduledFor) return;
+  var remaining = Math.max(0, _addRetry.scheduledFor - Date.now());
+  var min = Math.floor(remaining / 60000);
+  var sec = Math.floor((remaining % 60000) / 1000);
+  document.getElementById("addAutoRetryInfo").textContent =
+    "⏱️ Próxima tentativa em " + min + ":" + (sec < 10 ? "0" : "") + sec
+    + " (tentativa " + (_addRetry.attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
+}
+
+function cancelAddAutoRetryTimers() {
+  if (_addRetry.timer) clearTimeout(_addRetry.timer);
+  if (_addRetry.countdown) clearInterval(_addRetry.countdown);
+  _addRetry.timer = null;
+  _addRetry.countdown = null;
+  _addRetry.scheduledFor = null;
+}
+
+function cancelAddAutoRetry() {
+  cancelAddAutoRetryTimers();
+  document.getElementById("addAutoRetry").classList.add("hidden");
+  document.getElementById("addAutoRetryInfo").textContent = "";
+  _addRetry.attempt = 0;
+}
+
 function renderGroupsTable(groups) {
   var tbody = document.getElementById("tbody");
   tbody.innerHTML = "";
@@ -373,11 +523,21 @@ async function loadGroups() {
   var sid = document.getElementById("sessionSelect").value;
   if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
 
+  // Snapshot of progress BEFORE this run, used to detect "no progress" later
+  var prevWithLink = (typeof cache !== "undefined" && cache && cache.length)
+    ? cache.filter(function(g){ return !!g.inviteLink; }).length
+    : (function(){
+        var sc = getCache(sid);
+        return Object.keys(sc).length;
+      })();
+
   _extractRunning = true;
   setExtractButtonRunning(true);
   document.getElementById("status").style.color = "";
   document.getElementById("resultCard").classList.add("hidden");
   document.getElementById("exportBtn").disabled = true;
+  // Hide retry button while running
+  document.getElementById("extractAutoRetry").classList.add("hidden");
 
   var savedCache = getCache(sid);
   var errorCache = getErrorCache(sid);
@@ -467,9 +627,13 @@ async function loadGroups() {
 
     var statusMsg;
     if (rateLimited) {
+      // If this run made progress, reset the retry attempt counter
+      if (totalNewLinks > 0) _extractRetry.attempt = 0;
+      // Show the auto-retry button (or advance the attempt if it was an auto-retry that re-rate-limited)
+      showExtractRetryButton(_extractRetry.attempt);
       statusMsg = "⏸️ PAUSADO POR RATE-LIMIT — " + withLink + "/" + adminCount + " admins extraídos ("
-        + totalNewLinks + " novos nesta rodada). Aguarde uns minutos e clique Extrair grupos de novo — "
-        + "o cache preserva o progresso.";
+        + totalNewLinks + " novos nesta rodada). Clique no botão abaixo para retomar automaticamente, "
+        + "ou tente Extrair grupos manualmente mais tarde — o cache preserva o progresso.";
       document.getElementById("status").style.color = "var(--danger)";
     } else if (missingAdminLinks === 0 && permanentErrors > 0) {
       statusMsg = "✅ FINALIZADO — " + withLink + " de " + adminCount + " admins extraídos. "
@@ -485,6 +649,20 @@ async function loadGroups() {
         + missingAdminLinks + " ainda sem link.";
     }
     setStatus(statusMsg);
+
+    // Auto-retry bookkeeping
+    if (rateLimited) {
+      // If no progress was made on this attempt → advance backoff counter
+      var newWithLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
+      if (newWithLink <= prevWithLink) {
+        _extractRetry.attempt = Math.min(_extractRetry.attempt + 1, RETRY_DELAYS_MIN.length);
+      }
+      // Refresh the button label to reflect (possibly) advanced attempt
+      showExtractRetryButton(_extractRetry.attempt);
+    } else {
+      // Run completed without rate-limit → cancel any pending retry
+      cancelExtractAutoRetry();
+    }
   } catch (e) {
     document.getElementById("status").style.color = "var(--danger)";
     setStatus("Erro: " + e.message + " — clique em Extrair grupos de novo, o cache preserva o progresso.");
@@ -790,8 +968,11 @@ async function loadAddToGroups() {
   setAddBtnRunning(true);
   document.getElementById("addStatus").style.color = "";
   document.getElementById("addResultsWrap").classList.add("hidden");
+  document.getElementById("addAutoRetry").classList.add("hidden");
 
   var savedCache = getAddCache(sid, phone);
+  // Snapshot of progress BEFORE this run, used to detect "no progress" later
+  var prevDone = Object.keys(savedCache).length;
   var batchNum = 0;
   var rateLimited = false;
 
@@ -879,9 +1060,11 @@ async function loadAddToGroups() {
     var msg;
     if (rateLimited) {
       var done = finalAdded + finalAddedPromoted + finalPromotedOnly;
+      // Show retry button (advancing the counter happens later, after we know whether progress was made)
+      showAddRetryButton(_addRetry.attempt);
       msg = "⏸️ PAUSADO POR RATE-LIMIT — " + done + " processados com sucesso";
       if (finalAddedNotPromoted > 0) msg += " | ⚠️ " + finalAddedNotPromoted + " adicionados sem admin (serão promovidos no próximo lote)";
-      msg += ". Aguarde uns minutos e clique em Adicionar em todos de novo — o histórico preserva o progresso.";
+      msg += ". Clique no botão abaixo para retomar automaticamente, ou tente manualmente mais tarde — o histórico preserva o progresso.";
       document.getElementById("addStatus").style.color = "var(--danger)";
     } else {
       var parts = ["✅ FINALIZADO"];
@@ -899,6 +1082,19 @@ async function loadAddToGroups() {
       document.getElementById("addStatus").style.color = "var(--ok)";
     }
     setAddStatus(msg);
+
+    // Auto-retry bookkeeping
+    if (rateLimited) {
+      // No progress on this attempt? advance backoff counter
+      var nowDone = Object.keys(savedCache).length;
+      if (nowDone <= prevDone) {
+        _addRetry.attempt = Math.min(_addRetry.attempt + 1, RETRY_DELAYS_MIN.length);
+      }
+      showAddRetryButton(_addRetry.attempt);
+    } else {
+      // Run completed without rate-limit → cancel any pending retry
+      cancelAddAutoRetry();
+    }
   } catch (e) {
     document.getElementById("addStatus").style.color = "var(--danger)";
     setAddStatus("Erro: " + e.message + " — clique em Adicionar em todos de novo, o histórico preserva o progresso.");
