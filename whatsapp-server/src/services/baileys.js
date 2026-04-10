@@ -299,6 +299,18 @@ function isRateLimitError(e) {
     || msg.includes("not-acceptable");
 }
 
+// Extract base ID from a JID: strips device suffix ":N" and "@domain"
+// Examples: "5511999:1@s.whatsapp.net" -> "5511999", "123456@lid" -> "123456"
+function extractBase(jid) {
+  if (!jid) return "";
+  return String(jid).split(":")[0].split("@")[0];
+}
+function extractDomain(jid) {
+  if (!jid) return "";
+  const m = String(jid).match(/@(.+)$/);
+  return m ? m[1] : "";
+}
+
 async function fetchGroupsWithInvites(sessionId) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
@@ -306,9 +318,12 @@ async function fetchGroupsWithInvites(sessionId) {
   }
 
   const sock = session.sock;
+  // WhatsApp uses TWO identities for the same user: phone JID (@s.whatsapp.net)
+  // and LID (@lid). In newer groups, participants are listed by LID instead of phone.
   const myJid = sock.user?.id || "";
-  const myBase = myJid.split(":")[0];
-  const myNormalized = myBase + "@" + (myJid.split("@")[1] || "s.whatsapp.net");
+  const myLid = sock.user?.lid || "";
+  const myPhoneBase = extractBase(myJid); // digits only, e.g. "5511999999999"
+  const myLidBase = extractBase(myLid);
 
   // 1. Fetch all participating groups
   const groupsMap = await sock.groupFetchAllParticipating();
@@ -318,17 +333,43 @@ async function fetchGroupsWithInvites(sessionId) {
   const results = [];
   let rateLimited = false;
   let processed = 0;
+  let adminDetectedAny = false;
+  let firstGroupSample = null;
 
   for (const g of groupList) {
     processed++;
 
-    // Check if "me" is admin in this group
+    // Capture a sample of the first group's participant structure for debugging
+    if (!firstGroupSample && Array.isArray(g.participants) && g.participants.length > 0) {
+      firstGroupSample = {
+        name: g.subject,
+        participantCount: g.participants.length,
+        firstThree: g.participants.slice(0, 3).map(p => ({
+          id: p.id,
+          admin: p.admin || null,
+        })),
+      };
+    }
+
+    // Check if "me" is admin in this group — match by phone base OR LID base
     let isAdmin = false;
     if (Array.isArray(g.participants)) {
-      const me = g.participants.find(p =>
-        p.id === myJid || p.id === myNormalized || (p.id || "").split("@")[0] === myBase
-      );
-      if (me && (me.admin === "admin" || me.admin === "superadmin")) isAdmin = true;
+      const me = g.participants.find(p => {
+        const pid = p.id || "";
+        const pBase = extractBase(pid);
+        const pDomain = extractDomain(pid);
+        if (pid === myJid || pid === myLid) return true;
+        if (pDomain === "s.whatsapp.net" && myPhoneBase && pBase === myPhoneBase) return true;
+        if (pDomain === "lid" && myLidBase && pBase === myLidBase) return true;
+        // Fallback: loose match by any base (covers cases where domain is missing)
+        if (myPhoneBase && pBase === myPhoneBase) return true;
+        if (myLidBase && pBase === myLidBase) return true;
+        return false;
+      });
+      if (me && (me.admin === "admin" || me.admin === "superadmin")) {
+        isAdmin = true;
+        adminDetectedAny = true;
+      }
     }
 
     let inviteLink = null;
@@ -364,7 +405,16 @@ async function fetchGroupsWithInvites(sessionId) {
     });
   }
 
-  return { groups: results, rateLimited, total, processed };
+  const debug = {
+    myJid,
+    myLid,
+    myPhoneBase,
+    myLidBase,
+    adminDetectedAny,
+    firstGroupSample,
+  };
+
+  return { groups: results, rateLimited, total, processed, debug };
 }
 
 // ===== Stop session =====

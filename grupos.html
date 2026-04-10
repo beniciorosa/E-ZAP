@@ -63,6 +63,12 @@
       <div class="status" id="status">Configure a URL e o token, depois carregue as sessões.</div>
     </div>
 
+    <div class="card hidden" id="debugCard" style="border-color:var(--danger)">
+      <div style="font-size:13px;font-weight:600;color:var(--danger);margin-bottom:8px">⚠️ Debug — nenhum admin detectado</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Se você é admin mas nada foi detectado, me envie este JSON para eu ajustar o detector:</div>
+      <pre id="debugContent" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;overflow:auto;max-height:300px;font-size:11px;margin:0;color:var(--text)"></pre>
+    </div>
+
     <div class="card hidden" id="resultCard">
       <div class="wrap">
         <table>
@@ -181,6 +187,15 @@ function loadGroups() {
     setStatus(statusMsg);
     document.getElementById("resultCard").classList.remove("hidden");
     document.getElementById("exportBtn").disabled = cache.length === 0;
+
+    // Show debug panel when no admin was detected (helps diagnose LID/phone ID mismatches)
+    var debugCard = document.getElementById("debugCard");
+    if (data.debug && !data.debug.adminDetectedAny && cache.length > 0) {
+      document.getElementById("debugContent").textContent = JSON.stringify(data.debug, null, 2);
+      debugCard.classList.remove("hidden");
+    } else {
+      debugCard.classList.add("hidden");
+    }
   }).catch(function(e) { setStatus("Erro: " + e.message); });
 }
 

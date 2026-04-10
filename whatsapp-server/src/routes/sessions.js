@@ -123,6 +123,7 @@ router.get("/:id/groups", async (req, res) => {
       processed: data.processed,
       rateLimited: data.rateLimited,
       groups: data.groups,
+      debug: data.debug,
     });
   } catch (e) {
     console.error("[SESSIONS] Groups error:", e.message);
