@@ -295,8 +295,10 @@ var _pollTimer = null;
 var _sessions = [];            // [{ id, label, phone, status }]
 var _activeJobs = {};          // jobId -> job (snapshot mais recente)
 var _jobsInThisSession = new Set(); // jobIds que iniciamos/vemos nesta sessão (persiste no storage)
+var _hiddenJobIds = new Set(); // jobIds que o usuário "fechou" (persiste no storage)
 
 var SESSION_STORAGE_KEY = "ezap_grupos_known_jobs";
+var HIDDEN_STORAGE_KEY = "ezap_grupos_hidden_jobs";
 
 function loadKnownJobs() {
   try {
@@ -305,13 +307,26 @@ function loadKnownJobs() {
       var arr = JSON.parse(raw);
       if (Array.isArray(arr)) arr.forEach(function(id){ _jobsInThisSession.add(id); });
     }
+    var rawHidden = localStorage.getItem(HIDDEN_STORAGE_KEY);
+    if (rawHidden) {
+      var arrHidden = JSON.parse(rawHidden);
+      if (Array.isArray(arrHidden)) arrHidden.forEach(function(id){ _hiddenJobIds.add(id); });
+    }
   } catch (e) {}
 }
 
 function saveKnownJobs() {
   try {
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(Array.from(_jobsInThisSession)));
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(Array.from(_hiddenJobIds)));
   } catch (e) {}
+}
+
+function showAllHiddenJobs() {
+  _hiddenJobIds.clear();
+  saveKnownJobs();
+  refreshJobs();
+  showToast("Jobs ocultos foram restaurados", "ok");
 }
 
 function esc(s) {
@@ -681,15 +696,19 @@ function renderJobs(jobSummaries) {
   var container = document.getElementById("jobsContainer");
   var empty = document.getElementById("emptyState");
 
-  if (!jobSummaries || jobSummaries.length === 0) {
+  // Filter out hidden jobs
+  var visible = (jobSummaries || []).filter(function(j) { return !_hiddenJobIds.has(j.id); });
+
+  if (visible.length === 0) {
     container.innerHTML = "";
     empty.style.display = "";
+    updateHiddenJobsBanner();
     return;
   }
   empty.style.display = "none";
 
   // For each job summary, fetch the full details (results + progress)
-  var promises = jobSummaries.map(function(j) {
+  var promises = visible.map(function(j) {
     return waFetch("/api/jobs/" + j.id).then(function(r) { return r.job; }).catch(function(){ return null; });
   });
   Promise.all(promises).then(function(fullJobs) {
@@ -705,6 +724,7 @@ function renderJobs(jobSummaries) {
         if (arrow) arrow.textContent = "▼";
       }
     });
+    updateHiddenJobsBanner();
   });
 }
 
@@ -758,7 +778,14 @@ function renderJobCard(job) {
 
   var message = "";
   if (job.status === "running") {
-    message = '<div class="job-message">' + spinner + progressCount + '/' + adminCount + ' processados — ' + etaText + '</div>';
+    // If the pre-loaded cache already covers everything (100%) but the loop is
+    // still iterating through groups to verify / pick up new ones, show a
+    // secondary line with loop progress to avoid the confusing "100% + Running"
+    var loopInfo = "";
+    if (pct >= 99.5 && job.progress.done !== undefined && job.progress.total > 0 && job.progress.done < job.progress.total) {
+      loopInfo = ' (verificando ' + job.progress.done + '/' + job.progress.total + ' grupos no WhatsApp)';
+    }
+    message = '<div class="job-message">' + spinner + progressCount + '/' + adminCount + ' processados — ' + etaText + loopInfo + '</div>';
   } else if (job.status === "completed") {
     message = '<div class="job-message ok">✅ Concluído — ' + progressCount + '/' + adminCount + ' processados</div>';
   } else if (job.status === "rate_limited") {
@@ -890,11 +917,32 @@ function removeJobCard(jobId) {
   var el = document.getElementById("job-card-" + jobId);
   if (el) el.remove();
   _jobsInThisSession.delete(jobId);
+  // Mark as hidden so the next poll does not bring it back
+  _hiddenJobIds.add(jobId);
   saveKnownJobs();
   // If no cards left, show empty state
   if (document.getElementById("jobsContainer").children.length === 0) {
     document.getElementById("emptyState").style.display = "";
   }
+  updateHiddenJobsBanner();
+}
+
+// If there are hidden jobs, show a little banner at the top so the user can restore them
+function updateHiddenJobsBanner() {
+  var banner = document.getElementById("hiddenJobsBanner");
+  if (_hiddenJobIds.size === 0) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "hiddenJobsBanner";
+    banner.style.cssText = "padding:8px 12px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; margin-bottom:12px; font-size:12px; display:flex; align-items:center; justify-content:space-between; color:var(--muted);";
+    var toolbar = document.querySelector(".toolbar");
+    toolbar.parentNode.insertBefore(banner, toolbar.nextSibling);
+  }
+  banner.innerHTML = '<span>' + _hiddenJobIds.size + ' job(s) ocultos</span>'
+    + '<button class="btn-secondary btn-icon" onclick="showAllHiddenJobs()">Mostrar</button>';
 }
 
 function exportJobCSV(jobId) {
