@@ -54,13 +54,15 @@
       <div class="row">
         <div>
           <label>Sessão conectada</label>
-          <select id="sessionSelect"><option value="">— carregue as sessões —</option></select>
+          <select id="sessionSelect" onchange="updateCacheInfo()"><option value="">— carregue as sessões —</option></select>
         </div>
         <button class="btn-secondary" onclick="loadSessions()">Recarregar sessões</button>
         <button class="btn-primary" onclick="loadGroups()">Extrair grupos</button>
         <button class="btn-secondary" id="exportBtn" onclick="exportCSV()" disabled>Exportar CSV</button>
+        <button class="btn-secondary" onclick="clearCacheForSession()" title="Apaga os links salvos no navegador para esta sessão">Limpar cache</button>
       </div>
       <div class="status" id="status">Configure a URL e o token, depois carregue as sessões.</div>
+      <div class="status" id="cacheInfo" style="font-size:11px"></div>
     </div>
 
     <div class="card hidden" id="debugCard" style="border-color:var(--danger)">
@@ -115,18 +117,59 @@ function saveConfig() {
   loadSessions();
 }
 
-function waFetch(path) {
+function waFetch(path, method, body) {
   var url = document.getElementById("serverUrl").value.trim().replace(/\/$/,"");
   var tok = document.getElementById("adminToken").value.trim();
   if (!url || !tok) { return Promise.reject(new Error("Configure URL e token primeiro.")); }
-  return fetch(url + path, {
+  var opts = {
+    method: method || "GET",
     headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" }
-  }).then(function(r) {
+  };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(url + path, opts).then(function(r) {
     return r.json().then(function(j){
       if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
       return j;
     });
   });
+}
+
+// ===== Cache de links (localStorage, por sessionId) =====
+var CACHE_KEY_PREFIX = "ezap_groups_cache_";
+
+function getCache(sid) {
+  try {
+    var raw = localStorage.getItem(CACHE_KEY_PREFIX + sid);
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
+function saveCache(sid, data) {
+  try { localStorage.setItem(CACHE_KEY_PREFIX + sid, JSON.stringify(data)); } catch(e) {}
+}
+
+function clearCacheForSession() {
+  var sid = document.getElementById("sessionSelect").value;
+  if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
+  if (!confirm("Apagar os " + Object.keys(getCache(sid)).length + " links salvos no navegador para esta sessão? A tabela atual será limpa.")) return;
+  localStorage.removeItem(CACHE_KEY_PREFIX + sid);
+  cache = [];
+  document.getElementById("tbody").innerHTML = "";
+  document.getElementById("resultCard").classList.add("hidden");
+  document.getElementById("exportBtn").disabled = true;
+  updateCacheInfo();
+  setStatus("Cache limpo. Clique em Extrair grupos para começar do zero.");
+}
+
+function updateCacheInfo() {
+  var sid = document.getElementById("sessionSelect").value;
+  var info = document.getElementById("cacheInfo");
+  if (!sid) { info.textContent = ""; return; }
+  var c = getCache(sid);
+  var n = Object.keys(c).length;
+  info.textContent = n > 0
+    ? "💾 " + n + " link(s) já salvos no navegador para esta sessão — serão reutilizados na próxima extração."
+    : "";
 }
 
 function loadSessions() {
@@ -151,52 +194,124 @@ function loadSessions() {
   }).catch(function(e) { setStatus("Erro: " + e.message); });
 }
 
-function loadGroups() {
+// Config: batch size (max groupInviteCode calls per HTTP request)
+// With 5s delay per call, 10 calls = 50s per request — safely under any HTTP timeout.
+var BATCH_SIZE = 10;
+var BATCH_PAUSE_MS = 1500; // pause between batches so the user can see progress
+
+var _extractRunning = false;
+
+function renderGroupsTable(groups) {
+  var tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+  groups.forEach(function(g) {
+    var tr = document.createElement("tr");
+    var linkCell = g.inviteLink
+      ? '<a href="' + esc(g.inviteLink) + '" target="_blank">' + esc(g.inviteLink) + '</a>'
+      : '<span class="err">' + esc(g.inviteError || "Indisponível") + '</span>';
+    tr.innerHTML =
+      '<td>' + esc(g.name) + '</td>' +
+      '<td style="text-align:center">' + g.participants + '</td>' +
+      '<td style="text-align:center">' + (g.isAdmin ? '<span class="ok">Sim</span>' : "Não") + '</td>' +
+      '<td>' + linkCell + '</td>';
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadGroups() {
+  if (_extractRunning) { setStatus("Já está rodando, aguarde..."); return; }
   var sid = document.getElementById("sessionSelect").value;
   if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
-  setStatus("Extraindo grupos — o servidor processa 1 grupo admin a cada 800ms para evitar rate-limit do WhatsApp. Para 300 grupos com ~50 admin, estimar ~40s.");
+
+  _extractRunning = true;
+  document.getElementById("status").style.color = "";
   document.getElementById("resultCard").classList.add("hidden");
   document.getElementById("exportBtn").disabled = true;
 
-  waFetch("/api/sessions/" + sid + "/groups").then(function(data) {
-    cache = data.groups || [];
-    var tbody = document.getElementById("tbody");
-    tbody.innerHTML = "";
-    cache.forEach(function(g) {
-      var tr = document.createElement("tr");
-      var linkCell = g.inviteLink
-        ? '<a href="' + esc(g.inviteLink) + '" target="_blank">' + esc(g.inviteLink) + '</a>'
-        : '<span class="err">' + esc(g.inviteError || "Indisponível") + '</span>';
-      tr.innerHTML =
-        '<td>' + esc(g.name) + '</td>' +
-        '<td style="text-align:center">' + g.participants + '</td>' +
-        '<td style="text-align:center">' + (g.isAdmin ? '<span class="ok">Sim</span>' : "Não") + '</td>' +
-        '<td>' + linkCell + '</td>';
-      tbody.appendChild(tr);
-    });
+  var savedCache = getCache(sid);
+  var totalNewLinks = 0;
+  var batchNum = 0;
+  var rateLimited = false;
+  var lastData = null;
+
+  try {
+    while (true) {
+      batchNum++;
+      var cachedJids = Object.keys(savedCache);
+      setStatus("Lote " + batchNum + " — extraindo até " + BATCH_SIZE + " links (5s cada, ~"
+        + (BATCH_SIZE * 5) + "s). Já em cache: " + cachedJids.length + ".");
+
+      var data = await waFetch("/api/sessions/" + sid + "/groups", "POST", {
+        skipJids: cachedJids,
+        maxCalls: BATCH_SIZE,
+      });
+      lastData = data;
+      var groups = data.groups || [];
+
+      // Merge cached links into skipped entries, save new links into cache
+      var newThisBatch = 0;
+      groups.forEach(function(g) {
+        if (g.skipped && savedCache[g.jid]) {
+          g.inviteLink = savedCache[g.jid];
+          g.inviteError = null;
+        } else if (g.inviteLink) {
+          if (!savedCache[g.jid]) {
+            newThisBatch++;
+            totalNewLinks++;
+          }
+          savedCache[g.jid] = g.inviteLink;
+        }
+      });
+      saveCache(sid, savedCache);
+
+      cache = groups;
+      renderGroupsTable(cache);
+      document.getElementById("resultCard").classList.remove("hidden");
+      document.getElementById("exportBtn").disabled = cache.length === 0;
+      updateCacheInfo();
+
+      // Show debug panel when no admin was detected
+      var debugCard = document.getElementById("debugCard");
+      if (data.debug && !data.debug.adminDetectedAny && cache.length > 0) {
+        document.getElementById("debugContent").textContent = JSON.stringify(data.debug, null, 2);
+        debugCard.classList.remove("hidden");
+      } else {
+        debugCard.classList.add("hidden");
+      }
+
+      if (data.rateLimited) { rateLimited = true; break; }
+
+      // Stop when this batch made no progress (no new links) — we're done
+      if (newThisBatch === 0) break;
+
+      // Small UI pause between batches so the user can see intermediate progress
+      await new Promise(function(r){ setTimeout(r, BATCH_PAUSE_MS); });
+    }
+
+    // Final status
     var withLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
-    var statusMsg = cache.length + " grupos encontrados — " + withLink + " com link extraído.";
-    if (data.rateLimited) {
-      statusMsg = "⚠️ ABORTADO POR RATE-LIMIT DO WHATSAPP — " + statusMsg
-        + " Extração interrompida para proteger sua conta. Os demais grupos aparecem como 'Abortado por rate-limit'. "
-        + "Aguarde uns minutos antes de tentar de novo.";
+    var adminCount = cache.filter(function(g){ return g.isAdmin; }).length;
+    var missingAdminLinks = adminCount - withLink;
+    var statusMsg = cache.length + " grupos | " + adminCount + " admin | "
+      + withLink + " com link (" + totalNewLinks + " novos nesta sessão de extração)";
+    if (missingAdminLinks > 0) {
+      statusMsg += " | ⚠️ " + missingAdminLinks + " admin ainda sem link";
+    }
+    if (rateLimited) {
+      statusMsg = "⚠️ ABORTADO POR RATE-LIMIT — " + statusMsg
+        + ". Aguarde uns minutos e clique Extrair grupos de novo — o cache preserva o progresso.";
       document.getElementById("status").style.color = "var(--danger)";
-    } else {
-      document.getElementById("status").style.color = "";
+    } else if (missingAdminLinks === 0 && adminCount > 0) {
+      statusMsg = "✅ " + statusMsg + " — todos os grupos admin foram extraídos.";
+      document.getElementById("status").style.color = "var(--ok)";
     }
     setStatus(statusMsg);
-    document.getElementById("resultCard").classList.remove("hidden");
-    document.getElementById("exportBtn").disabled = cache.length === 0;
-
-    // Show debug panel when no admin was detected (helps diagnose LID/phone ID mismatches)
-    var debugCard = document.getElementById("debugCard");
-    if (data.debug && !data.debug.adminDetectedAny && cache.length > 0) {
-      document.getElementById("debugContent").textContent = JSON.stringify(data.debug, null, 2);
-      debugCard.classList.remove("hidden");
-    } else {
-      debugCard.classList.add("hidden");
-    }
-  }).catch(function(e) { setStatus("Erro: " + e.message); });
+  } catch (e) {
+    document.getElementById("status").style.color = "var(--danger)";
+    setStatus("Erro: " + e.message);
+  } finally {
+    _extractRunning = false;
+  }
 }
 
 function exportCSV() {

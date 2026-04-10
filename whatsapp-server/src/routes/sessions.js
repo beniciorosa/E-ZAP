@@ -112,15 +112,22 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// GET /api/sessions/:id/groups — List groups with invite links (temporary tool)
-router.get("/:id/groups", async (req, res) => {
+// POST /api/sessions/:id/groups — List groups with invite links (temporary tool)
+// Body:
+//   skipJids?: string[]   — JIDs to skip (caller already has them cached)
+//   maxCalls?: number     — max groupInviteCode calls in this batch (default 10, max 50)
+router.post("/:id/groups", async (req, res) => {
   try {
-    const data = await baileys.fetchGroupsWithInvites(req.params.id);
+    const skipJids = Array.isArray(req.body?.skipJids) ? req.body.skipJids : [];
+    const maxCalls = Number(req.body?.maxCalls) || 10;
+    const data = await baileys.fetchGroupsWithInvites(req.params.id, skipJids, maxCalls);
     res.json({
       ok: true,
       count: data.groups.length,
       total: data.total,
       processed: data.processed,
+      callsMade: data.callsMade,
+      batchLimitReached: data.batchLimitReached,
       rateLimited: data.rateLimited,
       groups: data.groups,
       debug: data.debug,

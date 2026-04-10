@@ -311,7 +311,7 @@ function extractDomain(jid) {
   return m ? m[1] : "";
 }
 
-async function fetchGroupsWithInvites(sessionId) {
+async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
     throw new Error("Sessão não conectada: " + sessionId);
@@ -324,6 +324,13 @@ async function fetchGroupsWithInvites(sessionId) {
   const myLid = sock.user?.lid || "";
   const myPhoneBase = extractBase(myJid); // digits only, e.g. "5511999999999"
   const myLidBase = extractBase(myLid);
+
+  // JIDs to skip — caller already has the invite link cached for these
+  const skipSet = new Set(Array.isArray(skipJids) ? skipJids : []);
+  // Max number of groupInviteCode calls in this single request (batch limit to avoid HTTP timeout)
+  const maxCallsThisBatch = Math.max(1, Math.min(50, Number(maxCalls) || 10));
+  let callsMade = 0;
+  let batchLimitReached = false;
 
   // 1. Fetch all participating groups
   const groupsMap = await sock.groupFetchAllParticipating();
@@ -374,8 +381,17 @@ async function fetchGroupsWithInvites(sessionId) {
 
     let inviteLink = null;
     let inviteError = null;
+    let skipped = false;
 
-    if (isAdmin && !rateLimited) {
+    if (isAdmin && skipSet.has(g.id)) {
+      // Caller already has this link cached — skip the API call entirely
+      skipped = true;
+    } else if (isAdmin && rateLimited) {
+      inviteError = "Abortado por rate-limit";
+    } else if (isAdmin && batchLimitReached) {
+      // Reached per-batch call limit — frontend will call again in the next batch
+      skipped = true;
+    } else if (isAdmin) {
       try {
         const code = await sock.groupInviteCode(g.id);
         if (code) inviteLink = "https://chat.whatsapp.com/" + code;
@@ -387,10 +403,13 @@ async function fetchGroupsWithInvites(sessionId) {
           console.warn("[BAILEYS] Rate limit detected — aborting invite extraction at group", processed, "of", total);
         }
       }
-      // Delay 800ms between IQ requests to stay safely under WhatsApp rate limits
-      if (!rateLimited) await new Promise(r => setTimeout(r, 800));
-    } else if (isAdmin && rateLimited) {
-      inviteError = "Abortado por rate-limit";
+      callsMade++;
+      // Delay 5000ms between IQ requests — WhatsApp rate-limits ~10 calls in short windows
+      if (!rateLimited && callsMade < maxCallsThisBatch) {
+        await new Promise(r => setTimeout(r, 5000));
+      }
+      // After the last call in this batch, stop processing further admin groups
+      if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
     } else {
       inviteError = "Sem permissão (não é admin)";
     }
@@ -402,6 +421,7 @@ async function fetchGroupsWithInvites(sessionId) {
       isAdmin,
       inviteLink,
       inviteError,
+      skipped,
     });
   }
 
@@ -414,7 +434,7 @@ async function fetchGroupsWithInvites(sessionId) {
     firstGroupSample,
   };
 
-  return { groups: results, rateLimited, total, processed, debug };
+  return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, debug };
 }
 
 // ===== Stop session =====
