@@ -285,6 +285,62 @@ async function sendMessage(sessionId, jid, content) {
   return { ok: true };
 }
 
+// ===== Fetch groups with invite links (temporary tool) =====
+async function fetchGroupsWithInvites(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || session.status !== "connected") {
+    throw new Error("Sessão não conectada: " + sessionId);
+  }
+
+  const sock = session.sock;
+  const myJid = sock.user?.id || "";
+  const myBase = myJid.split(":")[0];
+  const myNormalized = myBase + "@" + (myJid.split("@")[1] || "s.whatsapp.net");
+
+  // 1. Fetch all participating groups
+  const groupsMap = await sock.groupFetchAllParticipating();
+  const groupList = Object.values(groupsMap || {});
+
+  const results = [];
+  for (const g of groupList) {
+    // Check if "me" is admin in this group
+    let isAdmin = false;
+    if (Array.isArray(g.participants)) {
+      const me = g.participants.find(p =>
+        p.id === myJid || p.id === myNormalized || (p.id || "").split("@")[0] === myBase
+      );
+      if (me && (me.admin === "admin" || me.admin === "superadmin")) isAdmin = true;
+    }
+
+    let inviteLink = null;
+    let inviteError = null;
+
+    if (isAdmin) {
+      try {
+        const code = await sock.groupInviteCode(g.id);
+        if (code) inviteLink = "https://chat.whatsapp.com/" + code;
+      } catch (e) {
+        inviteError = e?.message || "Falha ao obter código";
+      }
+      // Small delay to avoid WhatsApp rate-limit when many admin groups
+      await new Promise(r => setTimeout(r, 250));
+    } else {
+      inviteError = "Sem permissão (não é admin)";
+    }
+
+    results.push({
+      jid: g.id,
+      name: g.subject || "(sem nome)",
+      participants: Array.isArray(g.participants) ? g.participants.length : 0,
+      isAdmin,
+      inviteLink,
+      inviteError,
+    });
+  }
+
+  return results;
+}
+
 // ===== Stop session =====
 async function stopSession(sessionId) {
   const session = sessions.get(sessionId);
@@ -425,4 +481,5 @@ module.exports = {
   getActiveSessions,
   getSession,
   reconnectAllSessions,
+  fetchGroupsWithInvites,
 };

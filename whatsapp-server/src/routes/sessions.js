@@ -112,4 +112,15 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// GET /api/sessions/:id/groups — List groups with invite links (temporary tool)
+router.get("/:id/groups", async (req, res) => {
+  try {
+    const groups = await baileys.fetchGroupsWithInvites(req.params.id);
+    res.json({ ok: true, count: groups.length, groups });
+  } catch (e) {
+    console.error("[SESSIONS] Groups error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

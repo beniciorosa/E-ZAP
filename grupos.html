@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Extrator de Grupos WhatsApp — E-ZAP</title>
+  <style>
+    :root { --bg:#0f1420; --surface:#1a2030; --border:#2a3347; --text:#e8edf5; --muted:#8a97b0; --primary:#6366f1; --danger:#ef4444; --ok:#22c55e; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+    .container { max-width:1100px; margin:0 auto; }
+    h1 { font-size:20px; margin:0 0 4px }
+    .sub { color:var(--muted); font-size:13px; margin-bottom:24px }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+    label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+    input, select, button { font:inherit; color:var(--text); }
+    input[type=text], input[type=password], select { width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px; }
+    .row > * { flex:1; min-width:200px; }
+    button { padding:10px 18px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
+    .btn-primary { background:var(--primary); color:#fff; }
+    .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-secondary { background:var(--bg); border:1px solid var(--border); color:var(--text); }
+    .status { font-size:13px; color:var(--muted); margin:12px 0; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { text-align:left; padding:10px 12px; background:#121828; border-bottom:1px solid var(--border); position:sticky; top:0; }
+    td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+    tbody tr:hover { background:#121828; }
+    a { color:var(--primary); word-break:break-all; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .err { color:var(--danger); }
+    .ok { color:var(--ok); }
+    .wrap { max-height:60vh; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:8px; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Extrator de Grupos WhatsApp</h1>
+    <div class="sub">Ferramenta temporária — extrai links de convite de grupos de uma sessão conectada no servidor E-ZAP.</div>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>URL do Servidor</label>
+          <input type="text" id="serverUrl" placeholder="https://seu-servidor.com">
+        </div>
+        <div>
+          <label>Admin Token</label>
+          <input type="password" id="adminToken" placeholder="Bearer token">
+        </div>
+        <button class="btn-secondary" onclick="saveConfig()">Salvar</button>
+      </div>
+      <div class="row">
+        <div>
+          <label>Sessão conectada</label>
+          <select id="sessionSelect"><option value="">— carregue as sessões —</option></select>
+        </div>
+        <button class="btn-secondary" onclick="loadSessions()">Recarregar sessões</button>
+        <button class="btn-primary" onclick="loadGroups()">Extrair grupos</button>
+        <button class="btn-secondary" id="exportBtn" onclick="exportCSV()" disabled>Exportar CSV</button>
+      </div>
+      <div class="status" id="status">Configure a URL e o token, depois carregue as sessões.</div>
+    </div>
+
+    <div class="card hidden" id="resultCard">
+      <div class="wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome do grupo</th>
+              <th style="width:90px;text-align:center">Membros</th>
+              <th style="width:80px;text-align:center">Admin?</th>
+              <th>Link de convite</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+var cache = [];
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+function setStatus(msg) { document.getElementById("status").textContent = msg; }
+
+// Load saved config from localStorage (mesmas chaves do admin.html — reusa sem reconfigurar)
+(function init() {
+  var url = localStorage.getItem("wa_server_url") || "";
+  var tok = localStorage.getItem("wa_admin_token") || "";
+  document.getElementById("serverUrl").value = url;
+  document.getElementById("adminToken").value = tok;
+  if (url && tok) loadSessions();
+})();
+
+function saveConfig() {
+  var url = document.getElementById("serverUrl").value.trim().replace(/\/$/,"");
+  var tok = document.getElementById("adminToken").value.trim();
+  localStorage.setItem("wa_server_url", url);
+  localStorage.setItem("wa_admin_token", tok);
+  setStatus("Configuração salva.");
+  loadSessions();
+}
+
+function waFetch(path) {
+  var url = document.getElementById("serverUrl").value.trim().replace(/\/$/,"");
+  var tok = document.getElementById("adminToken").value.trim();
+  if (!url || !tok) { return Promise.reject(new Error("Configure URL e token primeiro.")); }
+  return fetch(url + path, {
+    headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" }
+  }).then(function(r) {
+    return r.json().then(function(j){
+      if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+      return j;
+    });
+  });
+}
+
+function loadSessions() {
+  setStatus("Carregando sessões...");
+  waFetch("/api/sessions").then(function(list) {
+    var sel = document.getElementById("sessionSelect");
+    sel.innerHTML = "";
+    var connected = (list || []).filter(function(s){ return s.status === "connected"; });
+    if (!connected.length) {
+      sel.innerHTML = '<option value="">Nenhuma sessão conectada</option>';
+      setStatus("Nenhuma sessão conectada encontrada.");
+      return;
+    }
+    sel.innerHTML = '<option value="">Selecione a sessão</option>';
+    connected.forEach(function(s) {
+      var opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = (s.label || "Sem nome") + (s.phone ? " — " + s.phone : "");
+      sel.appendChild(opt);
+    });
+    setStatus(connected.length + " sessão(ões) conectada(s). Selecione uma e clique em Extrair grupos.");
+  }).catch(function(e) { setStatus("Erro: " + e.message); });
+}
+
+function loadGroups() {
+  var sid = document.getElementById("sessionSelect").value;
+  if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
+  setStatus("Extraindo grupos — isso pode demorar se houver muitos grupos admin (aprox. 250ms por grupo admin)...");
+  document.getElementById("resultCard").classList.add("hidden");
+  document.getElementById("exportBtn").disabled = true;
+
+  waFetch("/api/sessions/" + sid + "/groups").then(function(data) {
+    cache = data.groups || [];
+    var tbody = document.getElementById("tbody");
+    tbody.innerHTML = "";
+    cache.forEach(function(g) {
+      var tr = document.createElement("tr");
+      var linkCell = g.inviteLink
+        ? '<a href="' + esc(g.inviteLink) + '" target="_blank">' + esc(g.inviteLink) + '</a>'
+        : '<span class="err">' + esc(g.inviteError || "Indisponível") + '</span>';
+      tr.innerHTML =
+        '<td>' + esc(g.name) + '</td>' +
+        '<td style="text-align:center">' + g.participants + '</td>' +
+        '<td style="text-align:center">' + (g.isAdmin ? '<span class="ok">Sim</span>' : "Não") + '</td>' +
+        '<td>' + linkCell + '</td>';
+      tbody.appendChild(tr);
+    });
+    var withLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
+    setStatus(cache.length + " grupos encontrados — " + withLink + " com link extraído.");
+    document.getElementById("resultCard").classList.remove("hidden");
+    document.getElementById("exportBtn").disabled = cache.length === 0;
+  }).catch(function(e) { setStatus("Erro: " + e.message); });
+}
+
+function exportCSV() {
+  if (!cache.length) return;
+  var rows = [["Nome do grupo", "Link de convite", "Membros", "Admin"]];
+  cache.forEach(function(g) {
+    rows.push([
+      g.name || "",
+      g.inviteLink || (g.inviteError || ""),
+      g.participants,
+      g.isAdmin ? "Sim" : "Não",
+    ]);
+  });
+  var csv = rows.map(function(r) {
+    return r.map(function(c) {
+      var s = String(c == null ? "" : c);
+      if (/[",;\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }).join(";");
+  }).join("\r\n");
+  // BOM UTF-8 para Excel abrir acentos corretamente
+  var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "grupos_whatsapp_" + new Date().toISOString().slice(0,10) + ".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
