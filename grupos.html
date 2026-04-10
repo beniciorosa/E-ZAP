@@ -697,6 +697,13 @@ function renderJobs(jobSummaries) {
     fullJobs.filter(function(j){ return !!j; }).forEach(function(job) {
       _activeJobs[job.id] = job;
       container.appendChild(renderJobCard(job));
+      // Preserve expanded state of the results table across polls
+      if (_expandedJobTables[job.id]) {
+        var wrap = document.getElementById("job-table-wrap-" + job.id);
+        var arrow = document.getElementById("job-table-arrow-" + job.id);
+        if (wrap) wrap.classList.remove("hidden");
+        if (arrow) arrow.textContent = "▼";
+      }
     });
   });
 }
@@ -763,6 +770,19 @@ function renderJobCard(job) {
     message = '<div class="job-message error">❌ Erro: ' + esc(job.lastError || "desconhecido") + '</div>';
   }
 
+  // Results table (collapsible)
+  var resultsCount = (job.results || []).length;
+  var tableSection = '';
+  if (resultsCount > 0) {
+    tableSection = '<div style="margin-top:12px">'
+      + '<button class="btn-secondary btn-icon" onclick="toggleJobTable(\'' + job.id + '\')" style="width:100%; text-align:left">'
+      + '<span id="job-table-arrow-' + job.id + '">▶</span> Mostrar/esconder lista (' + resultsCount + ' grupos)'
+      + '</button>'
+      + '<div id="job-table-wrap-' + job.id + '" class="table-wrap hidden">'
+      + renderJobResultsTable(job)
+      + '</div></div>';
+  }
+
   div.innerHTML =
     '<div class="job-header">'
     + '<div class="job-title">' + title + ' — ' + esc(sessionLabel) + '</div>'
@@ -774,9 +794,88 @@ function renderJobCard(job) {
     + '<div class="job-progress-text">' + progressCount + ' de ' + adminCount + ' (' + pct.toFixed(0) + '%)'
     + (job.progress.newInThisRun ? ' — ' + job.progress.newInThisRun + ' novos nesta rodada' : '')
     + '</div>'
-    + message;
+    + message
+    + tableSection;
 
   return div;
+}
+
+// Renders the results table for a job — returns HTML string
+function renderJobResultsTable(job) {
+  if (!job.results || !job.results.length) return '<div class="empty-state">Sem resultados</div>';
+
+  var isExtract = job.type === "extract";
+  // Sort: admins first, then alphabetically
+  var rows = job.results.slice().sort(function(a, b) {
+    if (a.isAdmin !== b.isAdmin) return a.isAdmin ? -1 : 1;
+    return (a.name || "").localeCompare(b.name || "");
+  });
+
+  var html = '<table><thead><tr>';
+  if (isExtract) {
+    html += '<th>Nome do grupo</th><th style="width:80px;text-align:center">Admin?</th><th>Link / Status</th>';
+  } else {
+    html += '<th>Nome do grupo</th><th style="width:80px;text-align:center">Admin?</th><th>Status</th>';
+  }
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(function(r) {
+    var adminCell = r.isAdmin ? '<span class="ok">Sim</span>' : '<span style="color:var(--muted)">Não</span>';
+    var lastCell;
+    if (isExtract) {
+      if (r.inviteLink) {
+        lastCell = '<a href="' + esc(r.inviteLink) + '" target="_blank">' + esc(r.inviteLink) + '</a>';
+      } else if (r.inviteError) {
+        lastCell = '<span class="err">' + esc(r.inviteError) + '</span>';
+      } else {
+        lastCell = '<span style="color:var(--muted)">—</span>';
+      }
+    } else {
+      lastCell = renderAddStatus(r.status, r.statusMessage);
+    }
+    html += '<tr><td>' + esc(r.name || "(sem nome)") + '</td><td style="text-align:center">' + adminCell + '</td><td>' + lastCell + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderAddStatus(status, msg) {
+  var color = "var(--muted)", label = "—";
+  switch (status) {
+    case "added":               color = "var(--ok)";     label = "✅ Adicionado"; break;
+    case "added_and_promoted":  color = "var(--ok)";     label = "⭐ Adicionado + Admin"; break;
+    case "promoted_only":       color = "var(--ok)";     label = "⭐ Promovido a admin"; break;
+    case "already_member":      color = "var(--muted)";  label = "⏭️ Já era membro"; break;
+    case "already_admin":       color = "var(--muted)";  label = "⏭️ Já era admin"; break;
+    case "added_not_promoted":  color = "var(--warn)";   label = "⚠️ Adic. sem admin"; break;
+    case "promote_error":       color = "var(--warn)";   label = "⚠️ Erro na promoção"; break;
+    case "not_admin":           color = "var(--muted)";  label = "Não é admin"; break;
+    case "privacy_block":       color = "var(--danger)"; label = "🚫 Privacidade"; break;
+    case "not_on_whatsapp":     color = "var(--danger)"; label = "❌ Sem WhatsApp"; break;
+    case "aborted_rate_limit":  color = "var(--danger)"; label = "⏸️ Rate-limit"; break;
+    case "error":               color = "var(--danger)"; label = "❌ Erro"; break;
+  }
+  var title = msg ? ' title="' + esc(msg) + '"' : '';
+  return '<span style="color:' + color + '"' + title + '>' + label + '</span>';
+}
+
+// Track which job tables are expanded so polling doesn't collapse them
+var _expandedJobTables = {};
+
+function toggleJobTable(jobId) {
+  var wrap = document.getElementById("job-table-wrap-" + jobId);
+  var arrow = document.getElementById("job-table-arrow-" + jobId);
+  if (!wrap) return;
+  var isHidden = wrap.classList.contains("hidden");
+  if (isHidden) {
+    wrap.classList.remove("hidden");
+    arrow.textContent = "▼";
+    _expandedJobTables[jobId] = true;
+  } else {
+    wrap.classList.add("hidden");
+    arrow.textContent = "▶";
+    delete _expandedJobTables[jobId];
+  }
 }
 
 function cancelJobAction(jobId) {

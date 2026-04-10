@@ -148,6 +148,18 @@ async function runExtractWorker(job) {
   }));
   job.results = preLoaded.slice();
 
+  // Initialize progress counters from the cache so the UI is meaningful before
+  // the first group is processed by the worker loop.
+  const preloadWithLink = preLoaded.filter(r => !!r.inviteLink).length;
+  const preloadDone = preLoaded.filter(r => !!(r.inviteLink || r.inviteError)).length;
+  const preloadAdminCount = preLoaded.filter(r => r.isAdmin).length;
+  job.progress.withLink = preloadWithLink;
+  job.progress.doneTotal = preloadDone;
+  job.progress.adminCount = preloadAdminCount;
+  job.progress.total = preLoaded.length;
+  job.progress.updatedAt = new Date().toISOString();
+  job.updatedAt = job.progress.updatedAt;
+
   // State counters
   let newThisRun = 0;
 
@@ -160,10 +172,27 @@ async function runExtractWorker(job) {
         delaySec: job.config.delaySec,
         shouldCancel: () => job.cancelRequested,
         onProgress: ({ processed, total, row, rateLimited }) => {
-          // Merge this row into results (replace if jid existed, else push)
+          // Merge this row into results (replace if jid existed, else push).
+          // CRITICAL: if the row is "skipped" (cache hit), the worker loop does NOT
+          // re-read the invite link — we must preserve what was pre-loaded.
           const idx = job.results.findIndex(r => r.jid === row.jid);
-          if (idx >= 0) job.results[idx] = Object.assign({}, row, { fromCache: false });
-          else job.results.push(Object.assign({}, row, { fromCache: false }));
+          if (idx >= 0) {
+            const existing = job.results[idx];
+            if (row.skipped && (existing.inviteLink || existing.inviteError)) {
+              // Preserve the cached link/error. Refresh isAdmin/participants/name from live data.
+              job.results[idx] = Object.assign({}, existing, {
+                isAdmin: row.isAdmin,
+                participants: row.participants || existing.participants,
+                name: row.name || existing.name,
+                skipped: true,
+                fromCache: false,
+              });
+            } else {
+              job.results[idx] = Object.assign({}, row, { fromCache: false });
+            }
+          } else {
+            job.results.push(Object.assign({}, row, { fromCache: false }));
+          }
 
           if (row.inviteLink && !row.skipped) newThisRun++;
 
@@ -241,6 +270,15 @@ async function runAddWorker(job) {
     fromCache: true,
   }));
 
+  // Initialize progress counters from the cache
+  const preAdminCount = job.results.filter(r => r.isAdmin).length;
+  const preDone = job.results.filter(r => r.status && r.status !== "skipped").length;
+  job.progress.adminCount = preAdminCount;
+  job.progress.doneTotal = preDone;
+  job.progress.total = job.results.length;
+  job.progress.updatedAt = new Date().toISOString();
+  job.updatedAt = job.progress.updatedAt;
+
   let newThisRun = 0;
 
   try {
@@ -255,9 +293,25 @@ async function runAddWorker(job) {
         onlyJids: job.config.onlyJids || undefined,
         shouldCancel: () => job.cancelRequested,
         onProgress: ({ processed, total, row, rateLimited }) => {
+          // Merge this row into results. If row is "skipped" (cache hit), preserve
+          // the cached status but refresh metadata from the live loop.
           const idx = job.results.findIndex(r => r.jid === row.jid);
-          if (idx >= 0) job.results[idx] = Object.assign({}, row, { fromCache: false });
-          else job.results.push(Object.assign({}, row, { fromCache: false }));
+          if (idx >= 0) {
+            const existing = job.results[idx];
+            if (row.status === "skipped" && existing.status && existing.status !== "skipped") {
+              // Preserve cached terminal status
+              job.results[idx] = Object.assign({}, existing, {
+                isAdmin: row.isAdmin,
+                participants: row.participants || existing.participants,
+                name: row.name || existing.name,
+                fromCache: false,
+              });
+            } else {
+              job.results[idx] = Object.assign({}, row, { fromCache: false });
+            }
+          } else {
+            job.results.push(Object.assign({}, row, { fromCache: false }));
+          }
 
           if (row.status && row.status !== "skipped" && row.status !== "not_admin"
               && row.status !== "aborted_rate_limit") {
