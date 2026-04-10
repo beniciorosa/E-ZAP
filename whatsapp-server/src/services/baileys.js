@@ -153,10 +153,20 @@ async function handleIncomingMessage(sessionId, msg, sock) {
     : msg.message?.stickerMessage ? "sticker"
     : null;
 
-  // Get contact name
+  // Get contact/group name
   let chatName = "";
   try {
-    chatName = msg.pushName || jid.split("@")[0];
+    if (jid.endsWith("@g.us")) {
+      // Group: get group subject from Baileys
+      try {
+        const groupMeta = await sock.groupMetadata(jid);
+        chatName = groupMeta?.subject || jid.split("@")[0];
+      } catch(e) {
+        chatName = jid.split("@")[0];
+      }
+    } else {
+      chatName = msg.pushName || jid.split("@")[0];
+    }
   } catch(e) {}
 
   // Save to Supabase
@@ -228,6 +238,21 @@ async function sendMessage(sessionId, jid, content) {
     sentMsg = await session.sock.sendMessage(jid, { text: content.text || content });
   }
 
+  // Resolve chat name for saving
+  let chatName = jid.split("@")[0];
+  try {
+    if (jid.endsWith("@g.us")) {
+      const groupMeta = await session.sock.groupMetadata(jid);
+      chatName = groupMeta?.subject || chatName;
+    } else {
+      // Try to get existing name from DB
+      const existing = await supaRest("/rest/v1/wa_messages?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(jid) + "&chat_name=neq.&order=timestamp.desc&limit=1&select=chat_name");
+      if (existing && existing.length > 0 && existing[0].chat_name) {
+        chatName = existing[0].chat_name;
+      }
+    }
+  } catch(e) {}
+
   // Save sent message to Supabase
   const textBody = content.text || content.caption || (typeof content === "string" ? content : "");
   try {
@@ -235,7 +260,7 @@ async function sendMessage(sessionId, jid, content) {
       session_id: sessionId,
       message_id: sentMsg.key.id,
       chat_jid: jid,
-      chat_name: jid.split("@")[0],
+      chat_name: chatName,
       from_me: true,
       sender_name: "Eu",
       sender_jid: session.sock.user?.id || "",
@@ -251,7 +276,7 @@ async function sendMessage(sessionId, jid, content) {
   emit("message:new", {
     sessionId,
     chatJid: jid,
-    chatName: jid.split("@")[0],
+    chatName: chatName,
     fromMe: true,
     body: textBody,
     timestamp: Math.floor(Date.now() / 1000),

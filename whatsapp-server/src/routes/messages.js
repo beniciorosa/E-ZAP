@@ -59,7 +59,7 @@ router.get("/:sessionId/chats", async (req, res) => {
         "&select=chat_jid,chat_name,from_me,body,timestamp" +
         "&order=timestamp.desc&limit=500"
       );
-      // Group by chat_jid, take latest
+      // Group by chat_jid, take latest message + best name
       const chatMap = {};
       for (const m of (messages || [])) {
         if (!chatMap[m.chat_jid]) {
@@ -70,6 +70,12 @@ router.get("/:sessionId/chats", async (req, res) => {
             lastTimestamp: m.timestamp,
             fromMe: m.from_me,
           };
+        } else {
+          // Update name if current one is just a number and we have a better name
+          const current = chatMap[m.chat_jid].chatName;
+          if (m.chat_name && m.chat_name !== m.chat_jid.split("@")[0] && /^\d+$/.test(current)) {
+            chatMap[m.chat_jid].chatName = m.chat_name;
+          }
         }
       }
       res.json(Object.values(chatMap));
