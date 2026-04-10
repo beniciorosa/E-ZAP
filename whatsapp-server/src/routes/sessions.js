@@ -112,6 +112,34 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// POST /api/sessions/:id/add-to-groups — Add a phone number to all admin groups (temporary tool)
+// Body:
+//   phone: string        — phone to add, digits only (e.g. "5511999999999")
+//   skipJids?: string[]  — group JIDs already processed (cached results)
+//   maxCalls?: number    — max groupParticipantsUpdate calls per batch (default 10, max 50)
+router.post("/:id/add-to-groups", async (req, res) => {
+  try {
+    const { phone } = req.body || {};
+    if (!phone) return res.status(400).json({ error: "Campo 'phone' é obrigatório" });
+    const skipJids = Array.isArray(req.body?.skipJids) ? req.body.skipJids : [];
+    const maxCalls = Number(req.body?.maxCalls) || 10;
+    const data = await baileys.addParticipantToAllGroups(req.params.id, phone, skipJids, maxCalls);
+    res.json({
+      ok: true,
+      count: data.groups.length,
+      total: data.total,
+      processed: data.processed,
+      callsMade: data.callsMade,
+      batchLimitReached: data.batchLimitReached,
+      rateLimited: data.rateLimited,
+      groups: data.groups,
+    });
+  } catch (e) {
+    console.error("[SESSIONS] Add to groups error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/sessions/:id/groups — List groups with invite links (temporary tool)
 // Body:
 //   skipJids?: string[]   — JIDs to skip (caller already has them cached)

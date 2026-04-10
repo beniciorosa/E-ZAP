@@ -76,6 +76,36 @@
       </div>
     </div>
 
+    <div class="card" id="addCard">
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px">Adicionar número em todos os grupos admin</div>
+      <div class="sub" style="font-size:12px;color:var(--muted);margin-bottom:16px">Adiciona um número específico em todos os grupos onde a sessão selecionada acima é admin. Use apenas números da sua empresa com configurações de privacidade permitindo adição por "Todos".</div>
+      <div class="row">
+        <div>
+          <label>Número (com DDI+DDD, só dígitos)</label>
+          <input type="text" id="addPhone" placeholder="5511999999999" inputmode="numeric">
+        </div>
+        <button class="btn-primary" id="addBtn" onclick="loadAddToGroups()">Adicionar em todos</button>
+        <button class="btn-secondary" onclick="clearAddCache()" title="Apaga o histórico de adições deste número para esta sessão">Limpar histórico</button>
+      </div>
+      <div class="status" id="addStatus" style="font-size:12px"></div>
+      <div class="progress-wrap hidden" id="addProgressWrap">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="addProgressBarFill"></div></div>
+        <div class="progress-text" id="addProgressText"></div>
+      </div>
+      <div class="wrap hidden" id="addResultsWrap" style="margin-top:12px">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome do grupo</th>
+              <th style="width:90px;text-align:center">Membros</th>
+              <th style="width:200px">Status</th>
+            </tr>
+          </thead>
+          <tbody id="addResultsTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card hidden" id="debugCard" style="border-color:var(--danger)">
       <div style="font-size:13px;font-weight:600;color:var(--danger);margin-bottom:8px">⚠️ Debug — nenhum admin detectado</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Se você é admin mas nada foi detectado, me envie este JSON para eu ajustar o detector:</div>
@@ -397,6 +427,199 @@ function isRateLimitMessage(msg) {
   if (!msg) return false;
   var s = String(msg).toLowerCase();
   return s.indexOf("rate") >= 0 || s.indexOf("abortado") >= 0 || s.indexOf("too many") >= 0;
+}
+
+// ============================================================
+// ===== Add participant to all groups (temporary tool) =======
+// ============================================================
+var ADD_CACHE_PREFIX = "ezap_added_";
+var _addRunning = false;
+var addResults = [];
+
+function addCacheKey(sid, phone) { return ADD_CACHE_PREFIX + sid + "_" + phone; }
+function getAddCache(sid, phone) {
+  try {
+    var raw = localStorage.getItem(addCacheKey(sid, phone));
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+function saveAddCache(sid, phone, data) {
+  try { localStorage.setItem(addCacheKey(sid, phone), JSON.stringify(data)); } catch(e) {}
+}
+
+function clearAddCache() {
+  var sid = document.getElementById("sessionSelect").value;
+  var phone = document.getElementById("addPhone").value.replace(/\D/g, "");
+  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
+  if (!phone || phone.length < 10) { setAddStatus("Digite o número primeiro."); return; }
+  var n = Object.keys(getAddCache(sid, phone)).length;
+  if (!confirm("Apagar histórico de " + n + " grupo(s) já processados para o número " + phone + "?")) return;
+  localStorage.removeItem(addCacheKey(sid, phone));
+  document.getElementById("addResultsTbody").innerHTML = "";
+  document.getElementById("addResultsWrap").classList.add("hidden");
+  document.getElementById("addProgressWrap").classList.add("hidden");
+  addResults = [];
+  setAddStatus("Histórico limpo. Clique em Adicionar em todos para começar.");
+}
+
+function setAddStatus(msg) {
+  var el = document.getElementById("addStatus");
+  if (el) el.textContent = msg;
+}
+
+function setAddBtnRunning(running) {
+  var btn = document.getElementById("addBtn");
+  if (!btn) return;
+  btn.disabled = !!running;
+  btn.textContent = running ? "Adicionando..." : "Adicionar em todos";
+}
+
+function updateAddProgress(done, total, running) {
+  var wrap = document.getElementById("addProgressWrap");
+  if (!wrap) return;
+  if (!total || total === 0) { wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  var pct = (done / total) * 100;
+  document.getElementById("addProgressBarFill").style.width = pct.toFixed(1) + "%";
+  var icon = running ? '<span class="spinner"></span>' : "";
+  var suffix = running ? " — processando..." : "";
+  document.getElementById("addProgressText").innerHTML =
+    icon + done + " de " + total + " grupos admin processados (" + pct.toFixed(0) + "%)" + suffix;
+}
+
+function statusBadge(status, msg) {
+  var color = "var(--muted)";
+  var label = "—";
+  switch (status) {
+    case "added":             color = "var(--ok)";     label = "✅ Adicionado"; break;
+    case "already_member":    color = "var(--muted)";  label = "⏭️ Já era membro"; break;
+    case "not_admin":         color = "var(--muted)";  label = "Não é admin"; break;
+    case "privacy_block":     color = "var(--danger)"; label = "🚫 Privacidade"; break;
+    case "not_on_whatsapp":   color = "var(--danger)"; label = "❌ Sem WhatsApp"; break;
+    case "aborted_rate_limit":color = "var(--danger)"; label = "⏸️ Rate-limit"; break;
+    case "skipped":           color = "var(--muted)";  label = "Pendente"; break;
+    case "error":             color = "var(--danger)"; label = "❌ Erro"; break;
+  }
+  var title = msg ? ' title="' + esc(msg) + '"' : '';
+  return '<span style="color:' + color + '"' + title + '>' + label + '</span>';
+}
+
+function renderAddResults(groups) {
+  var tbody = document.getElementById("addResultsTbody");
+  tbody.innerHTML = "";
+  // Sort: show admins first (so the interesting rows come first), then non-admin
+  var sorted = groups.slice().sort(function(a, b) {
+    if (a.isAdmin !== b.isAdmin) return a.isAdmin ? -1 : 1;
+    return 0;
+  });
+  sorted.forEach(function(g) {
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td>' + esc(g.name) + '</td>' +
+      '<td style="text-align:center">' + g.participants + '</td>' +
+      '<td>' + statusBadge(g.status, g.statusMessage) + '</td>';
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadAddToGroups() {
+  if (_addRunning) { setAddStatus("Já está rodando, aguarde..."); return; }
+  var sid = document.getElementById("sessionSelect").value;
+  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
+  var phone = document.getElementById("addPhone").value.replace(/\D/g, "");
+  if (phone.length < 10) { setAddStatus("Número inválido. Use formato 5511999999999 (DDI+DDD+número, só dígitos)."); return; }
+
+  if (!confirm("Vai adicionar o número " + phone + " em TODOS os grupos onde a sessão selecionada é admin. Essa ação é visível (aparece 'Fulano adicionou " + phone + "' em cada grupo). Confirma?")) return;
+
+  _addRunning = true;
+  setAddBtnRunning(true);
+  document.getElementById("addStatus").style.color = "";
+  document.getElementById("addResultsWrap").classList.add("hidden");
+
+  var savedCache = getAddCache(sid, phone);
+  var batchNum = 0;
+  var rateLimited = false;
+
+  try {
+    while (true) {
+      batchNum++;
+      var cachedJids = Object.keys(savedCache);
+      setAddStatus("Lote " + batchNum + " — adicionando até " + BATCH_SIZE + " grupos (5s cada, ~"
+        + (BATCH_SIZE * 5) + "s). Histórico: " + cachedJids.length + " grupo(s) já processados.");
+
+      var data = await waFetch("/api/sessions/" + sid + "/add-to-groups", "POST", {
+        phone: phone,
+        skipJids: cachedJids,
+        maxCalls: BATCH_SIZE,
+      });
+
+      var groups = data.groups || [];
+      var newInThisBatch = 0;
+
+      groups.forEach(function(g) {
+        if (g.status === "skipped" && savedCache[g.jid]) {
+          // Restore from cache (already processed in a previous run)
+          var cached = savedCache[g.jid];
+          g.status = cached.status;
+          g.statusMessage = cached.statusMessage;
+        } else if (g.status && g.status !== "skipped" && g.status !== "aborted_rate_limit" && g.status !== "not_admin") {
+          // Save terminal states to cache so we don't retry them
+          if (!savedCache[g.jid]) {
+            savedCache[g.jid] = { status: g.status, statusMessage: g.statusMessage };
+            newInThisBatch++;
+          }
+        }
+      });
+      saveAddCache(sid, phone, savedCache);
+
+      addResults = groups;
+      renderAddResults(addResults);
+      document.getElementById("addResultsWrap").classList.remove("hidden");
+
+      var adminCount = addResults.filter(function(g){ return g.isAdmin; }).length;
+      var processedCount = addResults.filter(function(g){
+        return g.isAdmin && g.status && g.status !== "skipped";
+      }).length;
+      updateAddProgress(processedCount, adminCount, true);
+
+      if (data.rateLimited) { rateLimited = true; break; }
+      if (newInThisBatch === 0) break;
+
+      await new Promise(function(r){ setTimeout(r, BATCH_PAUSE_MS); });
+    }
+
+    // ===== Final status =====
+    var adminCount = addResults.filter(function(g){ return g.isAdmin; }).length;
+    var finalAdded = addResults.filter(function(g){ return g.status === "added"; }).length;
+    var finalAlready = addResults.filter(function(g){ return g.status === "already_member"; }).length;
+    var finalPrivacy = addResults.filter(function(g){ return g.status === "privacy_block"; }).length;
+    var finalErrors = addResults.filter(function(g){ return g.status === "error"; }).length;
+    var finalNotWa = addResults.filter(function(g){ return g.status === "not_on_whatsapp"; }).length;
+    var processedCount = finalAdded + finalAlready + finalPrivacy + finalErrors + finalNotWa;
+    updateAddProgress(processedCount, adminCount, false);
+
+    var msg;
+    if (rateLimited) {
+      msg = "⏸️ PAUSADO POR RATE-LIMIT — " + finalAdded + " adicionados, " + finalAlready + " já eram membros"
+        + (finalPrivacy > 0 ? ", 🚫 " + finalPrivacy + " bloqueados por privacidade" : "")
+        + ". Aguarde uns minutos e clique em Adicionar em todos de novo — o histórico preserva o progresso.";
+      document.getElementById("addStatus").style.color = "var(--danger)";
+    } else {
+      var parts = ["✅ FINALIZADO", "" + finalAdded + " adicionados", finalAlready + " já eram membros"];
+      if (finalPrivacy > 0) parts.push("🚫 " + finalPrivacy + " bloqueados por privacidade");
+      if (finalErrors > 0) parts.push("❌ " + finalErrors + " erros");
+      if (finalNotWa > 0) parts.push("❌ " + finalNotWa + " sem WhatsApp");
+      msg = parts.join(" | ") + " (de " + adminCount + " grupos admin no total)";
+      document.getElementById("addStatus").style.color = "var(--ok)";
+    }
+    setAddStatus(msg);
+  } catch (e) {
+    document.getElementById("addStatus").style.color = "var(--danger)";
+    setAddStatus("Erro: " + e.message);
+  } finally {
+    _addRunning = false;
+    setAddBtnRunning(false);
+  }
 }
 
 function exportCSV() {

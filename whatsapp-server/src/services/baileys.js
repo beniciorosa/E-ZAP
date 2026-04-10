@@ -437,6 +437,152 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
   return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, debug };
 }
 
+// ===== Add a participant to all admin groups (temporary tool) =====
+async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], maxCalls = 10) {
+  const session = sessions.get(sessionId);
+  if (!session || session.status !== "connected") {
+    throw new Error("Sessão não conectada: " + sessionId);
+  }
+  const sock = session.sock;
+
+  // Normalize target phone: digits only → JID @s.whatsapp.net
+  const cleanPhone = String(phoneToAdd || "").replace(/\D/g, "");
+  if (cleanPhone.length < 10) {
+    throw new Error("Número inválido (use formato 5511999999999): " + phoneToAdd);
+  }
+  const targetJid = cleanPhone + "@s.whatsapp.net";
+
+  // Verify the target number is on WhatsApp before touching any group
+  try {
+    const check = await sock.onWhatsApp(cleanPhone);
+    if (!Array.isArray(check) || check.length === 0 || !check[0].exists) {
+      throw new Error("Número não está no WhatsApp: " + cleanPhone);
+    }
+  } catch (e) {
+    if (e.message && e.message.indexOf("não está no WhatsApp") >= 0) throw e;
+    throw new Error("Falha ao verificar número no WhatsApp: " + e.message);
+  }
+
+  // Same identity setup as fetchGroupsWithInvites (for admin detection)
+  const myJid = sock.user?.id || "";
+  const myLid = sock.user?.lid || "";
+  const myPhoneBase = extractBase(myJid);
+  const myLidBase = extractBase(myLid);
+
+  const skipSet = new Set(Array.isArray(skipJids) ? skipJids : []);
+  const maxCallsThisBatch = Math.max(1, Math.min(50, Number(maxCalls) || 10));
+  let callsMade = 0;
+  let batchLimitReached = false;
+
+  const groupsMap = await sock.groupFetchAllParticipating();
+  const groupList = Object.values(groupsMap || {});
+  const total = groupList.length;
+
+  const results = [];
+  let rateLimited = false;
+  let processed = 0;
+
+  for (const g of groupList) {
+    processed++;
+
+    // Check if "me" is admin in this group (same matching logic as fetchGroupsWithInvites)
+    let isAdmin = false;
+    if (Array.isArray(g.participants)) {
+      const me = g.participants.find(p => {
+        const pid = p.id || "";
+        const pBase = extractBase(pid);
+        const pDomain = extractDomain(pid);
+        if (pid === myJid || pid === myLid) return true;
+        if (pDomain === "s.whatsapp.net" && myPhoneBase && pBase === myPhoneBase) return true;
+        if (pDomain === "lid" && myLidBase && pBase === myLidBase) return true;
+        if (myPhoneBase && pBase === myPhoneBase) return true;
+        if (myLidBase && pBase === myLidBase) return true;
+        return false;
+      });
+      if (me && (me.admin === "admin" || me.admin === "superadmin")) isAdmin = true;
+    }
+
+    // Check if the target is ALREADY in the group (avoids wasting an API call)
+    let alreadyMember = false;
+    if (Array.isArray(g.participants)) {
+      const already = g.participants.find(p => {
+        const pid = p.id || "";
+        const pBase = extractBase(pid);
+        return pid === targetJid || pBase === cleanPhone;
+      });
+      if (already) alreadyMember = true;
+    }
+
+    let status = null;
+    let statusMessage = null;
+
+    if (!isAdmin) {
+      status = "not_admin";
+      statusMessage = "Sem permissão (não é admin)";
+    } else if (alreadyMember) {
+      status = "already_member";
+      statusMessage = "Já é membro";
+    } else if (rateLimited) {
+      status = "aborted_rate_limit";
+      statusMessage = "Abortado por rate-limit";
+    } else if (skipSet.has(g.id)) {
+      status = "skipped";
+    } else if (batchLimitReached) {
+      status = "skipped";
+    } else {
+      // Actually call the WhatsApp API
+      try {
+        const resp = await sock.groupParticipantsUpdate(g.id, [targetJid], "add");
+        const entry = Array.isArray(resp) && resp.length > 0 ? resp[0] : null;
+        const code = entry?.status || "";
+        if (code === "200") {
+          status = "added";
+          statusMessage = "Adicionado";
+        } else if (code === "409") {
+          status = "already_member";
+          statusMessage = "Já é membro";
+        } else if (code === "403") {
+          status = "privacy_block";
+          statusMessage = "Privacidade do número bloqueou";
+        } else if (code === "408") {
+          status = "not_on_whatsapp";
+          statusMessage = "Número não existe no WhatsApp";
+        } else {
+          status = "error";
+          statusMessage = "Código " + (code || "desconhecido");
+        }
+      } catch (e) {
+        const msg = e?.message || "Falha ao adicionar";
+        if (isRateLimitError(e)) {
+          rateLimited = true;
+          status = "aborted_rate_limit";
+          statusMessage = "Abortado por rate-limit";
+          console.warn("[BAILEYS] Rate limit during add-participant — aborting at", processed, "of", total);
+        } else {
+          status = "error";
+          statusMessage = msg;
+        }
+      }
+      callsMade++;
+      if (!rateLimited && callsMade < maxCallsThisBatch) {
+        await new Promise(r => setTimeout(r, 5000));
+      }
+      if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
+    }
+
+    results.push({
+      jid: g.id,
+      name: g.subject || "(sem nome)",
+      participants: Array.isArray(g.participants) ? g.participants.length : 0,
+      isAdmin,
+      status,
+      statusMessage,
+    });
+  }
+
+  return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached };
+}
+
 // ===== Stop session =====
 async function stopSession(sessionId) {
   const session = sessions.get(sessionId);
@@ -578,4 +724,5 @@ module.exports = {
   getSession,
   reconnectAllSessions,
   fetchGroupsWithInvites,
+  addParticipantToAllGroups,
 };
