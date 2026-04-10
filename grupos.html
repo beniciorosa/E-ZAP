@@ -297,6 +297,13 @@ var _activeJobs = {};          // jobId -> job (snapshot mais recente)
 var _jobsInThisSession = new Set(); // jobIds que iniciamos/vemos nesta sessão (persiste no storage)
 var _hiddenJobIds = new Set(); // jobIds que o usuário "fechou" (persiste no storage)
 
+// Cache para countdown monotônico do ETA.
+// { [jobId]: { at: msTimestamp, eta: secondsDisplayed } }
+// Evita que o ETA visível cresça entre polls: se a fórmula estimar um valor
+// maior que "eta anterior menos tempo decorrido", usa o decaimento natural
+// em vez disso. Limpo quando o job sai de "running".
+var _etaDisplayCache = {};
+
 var SESSION_STORAGE_KEY = "ezap_grupos_known_jobs";
 var HIDDEN_STORAGE_KEY = "ezap_grupos_hidden_jobs";
 
@@ -353,33 +360,64 @@ function formatEtaSeconds(sec) {
 }
 
 function calculateEtaSeconds(job) {
-  // Primary calc: remaining admin groups still unprocessed × delay per call
   var adminCount = job.progress.adminCount || 0;
+  var withLink = job.progress.withLink || 0;
   var doneTotal = job.progress.doneTotal || 0;
-  var remaining = Math.max(0, adminCount - doneTotal);
+  var newInThisRun = job.progress.newInThisRun || 0;
+  var delay = (job.config && job.config.delaySec) || 60;
+  // promoteToAdmin dobra o custo por grupo (2 chamadas IQ: addParticipant + promote)
+  if (job.type === "add" && job.config && job.config.promoteToAdmin) delay *= 2;
 
-  if (remaining > 0) {
-    var delay = (job.config && job.config.delaySec) || 60;
-    // Multiply by 2 if promoteToAdmin (2 calls per group)
-    if (job.type === "add" && job.config && job.config.promoteToAdmin) remaining *= 2;
-    return remaining * delay;
+  var etaSec = 0;
+
+  // Primary: ainda há admins CONHECIDOS sem cobertura terminal.
+  // Para extract, "cobertura" = withLink (ignora não-admins que estão em
+  // doneTotal por causa do inviteError "Sem permissão (não é admin)").
+  // Para add, doneTotal é a melhor aproximação disponível.
+  var remainingKnownAdmins;
+  if (job.type === "extract") {
+    remainingKnownAdmins = Math.max(0, adminCount - withLink);
+  } else {
+    remainingKnownAdmins = Math.max(0, adminCount - doneTotal);
   }
 
-  // Fallback: tudo admin já coberto, mas o loop ainda está iterando sobre
-  // o groupFetchAllParticipating (ex: verificando se há grupos novos).
-  // Estima pelo ritmo REAL do loop atual: elapsed / visited × remaining.
-  if (job.progress.startedAt && job.progress.total > 0) {
+  if (remainingKnownAdmins > 0) {
+    etaSec = remainingKnownAdmins * delay;
+  } else if (job.progress.total > 0) {
+    // Fallback: todos os admins conhecidos já foram cobertos, mas o loop
+    // continua iterando sobre groupFetchAllParticipating para descobrir
+    // grupos novos ou processar não-admins restantes.
+    //
+    // IMPORTANTE: NÃO usar (elapsedMs / loopDone) como taxa — durante
+    // cada delay de ~delaySec segundos, elapsedMs cresce mas loopDone
+    // fica parado, o que faz a taxa e o ETA crescerem a cada poll. Em
+    // vez disso usamos o tempo de trabalho EFETIVO:
+    //   newInThisRun × delaySec = tempo já gasto em delays reais.
+    // A taxa "delays por iteração" é estável durante as esperas.
     var loopDone = job.progress.done || 0;
     var loopRemaining = job.progress.total - loopDone;
-    if (loopDone > 0 && loopRemaining > 0) {
-      var elapsedMs = Date.now() - Date.parse(job.progress.startedAt);
-      if (elapsedMs > 0) {
-        var msPerGroup = elapsedMs / loopDone;
-        return Math.round((loopRemaining * msPerGroup) / 1000);
-      }
+    if (loopDone > 0 && loopRemaining > 0 && newInThisRun > 0) {
+      var delayRate = newInThisRun / loopDone;
+      var estRemainingDelays = loopRemaining * delayRate;
+      etaSec = Math.round(estRemainingDelays * delay);
     }
+    // Se newInThisRun === 0 (ex: tudo veio do cache, nenhum fetch novo
+    // feito ainda), etaSec fica 0 — o loop só está iterando, acaba em
+    // segundos. formatEtaSeconds vai mostrar "—".
   }
-  return 0;
+
+  // Cap monotônico: garante countdown em tempo real no display.
+  // Se a fórmula retornar um valor MAIOR que "eta anterior menos tempo
+  // decorrido", usa o decaimento natural. Absorve micro-upticks do
+  // estimador quando um novo admin é descoberto.
+  var now = Date.now();
+  var prev = _etaDisplayCache[job.id];
+  if (prev && typeof prev.eta === "number") {
+    var decayedFloor = Math.max(0, prev.eta - (now - prev.at) / 1000);
+    if (etaSec > decayedFloor) etaSec = decayedFloor;
+  }
+  _etaDisplayCache[job.id] = { at: now, eta: etaSec };
+  return etaSec;
 }
 
 // ============================================================
@@ -747,6 +785,13 @@ function renderJobs(jobSummaries) {
 }
 
 function renderJobCard(job) {
+  // Limpa cache de ETA quando o job não está mais rodando. Assim, se ele
+  // voltar a rodar (ex: novo job com mesmo id reutilizado, ou retry), o
+  // countdown recomeça do zero em vez de herdar um decaimento antigo.
+  if (job.status !== "running" && _etaDisplayCache[job.id]) {
+    delete _etaDisplayCache[job.id];
+  }
+
   var div = document.createElement("div");
   div.className = "job-card " + job.status;
   div.id = "job-card-" + job.id;
