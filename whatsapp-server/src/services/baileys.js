@@ -165,9 +165,30 @@ async function sendMessage(sessionId, jid, content) {
     throw new Error("Sessão não conectada: " + sessionId);
   }
 
-  // Format JID
+  // Format JID — keep @g.us as-is, convert LID to phone, add @s.whatsapp.net for plain numbers
   if (!jid.includes("@")) {
     jid = jid.replace(/\D/g, "") + "@s.whatsapp.net";
+  } else if (jid.includes("@lid")) {
+    // LID format — need to resolve to phone number via store
+    console.log("[BAILEYS] Resolving LID:", jid);
+    try {
+      // Try to get contact info from Baileys store
+      const contact = await session.sock.onWhatsApp(jid.split("@")[0]);
+      if (contact && contact.length > 0) {
+        jid = contact[0].jid;
+        console.log("[BAILEYS] Resolved LID to:", jid);
+      }
+    } catch(e) {
+      console.log("[BAILEYS] LID resolve failed, trying sender_jid from DB...");
+      // Fallback: get phone from wa_messages (sender_jid from last received message)
+      try {
+        const msgs = await supaRest("/rest/v1/wa_messages?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(jid) + "&from_me=eq.false&order=timestamp.desc&limit=1&select=sender_jid");
+        if (msgs && msgs.length > 0 && msgs[0].sender_jid && msgs[0].sender_jid.includes("@s.whatsapp.net")) {
+          jid = msgs[0].sender_jid;
+          console.log("[BAILEYS] Resolved from DB to:", jid);
+        }
+      } catch(e2) { console.log("[BAILEYS] DB fallback failed:", e2.message); }
+    }
   }
 
   if (content.image) {
