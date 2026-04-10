@@ -156,6 +156,19 @@ router.get("/:id/cached-invites", async (req, res) => {
   }
 });
 
+// POST /api/sessions/:id/import-cache — bulk import legacy localStorage cache
+// Body: { links: [{jid, link, error}], additionsByPhone: { "5511...": [{jid, status, statusMessage}] } }
+router.post("/:id/import-cache", async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const result = await baileys.importLocalCache(req.params.id, payload);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error("[SESSIONS] Import cache error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/sessions/:id/cached-additions?phone=X — fetch addition history for (session, phone)
 router.get("/:id/cached-additions", async (req, res) => {
   try {

@@ -513,6 +513,88 @@ async function getCachedGroupLinks(sessionId) {
   }
 }
 
+// Bulk import of legacy localStorage cache into Supabase.
+// payload = { links: [{jid, link, error}], additionsByPhone: { "5511...": [{jid, status, statusMessage}] } }
+// Uses single POST requests with array bodies so the whole cache goes up in
+// at most 2 HTTP calls total, not one per row.
+async function importLocalCache(sessionId, payload) {
+  let linksImported = 0;
+  let additionsImported = 0;
+  const nowIso = new Date().toISOString();
+
+  // ===== Links =====
+  if (Array.isArray(payload?.links) && payload.links.length > 0) {
+    const rows = payload.links
+      .filter(it => it && it.jid)
+      .map(it => ({
+        session_id: sessionId,
+        group_jid: it.jid,
+        group_name: "(migrado do cache local)",
+        invite_link: it.link || null,
+        invite_error: it.error || null,
+        is_admin: true, // legacy cache only stored entries where the session was admin
+        participants_count: 0,
+        updated_at: nowIso,
+      }));
+    if (rows.length > 0) {
+      try {
+        await supaRest(
+          "/rest/v1/wa_group_links?on_conflict=session_id,group_jid",
+          "POST",
+          rows,
+          "resolution=merge-duplicates,return=minimal"
+        );
+        linksImported = rows.length;
+      } catch (e) {
+        console.error("[BAILEYS] importLocalCache links failed:", e.message);
+      }
+    }
+  }
+
+  // ===== Additions =====
+  if (payload?.additionsByPhone && typeof payload.additionsByPhone === "object") {
+    const rows = [];
+    for (const rawPhone of Object.keys(payload.additionsByPhone)) {
+      const cleanPhone = String(rawPhone).replace(/\D/g, "");
+      if (!cleanPhone) continue;
+      const entries = payload.additionsByPhone[rawPhone];
+      if (!Array.isArray(entries)) continue;
+      for (const it of entries) {
+        if (!it || !it.jid || !it.status) continue;
+        const wasPromoted =
+          it.status === "added_and_promoted" ||
+          it.status === "promoted_only" ||
+          it.status === "already_admin";
+        rows.push({
+          source_session_id: sessionId,
+          target_phone: cleanPhone,
+          group_jid: it.jid,
+          group_name: "(migrado do cache local)",
+          status: it.status,
+          status_message: it.statusMessage || null,
+          was_promoted: wasPromoted,
+          performed_at: nowIso,
+        });
+      }
+    }
+    if (rows.length > 0) {
+      try {
+        await supaRest(
+          "/rest/v1/wa_group_additions?on_conflict=source_session_id,target_phone,group_jid",
+          "POST",
+          rows,
+          "resolution=merge-duplicates,return=minimal"
+        );
+        additionsImported = rows.length;
+      } catch (e) {
+        console.error("[BAILEYS] importLocalCache additions failed:", e.message);
+      }
+    }
+  }
+
+  return { linksImported, additionsImported };
+}
+
 // Read cached addition history for a (session, phone) pair
 async function getCachedGroupAdditions(sessionId, targetPhone) {
   try {
@@ -1020,4 +1102,5 @@ module.exports = {
   listAdminGroupsWithMembership,
   getCachedGroupLinks,
   getCachedGroupAdditions,
+  importLocalCache,
 };

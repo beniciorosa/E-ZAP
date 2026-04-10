@@ -298,8 +298,9 @@ function onSessionChange() {
 }
 
 // Pulls the link cache from Supabase and merges it into localStorage.
-// Called when the session changes — so when the user switches between machines
-// or reopens the page, the cache reflects the actual history.
+// ALSO uploads any local-only entries to Supabase (one-time migration of
+// legacy localStorage data). After that, Supabase becomes the source of truth.
+// Called when the session changes.
 function syncLinkCacheFromSupabase() {
   var sid = document.getElementById("sessionSelect").value;
   if (!sid) return;
@@ -322,6 +323,58 @@ function syncLinkCacheFromSupabase() {
     var mergedErrors = Object.assign({}, localErrors, serverErrors);
     saveErrorCache(sid, mergedErrors);
     updateCacheInfo();
+
+    // ===== One-time migration: upload local-only entries to Supabase =====
+    var linksToUpload = [];
+    // Links present locally but missing on server
+    Object.keys(localCache).forEach(function(jid) {
+      if (!serverCache[jid]) {
+        linksToUpload.push({ jid: jid, link: localCache[jid] });
+      }
+    });
+    // Permanent errors present locally but missing on server
+    Object.keys(localErrors).forEach(function(jid) {
+      if (!serverCache[jid] && !serverErrors[jid]) {
+        linksToUpload.push({ jid: jid, link: null, error: localErrors[jid] });
+      }
+    });
+
+    // Collect ALL addition caches for this session (one per target phone)
+    var additionsByPhone = {};
+    var addPrefix = ADD_CACHE_PREFIX + sid + "_";
+    for (var i = 0; i < localStorage.length; i++) {
+      var key = localStorage.key(i);
+      if (!key || key.indexOf(addPrefix) !== 0) continue;
+      var phone = key.substring(addPrefix.length);
+      // Skip error subkeys (we don't have those here but safety)
+      if (phone.indexOf("_") >= 0) continue;
+      try {
+        var phoneData = JSON.parse(localStorage.getItem(key) || "{}");
+        var entries = [];
+        Object.keys(phoneData).forEach(function(jid) {
+          var d = phoneData[jid] || {};
+          if (d.status) {
+            entries.push({ jid: jid, status: d.status, statusMessage: d.statusMessage || null });
+          }
+        });
+        if (entries.length > 0) additionsByPhone[phone] = entries;
+      } catch (e) {}
+    }
+
+    var hasLinks = linksToUpload.length > 0;
+    var hasAdditions = Object.keys(additionsByPhone).length > 0;
+    if (!hasLinks && !hasAdditions) return;
+
+    waFetch("/api/sessions/" + sid + "/import-cache", "POST", {
+      links: linksToUpload,
+      additionsByPhone: additionsByPhone,
+    }).then(function(res) {
+      console.log("[grupos.html] Migrated to Supabase:",
+        res.linksImported || 0, "links,",
+        res.additionsImported || 0, "adições");
+    }).catch(function(e) {
+      console.warn("[grupos.html] Migration upload failed:", e.message);
+    });
   }).catch(function(e) {
     console.warn("[grupos.html] Failed to sync cache from Supabase:", e.message);
   });
