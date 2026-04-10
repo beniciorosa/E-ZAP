@@ -339,6 +339,20 @@ async function reconnectAllSessions() {
     }
     console.log("[BAILEYS] Reconnecting", sessions.length, "saved sessions...");
     for (const s of sessions) {
+      // Validate creds before auto-reconnect — skip if corrupted (would need QR scan)
+      const credsValid = s.creds && Object.keys(s.creds).length > 0 && (() => {
+        try {
+          const parsed = JSON.parse(JSON.stringify(s.creds), BufferJSON.reviver);
+          return parsed.noiseKey && parsed.noiseKey.public;
+        } catch(e) { return false; }
+      })();
+
+      if (!credsValid) {
+        console.log("[BAILEYS] Skipping session with corrupted creds:", s.id, "- marking disconnected");
+        await updateSessionStatus(s.id, "disconnected");
+        continue;
+      }
+
       await startSession(s.id, s.creds);
       // Small delay between reconnections to avoid rate limits
       await new Promise(r => setTimeout(r, 2000));
