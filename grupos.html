@@ -61,7 +61,7 @@
       <div class="row">
         <div>
           <label>Sessão conectada</label>
-          <select id="sessionSelect" onchange="updateCacheInfo()"><option value="">— carregue as sessões —</option></select>
+          <select id="sessionSelect" onchange="onSessionChange()"><option value="">— carregue as sessões —</option></select>
         </div>
         <button class="btn-secondary" onclick="loadSessions()">Recarregar sessões</button>
         <button class="btn-primary" id="extractBtn" onclick="loadGroups()">Extrair grupos</button>
@@ -92,6 +92,39 @@
           <input type="checkbox" id="addPromoteAdmin" style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary)">
           <span>Promover a admin após adicionar (2 chamadas por grupo — dobra o tempo total)</span>
         </label>
+      </div>
+
+      <!-- Filtro de grupos (opcional) -->
+      <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <button class="btn-secondary" onclick="loadAdminGroupList()" style="padding:8px 14px">Carregar lista de grupos (filtro)</button>
+          <span id="addGroupListInfo" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div id="addGroupFilter" class="hidden">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <input type="text" id="addGroupSearch" placeholder="Filtrar por nome (ex: Caio Ribeiro)..."
+                   style="flex:1;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"
+                   oninput="renderAddGroupList()">
+            <span id="addGroupSearchInfo" style="font-size:11px;color:var(--muted);white-space:nowrap"></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:11px">
+            <button class="btn-secondary" onclick="selectAllVisibleAddGroups()" style="padding:4px 10px;font-size:11px">Marcar visíveis</button>
+            <button class="btn-secondary" onclick="unselectAllVisibleAddGroups()" style="padding:4px 10px;font-size:11px">Desmarcar visíveis</button>
+            <button class="btn-secondary" onclick="clearAddGroupSelection()" style="padding:4px 10px;font-size:11px">Limpar seleção</button>
+            <span id="addGroupSelectedInfo" style="margin-left:auto;color:var(--muted)"></span>
+          </div>
+          <div id="addGroupList" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--bg)"></div>
+          <div style="margin-top:8px;font-size:12px">
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+              <input type="radio" name="addFilterMode" value="include" checked onchange="updateAddBtnLabel()">
+              <span>Adicionar APENAS nos selecionados</span>
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="radio" name="addFilterMode" value="exclude" onchange="updateAddBtnLabel()">
+              <span>Adicionar em todos EXCETO os selecionados</span>
+            </label>
+          </div>
+        </div>
       </div>
       <div class="status" id="addStatus" style="font-size:12px"></div>
       <div class="progress-wrap hidden" id="addProgressWrap">
@@ -173,12 +206,34 @@ function waFetch(path, method, body) {
     headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" }
   };
   if (body) opts.body = JSON.stringify(body);
-  return fetch(url + path, opts).then(function(r) {
-    return r.json().then(function(j){
-      if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
-      return j;
+
+  // Auto-retry: network errors ("Failed to fetch", timeout) get retried up to 3
+  // times with exponential backoff (2s, 5s, 10s). Server errors with status code
+  // are NOT retried — those are real failures that the caller should handle.
+  function attempt(tryNum) {
+    return fetch(url + path, opts).then(function(r) {
+      return r.json().then(function(j){
+        if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+        return j;
+      });
+    }).catch(function(err) {
+      // Detect transient network errors (no HTTP status reached the .then)
+      var msg = (err && err.message) || "";
+      var isNetworkError = msg.indexOf("Failed to fetch") >= 0
+        || msg.indexOf("NetworkError") >= 0
+        || msg.indexOf("network") >= 0
+        || msg.indexOf("ECONNRESET") >= 0;
+      if (isNetworkError && tryNum < 3) {
+        var delaySec = [2, 5, 10][tryNum] || 10;
+        console.warn("[waFetch] Network error, retrying in " + delaySec + "s (try " + (tryNum + 1) + "/3):", msg);
+        return new Promise(function(r){ setTimeout(r, delaySec * 1000); }).then(function(){
+          return attempt(tryNum + 1);
+        });
+      }
+      throw err;
     });
-  });
+  }
+  return attempt(0);
 }
 
 // ===== Cache de links (localStorage, por sessionId) =====
@@ -221,6 +276,12 @@ function updateCacheInfo() {
   info.textContent = n > 0
     ? "💾 " + n + " link(s) já salvos no navegador para esta sessão — serão reutilizados na próxima extração."
     : "";
+}
+
+// Called whenever the user changes the selected session — clears any session-scoped UI state
+function onSessionChange() {
+  updateCacheInfo();
+  if (typeof resetAdminGroupListUI === "function") resetAdminGroupListUI();
 }
 
 function loadSessions() {
@@ -426,7 +487,11 @@ async function loadGroups() {
     setStatus(statusMsg);
   } catch (e) {
     document.getElementById("status").style.color = "var(--danger)";
-    setStatus("Erro: " + e.message);
+    setStatus("Erro: " + e.message + " — clique em Extrair grupos de novo, o cache preserva o progresso.");
+    // Stop the spinner on the progress bar (snapshot of how far we got)
+    var withLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
+    var adminCount = cache.filter(function(g){ return g.isAdmin; }).length;
+    updateProgress(withLink, adminCount, false);
   } finally {
     _extractRunning = false;
     setExtractButtonRunning(false);
@@ -446,6 +511,151 @@ function isRateLimitMessage(msg) {
 var ADD_CACHE_PREFIX = "ezap_added_";
 var _addRunning = false;
 var addResults = [];
+
+// ===== Filtro de grupos (lista admin + seleção include/exclude) =====
+var _adminGroupList = [];           // todos os grupos admin carregados (do backend)
+var _addGroupSelected = {};         // jid -> true se selecionado pelo usuário
+
+function loadAdminGroupList() {
+  var sid = document.getElementById("sessionSelect").value;
+  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
+  document.getElementById("addGroupListInfo").textContent = "Carregando...";
+  waFetch("/api/sessions/" + sid + "/list-admin-groups", "POST", {}).then(function(data) {
+    _adminGroupList = data.groups || [];
+    _addGroupSelected = {};
+    document.getElementById("addGroupSearch").value = "";
+    document.getElementById("addGroupFilter").classList.remove("hidden");
+    document.getElementById("addGroupListInfo").textContent = _adminGroupList.length + " grupos admin carregados";
+    renderAddGroupList();
+    updateAddBtnLabel();
+  }).catch(function(e) {
+    document.getElementById("addGroupListInfo").textContent = "Erro: " + e.message;
+  });
+}
+
+function renderAddGroupList() {
+  var list = document.getElementById("addGroupList");
+  if (!list) return;
+  var search = (document.getElementById("addGroupSearch").value || "").toLowerCase().trim();
+  var visible = search
+    ? _adminGroupList.filter(function(g){ return (g.name || "").toLowerCase().indexOf(search) >= 0; })
+    : _adminGroupList.slice();
+
+  list.innerHTML = "";
+  visible.forEach(function(g) {
+    var div = document.createElement("div");
+    div.style.cssText = "display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:12px;border-radius:4px;cursor:pointer";
+    div.onmouseover = function(){ this.style.background = "var(--surface)"; };
+    div.onmouseout = function(){ this.style.background = ""; };
+    var checked = _addGroupSelected[g.jid] ? "checked" : "";
+    div.innerHTML =
+      '<input type="checkbox" data-jid="' + esc(g.jid) + '" ' + checked
+      + ' onchange="toggleAddGroupSelection(this)" style="cursor:pointer;accent-color:var(--primary)">'
+      + '<span style="flex:1">' + esc(g.name) + '</span>'
+      + '<span style="color:var(--muted);font-size:10px">' + g.participants + ' membros</span>';
+    // Click on row toggles checkbox
+    div.addEventListener("click", function(e) {
+      if (e.target.tagName !== "INPUT") {
+        var cb = div.querySelector("input");
+        cb.checked = !cb.checked;
+        toggleAddGroupSelection(cb);
+      }
+    });
+    list.appendChild(div);
+  });
+
+  document.getElementById("addGroupSearchInfo").textContent =
+    visible.length + " visíveis de " + _adminGroupList.length;
+  updateSelectedCount();
+}
+
+function toggleAddGroupSelection(checkbox) {
+  var jid = checkbox.dataset.jid;
+  if (checkbox.checked) _addGroupSelected[jid] = true;
+  else delete _addGroupSelected[jid];
+  updateSelectedCount();
+  updateAddBtnLabel();
+}
+
+function selectAllVisibleAddGroups() {
+  var checkboxes = document.querySelectorAll("#addGroupList input[type=checkbox]");
+  checkboxes.forEach(function(cb) {
+    cb.checked = true;
+    _addGroupSelected[cb.dataset.jid] = true;
+  });
+  updateSelectedCount();
+  updateAddBtnLabel();
+}
+
+function unselectAllVisibleAddGroups() {
+  var checkboxes = document.querySelectorAll("#addGroupList input[type=checkbox]");
+  checkboxes.forEach(function(cb) {
+    cb.checked = false;
+    delete _addGroupSelected[cb.dataset.jid];
+  });
+  updateSelectedCount();
+  updateAddBtnLabel();
+}
+
+function clearAddGroupSelection() {
+  _addGroupSelected = {};
+  document.querySelectorAll("#addGroupList input[type=checkbox]").forEach(function(cb){ cb.checked = false; });
+  updateSelectedCount();
+  updateAddBtnLabel();
+}
+
+function updateSelectedCount() {
+  var n = Object.keys(_addGroupSelected).length;
+  document.getElementById("addGroupSelectedInfo").textContent = n + " selecionado(s)";
+}
+
+// Compute the actual list of group JIDs to send to the backend.
+// Returns:
+//   null = no filter active (process ALL admin groups)
+//   []   = filter is active but selects nothing (caller should reject)
+//   [..] = process only these JIDs
+function getOnlyJidsForAdd() {
+  if (!_adminGroupList.length) return null; // no list loaded → no filter
+  var selected = Object.keys(_addGroupSelected);
+  var modeEl = document.querySelector("input[name=addFilterMode]:checked");
+  var mode = modeEl ? modeEl.value : "include";
+
+  if (selected.length === 0) {
+    if (mode === "exclude") return null; // exclude nothing = all
+    return []; // include nothing = nothing
+  }
+  if (mode === "include") return selected;
+  // exclude mode: all admin groups except selected
+  var selectedSet = {};
+  selected.forEach(function(j){ selectedSet[j] = true; });
+  return _adminGroupList.filter(function(g){ return !selectedSet[g.jid]; }).map(function(g){ return g.jid; });
+}
+
+function updateAddBtnLabel() {
+  var btn = document.getElementById("addBtn");
+  if (!btn || _addRunning) return;
+  var onlyJids = getOnlyJidsForAdd();
+  if (onlyJids === null) {
+    btn.textContent = "Adicionar em todos";
+  } else if (onlyJids.length === 0) {
+    btn.textContent = "Selecione ao menos 1 grupo";
+  } else {
+    var modeEl = document.querySelector("input[name=addFilterMode]:checked");
+    var mode = modeEl ? modeEl.value : "include";
+    btn.textContent = mode === "include"
+      ? "Adicionar nos " + onlyJids.length + " selecionados"
+      : "Adicionar em " + onlyJids.length + " grupos (exceto selecionados)";
+  }
+}
+
+function resetAdminGroupListUI() {
+  _adminGroupList = [];
+  _addGroupSelected = {};
+  document.getElementById("addGroupFilter").classList.add("hidden");
+  document.getElementById("addGroupListInfo").textContent = "";
+  document.getElementById("addGroupList").innerHTML = "";
+  updateAddBtnLabel();
+}
 
 function addCacheKey(sid, phone) { return ADD_CACHE_PREFIX + sid + "_" + phone; }
 function getAddCache(sid, phone) {
@@ -549,8 +759,26 @@ async function loadAddToGroups() {
   // With promote, each group needs 2 API calls. Double the batch size to keep ~3 groups per batch.
   var batchCalls = promoteToAdmin ? (ADD_BATCH_SIZE * 2) : ADD_BATCH_SIZE;
 
+  // Apply group filter if user loaded the list and selected groups
+  var onlyJids = getOnlyJidsForAdd();
+  if (Array.isArray(onlyJids) && onlyJids.length === 0) {
+    setAddStatus("Nenhum grupo selecionado. Marque grupos no filtro ou clique em Limpar seleção e descarregue a lista para usar todos os grupos.");
+    return;
+  }
+
+  var targetDesc;
+  if (onlyJids === null) {
+    targetDesc = "TODOS os grupos onde a sessão é admin";
+  } else {
+    var modeEl = document.querySelector("input[name=addFilterMode]:checked");
+    var mode = modeEl ? modeEl.value : "include";
+    targetDesc = mode === "include"
+      ? onlyJids.length + " grupos selecionados"
+      : onlyJids.length + " grupos (todos exceto os " + Object.keys(_addGroupSelected).length + " selecionados)";
+  }
+
   var confirmMsg = "Vai " + (promoteToAdmin ? "adicionar E promover a ADMIN" : "adicionar") + " o número " + phone
-    + " em TODOS os grupos onde a sessão selecionada é admin.\n\n"
+    + " em " + targetDesc + ".\n\n"
     + "⏱️ Delay: " + ADD_DELAY_PER_CALL_S + "s por chamada."
     + (promoteToAdmin ? " Cada grupo = 2 chamadas (add + promote), ou seja ~40s por grupo.\n" : "\n")
     + "📢 Visibilidade: aparece a mensagem 'Fulano adicionou " + phone + "' em cada grupo"
@@ -582,6 +810,7 @@ async function loadAddToGroups() {
         skipJids: cachedJids,
         maxCalls: batchCalls,
         promoteToAdmin: promoteToAdmin,
+        onlyJids: onlyJids, // null = all admin groups; array = whitelist
       });
 
       var groups = data.groups || [];
@@ -672,7 +901,11 @@ async function loadAddToGroups() {
     setAddStatus(msg);
   } catch (e) {
     document.getElementById("addStatus").style.color = "var(--danger)";
-    setAddStatus("Erro: " + e.message);
+    setAddStatus("Erro: " + e.message + " — clique em Adicionar em todos de novo, o histórico preserva o progresso.");
+    // Stop the spinner on the progress bar
+    var adminCount = addResults.filter(function(g){ return g.isAdmin; }).length;
+    var processedNow = addResults.filter(function(g){ return g.isAdmin && g.status && g.status !== "skipped"; }).length;
+    updateAddProgress(processedNow, adminCount, false);
   } finally {
     _addRunning = false;
     setAddBtnRunning(false);

@@ -112,12 +112,25 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// POST /api/sessions/:id/list-admin-groups — Quickly list all groups where session is admin
+// Returns: { ok, count, groups: [{ jid, name, participants }] } sorted by name (pt-BR)
+router.post("/:id/list-admin-groups", async (req, res) => {
+  try {
+    const groups = await baileys.listAdminGroups(req.params.id);
+    res.json({ ok: true, count: groups.length, groups });
+  } catch (e) {
+    console.error("[SESSIONS] List admin groups error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/sessions/:id/add-to-groups — Add a phone number to all admin groups (temporary tool)
 // Body:
 //   phone: string            — phone to add, digits only (e.g. "5511999999999")
 //   skipJids?: string[]      — group JIDs already processed (cached results)
 //   maxCalls?: number        — max IQ calls per batch (default 10, max 50)
 //   promoteToAdmin?: boolean — if true, promote the target to admin after adding
+//   onlyJids?: string[]      — if provided, only process groups whose JID is in this list
 router.post("/:id/add-to-groups", async (req, res) => {
   try {
     const { phone } = req.body || {};
@@ -125,12 +138,13 @@ router.post("/:id/add-to-groups", async (req, res) => {
     const skipJids = Array.isArray(req.body?.skipJids) ? req.body.skipJids : [];
     const maxCalls = Number(req.body?.maxCalls) || 10;
     const promoteToAdmin = req.body?.promoteToAdmin === true;
+    const onlyJids = Array.isArray(req.body?.onlyJids) ? req.body.onlyJids : null;
     const data = await baileys.addParticipantToAllGroups(
       req.params.id,
       phone,
       skipJids,
       maxCalls,
-      { promoteToAdmin }
+      { promoteToAdmin, onlyJids }
     );
     res.json({
       ok: true,

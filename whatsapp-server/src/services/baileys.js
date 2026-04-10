@@ -437,8 +437,56 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
   return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, debug };
 }
 
+// ===== List groups where the session is admin (lightweight, no extra IQ calls) =====
+async function listAdminGroups(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session || session.status !== "connected") {
+    throw new Error("Sessão não conectada: " + sessionId);
+  }
+  const sock = session.sock;
+
+  const myJid = sock.user?.id || "";
+  const myLid = sock.user?.lid || "";
+  const myPhoneBase = extractBase(myJid);
+  const myLidBase = extractBase(myLid);
+
+  const groupsMap = await sock.groupFetchAllParticipating();
+  const groupList = Object.values(groupsMap || {});
+
+  const results = [];
+  for (const g of groupList) {
+    let isAdmin = false;
+    if (Array.isArray(g.participants)) {
+      const me = g.participants.find(p => {
+        const pid = p.id || "";
+        const pBase = extractBase(pid);
+        const pDomain = extractDomain(pid);
+        if (pid === myJid || pid === myLid) return true;
+        if (pDomain === "s.whatsapp.net" && myPhoneBase && pBase === myPhoneBase) return true;
+        if (pDomain === "lid" && myLidBase && pBase === myLidBase) return true;
+        if (myPhoneBase && pBase === myPhoneBase) return true;
+        if (myLidBase && pBase === myLidBase) return true;
+        return false;
+      });
+      if (me && (me.admin === "admin" || me.admin === "superadmin")) isAdmin = true;
+    }
+    if (isAdmin) {
+      results.push({
+        jid: g.id,
+        name: g.subject || "(sem nome)",
+        participants: Array.isArray(g.participants) ? g.participants.length : 0,
+      });
+    }
+  }
+  // Sort alphabetically (pt-BR locale) for easier scanning
+  results.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  return results;
+}
+
 // ===== Add a participant to all admin groups (temporary tool) =====
-// options: { promoteToAdmin: boolean } — if true, promote the target to admin after adding
+// options:
+//   promoteToAdmin: boolean  — if true, promote the target to admin after adding
+//   onlyJids: string[]       — if provided, ONLY process groups in this list (whitelist)
 async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], maxCalls = 10, options = {}) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
@@ -446,6 +494,8 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   }
   const sock = session.sock;
   const promoteToAdmin = options && options.promoteToAdmin === true;
+  const onlyJids = options && Array.isArray(options.onlyJids) ? options.onlyJids : null;
+  const onlyJidsSet = onlyJids ? new Set(onlyJids) : null;
 
   // Normalize target phone: digits only → JID @s.whatsapp.net
   const cleanPhone = String(phoneToAdd || "").replace(/\D/g, "");
@@ -494,6 +544,9 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
 
   for (const g of groupList) {
     processed++;
+
+    // If a whitelist filter is active, skip groups not in the list (do not return them)
+    if (onlyJidsSet && !onlyJidsSet.has(g.id)) continue;
 
     // Check if "me" is admin in this group (same matching logic as fetchGroupsWithInvites)
     let isAdmin = false;
@@ -791,4 +844,5 @@ module.exports = {
   reconnectAllSessions,
   fetchGroupsWithInvites,
   addParticipantToAllGroups,
+  listAdminGroups,
 };
