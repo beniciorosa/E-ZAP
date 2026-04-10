@@ -87,6 +87,12 @@
         <button class="btn-primary" id="addBtn" onclick="loadAddToGroups()">Adicionar em todos</button>
         <button class="btn-secondary" onclick="clearAddCache()" title="Apaga o histórico de adições deste número para esta sessão">Limpar histórico</button>
       </div>
+      <div style="margin-top:-4px;margin-bottom:8px;font-size:12px;color:var(--muted)">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+          <input type="checkbox" id="addPromoteAdmin" style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary)">
+          <span>Promover a admin após adicionar (2 chamadas por grupo — dobra o tempo total)</span>
+        </label>
+      </div>
       <div class="status" id="addStatus" style="font-size:12px"></div>
       <div class="progress-wrap hidden" id="addProgressWrap">
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="addProgressBarFill"></div></div>
@@ -496,14 +502,19 @@ function statusBadge(status, msg) {
   var color = "var(--muted)";
   var label = "—";
   switch (status) {
-    case "added":             color = "var(--ok)";     label = "✅ Adicionado"; break;
-    case "already_member":    color = "var(--muted)";  label = "⏭️ Já era membro"; break;
-    case "not_admin":         color = "var(--muted)";  label = "Não é admin"; break;
-    case "privacy_block":     color = "var(--danger)"; label = "🚫 Privacidade"; break;
-    case "not_on_whatsapp":   color = "var(--danger)"; label = "❌ Sem WhatsApp"; break;
-    case "aborted_rate_limit":color = "var(--danger)"; label = "⏸️ Rate-limit"; break;
-    case "skipped":           color = "var(--muted)";  label = "Pendente"; break;
-    case "error":             color = "var(--danger)"; label = "❌ Erro"; break;
+    case "added":               color = "var(--ok)";     label = "✅ Adicionado"; break;
+    case "added_and_promoted":  color = "var(--ok)";     label = "⭐ Adicionado + Admin"; break;
+    case "promoted_only":       color = "var(--ok)";     label = "⭐ Promovido a admin"; break;
+    case "already_member":      color = "var(--muted)";  label = "⏭️ Já era membro"; break;
+    case "already_admin":       color = "var(--muted)";  label = "⏭️ Já era admin"; break;
+    case "added_not_promoted":  color = "#f59e0b";       label = "⚠️ Adic. sem admin"; break;
+    case "promote_error":       color = "#f59e0b";       label = "⚠️ Erro na promoção"; break;
+    case "not_admin":           color = "var(--muted)";  label = "Não é admin"; break;
+    case "privacy_block":       color = "var(--danger)"; label = "🚫 Privacidade"; break;
+    case "not_on_whatsapp":     color = "var(--danger)"; label = "❌ Sem WhatsApp"; break;
+    case "aborted_rate_limit":  color = "var(--danger)"; label = "⏸️ Rate-limit"; break;
+    case "skipped":             color = "var(--muted)";  label = "Pendente"; break;
+    case "error":               color = "var(--danger)"; label = "❌ Erro"; break;
   }
   var title = msg ? ' title="' + esc(msg) + '"' : '';
   return '<span style="color:' + color + '"' + title + '>' + label + '</span>';
@@ -534,10 +545,18 @@ async function loadAddToGroups() {
   var phone = document.getElementById("addPhone").value.replace(/\D/g, "");
   if (phone.length < 10) { setAddStatus("Número inválido. Use formato 5511999999999 (DDI+DDD+número, só dígitos)."); return; }
 
-  if (!confirm("Vai adicionar o número " + phone + " em TODOS os grupos onde a sessão selecionada é admin.\n\n"
-    + "⏱️ Delay: " + ADD_DELAY_PER_CALL_S + "s por grupo (pra evitar rate-limit do WhatsApp).\n"
-    + "📢 Visibilidade: aparece a mensagem 'Fulano adicionou " + phone + "' em cada grupo.\n\n"
-    + "Confirma?")) return;
+  var promoteToAdmin = document.getElementById("addPromoteAdmin").checked;
+  // With promote, each group needs 2 API calls. Double the batch size to keep ~3 groups per batch.
+  var batchCalls = promoteToAdmin ? (ADD_BATCH_SIZE * 2) : ADD_BATCH_SIZE;
+
+  var confirmMsg = "Vai " + (promoteToAdmin ? "adicionar E promover a ADMIN" : "adicionar") + " o número " + phone
+    + " em TODOS os grupos onde a sessão selecionada é admin.\n\n"
+    + "⏱️ Delay: " + ADD_DELAY_PER_CALL_S + "s por chamada."
+    + (promoteToAdmin ? " Cada grupo = 2 chamadas (add + promote), ou seja ~40s por grupo.\n" : "\n")
+    + "📢 Visibilidade: aparece a mensagem 'Fulano adicionou " + phone + "' em cada grupo"
+    + (promoteToAdmin ? " + mensagem de promoção a admin.\n\n" : ".\n\n")
+    + "Confirma?";
+  if (!confirm(confirmMsg)) return;
 
   _addRunning = true;
   setAddBtnRunning(true);
@@ -552,31 +571,46 @@ async function loadAddToGroups() {
     while (true) {
       batchNum++;
       var cachedJids = Object.keys(savedCache);
-      setAddStatus("Lote " + batchNum + " — adicionando até " + ADD_BATCH_SIZE + " grupos ("
-        + ADD_DELAY_PER_CALL_S + "s cada, ~" + (ADD_BATCH_SIZE * ADD_DELAY_PER_CALL_S)
-        + "s por lote). Histórico: " + cachedJids.length + " grupo(s) já processados.");
+      var secondsPerBatch = batchCalls * ADD_DELAY_PER_CALL_S;
+      var groupsPerBatch = promoteToAdmin ? (batchCalls / 2) : batchCalls;
+      setAddStatus("Lote " + batchNum + " — processando até " + groupsPerBatch + " grupo(s) ("
+        + ADD_DELAY_PER_CALL_S + "s por chamada, ~" + secondsPerBatch + "s por lote). "
+        + "Histórico: " + cachedJids.length + " grupo(s) já processados.");
 
       var data = await waFetch("/api/sessions/" + sid + "/add-to-groups", "POST", {
         phone: phone,
         skipJids: cachedJids,
-        maxCalls: ADD_BATCH_SIZE,
+        maxCalls: batchCalls,
+        promoteToAdmin: promoteToAdmin,
       });
 
       var groups = data.groups || [];
       var newInThisBatch = 0;
 
+      // States that are TERMINAL (cached, never retried)
+      var TERMINAL_STATUSES = {
+        "added": 1, "added_and_promoted": 1, "promoted_only": 1,
+        "already_member": 1, "already_admin": 1,
+        "privacy_block": 1, "not_on_whatsapp": 1, "error": 1
+      };
+      // "added_not_promoted" and "promote_error" are NOT terminal — on the next run,
+      // the backend will re-detect the target as already-member + not-admin and
+      // retry just the promote step.
       groups.forEach(function(g) {
         if (g.status === "skipped" && savedCache[g.jid]) {
           // Restore from cache (already processed in a previous run)
           var cached = savedCache[g.jid];
           g.status = cached.status;
           g.statusMessage = cached.statusMessage;
-        } else if (g.status && g.status !== "skipped" && g.status !== "aborted_rate_limit" && g.status !== "not_admin") {
+        } else if (g.status && TERMINAL_STATUSES[g.status]) {
           // Save terminal states to cache so we don't retry them
           if (!savedCache[g.jid]) {
             savedCache[g.jid] = { status: g.status, statusMessage: g.statusMessage };
             newInThisBatch++;
           }
+        } else if (g.status === "added_not_promoted" || g.status === "promote_error") {
+          // Count as progress (so the loop continues) but DON'T cache
+          newInThisBatch++;
         }
       });
       saveAddCache(sid, phone, savedCache);
@@ -600,21 +634,35 @@ async function loadAddToGroups() {
     // ===== Final status =====
     var adminCount = addResults.filter(function(g){ return g.isAdmin; }).length;
     var finalAdded = addResults.filter(function(g){ return g.status === "added"; }).length;
-    var finalAlready = addResults.filter(function(g){ return g.status === "already_member"; }).length;
+    var finalAddedPromoted = addResults.filter(function(g){ return g.status === "added_and_promoted"; }).length;
+    var finalPromotedOnly = addResults.filter(function(g){ return g.status === "promoted_only"; }).length;
+    var finalAlreadyMember = addResults.filter(function(g){ return g.status === "already_member"; }).length;
+    var finalAlreadyAdmin = addResults.filter(function(g){ return g.status === "already_admin"; }).length;
+    var finalAddedNotPromoted = addResults.filter(function(g){ return g.status === "added_not_promoted"; }).length;
+    var finalPromoteError = addResults.filter(function(g){ return g.status === "promote_error"; }).length;
     var finalPrivacy = addResults.filter(function(g){ return g.status === "privacy_block"; }).length;
     var finalErrors = addResults.filter(function(g){ return g.status === "error"; }).length;
     var finalNotWa = addResults.filter(function(g){ return g.status === "not_on_whatsapp"; }).length;
-    var processedCount = finalAdded + finalAlready + finalPrivacy + finalErrors + finalNotWa;
+    var processedCount = finalAdded + finalAddedPromoted + finalPromotedOnly + finalAlreadyMember
+      + finalAlreadyAdmin + finalAddedNotPromoted + finalPromoteError + finalPrivacy + finalErrors + finalNotWa;
     updateAddProgress(processedCount, adminCount, false);
 
     var msg;
     if (rateLimited) {
-      msg = "⏸️ PAUSADO POR RATE-LIMIT — " + finalAdded + " adicionados, " + finalAlready + " já eram membros"
-        + (finalPrivacy > 0 ? ", 🚫 " + finalPrivacy + " bloqueados por privacidade" : "")
-        + ". Aguarde uns minutos e clique em Adicionar em todos de novo — o histórico preserva o progresso.";
+      var done = finalAdded + finalAddedPromoted + finalPromotedOnly;
+      msg = "⏸️ PAUSADO POR RATE-LIMIT — " + done + " processados com sucesso";
+      if (finalAddedNotPromoted > 0) msg += " | ⚠️ " + finalAddedNotPromoted + " adicionados sem admin (serão promovidos no próximo lote)";
+      msg += ". Aguarde uns minutos e clique em Adicionar em todos de novo — o histórico preserva o progresso.";
       document.getElementById("addStatus").style.color = "var(--danger)";
     } else {
-      var parts = ["✅ FINALIZADO", "" + finalAdded + " adicionados", finalAlready + " já eram membros"];
+      var parts = ["✅ FINALIZADO"];
+      if (finalAdded > 0) parts.push(finalAdded + " adicionados");
+      if (finalAddedPromoted > 0) parts.push("⭐ " + finalAddedPromoted + " adicionados + promovidos");
+      if (finalPromotedOnly > 0) parts.push("⭐ " + finalPromotedOnly + " promovidos a admin");
+      if (finalAlreadyMember > 0) parts.push(finalAlreadyMember + " já eram membros");
+      if (finalAlreadyAdmin > 0) parts.push(finalAlreadyAdmin + " já eram admin");
+      if (finalAddedNotPromoted > 0) parts.push("⚠️ " + finalAddedNotPromoted + " adic. sem admin");
+      if (finalPromoteError > 0) parts.push("⚠️ " + finalPromoteError + " erros na promoção");
       if (finalPrivacy > 0) parts.push("🚫 " + finalPrivacy + " bloqueados por privacidade");
       if (finalErrors > 0) parts.push("❌ " + finalErrors + " erros");
       if (finalNotWa > 0) parts.push("❌ " + finalNotWa + " sem WhatsApp");

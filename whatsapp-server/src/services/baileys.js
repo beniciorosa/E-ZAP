@@ -438,12 +438,14 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
 }
 
 // ===== Add a participant to all admin groups (temporary tool) =====
-async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], maxCalls = 10) {
+// options: { promoteToAdmin: boolean } — if true, promote the target to admin after adding
+async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], maxCalls = 10, options = {}) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
     throw new Error("Sessão não conectada: " + sessionId);
   }
   const sock = session.sock;
+  const promoteToAdmin = options && options.promoteToAdmin === true;
 
   // Normalize target phone: digits only → JID @s.whatsapp.net
   const cleanPhone = String(phoneToAdd || "").replace(/\D/g, "");
@@ -470,6 +472,7 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   const myLidBase = extractBase(myLid);
 
   const skipSet = new Set(Array.isArray(skipJids) ? skipJids : []);
+  // maxCalls counts INDIVIDUAL WhatsApp API calls (add + promote are 2 separate calls)
   const maxCallsThisBatch = Math.max(1, Math.min(50, Number(maxCalls) || 10));
   let callsMade = 0;
   let batchLimitReached = false;
@@ -481,6 +484,13 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   const results = [];
   let rateLimited = false;
   let processed = 0;
+
+  // Small helper to wait 20s between IQ calls (unless we just hit rate limit or batch limit)
+  async function rateLimitDelay() {
+    if (!rateLimited && callsMade < maxCallsThisBatch) {
+      await new Promise(r => setTimeout(r, 20000));
+    }
+  }
 
   for (const g of groupList) {
     processed++;
@@ -502,15 +512,19 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
       if (me && (me.admin === "admin" || me.admin === "superadmin")) isAdmin = true;
     }
 
-    // Check if the target is ALREADY in the group (avoids wasting an API call)
+    // Check if the target is ALREADY in the group AND if they're already admin
     let alreadyMember = false;
+    let alreadyAdmin = false;
     if (Array.isArray(g.participants)) {
       const already = g.participants.find(p => {
         const pid = p.id || "";
         const pBase = extractBase(pid);
         return pid === targetJid || pBase === cleanPhone;
       });
-      if (already) alreadyMember = true;
+      if (already) {
+        alreadyMember = true;
+        if (already.admin === "admin" || already.admin === "superadmin") alreadyAdmin = true;
+      }
     }
 
     let status = null;
@@ -519,7 +533,10 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
     if (!isAdmin) {
       status = "not_admin";
       statusMessage = "Sem permissão (não é admin)";
-    } else if (alreadyMember) {
+    } else if (alreadyAdmin && promoteToAdmin) {
+      status = "already_admin";
+      statusMessage = "Já é admin";
+    } else if (alreadyMember && !promoteToAdmin) {
       status = "already_member";
       statusMessage = "Já é membro";
     } else if (rateLimited) {
@@ -530,46 +547,93 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
     } else if (batchLimitReached) {
       status = "skipped";
     } else {
-      // Actually call the WhatsApp API
-      try {
-        const resp = await sock.groupParticipantsUpdate(g.id, [targetJid], "add");
-        const entry = Array.isArray(resp) && resp.length > 0 ? resp[0] : null;
-        const code = entry?.status || "";
-        if (code === "200") {
-          status = "added";
-          statusMessage = "Adicionado";
-        } else if (code === "409") {
-          status = "already_member";
-          statusMessage = "Já é membro";
-        } else if (code === "403") {
-          status = "privacy_block";
-          statusMessage = "Privacidade do número bloqueou";
-        } else if (code === "408") {
-          status = "not_on_whatsapp";
-          statusMessage = "Número não existe no WhatsApp";
-        } else {
-          status = "error";
-          statusMessage = "Código " + (code || "desconhecido");
+      // Decide which operations to perform
+      let needAdd = !alreadyMember;
+      let needPromote = promoteToAdmin && !alreadyAdmin;
+      let addOk = false;
+
+      // ===== STEP 1: ADD (if needed) =====
+      if (needAdd) {
+        try {
+          const resp = await sock.groupParticipantsUpdate(g.id, [targetJid], "add");
+          const entry = Array.isArray(resp) && resp.length > 0 ? resp[0] : null;
+          const code = entry?.status || "";
+          if (code === "200") {
+            addOk = true;
+          } else if (code === "409") {
+            // Already member — proceed to promote if needed
+            addOk = true;
+            alreadyMember = true;
+          } else if (code === "403") {
+            status = "privacy_block";
+            statusMessage = "Privacidade do número bloqueou";
+            needPromote = false;
+          } else if (code === "408") {
+            status = "not_on_whatsapp";
+            statusMessage = "Número não existe no WhatsApp";
+            needPromote = false;
+          } else {
+            status = "error";
+            statusMessage = "Código " + (code || "desconhecido") + " no add";
+            needPromote = false;
+          }
+        } catch (e) {
+          if (isRateLimitError(e)) {
+            rateLimited = true;
+            status = "aborted_rate_limit";
+            statusMessage = "Abortado por rate-limit (no add)";
+            console.warn("[BAILEYS] Rate limit during add — aborting at", processed, "of", total);
+          } else {
+            status = "error";
+            statusMessage = e?.message || "Falha ao adicionar";
+          }
+          needPromote = false;
         }
-      } catch (e) {
-        const msg = e?.message || "Falha ao adicionar";
-        if (isRateLimitError(e)) {
-          rateLimited = true;
-          status = "aborted_rate_limit";
-          statusMessage = "Abortado por rate-limit";
-          console.warn("[BAILEYS] Rate limit during add-participant — aborting at", processed, "of", total);
-        } else {
-          status = "error";
-          statusMessage = msg;
+        callsMade++;
+        // Delay between add and the next call (either promote of same group or next group)
+        await rateLimitDelay();
+        if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
+      }
+
+      // ===== STEP 2: PROMOTE (if needed and previous step did not fail) =====
+      if (needPromote && !rateLimited && !batchLimitReached) {
+        try {
+          const resp = await sock.groupParticipantsUpdate(g.id, [targetJid], "promote");
+          const entry = Array.isArray(resp) && resp.length > 0 ? resp[0] : null;
+          const code = entry?.status || "";
+          if (code === "200") {
+            status = needAdd ? "added_and_promoted" : "promoted_only";
+            statusMessage = needAdd ? "Adicionado e promovido a admin" : "Promovido a admin";
+          } else {
+            // promote failed but add (if any) succeeded
+            status = needAdd ? "added_not_promoted" : "promote_error";
+            statusMessage = "Adicionado mas promoção falhou (código " + (code || "desconhecido") + ")";
+          }
+        } catch (e) {
+          if (isRateLimitError(e)) {
+            rateLimited = true;
+            status = needAdd ? "added_not_promoted" : "aborted_rate_limit";
+            statusMessage = needAdd ? "Adicionado, promoção abortada por rate-limit" : "Abortado por rate-limit (no promote)";
+            console.warn("[BAILEYS] Rate limit during promote — aborting at", processed, "of", total);
+          } else {
+            status = needAdd ? "added_not_promoted" : "promote_error";
+            statusMessage = e?.message || "Falha ao promover";
+          }
         }
+        callsMade++;
+        await rateLimitDelay();
+        if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
+      } else if (needPromote && batchLimitReached) {
+        // Batch limit hit between add and promote — mark as partial so the frontend retries promote
+        status = needAdd ? "added_not_promoted" : "skipped";
+        statusMessage = needAdd ? "Adicionado, promoção no próximo lote" : null;
       }
-      callsMade++;
-      // Add-participant rate limits from WhatsApp are MORE aggressive than invite-code.
-      // Empirically observed: 5 calls in ~20s triggered rate-limit. We use 20s delay to be safe.
-      if (!rateLimited && callsMade < maxCallsThisBatch) {
-        await new Promise(r => setTimeout(r, 20000));
+
+      // Simple "added" case (no promote requested, add succeeded)
+      if (!status && addOk && !needPromote) {
+        status = "added";
+        statusMessage = "Adicionado";
       }
-      if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
     }
 
     results.push({

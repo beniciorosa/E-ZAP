@@ -114,16 +114,24 @@ router.delete("/:id", async (req, res) => {
 
 // POST /api/sessions/:id/add-to-groups — Add a phone number to all admin groups (temporary tool)
 // Body:
-//   phone: string        — phone to add, digits only (e.g. "5511999999999")
-//   skipJids?: string[]  — group JIDs already processed (cached results)
-//   maxCalls?: number    — max groupParticipantsUpdate calls per batch (default 10, max 50)
+//   phone: string            — phone to add, digits only (e.g. "5511999999999")
+//   skipJids?: string[]      — group JIDs already processed (cached results)
+//   maxCalls?: number        — max IQ calls per batch (default 10, max 50)
+//   promoteToAdmin?: boolean — if true, promote the target to admin after adding
 router.post("/:id/add-to-groups", async (req, res) => {
   try {
     const { phone } = req.body || {};
     if (!phone) return res.status(400).json({ error: "Campo 'phone' é obrigatório" });
     const skipJids = Array.isArray(req.body?.skipJids) ? req.body.skipJids : [];
     const maxCalls = Number(req.body?.maxCalls) || 10;
-    const data = await baileys.addParticipantToAllGroups(req.params.id, phone, skipJids, maxCalls);
+    const promoteToAdmin = req.body?.promoteToAdmin === true;
+    const data = await baileys.addParticipantToAllGroups(
+      req.params.id,
+      phone,
+      skipJids,
+      maxCalls,
+      { promoteToAdmin }
+    );
     res.json({
       ok: true,
       count: data.groups.length,
