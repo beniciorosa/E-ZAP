@@ -72,6 +72,20 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// PATCH /api/sessions/:id — Update session (rename, etc.)
+router.patch("/:id", async (req, res) => {
+  try {
+    const { label, userId } = req.body;
+    const body = {};
+    if (label) body.label = label;
+    if (userId !== undefined) body.user_id = userId || null;
+    await supaRest("/rest/v1/wa_sessions?id=eq." + req.params.id, "PATCH", body, "return=minimal");
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/sessions/:id/reconnect — Reconnect existing session
 router.post("/:id/reconnect", async (req, res) => {
   try {

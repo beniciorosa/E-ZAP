@@ -1897,10 +1897,17 @@
 
           <!-- Messages (right) -->
           <div style="flex:1;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;background:var(--surface)">
-            <div id="waChatHeader" style="padding:10px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;color:var(--on-surface);display:flex;align-items:center;gap:8px">
+            <div id="waChatHeader" style="padding:10px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;color:var(--on-surface);display:flex;align-items:center;gap:8px;background:var(--surface-variant)">
               <span style="color:var(--on-surface-variant);font-size:12px">Selecione uma conversa</span>
             </div>
-            <div id="waChatMessages" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:6px">
+            <div id="waChatMessages" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:4px;background:repeating-linear-gradient(45deg,transparent,transparent 20px,rgba(0,0,0,0.01) 20px,rgba(0,0,0,0.01) 40px)">
+            </div>
+            <!-- Send message bar -->
+            <div id="waChatSendBar" style="display:none;padding:8px 12px;border-top:1px solid var(--border);display:none;align-items:center;gap:8px;background:var(--surface-variant)">
+              <input type="text" id="waChatInput" placeholder="Digite uma mensagem..." onkeydown="if(event.key==='Enter')sendWaMessage()" style="flex:1;padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:20px;color:var(--on-surface);font-size:13px;outline:none">
+              <button onclick="sendWaMessage()" style="width:36px;height:36px;border-radius:50%;background:var(--primary);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0" title="Enviar">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
             </div>
           </div>
         </div>
@@ -6158,10 +6165,16 @@ function loadWaSessions() {
       var lastSeen = s.last_seen ? formatDate(s.last_seen) : "-";
 
       var actions = '';
+      // Edit name
+      actions += '<button class="btn-icon" onclick="event.stopPropagation();renameWaSession(\'' + s.id + '\', \'' + esc(s.label) + '\')" title="Renomear"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>';
       if (s.status === "connected") {
         actions += '<button class="btn-icon danger" onclick="event.stopPropagation();disconnectWaSession(\'' + s.id + '\')" title="Desconectar"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></button>';
       } else if (s.status !== "banned") {
         actions += '<button class="btn-icon primary" onclick="event.stopPropagation();reconnectWaSession(\'' + s.id + '\')" title="Reconectar"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>';
+      }
+      // Delete
+      if (s.status !== "connected") {
+        actions += '<button class="btn-icon danger" onclick="event.stopPropagation();deleteWaSession(\'' + s.id + '\', \'' + esc(s.label) + '\')" title="Excluir"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
       }
 
       html += '<tr>';
@@ -6249,6 +6262,55 @@ function reconnectWaSession(id) {
   });
 }
 
+function renameWaSession(id, currentLabel) {
+  var newLabel = prompt("Novo nome da sessão:", currentLabel);
+  if (!newLabel || newLabel === currentLabel) return;
+  waFetch("/api/sessions/" + id, { method: "PATCH", body: JSON.stringify({ label: newLabel }) })
+    .then(function() { loadWaSessions(); })
+    .catch(function() {
+      // Fallback: update directly in Supabase
+      supa("/rest/v1/wa_sessions?id=eq." + id, { method: "PATCH", body: { label: newLabel } }).then(function() { loadWaSessions(); });
+    });
+}
+
+function deleteWaSession(id, label) {
+  if (!confirm("Excluir a sessão \"" + label + "\"? Todas as mensagens serão perdidas.")) return;
+  waFetch("/api/sessions/" + id, { method: "DELETE" }).then(function() {
+    // Delete from Supabase too
+    supa("/rest/v1/wa_messages?session_id=eq." + id, { method: "DELETE" }).then(function() {
+      supa("/rest/v1/wa_sessions?id=eq." + id, { method: "DELETE" }).then(function() { loadWaSessions(); });
+    });
+  }).catch(function() {
+    supa("/rest/v1/wa_sessions?id=eq." + id, { method: "DELETE" }).then(function() { loadWaSessions(); });
+  });
+}
+
+function sendWaMessage() {
+  var input = document.getElementById("waChatInput");
+  var text = (input.value || "").trim();
+  if (!text || !_waCurrentChat) return;
+  var sessionId = document.getElementById("waChatSession").value;
+  if (!sessionId) return;
+  input.value = "";
+  input.disabled = true;
+  waFetch("/api/messages/send", {
+    method: "POST",
+    body: JSON.stringify({ sessionId: sessionId, to: _waCurrentChat, text: text })
+  }).then(function(r) {
+    input.disabled = false;
+    input.focus();
+    if (r.ok) {
+      // Refresh messages after short delay (server needs time to process)
+      setTimeout(function() { openWaChat(_waCurrentChat, _waCurrentChatName); }, 500);
+    } else {
+      alert("Erro ao enviar: " + (r.error || "desconhecido"));
+    }
+  }).catch(function(e) {
+    input.disabled = false;
+    alert("Erro: " + e.message);
+  });
+}
+
 // ===== CHAT VIEWER =====
 var _waChats = [];
 var _waCurrentChat = null;
@@ -6311,12 +6373,24 @@ function renderWaChatList(chats) {
   document.getElementById("waChatList").innerHTML = html;
 }
 
+var _waCurrentChatName = "";
+
 function openWaChat(chatJid, chatName) {
   _waCurrentChat = chatJid;
+  _waCurrentChatName = chatName || chatJid;
   var sessionId = document.getElementById("waChatSession").value;
   if (!sessionId) return;
 
-  document.getElementById("waChatHeader").innerHTML = '<div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#6eb4ff,#4d7cff);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff">' + (chatName || "?").charAt(0).toUpperCase() + '</div><span>' + esc(chatName || chatJid) + '</span>';
+  var initial = (_waCurrentChatName || "?").charAt(0).toUpperCase();
+  var isGroup = chatJid.indexOf("@g.us") >= 0;
+  var avatarBg = isGroup ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#6eb4ff,#4d7cff)";
+  document.getElementById("waChatHeader").innerHTML =
+    '<div style="width:36px;height:36px;border-radius:50%;background:' + avatarBg + ';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff">' + initial + '</div>' +
+    '<div><div style="font-size:14px;font-weight:600">' + esc(_waCurrentChatName) + '</div>' +
+    (isGroup ? '<div style="font-size:10px;color:var(--on-surface-variant)">Grupo</div>' : '') + '</div>';
+
+  // Show send bar
+  document.getElementById("waChatSendBar").style.display = "flex";
 
   // Refresh chat list to highlight active
   renderWaChatList(document.getElementById("waChatSearch").value ? _waChats.filter(function(c) { return (c.chatName || "").toLowerCase().indexOf(document.getElementById("waChatSearch").value.toLowerCase()) >= 0; }) : _waChats);
@@ -6328,23 +6402,59 @@ function openWaChat(chatJid, chatName) {
       container.innerHTML = '<div style="text-align:center;color:var(--on-surface-variant);font-size:11px;padding:32px">Nenhuma mensagem</div>';
       return;
     }
-    // Reverse to show oldest first
     msgs.reverse();
     var html = "";
+    var lastDate = "";
     msgs.forEach(function(m) {
-      var align = m.from_me ? "margin-left:auto;background:var(--primary-container);border-color:var(--primary);" : "margin-right:auto;background:var(--surface-variant);";
-      var time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"}) : "";
-      var sender = !m.from_me && m.sender_name ? '<div style="font-size:10px;font-weight:600;color:var(--primary);margin-bottom:2px">' + esc(m.sender_name) + '</div>' : '';
-      var mediaTag = m.media_type ? '<div style="font-size:10px;color:var(--on-surface-variant);font-style:italic">📎 ' + esc(m.media_type) + '</div>' : '';
-      var bodyText = m.body ? '<div style="font-size:12px;line-height:1.4;color:var(--on-surface);word-wrap:break-word">' + esc(m.body) + '</div>' : '';
+      // Date separator
+      var msgDate = m.timestamp ? new Date(m.timestamp).toLocaleDateString("pt-BR") : "";
+      if (msgDate && msgDate !== lastDate) {
+        html += '<div style="text-align:center;margin:8px 0"><span style="background:var(--surface-variant);padding:3px 12px;border-radius:8px;font-size:10px;color:var(--on-surface-variant)">' + msgDate + '</span></div>';
+        lastDate = msgDate;
+      }
 
-      html += '<div style="max-width:70%;padding:8px 12px;border-radius:12px;border:1px solid var(--border);' + align + '">';
-      html += sender + bodyText + mediaTag;
-      html += '<div style="font-size:9px;color:var(--on-surface-variant);text-align:right;margin-top:2px">' + time + '</div>';
+      var isMine = m.from_me;
+      var bubbleBg = isMine ? "background:#d9fdd3;" : "background:#fff;";
+      var bubbleAlign = isMine ? "margin-left:auto;" : "margin-right:auto;";
+      var bubbleRadius = isMine ? "border-radius:8px 0 8px 8px;" : "border-radius:0 8px 8px 8px;";
+      var time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"}) : "";
+
+      // Sender (groups only)
+      var sender = "";
+      if (!isMine && isGroup && m.sender_name) {
+        sender = '<div style="font-size:10px;font-weight:700;color:#1a73e8;margin-bottom:2px">' + esc(m.sender_name) + '</div>';
+      }
+
+      // Media
+      var mediaHtml = "";
+      if (m.media_type === "image") {
+        mediaHtml = '<div style="margin-bottom:4px;color:var(--on-surface-variant);font-size:11px">📷 Imagem</div>';
+      } else if (m.media_type === "audio") {
+        mediaHtml = '<div style="display:flex;align-items:center;gap:6px;padding:4px 0"><span style="font-size:16px">🎵</span><div style="flex:1;height:4px;background:rgba(0,0,0,0.1);border-radius:2px"><div style="width:100%;height:4px;background:#25d366;border-radius:2px"></div></div><span style="font-size:10px;color:var(--on-surface-variant)">áudio</span></div>';
+      } else if (m.media_type === "video") {
+        mediaHtml = '<div style="margin-bottom:4px;color:var(--on-surface-variant);font-size:11px">🎬 Vídeo</div>';
+      } else if (m.media_type === "document") {
+        mediaHtml = '<div style="margin-bottom:4px;color:var(--on-surface-variant);font-size:11px">📄 Documento</div>';
+      } else if (m.media_type === "sticker") {
+        mediaHtml = '<div style="margin-bottom:4px;font-size:11px">🏷️ Sticker</div>';
+      }
+
+      // Body
+      var bodyHtml = m.body ? '<div style="font-size:13px;line-height:1.4;word-wrap:break-word;white-space:pre-wrap">' + esc(m.body) + '</div>' : '';
+
+      // Check mark for sent
+      var check = isMine ? ' <span style="color:#53bdeb;font-size:11px">✓✓</span>' : '';
+
+      html += '<div style="max-width:65%;padding:6px 8px 4px;' + bubbleBg + bubbleAlign + bubbleRadius + 'box-shadow:0 1px 1px rgba(0,0,0,0.06)">';
+      html += sender + mediaHtml + bodyHtml;
+      html += '<div style="font-size:9px;color:#667781;text-align:right;margin-top:1px">' + time + check + '</div>';
       html += '</div>';
     });
     container.innerHTML = html;
     container.scrollTop = container.scrollHeight;
+    // Focus input
+    var inp = document.getElementById("waChatInput");
+    if (inp) inp.focus();
   }).catch(function(e) {
     document.getElementById("waChatMessages").innerHTML = '<div style="text-align:center;color:var(--error);font-size:11px;padding:32px">Erro: ' + esc(e.message) + '</div>';
   });
