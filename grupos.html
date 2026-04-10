@@ -353,15 +353,33 @@ function formatEtaSeconds(sec) {
 }
 
 function calculateEtaSeconds(job) {
-  // Remaining = admin groups still unprocessed
+  // Primary calc: remaining admin groups still unprocessed × delay per call
   var adminCount = job.progress.adminCount || 0;
   var doneTotal = job.progress.doneTotal || 0;
   var remaining = Math.max(0, adminCount - doneTotal);
-  if (remaining === 0) return 0;
-  var delay = (job.config && job.config.delaySec) || 60;
-  // Multiply by 2 if promoteToAdmin (2 calls per group)
-  if (job.type === "add" && job.config && job.config.promoteToAdmin) remaining *= 2;
-  return remaining * delay;
+
+  if (remaining > 0) {
+    var delay = (job.config && job.config.delaySec) || 60;
+    // Multiply by 2 if promoteToAdmin (2 calls per group)
+    if (job.type === "add" && job.config && job.config.promoteToAdmin) remaining *= 2;
+    return remaining * delay;
+  }
+
+  // Fallback: tudo admin já coberto, mas o loop ainda está iterando sobre
+  // o groupFetchAllParticipating (ex: verificando se há grupos novos).
+  // Estima pelo ritmo REAL do loop atual: elapsed / visited × remaining.
+  if (job.progress.startedAt && job.progress.total > 0) {
+    var loopDone = job.progress.done || 0;
+    var loopRemaining = job.progress.total - loopDone;
+    if (loopDone > 0 && loopRemaining > 0) {
+      var elapsedMs = Date.now() - Date.parse(job.progress.startedAt);
+      if (elapsedMs > 0) {
+        var msPerGroup = elapsedMs / loopDone;
+        return Math.round((loopRemaining * msPerGroup) / 1000);
+      }
+    }
+  }
+  return 0;
 }
 
 // ============================================================
@@ -751,7 +769,24 @@ function renderJobCard(job) {
   var doneTotal = job.progress.doneTotal || 0;
   var withLink = job.progress.withLink || 0;
   var progressCount = (job.type === "extract") ? withLink : doneTotal;
-  var pct = adminCount > 0 ? (progressCount / adminCount) * 100 : 0;
+
+  // ===== Barra principal =====
+  // Enquanto o loop está iterando (loopTotal > 0), a barra reflete o progresso
+  // REAL de verificação (grupos visitados no WhatsApp). Isso evita o "100% +
+  // Rodando" confuso. Antes de o loop começar (ex: pré-carregamento inicial),
+  // cai no progresso de admins com link.
+  var loopTotal = job.progress.total || 0;
+  var loopDone = job.progress.done || 0;
+  var mainCount, mainTotal, pct;
+  if (loopTotal > 0) {
+    mainCount = loopDone;
+    mainTotal = loopTotal;
+    pct = (loopDone / loopTotal) * 100;
+  } else {
+    mainCount = progressCount;
+    mainTotal = adminCount;
+    pct = adminCount > 0 ? (progressCount / adminCount) * 100 : 0;
+  }
 
   var etaSec = calculateEtaSeconds(job);
   var etaText = (job.status === "running") ? "ETA: " + formatEtaSeconds(etaSec) : "";
@@ -777,22 +812,26 @@ function renderJobCard(job) {
     : '';
 
   var message = "";
+  // Linha secundária com a estatística de admins extraídos (sempre visível se houver)
+  var adminStat = "";
+  if (job.type === "extract" && adminCount > 0) {
+    adminStat = ' — ' + withLink + ' / ' + adminCount + ' admins com link';
+    if (job.progress.newInThisRun) adminStat += ', ' + job.progress.newInThisRun + ' novos nesta rodada';
+  } else if (job.type === "add" && adminCount > 0) {
+    adminStat = ' — ' + doneTotal + ' / ' + adminCount + ' admins processados';
+    if (job.progress.newInThisRun) adminStat += ', ' + job.progress.newInThisRun + ' novos nesta rodada';
+  }
+
   if (job.status === "running") {
-    // If the pre-loaded cache already covers everything (100%) but the loop is
-    // still iterating through groups to verify / pick up new ones, show a
-    // secondary line with loop progress to avoid the confusing "100% + Running"
-    var loopInfo = "";
-    if (pct >= 99.5 && job.progress.done !== undefined && job.progress.total > 0 && job.progress.done < job.progress.total) {
-      loopInfo = ' (verificando ' + job.progress.done + '/' + job.progress.total + ' grupos no WhatsApp)';
-    }
-    message = '<div class="job-message">' + spinner + progressCount + '/' + adminCount + ' processados — ' + etaText + loopInfo + '</div>';
+    var verb = (job.type === "extract") ? "verificando grupos" : "processando grupos";
+    message = '<div class="job-message">' + spinner + mainCount + '/' + mainTotal + ' ' + verb + ' — ' + etaText + adminStat + '</div>';
   } else if (job.status === "completed") {
-    message = '<div class="job-message ok">✅ Concluído — ' + progressCount + '/' + adminCount + ' processados</div>';
+    message = '<div class="job-message ok">✅ Concluído' + adminStat + '</div>';
   } else if (job.status === "rate_limited") {
-    message = '<div class="job-message error">⏸️ Pausado por rate-limit — ' + progressCount + '/' + adminCount + ' processados. '
+    message = '<div class="job-message error">⏸️ Pausado por rate-limit' + adminStat + '. '
       + 'Aguarde ~30min e inicie uma nova ' + (job.type === "extract" ? "extração" : "adição") + ' — o cache do Supabase preserva o progresso.</div>';
   } else if (job.status === "cancelled") {
-    message = '<div class="job-message warn">⏹️ Cancelado — ' + progressCount + '/' + adminCount + ' processados</div>';
+    message = '<div class="job-message warn">⏹️ Cancelado' + adminStat + '</div>';
   } else if (job.status === "error") {
     message = '<div class="job-message error">❌ Erro: ' + esc(job.lastError || "desconhecido") + '</div>';
   }
@@ -818,9 +857,7 @@ function renderJobCard(job) {
     + '</div>'
     + '<div class="job-config">' + esc(configLine) + '</div>'
     + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>'
-    + '<div class="job-progress-text">' + progressCount + ' de ' + adminCount + ' (' + pct.toFixed(0) + '%)'
-    + (job.progress.newInThisRun ? ' — ' + job.progress.newInThisRun + ' novos nesta rodada' : '')
-    + '</div>'
+    + '<div class="job-progress-text">' + mainCount + ' de ' + mainTotal + ' (' + pct.toFixed(0) + '%)' + '</div>'
     + message
     + tableSection;
 
