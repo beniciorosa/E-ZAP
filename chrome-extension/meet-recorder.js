@@ -284,15 +284,25 @@
 
   // ===== BANNER UI =====
   function createBanner() {
+    // Sempre garante que a classe esteja no <html> (mesmo se banner ja existe
+    // e hideBanner tiver removido a classe anteriormente). Essa classe ativa
+    // o CSS que empurra o layout do Meet 56px para baixo.
+    document.documentElement.classList.add("ezap-meet-has-banner");
     if (_banner) return;
     _banner = document.createElement("div");
     _banner.id = "ezap-meet-banner";
     _banner.className = "ezap-meet-banner";
-    document.body.prepend(_banner);
+    // IMPORTANTE: inserir em <html>, NAO em <body>.
+    // Motivo: o <body> recebe transform:translateY(56px) via CSS, o que cria
+    // um novo containing block e moveria a barra junto. Inserindo em <html>,
+    // a barra permanece fixa no topo absoluto do viewport.
+    document.documentElement.appendChild(_banner);
   }
 
   function updateBanner(type, message) {
     createBanner();
+    // Limpa display:none deixado por hideBanner anterior
+    _banner.style.display = "";
 
     if (type === "ready") {
       _banner.className = "ezap-meet-banner";
@@ -347,6 +357,8 @@
   function hideBanner() {
     if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
     if (_banner) _banner.style.display = "none";
+    // Remove a classe para desfazer o shift do layout do Meet
+    document.documentElement.classList.remove("ezap-meet-has-banner");
   }
 
   // ===== SUPABASE LOGGING =====

@@ -5,12 +5,14 @@
   top: 0;
   left: 0;
   right: 0;
-  z-index: 999999;
+  height: 56px;
+  box-sizing: border-box;
+  z-index: 2147483647;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 16px;
-  padding: 16px 24px;
+  padding: 0 24px;
   background: linear-gradient(135deg, #00a884 0%, #008f6f 100%);
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -64,10 +66,34 @@
 
 .ezap-meet-banner--recording {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  padding: 16px 24px;
+  padding: 0 24px;
   font-size: 20px;
 }
 
 .ezap-meet-banner--done {
   background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+}
+
+/* ===== Empurra layout do Meet quando a barra esta visivel ===== */
+/*
+ * Quando a classe .ezap-meet-has-banner e aplicada em <html>, o <body>
+ * recebe transform que:
+ *  1. Desloca todo o conteudo 56px para baixo
+ *  2. Cria um novo containing block - elementos position:fixed do Meet
+ *     passam a ser reposicionados relativos ao body (e nao ao viewport),
+ *     entao descem junto
+ *  3. Reduz altura efetiva para calc(100vh - 56px) para nao cortar
+ *     os controles inferiores do Meet
+ *
+ * A barra E-ZAP e inserida em <html> (fora do body), entao escapa do
+ * transform e permanece fixa no topo absoluto do viewport.
+ */
+html.ezap-meet-has-banner > body {
+  transform: translateY(56px);
+  height: calc(100vh - 56px) !important;
+  min-height: calc(100vh - 56px) !important;
+  max-height: calc(100vh - 56px) !important;
+  overflow: hidden;
+  transition: transform 0.3s ease-out;
+  position: relative;
 }
