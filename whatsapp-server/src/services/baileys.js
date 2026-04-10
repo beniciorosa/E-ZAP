@@ -311,6 +311,23 @@ function extractDomain(jid) {
   return m ? m[1] : "";
 }
 
+// Returns { myJid, myLid, myPhoneBase, myLidBase } for the current session.
+// IMPORTANT: Baileys 6.6.0 does NOT populate `sock.user.lid` — the LID is
+// only stored in `sock.authState.creds.me.lid`. If we only read from
+// `sock.user.lid` the LID is empty, which breaks admin detection in groups
+// that list participants by @lid (new WhatsApp default). Read both places
+// and prefer whichever is populated.
+function getSessionIdentity(sock) {
+  const jidCandidate = sock?.user?.id || sock?.authState?.creds?.me?.id || "";
+  const lidCandidate = sock?.user?.lid || sock?.authState?.creds?.me?.lid || "";
+  return {
+    myJid: jidCandidate,
+    myLid: lidCandidate,
+    myPhoneBase: extractBase(jidCandidate),
+    myLidBase: extractBase(lidCandidate),
+  };
+}
+
 async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10, options = {}) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
@@ -320,10 +337,9 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10, o
   const sock = session.sock;
   // WhatsApp uses TWO identities for the same user: phone JID (@s.whatsapp.net)
   // and LID (@lid). In newer groups, participants are listed by LID instead of phone.
-  const myJid = sock.user?.id || "";
-  const myLid = sock.user?.lid || "";
-  const myPhoneBase = extractBase(myJid); // digits only, e.g. "5511999999999"
-  const myLidBase = extractBase(myLid);
+  // getSessionIdentity handles the Baileys 6.6.0 quirk where sock.user.lid is
+  // empty and the real LID is only in sock.authState.creds.me.lid.
+  const { myJid, myLid, myPhoneBase, myLidBase } = getSessionIdentity(sock);
 
   // JIDs to skip — caller already has the invite link cached for these
   const skipSet = new Set(Array.isArray(skipJids) ? skipJids : []);
@@ -473,6 +489,19 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10, o
     adminDetectedAny,
     firstGroupSample,
   };
+
+  // Visibility when detection is broken: log a big warning so we know without
+  // needing to dig through logs later. This triggers when identity IS known
+  // (myPhoneBase OR myLidBase populated) but none of the N groups matched.
+  if (!adminDetectedAny && (myPhoneBase || myLidBase) && total > 0) {
+    console.warn(
+      "[BAILEYS] Admin detection FAILED for session", sessionId,
+      "— iterated", total, "groups, found 0 admins.",
+      "myJid=" + (myJid || "(empty)"),
+      "myLid=" + (myLid || "(empty)"),
+      "firstGroupSample=" + JSON.stringify(firstGroupSample)
+    );
+  }
 
   return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, cancelled, debug };
 }
@@ -719,10 +748,7 @@ async function listAdminGroups(sessionId) {
   }
   const sock = session.sock;
 
-  const myJid = sock.user?.id || "";
-  const myLid = sock.user?.lid || "";
-  const myPhoneBase = extractBase(myJid);
-  const myLidBase = extractBase(myLid);
+  const { myJid, myLid, myPhoneBase, myLidBase } = getSessionIdentity(sock);
 
   const groupsMap = await sock.groupFetchAllParticipating();
   const groupList = Object.values(groupsMap || {});
@@ -798,10 +824,7 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   }
 
   // Same identity setup as fetchGroupsWithInvites (for admin detection)
-  const myJid = sock.user?.id || "";
-  const myLid = sock.user?.lid || "";
-  const myPhoneBase = extractBase(myJid);
-  const myLidBase = extractBase(myLid);
+  const { myJid, myLid, myPhoneBase, myLidBase } = getSessionIdentity(sock);
 
   const skipSet = new Set(Array.isArray(skipJids) ? skipJids : []);
   // maxCalls counts INDIVIDUAL WhatsApp API calls (add + promote are 2 separate calls)
