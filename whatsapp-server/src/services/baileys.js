@@ -2,7 +2,7 @@
 // Manages multiple WhatsApp connections via Baileys library.
 // Sessions are persisted to Supabase (creds as JSONB).
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, makeCacheableSignalKeyStore } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const { supaRest } = require("./supabase");
 
@@ -10,6 +10,9 @@ const logger = pino({ level: "warn" });
 
 // In-memory session store: sessionId -> { sock, status, qr }
 const sessions = new Map();
+// Reconnection attempt counters: sessionId -> count
+const reconnectAttempts = new Map();
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 // Event emitter for WebSocket broadcasting
 let _io = null;
@@ -60,6 +63,7 @@ async function startSession(sessionId, existingCreds = null) {
     if (connection === "open") {
       session.status = "connected";
       session.qr = null;
+      reconnectAttempts.delete(sessionId); // Reset counter on success
       const phone = sock.user?.id?.split(":")[0] || sock.user?.id?.split("@")[0] || "";
       await updateSessionStatus(sessionId, "connected", phone);
       await saveSessionCreds(sessionId, authState.creds);
@@ -69,6 +73,7 @@ async function startSession(sessionId, existingCreds = null) {
 
     if (connection === "close") {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const errorMsg = lastDisconnect?.error?.message || "";
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 403;
 
       console.log("[BAILEYS] Disconnected:", sessionId, "code:", statusCode, "reconnect:", shouldReconnect);
@@ -76,12 +81,34 @@ async function startSession(sessionId, existingCreds = null) {
       sessions.delete(sessionId);
 
       if (shouldReconnect) {
-        // Auto-reconnect after 3 seconds
-        setTimeout(() => {
-          console.log("[BAILEYS] Reconnecting:", sessionId);
-          startSession(sessionId, existingCreds);
-        }, 3000);
+        const attempts = (reconnectAttempts.get(sessionId) || 0) + 1;
+        reconnectAttempts.set(sessionId, attempts);
+
+        if (attempts > MAX_RECONNECT_ATTEMPTS) {
+          console.log("[BAILEYS] Max reconnect attempts reached for:", sessionId, "- stopping");
+          reconnectAttempts.delete(sessionId);
+          await updateSessionStatus(sessionId, "disconnected");
+          emit("session:disconnected", { sessionId, reason: "max_attempts" });
+          return;
+        }
+
+        // Progressive backoff: 3s, 6s, 12s, 24s, 48s
+        const delay = 3000 * Math.pow(2, attempts - 1);
+        console.log("[BAILEYS] Reconnecting:", sessionId, "attempt:", attempts + "/" + MAX_RECONNECT_ATTEMPTS, "in", delay + "ms");
+
+        setTimeout(async () => {
+          // Fetch fresh creds from Supabase instead of using stale closure
+          try {
+            const rows = await supaRest("/rest/v1/wa_sessions?id=eq." + sessionId + "&select=creds");
+            const freshCreds = rows && rows.length > 0 ? rows[0].creds : null;
+            await startSession(sessionId, freshCreds);
+          } catch(e) {
+            console.error("[BAILEYS] Failed to fetch creds for reconnect:", e.message);
+            await startSession(sessionId, null);
+          }
+        }, delay);
       } else {
+        reconnectAttempts.delete(sessionId);
         await updateSessionStatus(sessionId, statusCode === 403 ? "banned" : "disconnected");
         emit("session:disconnected", { sessionId, reason: statusCode });
       }
@@ -234,8 +261,27 @@ function getSession(sessionId) {
 
 // ===== Auth state helpers =====
 async function buildAuthState(sessionId, existingCreds) {
-  // Simple in-memory auth state
-  let creds = existingCreds || {};
+  let creds;
+
+  if (existingCreds && Object.keys(existingCreds).length > 0) {
+    try {
+      // Reconstruct Buffer/Uint8Array objects from Supabase JSONB
+      creds = JSON.parse(JSON.stringify(existingCreds), BufferJSON.reviver);
+      // Validate critical key exists
+      if (!creds.noiseKey || !creds.noiseKey.public) {
+        console.log("[BAILEYS] Creds corrupted (missing noiseKey), generating fresh creds for:", sessionId);
+        creds = initAuthCreds();
+      }
+    } catch(e) {
+      console.log("[BAILEYS] Failed to parse creds, generating fresh for:", sessionId, e.message);
+      creds = initAuthCreds();
+    }
+  } else {
+    // No existing creds — generate fresh (will require QR scan)
+    creds = initAuthCreds();
+    console.log("[BAILEYS] Fresh creds generated for:", sessionId);
+  }
+
   const keys = {};
 
   return {
@@ -262,8 +308,10 @@ async function buildAuthState(sessionId, existingCreds) {
 
 async function saveSessionCreds(sessionId, creds) {
   try {
+    // Serialize Buffer/Uint8Array properly for JSONB storage
+    const serialized = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
     await supaRest("/rest/v1/wa_sessions?id=eq." + sessionId, "PATCH", {
-      creds: creds,
+      creds: serialized,
       last_seen: new Date().toISOString(),
     });
   } catch (e) {
