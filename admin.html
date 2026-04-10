@@ -1876,16 +1876,19 @@
         <div class="empty-state">Configure a URL do servidor acima para começar</div>
       </div>
 
+      <!-- Session selector for chat viewer -->
+      <div style="margin-top:16px;display:flex;align-items:center;gap:12px" id="waChatSessionBar">
+        <label style="font-size:13px;font-weight:600;color:var(--on-surface)">Conversas</label>
+        <select id="waChatSession" onchange="loadWaChats()" style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--on-surface);font-size:13px;min-width:200px">
+          <option value="">Selecione a sessão</option>
+        </select>
+      </div>
+
       <!-- Chat Viewer -->
-      <div id="waChatViewer" style="display:none;margin-top:16px">
+      <div id="waChatViewer" style="display:none;margin-top:12px">
         <div style="display:flex;gap:16px;height:500px">
           <!-- Chat List (left) -->
           <div style="width:280px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;background:var(--surface)">
-            <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
-              <select id="waChatSession" onchange="loadWaChats()" style="flex:1;padding:6px 8px;background:var(--background);border:1px solid var(--border);border-radius:6px;color:var(--on-surface);font-size:12px">
-                <option value="">Selecione a sessão</option>
-              </select>
-            </div>
             <div style="padding:6px 10px;border-bottom:1px solid var(--border)">
               <input type="text" id="waChatSearch" placeholder="Buscar conversa..." oninput="filterWaChats()" style="width:100%;padding:6px 8px;background:var(--background);border:1px solid var(--border);border-radius:6px;color:var(--on-surface);font-size:11px;box-sizing:border-box">
             </div>
