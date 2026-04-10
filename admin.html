@@ -1876,6 +1876,33 @@
         <div class="empty-state">Configure a URL do servidor acima para começar</div>
       </div>
 
+      <!-- Chat Viewer -->
+      <div id="waChatViewer" style="display:none;margin-top:16px">
+        <div style="display:flex;gap:16px;height:500px">
+          <!-- Chat List (left) -->
+          <div style="width:280px;flex-shrink:0;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;background:var(--surface)">
+            <div style="padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+              <select id="waChatSession" onchange="loadWaChats()" style="flex:1;padding:6px 8px;background:var(--background);border:1px solid var(--border);border-radius:6px;color:var(--on-surface);font-size:12px">
+                <option value="">Selecione a sessão</option>
+              </select>
+            </div>
+            <div style="padding:6px 10px;border-bottom:1px solid var(--border)">
+              <input type="text" id="waChatSearch" placeholder="Buscar conversa..." oninput="filterWaChats()" style="width:100%;padding:6px 8px;background:var(--background);border:1px solid var(--border);border-radius:6px;color:var(--on-surface);font-size:11px;box-sizing:border-box">
+            </div>
+            <div id="waChatList" style="flex:1;overflow-y:auto"></div>
+          </div>
+
+          <!-- Messages (right) -->
+          <div style="flex:1;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;background:var(--surface)">
+            <div id="waChatHeader" style="padding:10px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;color:var(--on-surface);display:flex;align-items:center;gap:8px">
+              <span style="color:var(--on-surface-variant);font-size:12px">Selecione uma conversa</span>
+            </div>
+            <div id="waChatMessages" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:6px">
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- QR Code Modal -->
       <div id="waQrModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:none;align-items:center;justify-content:center">
         <div class="card" style="padding:32px;text-align:center;max-width:400px;width:90%">
@@ -6145,6 +6172,7 @@ function loadWaSessions() {
     });
     html += '</tbody></table>';
     document.getElementById("waSessionsContainer").innerHTML = html;
+    populateSessionDropdown();
   }).catch(function(e) {
     document.getElementById("waSessionsContainer").innerHTML = '<div class="empty-state">Erro: ' + esc(e.message) + '</div>';
   });
@@ -6214,6 +6242,120 @@ function reconnectWaSession(id) {
       document.getElementById("waQrCode").innerHTML = '<div class="spinner"></div>';
     }
     loadWaSessions();
+  });
+}
+
+// ===== CHAT VIEWER =====
+var _waChats = [];
+var _waCurrentChat = null;
+
+function populateSessionDropdown() {
+  waFetch("/api/sessions").then(function(sessions) {
+    var sel = document.getElementById("waChatSession");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Selecione a sessão</option>';
+    (sessions || []).forEach(function(s) {
+      if (s.status === "connected" || s.live) {
+        sel.innerHTML += '<option value="' + s.id + '">' + esc(s.label) + ' (' + esc(s.phone || '-') + ')</option>';
+      }
+    });
+  }).catch(function() {});
+}
+
+function loadWaChats() {
+  var sessionId = document.getElementById("waChatSession").value;
+  var viewer = document.getElementById("waChatViewer");
+  if (!sessionId) { viewer.style.display = "none"; return; }
+  viewer.style.display = "block";
+
+  waFetch("/api/messages/" + sessionId + "/chats").then(function(chats) {
+    _waChats = chats || [];
+    renderWaChatList(_waChats);
+  }).catch(function(e) {
+    document.getElementById("waChatList").innerHTML = '<div style="padding:16px;text-align:center;font-size:11px;color:var(--on-surface-variant)">Erro: ' + esc(e.message) + '</div>';
+  });
+}
+
+function filterWaChats() {
+  var q = (document.getElementById("waChatSearch").value || "").toLowerCase();
+  if (!q) { renderWaChatList(_waChats); return; }
+  renderWaChatList(_waChats.filter(function(c) { return (c.chatName || "").toLowerCase().indexOf(q) >= 0; }));
+}
+
+function renderWaChatList(chats) {
+  var html = "";
+  if (!chats.length) {
+    html = '<div style="padding:16px;text-align:center;font-size:11px;color:var(--on-surface-variant)">Nenhuma conversa</div>';
+  }
+  chats.forEach(function(c) {
+    var isActive = _waCurrentChat && _waCurrentChat === c.chatJid;
+    var activeBg = isActive ? "background:var(--primary-container);" : "";
+    var lastMsg = (c.lastMessage || "").substring(0, 40);
+    var time = c.lastTimestamp ? new Date(c.lastTimestamp).toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"}) : "";
+    var initial = (c.chatName || "?").charAt(0).toUpperCase();
+
+    html += '<div onclick="openWaChat(\'' + esc(c.chatJid) + '\', \'' + esc(c.chatName || '') + '\')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);' + activeBg + 'transition:background 0.15s">';
+    html += '<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#6eb4ff,#4d7cff);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0">' + initial + '</div>';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<div style="font-size:13px;font-weight:600;color:var(--on-surface);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(c.chatName || c.chatJid) + '</div>';
+    html += '<span style="font-size:10px;color:var(--on-surface-variant);flex-shrink:0">' + time + '</span>';
+    html += '</div>';
+    html += '<div style="font-size:11px;color:var(--on-surface-variant);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(lastMsg) + '</div>';
+    html += '</div></div>';
+  });
+  document.getElementById("waChatList").innerHTML = html;
+}
+
+function openWaChat(chatJid, chatName) {
+  _waCurrentChat = chatJid;
+  var sessionId = document.getElementById("waChatSession").value;
+  if (!sessionId) return;
+
+  document.getElementById("waChatHeader").innerHTML = '<div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#6eb4ff,#4d7cff);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff">' + (chatName || "?").charAt(0).toUpperCase() + '</div><span>' + esc(chatName || chatJid) + '</span>';
+
+  // Refresh chat list to highlight active
+  renderWaChatList(document.getElementById("waChatSearch").value ? _waChats.filter(function(c) { return (c.chatName || "").toLowerCase().indexOf(document.getElementById("waChatSearch").value.toLowerCase()) >= 0; }) : _waChats);
+
+  // Load messages
+  waFetch("/api/messages/" + sessionId + "?chatJid=" + encodeURIComponent(chatJid) + "&limit=100").then(function(msgs) {
+    var container = document.getElementById("waChatMessages");
+    if (!msgs || !msgs.length) {
+      container.innerHTML = '<div style="text-align:center;color:var(--on-surface-variant);font-size:11px;padding:32px">Nenhuma mensagem</div>';
+      return;
+    }
+    // Reverse to show oldest first
+    msgs.reverse();
+    var html = "";
+    msgs.forEach(function(m) {
+      var align = m.from_me ? "margin-left:auto;background:var(--primary-container);border-color:var(--primary);" : "margin-right:auto;background:var(--surface-variant);";
+      var time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"}) : "";
+      var sender = !m.from_me && m.sender_name ? '<div style="font-size:10px;font-weight:600;color:var(--primary);margin-bottom:2px">' + esc(m.sender_name) + '</div>' : '';
+      var mediaTag = m.media_type ? '<div style="font-size:10px;color:var(--on-surface-variant);font-style:italic">📎 ' + esc(m.media_type) + '</div>' : '';
+      var bodyText = m.body ? '<div style="font-size:12px;line-height:1.4;color:var(--on-surface);word-wrap:break-word">' + esc(m.body) + '</div>' : '';
+
+      html += '<div style="max-width:70%;padding:8px 12px;border-radius:12px;border:1px solid var(--border);' + align + '">';
+      html += sender + bodyText + mediaTag;
+      html += '<div style="font-size:9px;color:var(--on-surface-variant);text-align:right;margin-top:2px">' + time + '</div>';
+      html += '</div>';
+    });
+    container.innerHTML = html;
+    container.scrollTop = container.scrollHeight;
+  }).catch(function(e) {
+    document.getElementById("waChatMessages").innerHTML = '<div style="text-align:center;color:var(--error);font-size:11px;padding:32px">Erro: ' + esc(e.message) + '</div>';
+  });
+}
+
+// Listen for real-time messages
+if (_waSocket) {
+  _waSocket.on("message:new", function(data) {
+    if (_waCurrentChat === data.chatJid) {
+      var sessionId = document.getElementById("waChatSession").value;
+      if (sessionId === data.sessionId) openWaChat(data.chatJid, data.chatName);
+    }
+    // Refresh chat list
+    var sessionId = document.getElementById("waChatSession").value;
+    if (sessionId === data.sessionId) loadWaChats();
   });
 }
 
