@@ -148,7 +148,7 @@ function loadSessions() {
 function loadGroups() {
   var sid = document.getElementById("sessionSelect").value;
   if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
-  setStatus("Extraindo grupos — isso pode demorar se houver muitos grupos admin (aprox. 250ms por grupo admin)...");
+  setStatus("Extraindo grupos — o servidor processa 1 grupo admin a cada 800ms para evitar rate-limit do WhatsApp. Para 300 grupos com ~50 admin, estimar ~40s.");
   document.getElementById("resultCard").classList.add("hidden");
   document.getElementById("exportBtn").disabled = true;
 
@@ -169,7 +169,16 @@ function loadGroups() {
       tbody.appendChild(tr);
     });
     var withLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
-    setStatus(cache.length + " grupos encontrados — " + withLink + " com link extraído.");
+    var statusMsg = cache.length + " grupos encontrados — " + withLink + " com link extraído.";
+    if (data.rateLimited) {
+      statusMsg = "⚠️ ABORTADO POR RATE-LIMIT DO WHATSAPP — " + statusMsg
+        + " Extração interrompida para proteger sua conta. Os demais grupos aparecem como 'Abortado por rate-limit'. "
+        + "Aguarde uns minutos antes de tentar de novo.";
+      document.getElementById("status").style.color = "var(--danger)";
+    } else {
+      document.getElementById("status").style.color = "";
+    }
+    setStatus(statusMsg);
     document.getElementById("resultCard").classList.remove("hidden");
     document.getElementById("exportBtn").disabled = cache.length === 0;
   }).catch(function(e) { setStatus("Erro: " + e.message); });

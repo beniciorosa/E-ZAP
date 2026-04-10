@@ -286,6 +286,19 @@ async function sendMessage(sessionId, jid, content) {
 }
 
 // ===== Fetch groups with invite links (temporary tool) =====
+// Detect WhatsApp rate-limit errors from Baileys stanzas
+function isRateLimitError(e) {
+  const msg = (e?.message || "").toLowerCase();
+  const statusCode = e?.output?.statusCode || e?.data;
+  if (statusCode === 429 || statusCode === 503) return true;
+  return msg.includes("rate-overlimit")
+    || msg.includes("rate_overlimit")
+    || msg.includes("rate limit")
+    || msg.includes("rate-limit")
+    || msg.includes("too many")
+    || msg.includes("not-acceptable");
+}
+
 async function fetchGroupsWithInvites(sessionId) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
@@ -300,9 +313,15 @@ async function fetchGroupsWithInvites(sessionId) {
   // 1. Fetch all participating groups
   const groupsMap = await sock.groupFetchAllParticipating();
   const groupList = Object.values(groupsMap || {});
+  const total = groupList.length;
 
   const results = [];
+  let rateLimited = false;
+  let processed = 0;
+
   for (const g of groupList) {
+    processed++;
+
     // Check if "me" is admin in this group
     let isAdmin = false;
     if (Array.isArray(g.participants)) {
@@ -315,15 +334,22 @@ async function fetchGroupsWithInvites(sessionId) {
     let inviteLink = null;
     let inviteError = null;
 
-    if (isAdmin) {
+    if (isAdmin && !rateLimited) {
       try {
         const code = await sock.groupInviteCode(g.id);
         if (code) inviteLink = "https://chat.whatsapp.com/" + code;
       } catch (e) {
         inviteError = e?.message || "Falha ao obter código";
+        // ABORT on rate-limit: stop calling groupInviteCode to protect the account
+        if (isRateLimitError(e)) {
+          rateLimited = true;
+          console.warn("[BAILEYS] Rate limit detected — aborting invite extraction at group", processed, "of", total);
+        }
       }
-      // Small delay to avoid WhatsApp rate-limit when many admin groups
-      await new Promise(r => setTimeout(r, 250));
+      // Delay 800ms between IQ requests to stay safely under WhatsApp rate limits
+      if (!rateLimited) await new Promise(r => setTimeout(r, 800));
+    } else if (isAdmin && rateLimited) {
+      inviteError = "Abortado por rate-limit";
     } else {
       inviteError = "Sem permissão (não é admin)";
     }
@@ -338,7 +364,7 @@ async function fetchGroupsWithInvites(sessionId) {
     });
   }
 
-  return results;
+  return { groups: results, rateLimited, total, processed };
 }
 
 // ===== Stop session =====
