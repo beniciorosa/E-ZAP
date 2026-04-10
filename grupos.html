@@ -239,10 +239,15 @@ function loadSessions() {
   }).catch(function(e) { setStatus("Erro: " + e.message); });
 }
 
-// Config: batch size (max groupInviteCode calls per HTTP request)
-// With 5s delay per call, 10 calls = 50s per request — safely under any HTTP timeout.
-var BATCH_SIZE = 10;
-var BATCH_PAUSE_MS = 1500; // pause between batches so the user can see progress
+// Config: batch size (max calls per HTTP request)
+// EXTRACT (groupInviteCode): 5s delay, 10 calls per batch = ~50s per request.
+// ADD (groupParticipantsUpdate): 20s delay, 3 calls per batch = ~60s per request.
+// The add-participant API has tighter rate limits than invite-code, hence the
+// bigger delay and smaller batch.
+var BATCH_SIZE = 10;        // for link extraction
+var ADD_BATCH_SIZE = 3;     // for add-to-groups
+var ADD_DELAY_PER_CALL_S = 20; // seconds, just for display
+var BATCH_PAUSE_MS = 1500;  // pause between batches so the user can see progress
 
 var _extractRunning = false;
 
@@ -529,7 +534,10 @@ async function loadAddToGroups() {
   var phone = document.getElementById("addPhone").value.replace(/\D/g, "");
   if (phone.length < 10) { setAddStatus("Número inválido. Use formato 5511999999999 (DDI+DDD+número, só dígitos)."); return; }
 
-  if (!confirm("Vai adicionar o número " + phone + " em TODOS os grupos onde a sessão selecionada é admin. Essa ação é visível (aparece 'Fulano adicionou " + phone + "' em cada grupo). Confirma?")) return;
+  if (!confirm("Vai adicionar o número " + phone + " em TODOS os grupos onde a sessão selecionada é admin.\n\n"
+    + "⏱️ Delay: " + ADD_DELAY_PER_CALL_S + "s por grupo (pra evitar rate-limit do WhatsApp).\n"
+    + "📢 Visibilidade: aparece a mensagem 'Fulano adicionou " + phone + "' em cada grupo.\n\n"
+    + "Confirma?")) return;
 
   _addRunning = true;
   setAddBtnRunning(true);
@@ -544,13 +552,14 @@ async function loadAddToGroups() {
     while (true) {
       batchNum++;
       var cachedJids = Object.keys(savedCache);
-      setAddStatus("Lote " + batchNum + " — adicionando até " + BATCH_SIZE + " grupos (5s cada, ~"
-        + (BATCH_SIZE * 5) + "s). Histórico: " + cachedJids.length + " grupo(s) já processados.");
+      setAddStatus("Lote " + batchNum + " — adicionando até " + ADD_BATCH_SIZE + " grupos ("
+        + ADD_DELAY_PER_CALL_S + "s cada, ~" + (ADD_BATCH_SIZE * ADD_DELAY_PER_CALL_S)
+        + "s por lote). Histórico: " + cachedJids.length + " grupo(s) já processados.");
 
       var data = await waFetch("/api/sessions/" + sid + "/add-to-groups", "POST", {
         phone: phone,
         skipJids: cachedJids,
-        maxCalls: BATCH_SIZE,
+        maxCalls: ADD_BATCH_SIZE,
       });
 
       var groups = data.groups || [];

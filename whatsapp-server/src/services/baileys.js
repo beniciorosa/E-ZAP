@@ -564,8 +564,10 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
         }
       }
       callsMade++;
+      // Add-participant rate limits from WhatsApp are MORE aggressive than invite-code.
+      // Empirically observed: 5 calls in ~20s triggered rate-limit. We use 20s delay to be safe.
       if (!rateLimited && callsMade < maxCallsThisBatch) {
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 20000));
       }
       if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
     }
