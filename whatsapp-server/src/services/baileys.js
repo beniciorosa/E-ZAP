@@ -218,14 +218,44 @@ async function sendMessage(sessionId, jid, content) {
     }
   }
 
+  let sentMsg;
   if (content.image) {
-    await session.sock.sendMessage(jid, {
+    sentMsg = await session.sock.sendMessage(jid, {
       image: { url: content.image },
       caption: content.caption || "",
     });
   } else {
-    await session.sock.sendMessage(jid, { text: content.text || content });
+    sentMsg = await session.sock.sendMessage(jid, { text: content.text || content });
   }
+
+  // Save sent message to Supabase
+  const textBody = content.text || content.caption || (typeof content === "string" ? content : "");
+  try {
+    await supaRest("/rest/v1/wa_messages", "POST", {
+      session_id: sessionId,
+      message_id: sentMsg.key.id,
+      chat_jid: jid,
+      chat_name: jid.split("@")[0],
+      from_me: true,
+      sender_name: "Eu",
+      sender_jid: session.sock.user?.id || "",
+      body: textBody,
+      media_type: content.image ? "image" : null,
+      timestamp: new Date().toISOString(),
+    }, "resolution=merge-duplicates,return=minimal");
+  } catch(e) {
+    console.error("[BAILEYS] Failed to save sent message:", e.message);
+  }
+
+  // Emit for real-time update
+  emit("message:new", {
+    sessionId,
+    chatJid: jid,
+    chatName: jid.split("@")[0],
+    fromMe: true,
+    body: textBody,
+    timestamp: Math.floor(Date.now() / 1000),
+  });
 
   return { ok: true };
 }
