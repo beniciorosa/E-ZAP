@@ -3,49 +3,157 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Extrator de Grupos WhatsApp — E-ZAP</title>
+  <title>Ferramenta de Grupos WhatsApp — E-ZAP</title>
   <style>
-    :root { --bg:#0f1420; --surface:#1a2030; --border:#2a3347; --text:#e8edf5; --muted:#8a97b0; --primary:#6366f1; --danger:#ef4444; --ok:#22c55e; }
+    :root {
+      --bg:#0f1420; --surface:#1a2030; --surface-2:#121828; --border:#2a3347;
+      --text:#e8edf5; --muted:#8a97b0; --primary:#6366f1; --primary-hover:#4f52e1;
+      --danger:#ef4444; --ok:#22c55e; --warn:#f59e0b;
+    }
     * { box-sizing: border-box; }
     body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); padding:24px; }
-    .container { max-width:1100px; margin:0 auto; }
-    h1 { font-size:20px; margin:0 0 4px }
-    .sub { color:var(--muted); font-size:13px; margin-bottom:24px }
+    .container { max-width:1200px; margin:0 auto; }
+    h1 { font-size:22px; margin:0 0 4px; }
+    h2 { font-size:16px; margin:0 0 8px; }
+    .sub { color:var(--muted); font-size:13px; margin-bottom:24px; }
     .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
     label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
-    input, select, button { font:inherit; color:var(--text); }
-    input[type=text], input[type=password], select { width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; }
+    input, select, button, textarea { font:inherit; color:var(--text); }
+    input[type=text], input[type=password], select, textarea { width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; }
     .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px; }
     .row > * { flex:1; min-width:200px; }
     button { padding:10px 18px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
     .btn-primary { background:var(--primary); color:#fff; }
+    .btn-primary:hover { background:var(--primary-hover); }
     .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
     .btn-secondary { background:var(--bg); border:1px solid var(--border); color:var(--text); }
+    .btn-secondary:hover { background:var(--surface-2); }
+    .btn-danger { background:var(--danger); color:#fff; }
+    .btn-icon { padding:6px 10px; font-size:12px; }
     .status { font-size:13px; color:var(--muted); margin:12px 0; }
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    th { text-align:left; padding:10px 12px; background:#121828; border-bottom:1px solid var(--border); position:sticky; top:0; }
-    td { padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
-    tbody tr:hover { background:#121828; }
+    .hidden { display:none !important; }
+
+    /* Top toolbar */
+    .toolbar { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    .toolbar button { padding:12px 20px; font-size:14px; }
+
+    /* Job cards */
+    .jobs-container { display:flex; flex-direction:column; gap:16px; }
+    .job-card {
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      padding:16px; position:relative;
+    }
+    .job-card.completed { border-color:var(--ok); }
+    .job-card.rate_limited { border-color:var(--danger); }
+    .job-card.cancelled { border-color:var(--muted); }
+    .job-card.error { border-color:var(--danger); }
+    .job-header { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+    .job-title { font-size:15px; font-weight:600; flex:1; min-width:200px; }
+    .job-status-badge {
+      font-size:11px; padding:3px 10px; border-radius:12px; font-weight:600;
+      border:1px solid var(--border);
+    }
+    .job-status-badge.running { color:var(--primary); border-color:var(--primary); }
+    .job-status-badge.completed { color:var(--ok); border-color:var(--ok); }
+    .job-status-badge.rate_limited { color:var(--danger); border-color:var(--danger); }
+    .job-status-badge.cancelled { color:var(--muted); }
+    .job-status-badge.error { color:var(--danger); border-color:var(--danger); }
+    .job-status-badge.pending { color:var(--warn); border-color:var(--warn); }
+    .job-config { font-size:11px; color:var(--muted); margin-bottom:8px; }
+    .job-progress-text { font-size:12px; color:var(--muted); margin-top:6px; text-align:center; }
+    .job-message { font-size:12px; margin:10px 0; padding:8px 12px; background:var(--surface-2); border-radius:6px; border-left:3px solid var(--border); }
+    .job-message.error { border-left-color:var(--danger); color:var(--danger); }
+    .job-message.ok { border-left-color:var(--ok); color:var(--ok); }
+    .job-message.warn { border-left-color:var(--warn); color:var(--warn); }
+
+    /* Progress bar */
+    .progress-bar-bg { width:100%; height:10px; background:var(--bg); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+    .progress-bar-fill { height:100%; background:linear-gradient(90deg,var(--primary),var(--ok)); width:0%; transition:width 0.4s ease; }
+    .spinner { display:inline-block; width:12px; height:12px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin 0.9s linear infinite; vertical-align:middle; margin-right:6px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* Results table */
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th { text-align:left; padding:8px 12px; background:var(--surface-2); border-bottom:1px solid var(--border); position:sticky; top:0; font-weight:600; }
+    td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+    tbody tr:hover { background:var(--surface-2); }
     a { color:var(--primary); word-break:break-all; text-decoration:none; }
     a:hover { text-decoration:underline; }
     .err { color:var(--danger); }
     .ok { color:var(--ok); }
-    .wrap { max-height:60vh; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:8px; }
-    .hidden { display:none; }
-    .progress-wrap { margin:12px 0 0 0; }
-    .progress-bar-bg { width:100%; height:10px; background:var(--bg); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
-    .progress-bar-fill { height:100%; background:linear-gradient(90deg,var(--primary),var(--ok)); width:0%; transition:width 0.4s ease; }
-    .progress-text { font-size:12px; color:var(--muted); margin-top:6px; text-align:center; }
-    .spinner { display:inline-block; width:12px; height:12px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin 0.9s linear infinite; vertical-align:middle; margin-right:6px; }
-    @keyframes spin { to { transform:rotate(360deg); } }
-    button:disabled { opacity:.5; cursor:not-allowed; }
+    .table-wrap { max-height:300px; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:12px; }
+
+    /* Modal */
+    .modal-backdrop {
+      position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75);
+      display:none; align-items:center; justify-content:center; z-index:100; padding:20px;
+    }
+    .modal-backdrop.open { display:flex; }
+    .modal {
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      padding:24px; max-width:720px; width:100%; max-height:90vh; overflow-y:auto;
+    }
+    .modal-title { font-size:18px; font-weight:600; margin:0 0 4px; }
+    .modal-sub { font-size:13px; color:var(--muted); margin:0 0 16px; }
+    .modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+    .modal input[type=text], .modal select { font-size:13px; }
+
+    /* Delay presets */
+    .delay-presets { display:flex; gap:8px; flex-wrap:wrap; }
+    .delay-presets label {
+      display:flex; align-items:center; gap:6px; padding:8px 12px; background:var(--bg);
+      border:1px solid var(--border); border-radius:6px; cursor:pointer; margin:0; font-size:12px;
+      flex:1; min-width:120px;
+    }
+    .delay-presets label:has(input:checked) { border-color:var(--primary); background:var(--surface-2); }
+    .delay-presets input[type=radio] { cursor:pointer; }
+
+    /* Group filter list (add modal) */
+    .group-filter-box {
+      background:var(--surface-2); border:1px solid var(--border); border-radius:8px;
+      padding:10px; margin-top:8px;
+    }
+    .group-list {
+      max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:6px;
+      background:var(--bg); padding:4px;
+    }
+    .group-row {
+      display:flex; align-items:center; gap:8px; padding:5px 8px; font-size:12px;
+      border-radius:4px; cursor:pointer;
+    }
+    .group-row:hover { background:var(--surface); }
+    .group-row input[type=checkbox] { cursor:pointer; accent-color:var(--primary); }
+    .group-row-name { flex:1; }
+    .group-row-count { color:var(--muted); font-size:10px; }
+    .group-badge {
+      font-size:10px; font-weight:600; padding:1px 6px; border-radius:10px;
+      border:1px solid var(--ok); color:var(--ok);
+    }
+
+    /* Toast / global status */
+    .toast {
+      position:fixed; bottom:24px; right:24px; padding:12px 18px; border-radius:8px;
+      background:var(--surface); border:1px solid var(--border); font-size:13px;
+      box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:200; max-width:360px;
+      animation:slide-in 0.2s ease-out;
+    }
+    .toast.error { border-color:var(--danger); color:var(--danger); }
+    .toast.ok { border-color:var(--ok); color:var(--ok); }
+    @keyframes slide-in { from { transform:translateX(20px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+
+    /* Empty state */
+    .empty-state {
+      padding:40px; text-align:center; color:var(--muted); font-size:13px;
+      background:var(--surface); border:1px dashed var(--border); border-radius:12px;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Extrator de Grupos WhatsApp</h1>
-    <div class="sub">Ferramenta temporária — extrai links de convite de grupos de uma sessão conectada no servidor E-ZAP.</div>
+    <h1>Ferramenta de Grupos WhatsApp</h1>
+    <div class="sub">Extrai links de convite e adiciona números em grupos do WhatsApp via servidor E-ZAP. Jobs rodam em background — pode fechar a aba e reabrir depois.</div>
 
+    <!-- Configuração do servidor -->
     <div class="card">
       <div class="row">
         <div>
@@ -58,129 +166,153 @@
         </div>
         <button class="btn-secondary" onclick="saveConfig()">Salvar</button>
       </div>
-      <div class="row">
-        <div>
-          <label>Sessão conectada</label>
-          <select id="sessionSelect" onchange="onSessionChange()"><option value="">— carregue as sessões —</option></select>
-        </div>
-        <button class="btn-secondary" onclick="loadSessions()">Recarregar sessões</button>
-        <button class="btn-primary" id="extractBtn" onclick="loadGroups()">Extrair grupos</button>
-        <button class="btn-secondary" id="exportBtn" onclick="exportCSV()" disabled>Exportar CSV</button>
-        <button class="btn-secondary" onclick="clearCacheForSession()" title="Apaga os links do cache local do navegador (não apaga do Supabase). Na próxima seleção da sessão, o cache será re-sincronizado com o servidor.">Limpar cache local</button>
-      </div>
-      <div class="status" id="status">Configure a URL e o token, depois carregue as sessões.</div>
-      <div class="status" id="cacheInfo" style="font-size:11px"></div>
-      <div class="progress-wrap hidden" id="progressWrap">
-        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBarFill"></div></div>
-        <div class="progress-text" id="progressText"></div>
-      </div>
-      <div id="extractAutoRetry" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">
-        <button class="btn-secondary" id="extractAutoRetryBtn" onclick="startExtractAutoRetry()" style="padding:6px 12px;font-size:11px">▶️ Retomar automaticamente em 30 min</button>
-        <span id="extractAutoRetryInfo" style="color:var(--muted)"></span>
-        <button class="btn-secondary" id="extractAutoRetryCancelBtn" onclick="cancelExtractAutoRetry()" style="padding:6px 12px;font-size:11px;display:none">Cancelar</button>
-      </div>
     </div>
 
-    <div class="card" id="addCard">
-      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px">Adicionar número em todos os grupos admin</div>
-      <div class="sub" style="font-size:12px;color:var(--muted);margin-bottom:16px">Adiciona um número específico em todos os grupos onde a sessão selecionada acima é admin. Use apenas números da sua empresa com configurações de privacidade permitindo adição por "Todos".</div>
-      <div class="row">
-        <div>
-          <label>Número (com DDI+DDD, só dígitos)</label>
-          <input type="text" id="addPhone" placeholder="5511999999999" inputmode="numeric">
-        </div>
-        <button class="btn-primary" id="addBtn" onclick="loadAddToGroups()">Adicionar em todos</button>
-        <button class="btn-secondary" onclick="exportAddHistoryCSV()" title="Exporta o histórico completo deste número para esta sessão (do Supabase)">Exportar histórico</button>
-        <button class="btn-secondary" onclick="clearAddCache()" title="Apaga o histórico local deste número para esta sessão (não apaga do servidor)">Limpar cache local</button>
+    <!-- Toolbar de ações -->
+    <div class="toolbar">
+      <button class="btn-primary" onclick="openExtractModal()">+ Nova extração</button>
+      <button class="btn-primary" onclick="openAddModal()">+ Adicionar número</button>
+      <button class="btn-secondary" onclick="refreshJobs()" title="Atualiza a lista de jobs agora (fora do intervalo de polling)">🔄 Atualizar</button>
+    </div>
+
+    <!-- Container de jobs -->
+    <div id="jobsContainer" class="jobs-container"></div>
+    <div id="emptyState" class="empty-state">
+      Nenhum job ativo. Clique em <strong>Nova extração</strong> ou <strong>Adicionar número</strong> para começar.
+    </div>
+  </div>
+
+  <!-- Modal: Nova extração -->
+  <div class="modal-backdrop" id="extractModal">
+    <div class="modal">
+      <div class="modal-title">Nova extração de links</div>
+      <div class="modal-sub">Extrai links de convite de todos os grupos onde a sessão é admin. Job roda em background — pode fechar a aba.</div>
+
+      <div style="margin-bottom:16px">
+        <label>Sessão conectada</label>
+        <select id="extractSession"></select>
       </div>
-      <div style="margin-top:-4px;margin-bottom:8px;font-size:12px;color:var(--muted)">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
-          <input type="checkbox" id="addPromoteAdmin" style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary)">
-          <span>Promover a admin após adicionar (2 chamadas por grupo — dobra o tempo total)</span>
+
+      <div style="margin-bottom:16px">
+        <label>Velocidade de extração (delay entre chamadas)</label>
+        <div class="delay-presets" id="extractDelayPresets">
+          <label><input type="radio" name="extractDelay" value="35"> 35s — rápido (risco médio)</label>
+          <label><input type="radio" name="extractDelay" value="45"> 45s — balanceado</label>
+          <label><input type="radio" name="extractDelay" value="60" checked> 60s — seguro (recomendado)</label>
+          <label><input type="radio" name="extractDelay" value="90"> 90s — paranoico</label>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('extractModal')">Cancelar</button>
+        <button class="btn-primary" onclick="submitExtractJob()">Iniciar extração</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Adicionar número -->
+  <div class="modal-backdrop" id="addModal">
+    <div class="modal">
+      <div class="modal-title">Adicionar número em grupos</div>
+      <div class="modal-sub">Adiciona um número em todos (ou em um subset filtrado) dos grupos onde a sessão é admin. Roda em background.</div>
+
+      <div style="margin-bottom:16px">
+        <label>Sessão que vai adicionar (precisa ser admin dos grupos)</label>
+        <select id="addSession" onchange="onAddSessionChange()"></select>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label>Número a adicionar</label>
+        <div class="row" style="margin-bottom:0">
+          <input type="text" id="addPhone" placeholder="5511999999999 (DDI+DDD, só dígitos)" inputmode="numeric" style="flex:2">
+          <select id="addPhoneFromSession" onchange="onAddPhonePickSession()" style="flex:1" title="Usar número de uma sessão existente">
+            <option value="">— ou escolher uma sessão —</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer">
+          <input type="checkbox" id="addPromoteAdmin" style="width:16px; height:16px; accent-color:var(--primary)">
+          <span style="font-size:13px">Promover a admin após adicionar (2 chamadas por grupo — ~dobra o tempo)</span>
         </label>
       </div>
 
-      <!-- Filtro de grupos (opcional) -->
-      <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:12px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <button class="btn-secondary" onclick="loadAdminGroupList()" style="padding:8px 14px">Carregar lista de grupos (filtro)</button>
-          <span id="addGroupListInfo" style="font-size:11px;color:var(--muted)"></span>
-        </div>
-        <div id="addGroupFilter" class="hidden">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <input type="text" id="addGroupSearch" placeholder="Filtrar por nome (ex: Caio Ribeiro)..."
-                   style="flex:1;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px"
-                   oninput="renderAddGroupList()">
-            <span id="addGroupSearchInfo" style="font-size:11px;color:var(--muted);white-space:nowrap"></span>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:11px">
-            <button class="btn-secondary" onclick="selectAllVisibleAddGroups()" style="padding:4px 10px;font-size:11px">Marcar visíveis</button>
-            <button class="btn-secondary" onclick="unselectAllVisibleAddGroups()" style="padding:4px 10px;font-size:11px">Desmarcar visíveis</button>
-            <button class="btn-secondary" onclick="clearAddGroupSelection()" style="padding:4px 10px;font-size:11px">Limpar seleção</button>
-            <span id="addGroupSelectedInfo" style="margin-left:auto;color:var(--muted)"></span>
-          </div>
-          <div id="addGroupList" style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px;background:var(--bg)"></div>
-          <div style="margin-top:8px;font-size:12px">
-            <label style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
-              <input type="radio" name="addFilterMode" value="include" checked onchange="updateAddBtnLabel()">
-              <span>Adicionar APENAS nos selecionados</span>
-            </label>
-            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
-              <input type="radio" name="addFilterMode" value="exclude" onchange="updateAddBtnLabel()">
-              <span>Adicionar em todos EXCETO os selecionados</span>
-            </label>
-          </div>
+      <div style="margin-bottom:16px">
+        <label>Velocidade de adição (delay entre chamadas)</label>
+        <div class="delay-presets">
+          <label><input type="radio" name="addDelay" value="15"> 15s — rápido</label>
+          <label><input type="radio" name="addDelay" value="20" checked> 20s — padrão</label>
+          <label><input type="radio" name="addDelay" value="30"> 30s — seguro</label>
+          <label><input type="radio" name="addDelay" value="45"> 45s — bem seguro</label>
         </div>
       </div>
-      <div class="status" id="addStatus" style="font-size:12px"></div>
-      <div class="progress-wrap hidden" id="addProgressWrap">
-        <div class="progress-bar-bg"><div class="progress-bar-fill" id="addProgressBarFill"></div></div>
-        <div class="progress-text" id="addProgressText"></div>
-      </div>
-      <div id="addAutoRetry" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">
-        <button class="btn-secondary" id="addAutoRetryBtn" onclick="startAddAutoRetry()" style="padding:6px 12px;font-size:11px">▶️ Retomar automaticamente em 30 min</button>
-        <span id="addAutoRetryInfo" style="color:var(--muted)"></span>
-        <button class="btn-secondary" id="addAutoRetryCancelBtn" onclick="cancelAddAutoRetry()" style="padding:6px 12px;font-size:11px;display:none">Cancelar</button>
-      </div>
-      <div class="wrap hidden" id="addResultsWrap" style="margin-top:12px">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome do grupo</th>
-              <th style="width:90px;text-align:center">Membros</th>
-              <th style="width:200px">Status</th>
-            </tr>
-          </thead>
-          <tbody id="addResultsTbody"></tbody>
-        </table>
-      </div>
-    </div>
 
-    <div class="card hidden" id="debugCard" style="border-color:var(--danger)">
-      <div style="font-size:13px;font-weight:600;color:var(--danger);margin-bottom:8px">⚠️ Debug — nenhum admin detectado</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Se você é admin mas nada foi detectado, me envie este JSON para eu ajustar o detector:</div>
-      <pre id="debugContent" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;overflow:auto;max-height:300px;font-size:11px;margin:0;color:var(--text)"></pre>
-    </div>
+      <!-- Group filter (opcional) -->
+      <div style="margin-bottom:16px">
+        <button class="btn-secondary btn-icon" onclick="loadAdminGroupsForModal()">Carregar grupos para filtrar (opcional)</button>
+        <span id="addGroupListInfo" style="font-size:11px; color:var(--muted); margin-left:8px"></span>
+      </div>
 
-    <div class="card hidden" id="resultCard">
-      <div class="wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome do grupo</th>
-              <th style="width:90px;text-align:center">Membros</th>
-              <th style="width:80px;text-align:center">Admin?</th>
-              <th>Link de convite</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
+      <div id="addGroupFilter" class="group-filter-box hidden">
+        <div class="row" style="margin-bottom:8px">
+          <input type="text" id="addGroupSearch" placeholder="Filtrar por nome..." oninput="renderAddGroupList()" style="flex:2">
+          <span id="addGroupSearchInfo" style="flex:1; font-size:11px; color:var(--muted); text-align:right"></span>
+        </div>
+        <div style="display:flex; gap:6px; margin-bottom:8px">
+          <button class="btn-secondary btn-icon" onclick="selectAllVisibleAddGroups()">Marcar visíveis</button>
+          <button class="btn-secondary btn-icon" onclick="unselectAllVisibleAddGroups()">Desmarcar visíveis</button>
+          <button class="btn-secondary btn-icon" onclick="clearAddGroupSelection()">Limpar seleção</button>
+          <span id="addGroupSelectedInfo" style="margin-left:auto; font-size:11px; color:var(--muted); align-self:center"></span>
+        </div>
+        <div id="addGroupList" class="group-list"></div>
+        <div style="margin-top:10px; font-size:12px">
+          <label style="display:inline-flex; align-items:center; gap:6px; margin-right:16px; cursor:pointer">
+            <input type="radio" name="addFilterMode" value="include" checked>
+            APENAS nos selecionados
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer">
+            <input type="radio" name="addFilterMode" value="exclude">
+            TODOS exceto os selecionados
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('addModal')">Cancelar</button>
+        <button class="btn-primary" onclick="submitAddJob()">Iniciar adição</button>
       </div>
     </div>
   </div>
 
 <script>
-var cache = [];
+// ============================================================
+// ===== Configuração e helpers globais ========================
+// ============================================================
+
+var POLL_INTERVAL_MS = 5000;   // frequência de atualização dos jobs ativos
+var _pollTimer = null;
+var _sessions = [];            // [{ id, label, phone, status }]
+var _activeJobs = {};          // jobId -> job (snapshot mais recente)
+var _jobsInThisSession = new Set(); // jobIds que iniciamos/vemos nesta sessão (persiste no storage)
+
+var SESSION_STORAGE_KEY = "ezap_grupos_known_jobs";
+
+function loadKnownJobs() {
+  try {
+    var raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr)) arr.forEach(function(id){ _jobsInThisSession.add(id); });
+    }
+  } catch (e) {}
+}
+
+function saveKnownJobs() {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(Array.from(_jobsInThisSession)));
+  } catch (e) {}
+}
 
 function esc(s) {
   return String(s == null ? "" : s)
@@ -188,58 +320,63 @@ function esc(s) {
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
-function setStatus(msg) { document.getElementById("status").textContent = msg; }
-
-// Load saved config from localStorage (mesmas chaves do admin.html — reusa sem reconfigurar)
-(function init() {
-  var url = localStorage.getItem("wa_server_url") || "";
-  var tok = localStorage.getItem("wa_admin_token") || "";
-  document.getElementById("serverUrl").value = url;
-  document.getElementById("adminToken").value = tok;
-  if (url && tok) loadSessions();
-})();
-
-function saveConfig() {
-  var url = document.getElementById("serverUrl").value.trim().replace(/\/$/,"");
-  var tok = document.getElementById("adminToken").value.trim();
-  localStorage.setItem("wa_server_url", url);
-  localStorage.setItem("wa_admin_token", tok);
-  setStatus("Configuração salva.");
-  loadSessions();
+function showToast(msg, type) {
+  var t = document.createElement("div");
+  t.className = "toast" + (type ? " " + type : "");
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 4000);
 }
 
+function formatEtaSeconds(sec) {
+  if (!sec || sec <= 0) return "—";
+  if (sec < 60) return Math.round(sec) + "s";
+  if (sec < 3600) return Math.round(sec / 60) + "min";
+  var h = Math.floor(sec / 3600);
+  var m = Math.round((sec % 3600) / 60);
+  return h + "h " + m + "min";
+}
+
+function calculateEtaSeconds(job) {
+  // Remaining = admin groups still unprocessed
+  var adminCount = job.progress.adminCount || 0;
+  var doneTotal = job.progress.doneTotal || 0;
+  var remaining = Math.max(0, adminCount - doneTotal);
+  if (remaining === 0) return 0;
+  var delay = (job.config && job.config.delaySec) || 60;
+  // Multiply by 2 if promoteToAdmin (2 calls per group)
+  if (job.type === "add" && job.config && job.config.promoteToAdmin) remaining *= 2;
+  return remaining * delay;
+}
+
+// ============================================================
+// ===== waFetch com auto-retry =================================
+// ============================================================
+
 function waFetch(path, method, body) {
-  var url = document.getElementById("serverUrl").value.trim().replace(/\/$/,"");
-  var tok = document.getElementById("adminToken").value.trim();
-  if (!url || !tok) { return Promise.reject(new Error("Configure URL e token primeiro.")); }
+  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
+  var tok = (document.getElementById("adminToken").value || "").trim();
+  if (!url || !tok) return Promise.reject(new Error("Configure URL e token primeiro."));
   var opts = {
     method: method || "GET",
-    headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" }
+    headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" },
   };
   if (body) opts.body = JSON.stringify(body);
 
-  // Auto-retry: network errors ("Failed to fetch", timeout) get retried up to 3
-  // times with exponential backoff (2s, 5s, 10s). Server errors with status code
-  // are NOT retried — those are real failures that the caller should handle.
   function attempt(tryNum) {
     return fetch(url + path, opts).then(function(r) {
-      return r.json().then(function(j){
+      return r.json().then(function(j) {
         if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
         return j;
       });
     }).catch(function(err) {
-      // Detect transient network errors (no HTTP status reached the .then)
       var msg = (err && err.message) || "";
-      var isNetworkError = msg.indexOf("Failed to fetch") >= 0
-        || msg.indexOf("NetworkError") >= 0
-        || msg.indexOf("network") >= 0
-        || msg.indexOf("ECONNRESET") >= 0;
-      if (isNetworkError && tryNum < 3) {
+      var isNetErr = msg.indexOf("Failed to fetch") >= 0 || msg.indexOf("NetworkError") >= 0
+        || msg.indexOf("network") >= 0 || msg.indexOf("ECONNRESET") >= 0;
+      if (isNetErr && tryNum < 3) {
         var delaySec = [2, 5, 10][tryNum] || 10;
-        console.warn("[waFetch] Network error, retrying in " + delaySec + "s (try " + (tryNum + 1) + "/3):", msg);
-        return new Promise(function(r){ setTimeout(r, delaySec * 1000); }).then(function(){
-          return attempt(tryNum + 1);
-        });
+        return new Promise(function(r) { setTimeout(r, delaySec * 1000); })
+          .then(function() { return attempt(tryNum + 1); });
       }
       throw err;
     });
@@ -247,634 +384,204 @@ function waFetch(path, method, body) {
   return attempt(0);
 }
 
-// ===== Cache de links (localStorage, por sessionId) =====
-var CACHE_KEY_PREFIX = "ezap_groups_cache_";
+// ============================================================
+// ===== Config do servidor (localStorage) ======================
+// ============================================================
 
-function getCache(sid) {
-  try {
-    var raw = localStorage.getItem(CACHE_KEY_PREFIX + sid);
-    return raw ? JSON.parse(raw) : {};
-  } catch(e) { return {}; }
+(function initConfig() {
+  var url = localStorage.getItem("wa_server_url") || "";
+  var tok = localStorage.getItem("wa_admin_token") || "";
+  document.getElementById("serverUrl").value = url;
+  document.getElementById("adminToken").value = tok;
+  loadKnownJobs();
+  if (url && tok) {
+    loadSessions().then(function() { reconnectActiveJobs(); });
+  }
+})();
+
+function saveConfig() {
+  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
+  var tok = (document.getElementById("adminToken").value || "").trim();
+  localStorage.setItem("wa_server_url", url);
+  localStorage.setItem("wa_admin_token", tok);
+  showToast("Configuração salva", "ok");
+  loadSessions().then(function() { reconnectActiveJobs(); });
 }
 
-function saveCache(sid, data) {
-  try { localStorage.setItem(CACHE_KEY_PREFIX + sid, JSON.stringify(data)); } catch(e) {}
-}
-
-function clearCacheForSession() {
-  var sid = document.getElementById("sessionSelect").value;
-  if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
-  var okCount = Object.keys(getCache(sid)).length;
-  var errCount = Object.keys(getErrorCache ? getErrorCache(sid) : {}).length;
-  if (!confirm("Apagar " + okCount + " link(s) e " + errCount + " erro(s) em cache para esta sessão? A tabela atual será limpa.")) return;
-  localStorage.removeItem(CACHE_KEY_PREFIX + sid);
-  localStorage.removeItem(CACHE_KEY_PREFIX + sid + "_errors");
-  cache = [];
-  document.getElementById("tbody").innerHTML = "";
-  document.getElementById("resultCard").classList.add("hidden");
-  document.getElementById("exportBtn").disabled = true;
-  document.getElementById("progressWrap").classList.add("hidden");
-  updateCacheInfo();
-  setStatus("Cache limpo. Clique em Extrair grupos para começar do zero.");
-}
-
-function updateCacheInfo() {
-  var sid = document.getElementById("sessionSelect").value;
-  var info = document.getElementById("cacheInfo");
-  if (!sid) { info.textContent = ""; return; }
-  var c = getCache(sid);
-  var n = Object.keys(c).length;
-  info.textContent = n > 0
-    ? "💾 " + n + " link(s) já salvos no navegador para esta sessão — serão reutilizados na próxima extração."
-    : "";
-}
-
-// Called whenever the user changes the selected session — clears any session-scoped UI state
-// and syncs the link cache from Supabase into localStorage.
-function onSessionChange() {
-  updateCacheInfo();
-  if (typeof resetAdminGroupListUI === "function") resetAdminGroupListUI();
-  syncLinkCacheFromSupabase();
-}
-
-// Pulls the link cache from Supabase and merges it into localStorage.
-// ALSO uploads any local-only entries to Supabase (one-time migration of
-// legacy localStorage data). After that, Supabase becomes the source of truth.
-// Called when the session changes.
-function syncLinkCacheFromSupabase() {
-  var sid = document.getElementById("sessionSelect").value;
-  if (!sid) return;
-  waFetch("/api/sessions/" + sid + "/cached-invites").then(function(data) {
-    if (!data || !data.invites) return;
-    var serverCache = {};      // jid -> link (only rows with a link)
-    var serverErrors = {};     // jid -> error message (permanent errors)
-    data.invites.forEach(function(row) {
-      if (row.invite_link) {
-        serverCache[row.group_jid] = row.invite_link;
-      } else if (row.invite_error && !isRateLimitMessage(row.invite_error)) {
-        serverErrors[row.group_jid] = row.invite_error;
-      }
-    });
-    // Merge: server wins over local (Supabase is source of truth)
-    var localCache = getCache(sid);
-    var merged = Object.assign({}, localCache, serverCache);
-    saveCache(sid, merged);
-    var localErrors = getErrorCache(sid);
-    var mergedErrors = Object.assign({}, localErrors, serverErrors);
-    saveErrorCache(sid, mergedErrors);
-    updateCacheInfo();
-
-    // ===== One-time migration: upload local-only entries to Supabase =====
-    var linksToUpload = [];
-    // Links present locally but missing on server
-    Object.keys(localCache).forEach(function(jid) {
-      if (!serverCache[jid]) {
-        linksToUpload.push({ jid: jid, link: localCache[jid] });
-      }
-    });
-    // Permanent errors present locally but missing on server
-    Object.keys(localErrors).forEach(function(jid) {
-      if (!serverCache[jid] && !serverErrors[jid]) {
-        linksToUpload.push({ jid: jid, link: null, error: localErrors[jid] });
-      }
-    });
-
-    // Collect ALL addition caches for this session (one per target phone)
-    var additionsByPhone = {};
-    var addPrefix = ADD_CACHE_PREFIX + sid + "_";
-    for (var i = 0; i < localStorage.length; i++) {
-      var key = localStorage.key(i);
-      if (!key || key.indexOf(addPrefix) !== 0) continue;
-      var phone = key.substring(addPrefix.length);
-      // Skip error subkeys (we don't have those here but safety)
-      if (phone.indexOf("_") >= 0) continue;
-      try {
-        var phoneData = JSON.parse(localStorage.getItem(key) || "{}");
-        var entries = [];
-        Object.keys(phoneData).forEach(function(jid) {
-          var d = phoneData[jid] || {};
-          if (d.status) {
-            entries.push({ jid: jid, status: d.status, statusMessage: d.statusMessage || null });
-          }
-        });
-        if (entries.length > 0) additionsByPhone[phone] = entries;
-      } catch (e) {}
-    }
-
-    var hasLinks = linksToUpload.length > 0;
-    var hasAdditions = Object.keys(additionsByPhone).length > 0;
-    if (!hasLinks && !hasAdditions) return;
-
-    waFetch("/api/sessions/" + sid + "/import-cache", "POST", {
-      links: linksToUpload,
-      additionsByPhone: additionsByPhone,
-    }).then(function(res) {
-      console.log("[grupos.html] Migrated to Supabase:",
-        res.linksImported || 0, "links,",
-        res.additionsImported || 0, "adições");
-    }).catch(function(e) {
-      console.warn("[grupos.html] Migration upload failed:", e.message);
-    });
-  }).catch(function(e) {
-    console.warn("[grupos.html] Failed to sync cache from Supabase:", e.message);
-  });
-}
+// ============================================================
+// ===== Sessões ================================================
+// ============================================================
 
 function loadSessions() {
-  setStatus("Carregando sessões...");
-  waFetch("/api/sessions").then(function(list) {
-    var sel = document.getElementById("sessionSelect");
-    sel.innerHTML = "";
-    var connected = (list || []).filter(function(s){ return s.status === "connected"; });
-    if (!connected.length) {
-      sel.innerHTML = '<option value="">Nenhuma sessão conectada</option>';
-      setStatus("Nenhuma sessão conectada encontrada.");
-      return;
-    }
-    sel.innerHTML = '<option value="">Selecione a sessão</option>';
-    connected.forEach(function(s) {
-      var opt = document.createElement("option");
-      opt.value = s.id;
-      opt.textContent = (s.label || "Sem nome") + (s.phone ? " — " + s.phone : "");
-      sel.appendChild(opt);
+  return waFetch("/api/sessions").then(function(list) {
+    _sessions = (list || []).map(function(s) {
+      return { id: s.id, label: s.label || "(sem nome)", phone: s.phone || "", status: s.status };
     });
-    setStatus(connected.length + " sessão(ões) conectada(s). Selecione uma e clique em Extrair grupos.");
-  }).catch(function(e) { setStatus("Erro: " + e.message); });
-}
-
-// Config: batch size (max calls per HTTP request)
-// EXTRACT (groupInviteCode): ~60s delay with ±5s jitter, 3 calls per batch = ~3min per request.
-//   Strategy: "safe zone" — stay below 60 IQ calls/hour, which is comfortably
-//   under the empirical WhatsApp rate-limit threshold. Slow but can run
-//   unattended for hours without tripping any rate-limit.
-// ADD (groupParticipantsUpdate): 20s delay, 3 calls per batch = ~60s per request.
-//   Add-participant API has tighter rate limits than invite-code.
-var BATCH_SIZE = 3;              // for link extraction (3 * 60s = ~180s per HTTP request)
-var EXTRACT_DELAY_PER_CALL_S = 60; // seconds, just for display; backend adds jitter ±5s
-var ADD_BATCH_SIZE = 3;          // for add-to-groups
-var ADD_DELAY_PER_CALL_S = 20;   // seconds, just for display
-var BATCH_PAUSE_MS = 1500;       // pause between batches so the user can see progress
-
-var _extractRunning = false;
-
-function updateProgress(withLink, adminCount, running) {
-  var wrap = document.getElementById("progressWrap");
-  if (!wrap) return;
-  if (!adminCount || adminCount === 0) { wrap.classList.add("hidden"); return; }
-  wrap.classList.remove("hidden");
-  var pct = (withLink / adminCount) * 100;
-  document.getElementById("progressBarFill").style.width = pct.toFixed(1) + "%";
-  var icon = running ? '<span class="spinner"></span>' : "";
-  var suffix = running ? " — extraindo..." : "";
-  document.getElementById("progressText").innerHTML =
-    icon + withLink + " de " + adminCount + " admins com link (" + pct.toFixed(0) + "%)" + suffix;
-}
-
-function setExtractButtonRunning(running) {
-  var btn = document.getElementById("extractBtn");
-  if (!btn) return;
-  btn.disabled = !!running;
-  btn.textContent = running ? "Extraindo..." : "Extrair grupos";
-}
-
-// =============================================
-// ===== Auto-retry com backoff exponencial =====
-// =============================================
-// Backoff: 30min → 60min → 120min → desiste após 3 tentativas SEM PROGRESSO
-// Se a tentativa retomada extraiu links novos, o contador volta pra 0.
-var RETRY_DELAYS_MIN = [30, 60, 120];
-
-var _extractRetry = { timer:null, countdown:null, attempt:0, scheduledFor:null, prevWithLink:0 };
-var _addRetry = { timer:null, countdown:null, attempt:0, scheduledFor:null, prevDone:0 };
-
-function showExtractRetryButton(attempt) {
-  var box = document.getElementById("extractAutoRetry");
-  var btn = document.getElementById("extractAutoRetryBtn");
-  var cancelBtn = document.getElementById("extractAutoRetryCancelBtn");
-  var info = document.getElementById("extractAutoRetryInfo");
-  if (!box) return;
-  var delayMin = RETRY_DELAYS_MIN[attempt];
-  if (delayMin == null) {
-    box.classList.add("hidden");
-    return;
-  }
-  box.classList.remove("hidden");
-  btn.style.display = "";
-  btn.textContent = "▶️ Retomar automaticamente em " + delayMin + " min";
-  cancelBtn.style.display = "none";
-  info.textContent = "(tentativa " + (attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
-}
-
-function startExtractAutoRetry() {
-  var delayMin = RETRY_DELAYS_MIN[_extractRetry.attempt];
-  if (delayMin == null) {
-    cancelExtractAutoRetry();
-    return;
-  }
-  cancelExtractAutoRetryTimers();
-  _extractRetry.scheduledFor = Date.now() + (delayMin * 60 * 1000);
-  // Snapshot of current progress so we can detect "no progress" later
-  _extractRetry.prevWithLink = (typeof cache !== "undefined" && cache)
-    ? cache.filter(function(g){ return !!g.inviteLink; }).length : 0;
-  _extractRetry.timer = setTimeout(function() {
-    cancelExtractAutoRetryTimers();
-    document.getElementById("extractAutoRetry").classList.add("hidden");
-    loadGroups();
-  }, delayMin * 60 * 1000);
-  _extractRetry.countdown = setInterval(updateExtractRetryCountdown, 1000);
-  document.getElementById("extractAutoRetryBtn").style.display = "none";
-  document.getElementById("extractAutoRetryCancelBtn").style.display = "";
-  updateExtractRetryCountdown();
-}
-
-function updateExtractRetryCountdown() {
-  if (!_extractRetry.scheduledFor) return;
-  var remaining = Math.max(0, _extractRetry.scheduledFor - Date.now());
-  var min = Math.floor(remaining / 60000);
-  var sec = Math.floor((remaining % 60000) / 1000);
-  document.getElementById("extractAutoRetryInfo").textContent =
-    "⏱️ Próxima tentativa em " + min + ":" + (sec < 10 ? "0" : "") + sec
-    + " (tentativa " + (_extractRetry.attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
-}
-
-function cancelExtractAutoRetryTimers() {
-  if (_extractRetry.timer) clearTimeout(_extractRetry.timer);
-  if (_extractRetry.countdown) clearInterval(_extractRetry.countdown);
-  _extractRetry.timer = null;
-  _extractRetry.countdown = null;
-  _extractRetry.scheduledFor = null;
-}
-
-function cancelExtractAutoRetry() {
-  cancelExtractAutoRetryTimers();
-  document.getElementById("extractAutoRetry").classList.add("hidden");
-  document.getElementById("extractAutoRetryInfo").textContent = "";
-  _extractRetry.attempt = 0;
-}
-
-// === Mesma coisa pra adição em massa ===
-function showAddRetryButton(attempt) {
-  var box = document.getElementById("addAutoRetry");
-  var btn = document.getElementById("addAutoRetryBtn");
-  var cancelBtn = document.getElementById("addAutoRetryCancelBtn");
-  var info = document.getElementById("addAutoRetryInfo");
-  if (!box) return;
-  var delayMin = RETRY_DELAYS_MIN[attempt];
-  if (delayMin == null) {
-    box.classList.add("hidden");
-    return;
-  }
-  box.classList.remove("hidden");
-  btn.style.display = "";
-  btn.textContent = "▶️ Retomar automaticamente em " + delayMin + " min";
-  cancelBtn.style.display = "none";
-  info.textContent = "(tentativa " + (attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
-}
-
-function startAddAutoRetry() {
-  var delayMin = RETRY_DELAYS_MIN[_addRetry.attempt];
-  if (delayMin == null) {
-    cancelAddAutoRetry();
-    return;
-  }
-  cancelAddAutoRetryTimers();
-  _addRetry.scheduledFor = Date.now() + (delayMin * 60 * 1000);
-  _addRetry.prevDone = (typeof addResults !== "undefined" && addResults)
-    ? addResults.filter(function(g){ return g.status === "added" || g.status === "added_and_promoted" || g.status === "promoted_only"; }).length : 0;
-  _addRetry.timer = setTimeout(function() {
-    cancelAddAutoRetryTimers();
-    document.getElementById("addAutoRetry").classList.add("hidden");
-    loadAddToGroups();
-  }, delayMin * 60 * 1000);
-  _addRetry.countdown = setInterval(updateAddRetryCountdown, 1000);
-  document.getElementById("addAutoRetryBtn").style.display = "none";
-  document.getElementById("addAutoRetryCancelBtn").style.display = "";
-  updateAddRetryCountdown();
-}
-
-function updateAddRetryCountdown() {
-  if (!_addRetry.scheduledFor) return;
-  var remaining = Math.max(0, _addRetry.scheduledFor - Date.now());
-  var min = Math.floor(remaining / 60000);
-  var sec = Math.floor((remaining % 60000) / 1000);
-  document.getElementById("addAutoRetryInfo").textContent =
-    "⏱️ Próxima tentativa em " + min + ":" + (sec < 10 ? "0" : "") + sec
-    + " (tentativa " + (_addRetry.attempt + 1) + "/" + RETRY_DELAYS_MIN.length + ")";
-}
-
-function cancelAddAutoRetryTimers() {
-  if (_addRetry.timer) clearTimeout(_addRetry.timer);
-  if (_addRetry.countdown) clearInterval(_addRetry.countdown);
-  _addRetry.timer = null;
-  _addRetry.countdown = null;
-  _addRetry.scheduledFor = null;
-}
-
-function cancelAddAutoRetry() {
-  cancelAddAutoRetryTimers();
-  document.getElementById("addAutoRetry").classList.add("hidden");
-  document.getElementById("addAutoRetryInfo").textContent = "";
-  _addRetry.attempt = 0;
-}
-
-function renderGroupsTable(groups) {
-  var tbody = document.getElementById("tbody");
-  tbody.innerHTML = "";
-  groups.forEach(function(g) {
-    var tr = document.createElement("tr");
-    var linkCell = g.inviteLink
-      ? '<a href="' + esc(g.inviteLink) + '" target="_blank">' + esc(g.inviteLink) + '</a>'
-      : '<span class="err">' + esc(g.inviteError || "Indisponível") + '</span>';
-    tr.innerHTML =
-      '<td>' + esc(g.name) + '</td>' +
-      '<td style="text-align:center">' + g.participants + '</td>' +
-      '<td style="text-align:center">' + (g.isAdmin ? '<span class="ok">Sim</span>' : "Não") + '</td>' +
-      '<td>' + linkCell + '</td>';
-    tbody.appendChild(tr);
-  });
-}
-
-// Cache key for "permanent errors" — groups where the invite link can never be
-// generated (e.g. community announcement channels, parent communities). Stored
-// separately from the success cache so clearCacheForSession also clears these.
-function getErrorCache(sid) {
-  try {
-    var raw = localStorage.getItem(CACHE_KEY_PREFIX + sid + "_errors");
-    return raw ? JSON.parse(raw) : {};
-  } catch(e) { return {}; }
-}
-function saveErrorCache(sid, data) {
-  try { localStorage.setItem(CACHE_KEY_PREFIX + sid + "_errors", JSON.stringify(data)); } catch(e) {}
-}
-
-async function loadGroups() {
-  if (_extractRunning) { setStatus("Já está rodando, aguarde..."); return; }
-  var sid = document.getElementById("sessionSelect").value;
-  if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
-
-  // Snapshot of progress BEFORE this run, used to detect "no progress" later
-  var prevWithLink = (typeof cache !== "undefined" && cache && cache.length)
-    ? cache.filter(function(g){ return !!g.inviteLink; }).length
-    : (function(){
-        var sc = getCache(sid);
-        return Object.keys(sc).length;
-      })();
-
-  _extractRunning = true;
-  setExtractButtonRunning(true);
-  document.getElementById("status").style.color = "";
-  document.getElementById("resultCard").classList.add("hidden");
-  document.getElementById("exportBtn").disabled = true;
-  // Hide retry button while running
-  document.getElementById("extractAutoRetry").classList.add("hidden");
-
-  var savedCache = getCache(sid);
-  var errorCache = getErrorCache(sid);
-  var totalNewLinks = 0;
-  var batchNum = 0;
-  var rateLimited = false;
-
-  try {
-    while (true) {
-      batchNum++;
-      var cachedJids = Object.keys(savedCache);
-      var errorJids = Object.keys(errorCache);
-      // Skip both: already-extracted AND permanent-error groups
-      var skipJids = cachedJids.concat(errorJids);
-      setStatus("Lote " + batchNum + " — extraindo até " + BATCH_SIZE + " links (~"
-        + EXTRACT_DELAY_PER_CALL_S + "s por chamada com jitter, ~"
-        + Math.round(BATCH_SIZE * EXTRACT_DELAY_PER_CALL_S / 60) + "min por lote). "
-        + "Cache: " + cachedJids.length + " | erros permanentes pulados: " + errorJids.length + ".");
-
-      var data = await waFetch("/api/sessions/" + sid + "/groups", "POST", {
-        skipJids: skipJids,
-        maxCalls: BATCH_SIZE,
-      });
-      var groups = data.groups || [];
-
-      // Merge cached links into skipped entries, save new links, track errors
-      var newThisBatch = 0;
-      var newErrorsThisBatch = 0;
-      groups.forEach(function(g) {
-        if (g.skipped && savedCache[g.jid]) {
-          g.inviteLink = savedCache[g.jid];
-          g.inviteError = null;
-        } else if (g.skipped && errorCache[g.jid]) {
-          g.inviteLink = null;
-          g.inviteError = errorCache[g.jid];
-        } else if (g.inviteLink) {
-          if (!savedCache[g.jid]) {
-            newThisBatch++;
-            totalNewLinks++;
-          }
-          savedCache[g.jid] = g.inviteLink;
-        } else if (g.isAdmin && g.inviteError && !isRateLimitMessage(g.inviteError)) {
-          // Permanent error: cache it so we never retry this group
-          if (!errorCache[g.jid]) {
-            errorCache[g.jid] = g.inviteError;
-            newErrorsThisBatch++;
-          }
-        }
-      });
-      saveCache(sid, savedCache);
-      saveErrorCache(sid, errorCache);
-
-      cache = groups;
-      renderGroupsTable(cache);
-      document.getElementById("resultCard").classList.remove("hidden");
-      document.getElementById("exportBtn").disabled = cache.length === 0;
-      updateCacheInfo();
-
-      // Update progress bar (running)
-      var withLinkNow = cache.filter(function(g){ return !!g.inviteLink; }).length;
-      var adminCountNow = cache.filter(function(g){ return g.isAdmin; }).length;
-      updateProgress(withLinkNow, adminCountNow, true);
-
-      // Show debug panel when no admin was detected
-      var debugCard = document.getElementById("debugCard");
-      if (data.debug && !data.debug.adminDetectedAny && cache.length > 0) {
-        document.getElementById("debugContent").textContent = JSON.stringify(data.debug, null, 2);
-        debugCard.classList.remove("hidden");
-      } else {
-        debugCard.classList.add("hidden");
-      }
-
-      if (data.rateLimited) { rateLimited = true; break; }
-
-      // Stop when this batch made no progress (no new links AND no new errors) — we're done
-      if (newThisBatch === 0 && newErrorsThisBatch === 0) break;
-
-      // Small UI pause between batches so the user can see intermediate progress
-      await new Promise(function(r){ setTimeout(r, BATCH_PAUSE_MS); });
-    }
-
-    // ===== Final status =====
-    var withLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
-    var adminCount = cache.filter(function(g){ return g.isAdmin; }).length;
-    var permanentErrors = Object.keys(errorCache).length;
-    var missingAdminLinks = adminCount - withLink - permanentErrors;
-
-    updateProgress(withLink, adminCount, false);
-
-    var statusMsg;
-    if (rateLimited) {
-      // If this run made progress, reset the retry attempt counter
-      if (totalNewLinks > 0) _extractRetry.attempt = 0;
-      // Show the auto-retry button (or advance the attempt if it was an auto-retry that re-rate-limited)
-      showExtractRetryButton(_extractRetry.attempt);
-      statusMsg = "⏸️ PAUSADO POR RATE-LIMIT — " + withLink + "/" + adminCount + " admins extraídos ("
-        + totalNewLinks + " novos nesta rodada). Clique no botão abaixo para retomar automaticamente, "
-        + "ou tente Extrair grupos manualmente mais tarde — o cache preserva o progresso.";
-      document.getElementById("status").style.color = "var(--danger)";
-    } else if (missingAdminLinks === 0 && permanentErrors > 0) {
-      statusMsg = "✅ FINALIZADO — " + withLink + " de " + adminCount + " admins extraídos. "
-        + permanentErrors + " grupo(s) admin não permitem gerar link (ex: comunidade, canal de anúncios).";
-      document.getElementById("status").style.color = "var(--ok)";
-    } else if (missingAdminLinks === 0 && adminCount > 0) {
-      statusMsg = "✅ FINALIZADO — todos os " + adminCount + " grupos admin foram extraídos.";
-      document.getElementById("status").style.color = "var(--ok)";
-    } else if (adminCount === 0) {
-      statusMsg = "FINALIZADO — " + cache.length + " grupos encontrados, mas a sessão não é admin em nenhum.";
-    } else {
-      statusMsg = "FINALIZADO — " + withLink + "/" + adminCount + " admins com link | "
-        + missingAdminLinks + " ainda sem link.";
-    }
-    setStatus(statusMsg);
-
-    // Auto-retry bookkeeping
-    if (rateLimited) {
-      // If no progress was made on this attempt → advance backoff counter
-      var newWithLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
-      if (newWithLink <= prevWithLink) {
-        _extractRetry.attempt = Math.min(_extractRetry.attempt + 1, RETRY_DELAYS_MIN.length);
-      }
-      // Refresh the button label to reflect (possibly) advanced attempt
-      showExtractRetryButton(_extractRetry.attempt);
-    } else {
-      // Run completed without rate-limit → cancel any pending retry
-      cancelExtractAutoRetry();
-    }
-  } catch (e) {
-    document.getElementById("status").style.color = "var(--danger)";
-    setStatus("Erro: " + e.message + " — clique em Extrair grupos de novo, o cache preserva o progresso.");
-    // Stop the spinner on the progress bar (snapshot of how far we got)
-    var withLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
-    var adminCount = cache.filter(function(g){ return g.isAdmin; }).length;
-    updateProgress(withLink, adminCount, false);
-  } finally {
-    _extractRunning = false;
-    setExtractButtonRunning(false);
-  }
-}
-
-// Detect rate-limit messages coming back from the server so we don't cache them as permanent errors
-function isRateLimitMessage(msg) {
-  if (!msg) return false;
-  var s = String(msg).toLowerCase();
-  return s.indexOf("rate") >= 0 || s.indexOf("abortado") >= 0 || s.indexOf("too many") >= 0;
-}
-
-// ============================================================
-// ===== Add participant to all groups (temporary tool) =======
-// ============================================================
-var ADD_CACHE_PREFIX = "ezap_added_";
-var _addRunning = false;
-var addResults = [];
-
-// Exports the FULL add-history for (session, phone) by reading from Supabase.
-// Includes ALL past runs, not just what's currently in memory/cache.
-function exportAddHistoryCSV() {
-  var sid = document.getElementById("sessionSelect").value;
-  var phone = (document.getElementById("addPhone").value || "").replace(/\D/g, "");
-  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
-  if (phone.length < 10) { setAddStatus("Digite o número (formato 5511999999999) antes de exportar."); return; }
-  setAddStatus("Buscando histórico do número " + phone + " no servidor...");
-  waFetch("/api/sessions/" + sid + "/cached-additions?phone=" + encodeURIComponent(phone)).then(function(data) {
-    var rows = data.additions || [];
-    if (!rows.length) { setAddStatus("Nenhum histórico encontrado no servidor para esse número nesta sessão."); return; }
-
-    var csvRows = [["Nome do grupo", "Status", "Mensagem", "Foi admin?", "Quando"]];
-    rows.forEach(function(r) {
-      csvRows.push([
-        r.group_name || "",
-        r.status || "",
-        r.status_message || "",
-        r.was_promoted ? "Sim" : "Não",
-        r.performed_at || "",
-      ]);
-    });
-    var csv = csvRows.map(function(row) {
-      return row.map(function(cell) {
-        var s = String(cell == null ? "" : cell);
-        if (/[",;\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
-        return s;
-      }).join(";");
-    }).join("\r\n");
-    var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = "historico_adicoes_" + phone + "_" + new Date().toISOString().slice(0, 10) + ".csv";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setAddStatus("✅ " + rows.length + " linha(s) exportadas.");
+    return _sessions;
   }).catch(function(e) {
-    setAddStatus("Erro ao buscar histórico: " + e.message);
+    showToast("Erro ao carregar sessões: " + e.message, "error");
+    _sessions = [];
   });
 }
 
-// ===== Filtro de grupos (lista admin + seleção include/exclude) =====
-var _adminGroupList = [];           // todos os grupos admin carregados (do backend)
-var _addGroupSelected = {};         // jid -> true se selecionado pelo usuário
+function sessionOptionsHTML(includeUnknown) {
+  var html = "";
+  _sessions.forEach(function(s) {
+    if (s.status !== "connected") return;
+    html += '<option value="' + esc(s.id) + '">' + esc(s.label) + (s.phone ? " — " + esc(s.phone) : "") + '</option>';
+  });
+  if (!html) html = '<option value="">Nenhuma sessão conectada</option>';
+  return html;
+}
 
-function loadAdminGroupList() {
-  var sid = document.getElementById("sessionSelect").value;
-  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
-  var targetPhone = (document.getElementById("addPhone").value || "").replace(/\D/g, "");
-  var infoEl = document.getElementById("addGroupListInfo");
-  infoEl.textContent = "Carregando...";
+// ============================================================
+// ===== Modais =================================================
+// ============================================================
 
-  // Use the richer endpoint that cross-references membership (if targetPhone is known)
+function openExtractModal() {
+  if (!_sessions.length) { showToast("Sessões ainda não carregaram", "error"); return; }
+  var sel = document.getElementById("extractSession");
+  sel.innerHTML = sessionOptionsHTML();
+  document.getElementById("extractModal").classList.add("open");
+}
+
+function openAddModal() {
+  if (!_sessions.length) { showToast("Sessões ainda não carregaram", "error"); return; }
+  var sessionSel = document.getElementById("addSession");
+  sessionSel.innerHTML = sessionOptionsHTML();
+  // Populate the "pick phone from session" dropdown
+  var phoneSel = document.getElementById("addPhoneFromSession");
+  phoneSel.innerHTML = '<option value="">— ou escolher uma sessão —</option>';
+  _sessions.forEach(function(s) {
+    if (!s.phone) return;
+    phoneSel.innerHTML += '<option value="' + esc(s.phone) + '">' + esc(s.label) + " — " + esc(s.phone) + '</option>';
+  });
+  // Reset filter state
+  _addGroupList = [];
+  _addGroupSelected = {};
+  document.getElementById("addGroupFilter").classList.add("hidden");
+  document.getElementById("addGroupListInfo").textContent = "";
+  document.getElementById("addPhone").value = "";
+  document.getElementById("addPhoneFromSession").value = "";
+  document.getElementById("addPromoteAdmin").checked = false;
+  document.getElementById("addModal").classList.add("open");
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove("open");
+}
+
+function onAddPhonePickSession() {
+  var phone = document.getElementById("addPhoneFromSession").value;
+  if (phone) document.getElementById("addPhone").value = phone;
+}
+
+function onAddSessionChange() {
+  // When the executing session changes, we should reset any loaded group list
+  _addGroupList = [];
+  _addGroupSelected = {};
+  document.getElementById("addGroupFilter").classList.add("hidden");
+  document.getElementById("addGroupListInfo").textContent = "";
+  document.getElementById("addGroupList").innerHTML = "";
+}
+
+// ============================================================
+// ===== Iniciar jobs ==========================================
+// ============================================================
+
+function submitExtractJob() {
+  var sessionId = document.getElementById("extractSession").value;
+  if (!sessionId) { showToast("Selecione uma sessão", "error"); return; }
+  var delayEl = document.querySelector('input[name="extractDelay"]:checked');
+  var delaySec = delayEl ? Number(delayEl.value) : 60;
+  waFetch("/api/jobs/extract/start", "POST", { sessionId: sessionId, delaySec: delaySec }).then(function(res) {
+    if (res.job) {
+      _jobsInThisSession.add(res.job.id);
+      saveKnownJobs();
+      closeModal("extractModal");
+      showToast("Extração iniciada em background", "ok");
+      refreshJobs();
+    }
+  }).catch(function(e) { showToast("Erro ao iniciar: " + e.message, "error"); });
+}
+
+function submitAddJob() {
+  var sessionId = document.getElementById("addSession").value;
+  var phone = (document.getElementById("addPhone").value || "").replace(/\D/g, "");
+  if (!sessionId) { showToast("Selecione uma sessão", "error"); return; }
+  if (phone.length < 10) { showToast("Número inválido (use DDI+DDD+número)", "error"); return; }
+  var delayEl = document.querySelector('input[name="addDelay"]:checked');
+  var delaySec = delayEl ? Number(delayEl.value) : 20;
+  var promoteToAdmin = document.getElementById("addPromoteAdmin").checked;
+  var onlyJids = getAddOnlyJids();
+  if (Array.isArray(onlyJids) && onlyJids.length === 0) {
+    showToast("Com filtro ativo, selecione pelo menos 1 grupo", "error");
+    return;
+  }
+
+  var targetDesc;
+  if (onlyJids === null) targetDesc = "TODOS os grupos onde a sessão é admin";
+  else targetDesc = onlyJids.length + " grupos selecionados";
+
+  var confirmMsg = "Vai " + (promoteToAdmin ? "adicionar E promover a ADMIN" : "adicionar") + " o número " + phone
+    + " em " + targetDesc + ".\n\n"
+    + "⏱️ Delay: " + delaySec + "s por chamada"
+    + (promoteToAdmin ? " (× 2 chamadas por grupo).\n" : ".\n")
+    + "📢 Visibilidade: aparece 'adicionou " + phone + "' em cada grupo.\n\n"
+    + "Job roda em background, pode fechar a aba. Confirma?";
+  if (!confirm(confirmMsg)) return;
+
+  waFetch("/api/jobs/add/start", "POST", {
+    sessionId: sessionId, phone: phone, delaySec: delaySec,
+    promoteToAdmin: promoteToAdmin, onlyJids: onlyJids,
+  }).then(function(res) {
+    if (res.job) {
+      _jobsInThisSession.add(res.job.id);
+      saveKnownJobs();
+      closeModal("addModal");
+      showToast("Adição iniciada em background", "ok");
+      refreshJobs();
+    }
+  }).catch(function(e) { showToast("Erro ao iniciar: " + e.message, "error"); });
+}
+
+// ============================================================
+// ===== Filtro de grupos no modal de adição ====================
+// ============================================================
+
+var _addGroupList = [];
+var _addGroupSelected = {};
+
+function loadAdminGroupsForModal() {
+  var sid = document.getElementById("addSession").value;
+  var phone = (document.getElementById("addPhone").value || "").replace(/\D/g, "");
+  if (!sid) { showToast("Selecione a sessão primeiro", "error"); return; }
+  var info = document.getElementById("addGroupListInfo");
+  info.textContent = "Carregando...";
   waFetch("/api/sessions/" + sid + "/list-admin-groups-with-membership", "POST", {
-    targetPhone: targetPhone || undefined,
+    targetPhone: phone || undefined,
   }).then(function(data) {
-    _adminGroupList = data.groups || [];
+    _addGroupList = data.groups || [];
     _addGroupSelected = {};
     document.getElementById("addGroupSearch").value = "";
     document.getElementById("addGroupFilter").classList.remove("hidden");
-
     var hint = "";
-    if (targetPhone) {
-      if (data.targetSessionFound) {
-        var alreadyMember = _adminGroupList.filter(function(g){ return g.memberStatus === "member" || g.memberStatus === "admin"; }).length;
-        var alreadyAdmin = _adminGroupList.filter(function(g){ return g.memberStatus === "admin"; }).length;
-        hint = " — " + targetPhone + ": " + alreadyMember + " grupos já membro (" + alreadyAdmin + " como admin)";
-      } else {
-        hint = " — ⚠️ número " + targetPhone + " não está logado no servidor, não dá pra saber onde ele está em tempo real";
-      }
-    } else {
-      hint = " — digite o número acima antes de carregar para ver onde ele já está";
+    if (phone && data.targetSessionFound) {
+      var member = _addGroupList.filter(function(g){ return g.memberStatus === "member" || g.memberStatus === "admin"; }).length;
+      var admin = _addGroupList.filter(function(g){ return g.memberStatus === "admin"; }).length;
+      hint = " — " + phone + ": " + member + " grupos já membro (" + admin + " como admin)";
+    } else if (phone) {
+      hint = " — ⚠️ " + phone + " não está logado no servidor";
     }
-    infoEl.textContent = _adminGroupList.length + " grupos admin carregados" + hint;
+    info.textContent = _addGroupList.length + " grupos admin carregados" + hint;
     renderAddGroupList();
-    updateAddBtnLabel();
-  }).catch(function(e) {
-    infoEl.textContent = "Erro: " + e.message;
-  });
+  }).catch(function(e) { info.textContent = "Erro: " + e.message; });
 }
 
 function memberStatusBadge(status) {
-  // Returns HTML for a small badge next to the group name
-  switch (status) {
-    case "admin":
-      return '<span style="color:var(--ok);font-size:10px;font-weight:600;padding:1px 6px;border:1px solid var(--ok);border-radius:10px">⭐ Admin</span>';
-    case "member":
-      return '<span style="color:var(--ok);font-size:10px;font-weight:600;padding:1px 6px;border:1px solid var(--ok);border-radius:10px">✅ Membro</span>';
-    case "not_member":
-      return '';
-    default: // "unknown"
-      return '';
-  }
+  if (status === "admin") return '<span class="group-badge">⭐ Admin</span>';
+  if (status === "member") return '<span class="group-badge">✅ Membro</span>';
+  return '';
 }
 
 function renderAddGroupList() {
@@ -882,24 +589,19 @@ function renderAddGroupList() {
   if (!list) return;
   var search = (document.getElementById("addGroupSearch").value || "").toLowerCase().trim();
   var visible = search
-    ? _adminGroupList.filter(function(g){ return (g.name || "").toLowerCase().indexOf(search) >= 0; })
-    : _adminGroupList.slice();
-
+    ? _addGroupList.filter(function(g){ return (g.name || "").toLowerCase().indexOf(search) >= 0; })
+    : _addGroupList.slice();
   list.innerHTML = "";
   visible.forEach(function(g) {
     var div = document.createElement("div");
-    div.style.cssText = "display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:12px;border-radius:4px;cursor:pointer";
-    div.onmouseover = function(){ this.style.background = "var(--surface)"; };
-    div.onmouseout = function(){ this.style.background = ""; };
+    div.className = "group-row";
     var checked = _addGroupSelected[g.jid] ? "checked" : "";
     var badge = memberStatusBadge(g.memberStatus);
     div.innerHTML =
-      '<input type="checkbox" data-jid="' + esc(g.jid) + '" ' + checked
-      + ' onchange="toggleAddGroupSelection(this)" style="cursor:pointer;accent-color:var(--primary)">'
-      + '<span style="flex:1">' + esc(g.name) + '</span>'
+      '<input type="checkbox" data-jid="' + esc(g.jid) + '" ' + checked + ' onchange="toggleAddGroupSelection(this)">'
+      + '<span class="group-row-name">' + esc(g.name) + '</span>'
       + badge
-      + '<span style="color:var(--muted);font-size:10px">' + g.participants + ' membros</span>';
-    // Click on row toggles checkbox
+      + '<span class="group-row-count">' + g.participants + '</span>';
     div.addEventListener("click", function(e) {
       if (e.target.tagName !== "INPUT") {
         var cb = div.querySelector("input");
@@ -909,400 +611,248 @@ function renderAddGroupList() {
     });
     list.appendChild(div);
   });
-
-  document.getElementById("addGroupSearchInfo").textContent =
-    visible.length + " visíveis de " + _adminGroupList.length;
-  updateSelectedCount();
+  document.getElementById("addGroupSearchInfo").textContent = visible.length + " visíveis de " + _addGroupList.length;
+  updateAddSelectedCount();
 }
 
-function toggleAddGroupSelection(checkbox) {
-  var jid = checkbox.dataset.jid;
-  if (checkbox.checked) _addGroupSelected[jid] = true;
-  else delete _addGroupSelected[jid];
-  updateSelectedCount();
-  updateAddBtnLabel();
+function toggleAddGroupSelection(cb) {
+  if (cb.checked) _addGroupSelected[cb.dataset.jid] = true;
+  else delete _addGroupSelected[cb.dataset.jid];
+  updateAddSelectedCount();
 }
-
 function selectAllVisibleAddGroups() {
-  var checkboxes = document.querySelectorAll("#addGroupList input[type=checkbox]");
-  checkboxes.forEach(function(cb) {
+  document.querySelectorAll("#addGroupList input[type=checkbox]").forEach(function(cb) {
     cb.checked = true;
     _addGroupSelected[cb.dataset.jid] = true;
   });
-  updateSelectedCount();
-  updateAddBtnLabel();
+  updateAddSelectedCount();
 }
-
 function unselectAllVisibleAddGroups() {
-  var checkboxes = document.querySelectorAll("#addGroupList input[type=checkbox]");
-  checkboxes.forEach(function(cb) {
+  document.querySelectorAll("#addGroupList input[type=checkbox]").forEach(function(cb) {
     cb.checked = false;
     delete _addGroupSelected[cb.dataset.jid];
   });
-  updateSelectedCount();
-  updateAddBtnLabel();
+  updateAddSelectedCount();
 }
-
 function clearAddGroupSelection() {
   _addGroupSelected = {};
   document.querySelectorAll("#addGroupList input[type=checkbox]").forEach(function(cb){ cb.checked = false; });
-  updateSelectedCount();
-  updateAddBtnLabel();
+  updateAddSelectedCount();
 }
-
-function updateSelectedCount() {
-  var n = Object.keys(_addGroupSelected).length;
-  document.getElementById("addGroupSelectedInfo").textContent = n + " selecionado(s)";
+function updateAddSelectedCount() {
+  document.getElementById("addGroupSelectedInfo").textContent = Object.keys(_addGroupSelected).length + " selecionado(s)";
 }
-
-// Compute the actual list of group JIDs to send to the backend.
-// Returns:
-//   null = no filter active (process ALL admin groups)
-//   []   = filter is active but selects nothing (caller should reject)
-//   [..] = process only these JIDs
-function getOnlyJidsForAdd() {
-  if (!_adminGroupList.length) return null; // no list loaded → no filter
+function getAddOnlyJids() {
+  if (!_addGroupList.length) return null;
   var selected = Object.keys(_addGroupSelected);
-  var modeEl = document.querySelector("input[name=addFilterMode]:checked");
+  var modeEl = document.querySelector('input[name=addFilterMode]:checked');
   var mode = modeEl ? modeEl.value : "include";
-
-  if (selected.length === 0) {
-    if (mode === "exclude") return null; // exclude nothing = all
-    return []; // include nothing = nothing
-  }
+  if (selected.length === 0) return mode === "exclude" ? null : [];
   if (mode === "include") return selected;
-  // exclude mode: all admin groups except selected
-  var selectedSet = {};
-  selected.forEach(function(j){ selectedSet[j] = true; });
-  return _adminGroupList.filter(function(g){ return !selectedSet[g.jid]; }).map(function(g){ return g.jid; });
+  var sset = {};
+  selected.forEach(function(j){ sset[j] = true; });
+  return _addGroupList.filter(function(g){ return !sset[g.jid]; }).map(function(g){ return g.jid; });
 }
 
-function updateAddBtnLabel() {
-  var btn = document.getElementById("addBtn");
-  if (!btn || _addRunning) return;
-  var onlyJids = getOnlyJidsForAdd();
-  if (onlyJids === null) {
-    btn.textContent = "Adicionar em todos";
-  } else if (onlyJids.length === 0) {
-    btn.textContent = "Selecione ao menos 1 grupo";
-  } else {
-    var modeEl = document.querySelector("input[name=addFilterMode]:checked");
-    var mode = modeEl ? modeEl.value : "include";
-    btn.textContent = mode === "include"
-      ? "Adicionar nos " + onlyJids.length + " selecionados"
-      : "Adicionar em " + onlyJids.length + " grupos (exceto selecionados)";
-  }
-}
+// ============================================================
+// ===== Lista de jobs + polling ================================
+// ============================================================
 
-function resetAdminGroupListUI() {
-  _adminGroupList = [];
-  _addGroupSelected = {};
-  document.getElementById("addGroupFilter").classList.add("hidden");
-  document.getElementById("addGroupListInfo").textContent = "";
-  document.getElementById("addGroupList").innerHTML = "";
-  updateAddBtnLabel();
-}
-
-function addCacheKey(sid, phone) { return ADD_CACHE_PREFIX + sid + "_" + phone; }
-function getAddCache(sid, phone) {
-  try {
-    var raw = localStorage.getItem(addCacheKey(sid, phone));
-    return raw ? JSON.parse(raw) : {};
-  } catch(e) { return {}; }
-}
-function saveAddCache(sid, phone, data) {
-  try { localStorage.setItem(addCacheKey(sid, phone), JSON.stringify(data)); } catch(e) {}
-}
-
-function clearAddCache() {
-  var sid = document.getElementById("sessionSelect").value;
-  var phone = document.getElementById("addPhone").value.replace(/\D/g, "");
-  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
-  if (!phone || phone.length < 10) { setAddStatus("Digite o número primeiro."); return; }
-  var n = Object.keys(getAddCache(sid, phone)).length;
-  if (!confirm("Apagar histórico de " + n + " grupo(s) já processados para o número " + phone + "?")) return;
-  localStorage.removeItem(addCacheKey(sid, phone));
-  document.getElementById("addResultsTbody").innerHTML = "";
-  document.getElementById("addResultsWrap").classList.add("hidden");
-  document.getElementById("addProgressWrap").classList.add("hidden");
-  addResults = [];
-  setAddStatus("Histórico limpo. Clique em Adicionar em todos para começar.");
-}
-
-function setAddStatus(msg) {
-  var el = document.getElementById("addStatus");
-  if (el) el.textContent = msg;
-}
-
-function setAddBtnRunning(running) {
-  var btn = document.getElementById("addBtn");
-  if (!btn) return;
-  btn.disabled = !!running;
-  btn.textContent = running ? "Adicionando..." : "Adicionar em todos";
-}
-
-function updateAddProgress(done, total, running) {
-  var wrap = document.getElementById("addProgressWrap");
-  if (!wrap) return;
-  if (!total || total === 0) { wrap.classList.add("hidden"); return; }
-  wrap.classList.remove("hidden");
-  var pct = (done / total) * 100;
-  document.getElementById("addProgressBarFill").style.width = pct.toFixed(1) + "%";
-  var icon = running ? '<span class="spinner"></span>' : "";
-  var suffix = running ? " — processando..." : "";
-  document.getElementById("addProgressText").innerHTML =
-    icon + done + " de " + total + " grupos admin processados (" + pct.toFixed(0) + "%)" + suffix;
-}
-
-function statusBadge(status, msg) {
-  var color = "var(--muted)";
-  var label = "—";
-  switch (status) {
-    case "added":               color = "var(--ok)";     label = "✅ Adicionado"; break;
-    case "added_and_promoted":  color = "var(--ok)";     label = "⭐ Adicionado + Admin"; break;
-    case "promoted_only":       color = "var(--ok)";     label = "⭐ Promovido a admin"; break;
-    case "already_member":      color = "var(--muted)";  label = "⏭️ Já era membro"; break;
-    case "already_admin":       color = "var(--muted)";  label = "⏭️ Já era admin"; break;
-    case "added_not_promoted":  color = "#f59e0b";       label = "⚠️ Adic. sem admin"; break;
-    case "promote_error":       color = "#f59e0b";       label = "⚠️ Erro na promoção"; break;
-    case "not_admin":           color = "var(--muted)";  label = "Não é admin"; break;
-    case "privacy_block":       color = "var(--danger)"; label = "🚫 Privacidade"; break;
-    case "not_on_whatsapp":     color = "var(--danger)"; label = "❌ Sem WhatsApp"; break;
-    case "aborted_rate_limit":  color = "var(--danger)"; label = "⏸️ Rate-limit"; break;
-    case "skipped":             color = "var(--muted)";  label = "Pendente"; break;
-    case "error":               color = "var(--danger)"; label = "❌ Erro"; break;
-  }
-  var title = msg ? ' title="' + esc(msg) + '"' : '';
-  return '<span style="color:' + color + '"' + title + '>' + label + '</span>';
-}
-
-function renderAddResults(groups) {
-  var tbody = document.getElementById("addResultsTbody");
-  tbody.innerHTML = "";
-  // Sort: show admins first (so the interesting rows come first), then non-admin
-  var sorted = groups.slice().sort(function(a, b) {
-    if (a.isAdmin !== b.isAdmin) return a.isAdmin ? -1 : 1;
-    return 0;
-  });
-  sorted.forEach(function(g) {
-    var tr = document.createElement("tr");
-    tr.innerHTML =
-      '<td>' + esc(g.name) + '</td>' +
-      '<td style="text-align:center">' + g.participants + '</td>' +
-      '<td>' + statusBadge(g.status, g.statusMessage) + '</td>';
-    tbody.appendChild(tr);
+function refreshJobs() {
+  return waFetch("/api/jobs").then(function(res) {
+    var jobs = res.jobs || [];
+    // Keep both known jobs (we started them) and jobs of sessions we care about
+    // We show ALL jobs for simplicity (they're scoped to the current server)
+    renderJobs(jobs);
+  }).catch(function(e) {
+    console.error("[jobs] refresh failed:", e.message);
   });
 }
 
-async function loadAddToGroups() {
-  if (_addRunning) { setAddStatus("Já está rodando, aguarde..."); return; }
-  var sid = document.getElementById("sessionSelect").value;
-  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
-  var phone = document.getElementById("addPhone").value.replace(/\D/g, "");
-  if (phone.length < 10) { setAddStatus("Número inválido. Use formato 5511999999999 (DDI+DDD+número, só dígitos)."); return; }
+function reconnectActiveJobs() {
+  // Same as refreshJobs — the server has its own state
+  return refreshJobs().then(function() {
+    if (_pollTimer) clearInterval(_pollTimer);
+    _pollTimer = setInterval(refreshJobs, POLL_INTERVAL_MS);
+  });
+}
 
-  var promoteToAdmin = document.getElementById("addPromoteAdmin").checked;
-  // With promote, each group needs 2 API calls. Double the batch size to keep ~3 groups per batch.
-  var batchCalls = promoteToAdmin ? (ADD_BATCH_SIZE * 2) : ADD_BATCH_SIZE;
+function renderJobs(jobSummaries) {
+  var container = document.getElementById("jobsContainer");
+  var empty = document.getElementById("emptyState");
 
-  // Apply group filter if user loaded the list and selected groups
-  var onlyJids = getOnlyJidsForAdd();
-  if (Array.isArray(onlyJids) && onlyJids.length === 0) {
-    setAddStatus("Nenhum grupo selecionado. Marque grupos no filtro ou clique em Limpar seleção e descarregue a lista para usar todos os grupos.");
+  if (!jobSummaries || jobSummaries.length === 0) {
+    container.innerHTML = "";
+    empty.style.display = "";
     return;
   }
+  empty.style.display = "none";
 
-  var targetDesc;
-  if (onlyJids === null) {
-    targetDesc = "TODOS os grupos onde a sessão é admin";
+  // For each job summary, fetch the full details (results + progress)
+  var promises = jobSummaries.map(function(j) {
+    return waFetch("/api/jobs/" + j.id).then(function(r) { return r.job; }).catch(function(){ return null; });
+  });
+  Promise.all(promises).then(function(fullJobs) {
+    container.innerHTML = "";
+    fullJobs.filter(function(j){ return !!j; }).forEach(function(job) {
+      _activeJobs[job.id] = job;
+      container.appendChild(renderJobCard(job));
+    });
+  });
+}
+
+function renderJobCard(job) {
+  var div = document.createElement("div");
+  div.className = "job-card " + job.status;
+  div.id = "job-card-" + job.id;
+
+  var title = job.type === "extract" ? "Extração de links" : "Adição de número";
+  var session = _sessions.find(function(s){ return s.id === job.sessionId; });
+  var sessionLabel = session ? (session.label + (session.phone ? " — " + session.phone : "")) : job.sessionId.substring(0, 8);
+
+  var statusLabels = {
+    pending: "Pendente",
+    running: "Rodando",
+    completed: "Concluído",
+    rate_limited: "Rate-limit",
+    cancelled: "Cancelado",
+    error: "Erro",
+  };
+  var statusLabel = statusLabels[job.status] || job.status;
+
+  var adminCount = job.progress.adminCount || 0;
+  var doneTotal = job.progress.doneTotal || 0;
+  var withLink = job.progress.withLink || 0;
+  var progressCount = (job.type === "extract") ? withLink : doneTotal;
+  var pct = adminCount > 0 ? (progressCount / adminCount) * 100 : 0;
+
+  var etaSec = calculateEtaSeconds(job);
+  var etaText = (job.status === "running") ? "ETA: " + formatEtaSeconds(etaSec) : "";
+
+  var configLine = "";
+  if (job.type === "extract") {
+    configLine = "Delay: " + (job.config.delaySec || 60) + "s";
   } else {
-    var modeEl = document.querySelector("input[name=addFilterMode]:checked");
-    var mode = modeEl ? modeEl.value : "include";
-    targetDesc = mode === "include"
-      ? onlyJids.length + " grupos selecionados"
-      : onlyJids.length + " grupos (todos exceto os " + Object.keys(_addGroupSelected).length + " selecionados)";
+    configLine = "Número: " + (job.config.phone || "?") + " | Delay: " + (job.config.delaySec || 20) + "s"
+      + (job.config.promoteToAdmin ? " | + promover a admin" : "")
+      + (job.config.onlyJids ? " | filtro: " + job.config.onlyJids.length + " grupos" : "");
   }
 
-  var confirmMsg = "Vai " + (promoteToAdmin ? "adicionar E promover a ADMIN" : "adicionar") + " o número " + phone
-    + " em " + targetDesc + ".\n\n"
-    + "⏱️ Delay: " + ADD_DELAY_PER_CALL_S + "s por chamada."
-    + (promoteToAdmin ? " Cada grupo = 2 chamadas (add + promote), ou seja ~40s por grupo.\n" : "\n")
-    + "📢 Visibilidade: aparece a mensagem 'Fulano adicionou " + phone + "' em cada grupo"
-    + (promoteToAdmin ? " + mensagem de promoção a admin.\n\n" : ".\n\n")
-    + "Confirma?";
-  if (!confirm(confirmMsg)) return;
+  var spinner = (job.status === "running") ? '<span class="spinner"></span>' : '';
+  var cancelBtn = (job.status === "running" || job.status === "pending")
+    ? '<button class="btn-danger btn-icon" onclick="cancelJobAction(\'' + job.id + '\')">Interromper</button>'
+    : '';
+  var exportBtn = (job.results && job.results.length > 0)
+    ? '<button class="btn-secondary btn-icon" onclick="exportJobCSV(\'' + job.id + '\')">Exportar CSV</button>'
+    : '';
+  var removeBtn = (job.status !== "running" && job.status !== "pending")
+    ? '<button class="btn-secondary btn-icon" onclick="removeJobCard(\'' + job.id + '\')" title="Remover card da tela (não apaga do servidor)">✕ Fechar</button>'
+    : '';
 
-  _addRunning = true;
-  setAddBtnRunning(true);
-  document.getElementById("addStatus").style.color = "";
-  document.getElementById("addResultsWrap").classList.add("hidden");
-  document.getElementById("addAutoRetry").classList.add("hidden");
+  var message = "";
+  if (job.status === "running") {
+    message = '<div class="job-message">' + spinner + progressCount + '/' + adminCount + ' processados — ' + etaText + '</div>';
+  } else if (job.status === "completed") {
+    message = '<div class="job-message ok">✅ Concluído — ' + progressCount + '/' + adminCount + ' processados</div>';
+  } else if (job.status === "rate_limited") {
+    message = '<div class="job-message error">⏸️ Pausado por rate-limit — ' + progressCount + '/' + adminCount + ' processados. '
+      + 'Aguarde ~30min e inicie uma nova ' + (job.type === "extract" ? "extração" : "adição") + ' — o cache do Supabase preserva o progresso.</div>';
+  } else if (job.status === "cancelled") {
+    message = '<div class="job-message warn">⏹️ Cancelado — ' + progressCount + '/' + adminCount + ' processados</div>';
+  } else if (job.status === "error") {
+    message = '<div class="job-message error">❌ Erro: ' + esc(job.lastError || "desconhecido") + '</div>';
+  }
 
-  var savedCache = getAddCache(sid, phone);
-  // Snapshot of progress BEFORE this run, used to detect "no progress" later
-  var prevDone = Object.keys(savedCache).length;
-  var batchNum = 0;
-  var rateLimited = false;
+  div.innerHTML =
+    '<div class="job-header">'
+    + '<div class="job-title">' + title + ' — ' + esc(sessionLabel) + '</div>'
+    + '<span class="job-status-badge ' + job.status + '">' + statusLabel + '</span>'
+    + cancelBtn + exportBtn + removeBtn
+    + '</div>'
+    + '<div class="job-config">' + esc(configLine) + '</div>'
+    + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>'
+    + '<div class="job-progress-text">' + progressCount + ' de ' + adminCount + ' (' + pct.toFixed(0) + '%)'
+    + (job.progress.newInThisRun ? ' — ' + job.progress.newInThisRun + ' novos nesta rodada' : '')
+    + '</div>'
+    + message;
 
-  try {
-    while (true) {
-      batchNum++;
-      var cachedJids = Object.keys(savedCache);
-      var secondsPerBatch = batchCalls * ADD_DELAY_PER_CALL_S;
-      var groupsPerBatch = promoteToAdmin ? (batchCalls / 2) : batchCalls;
-      setAddStatus("Lote " + batchNum + " — processando até " + groupsPerBatch + " grupo(s) ("
-        + ADD_DELAY_PER_CALL_S + "s por chamada, ~" + secondsPerBatch + "s por lote). "
-        + "Histórico: " + cachedJids.length + " grupo(s) já processados.");
+  return div;
+}
 
-      var data = await waFetch("/api/sessions/" + sid + "/add-to-groups", "POST", {
-        phone: phone,
-        skipJids: cachedJids,
-        maxCalls: batchCalls,
-        promoteToAdmin: promoteToAdmin,
-        onlyJids: onlyJids, // null = all admin groups; array = whitelist
-      });
+function cancelJobAction(jobId) {
+  if (!confirm("Interromper este job? O que já foi processado fica salvo no Supabase.")) return;
+  waFetch("/api/jobs/" + jobId + "/cancel", "POST", {}).then(function() {
+    showToast("Cancelamento solicitado", "ok");
+    refreshJobs();
+  }).catch(function(e) { showToast("Erro: " + e.message, "error"); });
+}
 
-      var groups = data.groups || [];
-      var newInThisBatch = 0;
-
-      // States that are TERMINAL (cached, never retried)
-      var TERMINAL_STATUSES = {
-        "added": 1, "added_and_promoted": 1, "promoted_only": 1,
-        "already_member": 1, "already_admin": 1,
-        "privacy_block": 1, "not_on_whatsapp": 1, "error": 1
-      };
-      // "added_not_promoted" and "promote_error" are NOT terminal — on the next run,
-      // the backend will re-detect the target as already-member + not-admin and
-      // retry just the promote step.
-      groups.forEach(function(g) {
-        if (g.status === "skipped" && savedCache[g.jid]) {
-          // Restore from cache (already processed in a previous run)
-          var cached = savedCache[g.jid];
-          g.status = cached.status;
-          g.statusMessage = cached.statusMessage;
-        } else if (g.status && TERMINAL_STATUSES[g.status]) {
-          // Save terminal states to cache so we don't retry them
-          if (!savedCache[g.jid]) {
-            savedCache[g.jid] = { status: g.status, statusMessage: g.statusMessage };
-            newInThisBatch++;
-          }
-        } else if (g.status === "added_not_promoted" || g.status === "promote_error") {
-          // Count as progress (so the loop continues) but DON'T cache
-          newInThisBatch++;
-        }
-      });
-      saveAddCache(sid, phone, savedCache);
-
-      addResults = groups;
-      renderAddResults(addResults);
-      document.getElementById("addResultsWrap").classList.remove("hidden");
-
-      var adminCount = addResults.filter(function(g){ return g.isAdmin; }).length;
-      var processedCount = addResults.filter(function(g){
-        return g.isAdmin && g.status && g.status !== "skipped";
-      }).length;
-      updateAddProgress(processedCount, adminCount, true);
-
-      if (data.rateLimited) { rateLimited = true; break; }
-      if (newInThisBatch === 0) break;
-
-      await new Promise(function(r){ setTimeout(r, BATCH_PAUSE_MS); });
-    }
-
-    // ===== Final status =====
-    var adminCount = addResults.filter(function(g){ return g.isAdmin; }).length;
-    var finalAdded = addResults.filter(function(g){ return g.status === "added"; }).length;
-    var finalAddedPromoted = addResults.filter(function(g){ return g.status === "added_and_promoted"; }).length;
-    var finalPromotedOnly = addResults.filter(function(g){ return g.status === "promoted_only"; }).length;
-    var finalAlreadyMember = addResults.filter(function(g){ return g.status === "already_member"; }).length;
-    var finalAlreadyAdmin = addResults.filter(function(g){ return g.status === "already_admin"; }).length;
-    var finalAddedNotPromoted = addResults.filter(function(g){ return g.status === "added_not_promoted"; }).length;
-    var finalPromoteError = addResults.filter(function(g){ return g.status === "promote_error"; }).length;
-    var finalPrivacy = addResults.filter(function(g){ return g.status === "privacy_block"; }).length;
-    var finalErrors = addResults.filter(function(g){ return g.status === "error"; }).length;
-    var finalNotWa = addResults.filter(function(g){ return g.status === "not_on_whatsapp"; }).length;
-    var processedCount = finalAdded + finalAddedPromoted + finalPromotedOnly + finalAlreadyMember
-      + finalAlreadyAdmin + finalAddedNotPromoted + finalPromoteError + finalPrivacy + finalErrors + finalNotWa;
-    updateAddProgress(processedCount, adminCount, false);
-
-    var msg;
-    if (rateLimited) {
-      var done = finalAdded + finalAddedPromoted + finalPromotedOnly;
-      // Show retry button (advancing the counter happens later, after we know whether progress was made)
-      showAddRetryButton(_addRetry.attempt);
-      msg = "⏸️ PAUSADO POR RATE-LIMIT — " + done + " processados com sucesso";
-      if (finalAddedNotPromoted > 0) msg += " | ⚠️ " + finalAddedNotPromoted + " adicionados sem admin (serão promovidos no próximo lote)";
-      msg += ". Clique no botão abaixo para retomar automaticamente, ou tente manualmente mais tarde — o histórico preserva o progresso.";
-      document.getElementById("addStatus").style.color = "var(--danger)";
-    } else {
-      var parts = ["✅ FINALIZADO"];
-      if (finalAdded > 0) parts.push(finalAdded + " adicionados");
-      if (finalAddedPromoted > 0) parts.push("⭐ " + finalAddedPromoted + " adicionados + promovidos");
-      if (finalPromotedOnly > 0) parts.push("⭐ " + finalPromotedOnly + " promovidos a admin");
-      if (finalAlreadyMember > 0) parts.push(finalAlreadyMember + " já eram membros");
-      if (finalAlreadyAdmin > 0) parts.push(finalAlreadyAdmin + " já eram admin");
-      if (finalAddedNotPromoted > 0) parts.push("⚠️ " + finalAddedNotPromoted + " adic. sem admin");
-      if (finalPromoteError > 0) parts.push("⚠️ " + finalPromoteError + " erros na promoção");
-      if (finalPrivacy > 0) parts.push("🚫 " + finalPrivacy + " bloqueados por privacidade");
-      if (finalErrors > 0) parts.push("❌ " + finalErrors + " erros");
-      if (finalNotWa > 0) parts.push("❌ " + finalNotWa + " sem WhatsApp");
-      msg = parts.join(" | ") + " (de " + adminCount + " grupos admin no total)";
-      document.getElementById("addStatus").style.color = "var(--ok)";
-    }
-    setAddStatus(msg);
-
-    // Auto-retry bookkeeping
-    if (rateLimited) {
-      // No progress on this attempt? advance backoff counter
-      var nowDone = Object.keys(savedCache).length;
-      if (nowDone <= prevDone) {
-        _addRetry.attempt = Math.min(_addRetry.attempt + 1, RETRY_DELAYS_MIN.length);
-      }
-      showAddRetryButton(_addRetry.attempt);
-    } else {
-      // Run completed without rate-limit → cancel any pending retry
-      cancelAddAutoRetry();
-    }
-  } catch (e) {
-    document.getElementById("addStatus").style.color = "var(--danger)";
-    setAddStatus("Erro: " + e.message + " — clique em Adicionar em todos de novo, o histórico preserva o progresso.");
-    // Stop the spinner on the progress bar
-    var adminCount = addResults.filter(function(g){ return g.isAdmin; }).length;
-    var processedNow = addResults.filter(function(g){ return g.isAdmin && g.status && g.status !== "skipped"; }).length;
-    updateAddProgress(processedNow, adminCount, false);
-  } finally {
-    _addRunning = false;
-    setAddBtnRunning(false);
+function removeJobCard(jobId) {
+  var el = document.getElementById("job-card-" + jobId);
+  if (el) el.remove();
+  _jobsInThisSession.delete(jobId);
+  saveKnownJobs();
+  // If no cards left, show empty state
+  if (document.getElementById("jobsContainer").children.length === 0) {
+    document.getElementById("emptyState").style.display = "";
   }
 }
 
-function exportCSV() {
-  if (!cache.length) return;
-  var rows = [["Nome do grupo", "Link de convite", "Membros", "Admin"]];
-  cache.forEach(function(g) {
-    rows.push([
-      g.name || "",
-      g.inviteLink || (g.inviteError || ""),
-      g.participants,
-      g.isAdmin ? "Sim" : "Não",
-    ]);
-  });
-  var csv = rows.map(function(r) {
-    return r.map(function(c) {
-      var s = String(c == null ? "" : c);
+function exportJobCSV(jobId) {
+  var job = _activeJobs[jobId];
+  if (!job || !job.results || !job.results.length) { showToast("Sem dados pra exportar", "error"); return; }
+
+  var isExtract = job.type === "extract";
+  var rows;
+  if (isExtract) {
+    rows = [["Nome do grupo", "Link de convite", "Membros", "Admin"]];
+    job.results.forEach(function(r) {
+      rows.push([
+        r.name || "",
+        r.inviteLink || r.inviteError || "",
+        r.participants || 0,
+        r.isAdmin ? "Sim" : "Não",
+      ]);
+    });
+  } else {
+    rows = [["Nome do grupo", "Status", "Mensagem", "Membros"]];
+    job.results.forEach(function(r) {
+      rows.push([
+        r.name || "",
+        r.status || "",
+        r.statusMessage || "",
+        r.participants || 0,
+      ]);
+    });
+  }
+
+  var csv = rows.map(function(row) {
+    return row.map(function(cell) {
+      var s = String(cell == null ? "" : cell);
       if (/[",;\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
       return s;
     }).join(";");
   }).join("\r\n");
-  // BOM UTF-8 para Excel abrir acentos corretamente
   var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
   a.href = url;
-  a.download = "grupos_whatsapp_" + new Date().toISOString().slice(0,10) + ".csv";
+  a.download = (isExtract ? "grupos_links_" : "adicoes_") + new Date().toISOString().slice(0, 10) + ".csv";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// Keep polling only when there's at least one active job
+setInterval(function() {
+  // Only poll if there's any running/pending job visible
+  var hasActive = Object.values(_activeJobs).some(function(j) {
+    return j && (j.status === "running" || j.status === "pending");
+  });
+  if (!hasActive) {
+    // nothing active — but we still want to catch newly-started jobs from another tab once a minute
+  }
+}, 30000);
+
 </script>
 </body>
 </html>

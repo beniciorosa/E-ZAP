@@ -311,7 +311,7 @@ function extractDomain(jid) {
   return m ? m[1] : "";
 }
 
-async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
+async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10, options = {}) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
     throw new Error("Sessão não conectada: " + sessionId);
@@ -328,9 +328,20 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
   // JIDs to skip — caller already has the invite link cached for these
   const skipSet = new Set(Array.isArray(skipJids) ? skipJids : []);
   // Max number of groupInviteCode calls in this single request (batch limit to avoid HTTP timeout)
-  const maxCallsThisBatch = Math.max(1, Math.min(50, Number(maxCalls) || 10));
+  // Set maxCalls to Infinity from job workers (they are not bound by HTTP timeouts).
+  const maxCallsThisBatch = (maxCalls === Infinity) ? Infinity : Math.max(1, Math.min(50, Number(maxCalls) || 10));
   let callsMade = 0;
   let batchLimitReached = false;
+
+  // Extended options for job workers:
+  //   delaySec: override the default 60s between calls (with ±5s jitter preserved)
+  //   onProgress(payload): called after each group is processed
+  //   shouldCancel(): called before each API call; if returns true, loop stops
+  const delaySecOverride = typeof options.delaySec === "number" ? options.delaySec : 60;
+  const baseDelayMs = Math.max(5, Math.min(300, delaySecOverride)) * 1000; // clamp 5s..300s
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+  const shouldCancel = typeof options.shouldCancel === "function" ? options.shouldCancel : null;
+  let cancelled = false;
 
   // 1. Fetch all participating groups
   const groupsMap = await sock.groupFetchAllParticipating();
@@ -345,6 +356,12 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
 
   for (const g of groupList) {
     processed++;
+
+    // Check for cancellation (job worker mode)
+    if (shouldCancel && shouldCancel()) {
+      cancelled = true;
+      break;
+    }
 
     // Capture a sample of the first group's participant structure for debugging
     if (!firstGroupSample && Array.isArray(g.participants) && g.participants.length > 0) {
@@ -404,14 +421,12 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
         }
       }
       callsMade++;
-      // Delay 55-65s (jitter ±5s) between IQ requests — "safe zone" strategy.
-      // Empirically the WhatsApp server tolerates ~60-120 group IQ calls per
-      // hour before rate-limiting. 60s/call gives us ~60/hour, comfortably
-      // below the threshold. Jitter breaks up bot-like patterns.
+      // Delay between IQ requests — "safe zone" strategy with jitter ±5s.
+      // Default 60s/call gives us ~60 calls/hour, below the empirical WhatsApp
+      // rate-limit threshold. Caller can override via options.delaySec.
       if (!rateLimited && callsMade < maxCallsThisBatch) {
-        const baseMs = 60000;
         const jitterMs = Math.floor((Math.random() - 0.5) * 10000); // ±5000ms
-        await new Promise(r => setTimeout(r, baseMs + jitterMs));
+        await new Promise(r => setTimeout(r, baseDelayMs + jitterMs));
       }
       // After the last call in this batch, stop processing further admin groups
       if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
@@ -435,6 +450,19 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
     if (!skipped && (inviteLink || inviteError)) {
       upsertGroupLink(sessionId, rowOut);
     }
+
+    // Notify progress observer (job worker), if any
+    if (onProgress) {
+      try {
+        onProgress({
+          processed,
+          total,
+          row: rowOut,
+          rateLimited,
+          callsMade,
+        });
+      } catch (_) {}
+    }
   }
 
   const debug = {
@@ -446,7 +474,7 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
     firstGroupSample,
   };
 
-  return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, debug };
+  return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, cancelled, debug };
 }
 
 // ===== Supabase helpers for wa_group_links / wa_group_additions =====
@@ -733,6 +761,9 @@ async function listAdminGroups(sessionId) {
 // options:
 //   promoteToAdmin: boolean  — if true, promote the target to admin after adding
 //   onlyJids: string[]       — if provided, ONLY process groups in this list (whitelist)
+//   delaySec: number         — override delay between IQ calls (default 20s). Jitter ±3s.
+//   onProgress: function     — called after each group is processed (job worker mode)
+//   shouldCancel: function   — if returns true, stop the loop (job worker mode)
 async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], maxCalls = 10, options = {}) {
   const session = sessions.get(sessionId);
   if (!session || session.status !== "connected") {
@@ -742,6 +773,11 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   const promoteToAdmin = options && options.promoteToAdmin === true;
   const onlyJids = options && Array.isArray(options.onlyJids) ? options.onlyJids : null;
   const onlyJidsSet = onlyJids ? new Set(onlyJids) : null;
+  const delaySecOverride = typeof options.delaySec === "number" ? options.delaySec : 20;
+  const addBaseDelayMs = Math.max(5, Math.min(300, delaySecOverride)) * 1000;
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+  const shouldCancel = typeof options.shouldCancel === "function" ? options.shouldCancel : null;
+  let cancelled = false;
 
   // Normalize target phone: digits only → JID @s.whatsapp.net
   const cleanPhone = String(phoneToAdd || "").replace(/\D/g, "");
@@ -769,7 +805,8 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
 
   const skipSet = new Set(Array.isArray(skipJids) ? skipJids : []);
   // maxCalls counts INDIVIDUAL WhatsApp API calls (add + promote are 2 separate calls)
-  const maxCallsThisBatch = Math.max(1, Math.min(50, Number(maxCalls) || 10));
+  // Set to Infinity from job workers (not bound by HTTP timeouts).
+  const maxCallsThisBatch = (maxCalls === Infinity) ? Infinity : Math.max(1, Math.min(50, Number(maxCalls) || 10));
   let callsMade = 0;
   let batchLimitReached = false;
 
@@ -781,15 +818,23 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   let rateLimited = false;
   let processed = 0;
 
-  // Small helper to wait 20s between IQ calls (unless we just hit rate limit or batch limit)
+  // Small helper to wait between IQ calls (unless we just hit rate limit or batch limit)
+  // Uses the configured delay (default 20s) with ±3s jitter.
   async function rateLimitDelay() {
     if (!rateLimited && callsMade < maxCallsThisBatch) {
-      await new Promise(r => setTimeout(r, 20000));
+      const jitterMs = Math.floor((Math.random() - 0.5) * 6000); // ±3000ms
+      await new Promise(r => setTimeout(r, addBaseDelayMs + jitterMs));
     }
   }
 
   for (const g of groupList) {
     processed++;
+
+    // Cancellation check (job worker mode)
+    if (shouldCancel && shouldCancel()) {
+      cancelled = true;
+      break;
+    }
 
     // If a whitelist filter is active, skip groups not in the list (do not return them)
     if (onlyJidsSet && !onlyJidsSet.has(g.id)) continue;
@@ -951,9 +996,22 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
     if (status && status !== "skipped" && status !== "not_admin" && status !== "aborted_rate_limit") {
       upsertGroupAddition(sessionId, cleanPhone, rowOut);
     }
+
+    // Notify progress observer (job worker), if any
+    if (onProgress) {
+      try {
+        onProgress({
+          processed,
+          total,
+          row: rowOut,
+          rateLimited,
+          callsMade,
+        });
+      } catch (_) {}
+    }
   }
 
-  return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached };
+  return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, cancelled };
 }
 
 // ===== Stop session =====
