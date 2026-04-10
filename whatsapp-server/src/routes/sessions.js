@@ -124,6 +124,51 @@ router.post("/:id/list-admin-groups", async (req, res) => {
   }
 });
 
+// POST /api/sessions/:id/list-admin-groups-with-membership
+// Body: { targetPhone?: string }
+// If targetPhone is provided AND there's a connected session with that phone,
+// cross-references group membership and returns { ..., memberStatus: "not_member"|"member"|"admin" }.
+// Otherwise groups come back with memberStatus="unknown".
+router.post("/:id/list-admin-groups-with-membership", async (req, res) => {
+  try {
+    const targetPhone = req.body?.targetPhone || "";
+    const result = await baileys.listAdminGroupsWithMembership(req.params.id, targetPhone);
+    res.json({
+      ok: true,
+      count: result.groups.length,
+      targetSessionFound: result.targetSessionFound,
+      groups: result.groups,
+    });
+  } catch (e) {
+    console.error("[SESSIONS] List admin groups with membership error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/sessions/:id/cached-invites — fetch all extracted invite links from Supabase
+router.get("/:id/cached-invites", async (req, res) => {
+  try {
+    const rows = await baileys.getCachedGroupLinks(req.params.id);
+    res.json({ ok: true, count: rows.length, invites: rows });
+  } catch (e) {
+    console.error("[SESSIONS] Cached invites error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/sessions/:id/cached-additions?phone=X — fetch addition history for (session, phone)
+router.get("/:id/cached-additions", async (req, res) => {
+  try {
+    const phone = String(req.query.phone || "").replace(/\D/g, "");
+    if (!phone) return res.status(400).json({ error: "Query param 'phone' é obrigatório" });
+    const rows = await baileys.getCachedGroupAdditions(req.params.id, phone);
+    res.json({ ok: true, count: rows.length, additions: rows });
+  } catch (e) {
+    console.error("[SESSIONS] Cached additions error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/sessions/:id/add-to-groups — Add a phone number to all admin groups (temporary tool)
 // Body:
 //   phone: string            — phone to add, digits only (e.g. "5511999999999")

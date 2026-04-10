@@ -419,7 +419,7 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
       inviteError = "Sem permissão (não é admin)";
     }
 
-    results.push({
+    const rowOut = {
       jid: g.id,
       name: g.subject || "(sem nome)",
       participants: Array.isArray(g.participants) ? g.participants.length : 0,
@@ -427,7 +427,14 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
       inviteLink,
       inviteError,
       skipped,
-    });
+    };
+    results.push(rowOut);
+
+    // Persist to Supabase (fire-and-forget, don't block the loop) if we have a terminal state.
+    // Skip rows (skipped=true due to cache) are NOT re-saved — they're already in the DB.
+    if (!skipped && (inviteLink || inviteError)) {
+      upsertGroupLink(sessionId, rowOut);
+    }
   }
 
   const debug = {
@@ -440,6 +447,158 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
   };
 
   return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, debug };
+}
+
+// ===== Supabase helpers for wa_group_links / wa_group_additions =====
+// Best-effort: errors are logged but do not break the extraction/add flow.
+async function upsertGroupLink(sessionId, row) {
+  try {
+    await supaRest(
+      "/rest/v1/wa_group_links?on_conflict=session_id,group_jid",
+      "POST",
+      {
+        session_id: sessionId,
+        group_jid: row.jid,
+        group_name: row.name,
+        invite_link: row.inviteLink || null,
+        invite_error: row.inviteError || null,
+        is_admin: !!row.isAdmin,
+        participants_count: row.participants || 0,
+        updated_at: new Date().toISOString(),
+      },
+      "resolution=merge-duplicates,return=minimal"
+    );
+  } catch (e) {
+    console.error("[BAILEYS] upsertGroupLink failed:", e.message);
+  }
+}
+
+async function upsertGroupAddition(sourceSessionId, targetPhone, row) {
+  try {
+    const wasPromoted =
+      row.status === "added_and_promoted" ||
+      row.status === "promoted_only" ||
+      row.status === "already_admin";
+    await supaRest(
+      "/rest/v1/wa_group_additions?on_conflict=source_session_id,target_phone,group_jid",
+      "POST",
+      {
+        source_session_id: sourceSessionId,
+        target_phone: targetPhone,
+        group_jid: row.jid,
+        group_name: row.name,
+        status: row.status,
+        status_message: row.statusMessage || null,
+        was_promoted: wasPromoted,
+        performed_at: new Date().toISOString(),
+      },
+      "resolution=merge-duplicates,return=minimal"
+    );
+  } catch (e) {
+    console.error("[BAILEYS] upsertGroupAddition failed:", e.message);
+  }
+}
+
+// Read cached links for a session (used when the frontend opens)
+async function getCachedGroupLinks(sessionId) {
+  try {
+    const rows = await supaRest(
+      "/rest/v1/wa_group_links?session_id=eq." + sessionId +
+      "&select=group_jid,group_name,invite_link,invite_error,is_admin,participants_count,updated_at&order=group_name.asc"
+    );
+    return rows || [];
+  } catch (e) {
+    console.error("[BAILEYS] getCachedGroupLinks failed:", e.message);
+    return [];
+  }
+}
+
+// Read cached addition history for a (session, phone) pair
+async function getCachedGroupAdditions(sessionId, targetPhone) {
+  try {
+    const rows = await supaRest(
+      "/rest/v1/wa_group_additions?source_session_id=eq." + sessionId +
+      "&target_phone=eq." + encodeURIComponent(targetPhone) +
+      "&select=group_jid,group_name,status,status_message,was_promoted,performed_at&order=performed_at.desc"
+    );
+    return rows || [];
+  } catch (e) {
+    console.error("[BAILEYS] getCachedGroupAdditions failed:", e.message);
+    return [];
+  }
+}
+
+// ===== List admin groups + cross-reference membership of a target phone (real-time) =====
+// If there's a connected session whose phone matches targetPhone, we call
+// groupFetchAllParticipating() on THAT session to get an authoritative list
+// of groups the target phone belongs to, and mark each group accordingly.
+// If no such session exists, all groups come back with memberStatus="unknown".
+async function listAdminGroupsWithMembership(sessionId, targetPhone) {
+  const adminGroups = await listAdminGroups(sessionId);
+
+  // Normalize the target phone
+  const cleanPhone = String(targetPhone || "").replace(/\D/g, "");
+  if (!cleanPhone) {
+    return { groups: adminGroups.map(g => Object.assign({}, g, { memberStatus: "unknown" })), targetSessionFound: false };
+  }
+
+  // Find a connected session whose phone matches
+  let targetSession = null;
+  for (const [id, s] of sessions) {
+    if (s && s.status === "connected") {
+      const sessPhone = s.sock?.user?.id?.split(":")[0]?.split("@")[0] || "";
+      if (sessPhone === cleanPhone) {
+        targetSession = s;
+        break;
+      }
+    }
+  }
+
+  if (!targetSession) {
+    return {
+      groups: adminGroups.map(g => Object.assign({}, g, { memberStatus: "unknown" })),
+      targetSessionFound: false,
+    };
+  }
+
+  // Fetch target session's groups and build a lookup map
+  const targetGroupsMap = await targetSession.sock.groupFetchAllParticipating();
+  const targetGroupsList = Object.values(targetGroupsMap || {});
+
+  // Build { groupJid -> { isMember, isAdmin } }
+  const membership = {};
+  const targetJid = targetSession.sock?.user?.id || "";
+  const targetLid = targetSession.sock?.user?.lid || "";
+  const targetPhoneBase = extractBase(targetJid);
+  const targetLidBase = extractBase(targetLid);
+
+  for (const tg of targetGroupsList) {
+    let isAdmin = false;
+    if (Array.isArray(tg.participants)) {
+      const me = tg.participants.find(p => {
+        const pid = p.id || "";
+        const pBase = extractBase(pid);
+        const pDomain = extractDomain(pid);
+        if (pid === targetJid || pid === targetLid) return true;
+        if (pDomain === "s.whatsapp.net" && targetPhoneBase && pBase === targetPhoneBase) return true;
+        if (pDomain === "lid" && targetLidBase && pBase === targetLidBase) return true;
+        if (targetPhoneBase && pBase === targetPhoneBase) return true;
+        if (targetLidBase && pBase === targetLidBase) return true;
+        return false;
+      });
+      if (me && (me.admin === "admin" || me.admin === "superadmin")) isAdmin = true;
+    }
+    membership[tg.id] = { isMember: true, isAdmin };
+  }
+
+  const enrichedGroups = adminGroups.map(g => {
+    const m = membership[g.jid];
+    return Object.assign({}, g, {
+      memberStatus: !m ? "not_member" : (m.isAdmin ? "admin" : "member"),
+    });
+  });
+
+  return { groups: enrichedGroups, targetSessionFound: true };
 }
 
 // ===== List groups where the session is admin (lightweight, no extra IQ calls) =====
@@ -694,14 +853,22 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
       }
     }
 
-    results.push({
+    const rowOut = {
       jid: g.id,
       name: g.subject || "(sem nome)",
       participants: Array.isArray(g.participants) ? g.participants.length : 0,
       isAdmin,
       status,
       statusMessage,
-    });
+    };
+    results.push(rowOut);
+
+    // Persist terminal statuses to the additions history. Skip "skipped"
+    // entries (those are either filter excludes or batch-limit-reached).
+    // Also skip "not_admin" since nothing happened there.
+    if (status && status !== "skipped" && status !== "not_admin" && status !== "aborted_rate_limit") {
+      upsertGroupAddition(sessionId, cleanPhone, rowOut);
+    }
   }
 
   return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached };
@@ -850,4 +1017,7 @@ module.exports = {
   fetchGroupsWithInvites,
   addParticipantToAllGroups,
   listAdminGroups,
+  listAdminGroupsWithMembership,
+  getCachedGroupLinks,
+  getCachedGroupAdditions,
 };

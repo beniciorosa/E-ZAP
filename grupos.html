@@ -66,7 +66,7 @@
         <button class="btn-secondary" onclick="loadSessions()">Recarregar sessões</button>
         <button class="btn-primary" id="extractBtn" onclick="loadGroups()">Extrair grupos</button>
         <button class="btn-secondary" id="exportBtn" onclick="exportCSV()" disabled>Exportar CSV</button>
-        <button class="btn-secondary" onclick="clearCacheForSession()" title="Apaga os links salvos no navegador para esta sessão">Limpar cache</button>
+        <button class="btn-secondary" onclick="clearCacheForSession()" title="Apaga os links do cache local do navegador (não apaga do Supabase). Na próxima seleção da sessão, o cache será re-sincronizado com o servidor.">Limpar cache local</button>
       </div>
       <div class="status" id="status">Configure a URL e o token, depois carregue as sessões.</div>
       <div class="status" id="cacheInfo" style="font-size:11px"></div>
@@ -90,7 +90,8 @@
           <input type="text" id="addPhone" placeholder="5511999999999" inputmode="numeric">
         </div>
         <button class="btn-primary" id="addBtn" onclick="loadAddToGroups()">Adicionar em todos</button>
-        <button class="btn-secondary" onclick="clearAddCache()" title="Apaga o histórico de adições deste número para esta sessão">Limpar histórico</button>
+        <button class="btn-secondary" onclick="exportAddHistoryCSV()" title="Exporta o histórico completo deste número para esta sessão (do Supabase)">Exportar histórico</button>
+        <button class="btn-secondary" onclick="clearAddCache()" title="Apaga o histórico local deste número para esta sessão (não apaga do servidor)">Limpar cache local</button>
       </div>
       <div style="margin-top:-4px;margin-bottom:8px;font-size:12px;color:var(--muted)">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
@@ -289,9 +290,41 @@ function updateCacheInfo() {
 }
 
 // Called whenever the user changes the selected session — clears any session-scoped UI state
+// and syncs the link cache from Supabase into localStorage.
 function onSessionChange() {
   updateCacheInfo();
   if (typeof resetAdminGroupListUI === "function") resetAdminGroupListUI();
+  syncLinkCacheFromSupabase();
+}
+
+// Pulls the link cache from Supabase and merges it into localStorage.
+// Called when the session changes — so when the user switches between machines
+// or reopens the page, the cache reflects the actual history.
+function syncLinkCacheFromSupabase() {
+  var sid = document.getElementById("sessionSelect").value;
+  if (!sid) return;
+  waFetch("/api/sessions/" + sid + "/cached-invites").then(function(data) {
+    if (!data || !data.invites) return;
+    var serverCache = {};      // jid -> link (only rows with a link)
+    var serverErrors = {};     // jid -> error message (permanent errors)
+    data.invites.forEach(function(row) {
+      if (row.invite_link) {
+        serverCache[row.group_jid] = row.invite_link;
+      } else if (row.invite_error && !isRateLimitMessage(row.invite_error)) {
+        serverErrors[row.group_jid] = row.invite_error;
+      }
+    });
+    // Merge: server wins over local (Supabase is source of truth)
+    var localCache = getCache(sid);
+    var merged = Object.assign({}, localCache, serverCache);
+    saveCache(sid, merged);
+    var localErrors = getErrorCache(sid);
+    var mergedErrors = Object.assign({}, localErrors, serverErrors);
+    saveErrorCache(sid, mergedErrors);
+    updateCacheInfo();
+  }).catch(function(e) {
+    console.warn("[grupos.html] Failed to sync cache from Supabase:", e.message);
+  });
 }
 
 function loadSessions() {
@@ -695,6 +728,48 @@ var ADD_CACHE_PREFIX = "ezap_added_";
 var _addRunning = false;
 var addResults = [];
 
+// Exports the FULL add-history for (session, phone) by reading from Supabase.
+// Includes ALL past runs, not just what's currently in memory/cache.
+function exportAddHistoryCSV() {
+  var sid = document.getElementById("sessionSelect").value;
+  var phone = (document.getElementById("addPhone").value || "").replace(/\D/g, "");
+  if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
+  if (phone.length < 10) { setAddStatus("Digite o número (formato 5511999999999) antes de exportar."); return; }
+  setAddStatus("Buscando histórico do número " + phone + " no servidor...");
+  waFetch("/api/sessions/" + sid + "/cached-additions?phone=" + encodeURIComponent(phone)).then(function(data) {
+    var rows = data.additions || [];
+    if (!rows.length) { setAddStatus("Nenhum histórico encontrado no servidor para esse número nesta sessão."); return; }
+
+    var csvRows = [["Nome do grupo", "Status", "Mensagem", "Foi admin?", "Quando"]];
+    rows.forEach(function(r) {
+      csvRows.push([
+        r.group_name || "",
+        r.status || "",
+        r.status_message || "",
+        r.was_promoted ? "Sim" : "Não",
+        r.performed_at || "",
+      ]);
+    });
+    var csv = csvRows.map(function(row) {
+      return row.map(function(cell) {
+        var s = String(cell == null ? "" : cell);
+        if (/[",;\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+        return s;
+      }).join(";");
+    }).join("\r\n");
+    var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "historico_adicoes_" + phone + "_" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setAddStatus("✅ " + rows.length + " linha(s) exportadas.");
+  }).catch(function(e) {
+    setAddStatus("Erro ao buscar histórico: " + e.message);
+  });
+}
+
 // ===== Filtro de grupos (lista admin + seleção include/exclude) =====
 var _adminGroupList = [];           // todos os grupos admin carregados (do backend)
 var _addGroupSelected = {};         // jid -> true se selecionado pelo usuário
@@ -702,18 +777,51 @@ var _addGroupSelected = {};         // jid -> true se selecionado pelo usuário
 function loadAdminGroupList() {
   var sid = document.getElementById("sessionSelect").value;
   if (!sid) { setAddStatus("Selecione uma sessão primeiro."); return; }
-  document.getElementById("addGroupListInfo").textContent = "Carregando...";
-  waFetch("/api/sessions/" + sid + "/list-admin-groups", "POST", {}).then(function(data) {
+  var targetPhone = (document.getElementById("addPhone").value || "").replace(/\D/g, "");
+  var infoEl = document.getElementById("addGroupListInfo");
+  infoEl.textContent = "Carregando...";
+
+  // Use the richer endpoint that cross-references membership (if targetPhone is known)
+  waFetch("/api/sessions/" + sid + "/list-admin-groups-with-membership", "POST", {
+    targetPhone: targetPhone || undefined,
+  }).then(function(data) {
     _adminGroupList = data.groups || [];
     _addGroupSelected = {};
     document.getElementById("addGroupSearch").value = "";
     document.getElementById("addGroupFilter").classList.remove("hidden");
-    document.getElementById("addGroupListInfo").textContent = _adminGroupList.length + " grupos admin carregados";
+
+    var hint = "";
+    if (targetPhone) {
+      if (data.targetSessionFound) {
+        var alreadyMember = _adminGroupList.filter(function(g){ return g.memberStatus === "member" || g.memberStatus === "admin"; }).length;
+        var alreadyAdmin = _adminGroupList.filter(function(g){ return g.memberStatus === "admin"; }).length;
+        hint = " — " + targetPhone + ": " + alreadyMember + " grupos já membro (" + alreadyAdmin + " como admin)";
+      } else {
+        hint = " — ⚠️ número " + targetPhone + " não está logado no servidor, não dá pra saber onde ele está em tempo real";
+      }
+    } else {
+      hint = " — digite o número acima antes de carregar para ver onde ele já está";
+    }
+    infoEl.textContent = _adminGroupList.length + " grupos admin carregados" + hint;
     renderAddGroupList();
     updateAddBtnLabel();
   }).catch(function(e) {
-    document.getElementById("addGroupListInfo").textContent = "Erro: " + e.message;
+    infoEl.textContent = "Erro: " + e.message;
   });
+}
+
+function memberStatusBadge(status) {
+  // Returns HTML for a small badge next to the group name
+  switch (status) {
+    case "admin":
+      return '<span style="color:var(--ok);font-size:10px;font-weight:600;padding:1px 6px;border:1px solid var(--ok);border-radius:10px">⭐ Admin</span>';
+    case "member":
+      return '<span style="color:var(--ok);font-size:10px;font-weight:600;padding:1px 6px;border:1px solid var(--ok);border-radius:10px">✅ Membro</span>';
+    case "not_member":
+      return '';
+    default: // "unknown"
+      return '';
+  }
 }
 
 function renderAddGroupList() {
@@ -731,10 +839,12 @@ function renderAddGroupList() {
     div.onmouseover = function(){ this.style.background = "var(--surface)"; };
     div.onmouseout = function(){ this.style.background = ""; };
     var checked = _addGroupSelected[g.jid] ? "checked" : "";
+    var badge = memberStatusBadge(g.memberStatus);
     div.innerHTML =
       '<input type="checkbox" data-jid="' + esc(g.jid) + '" ' + checked
       + ' onchange="toggleAddGroupSelection(this)" style="cursor:pointer;accent-color:var(--primary)">'
       + '<span style="flex:1">' + esc(g.name) + '</span>'
+      + badge
       + '<span style="color:var(--muted);font-size:10px">' + g.participants + ' membros</span>';
     // Click on row toggles checkbox
     div.addEventListener("click", function(e) {
