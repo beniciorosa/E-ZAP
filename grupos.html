@@ -259,10 +259,15 @@
           <input type="text" id="addGroupSearch" placeholder="Filtrar por nome..." oninput="renderAddGroupList()" style="flex:2">
           <span id="addGroupSearchInfo" style="flex:1; font-size:11px; color:var(--muted); text-align:right"></span>
         </div>
-        <div style="display:flex; gap:6px; margin-bottom:8px">
+        <div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; align-items:center">
           <button class="btn-secondary btn-icon" onclick="selectAllVisibleAddGroups()">Marcar visíveis</button>
           <button class="btn-secondary btn-icon" onclick="unselectAllVisibleAddGroups()">Desmarcar visíveis</button>
           <button class="btn-secondary btn-icon" onclick="clearAddGroupSelection()">Limpar seleção</button>
+          <button class="btn-secondary btn-icon" onclick="exportAddGroupListCSV()">📥 Exportar CSV</button>
+          <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:var(--muted)">
+            <input type="checkbox" id="addHideMembers" onchange="toggleAddHideMembers(this)" style="width:14px; height:14px; accent-color:var(--primary)">
+            Ocultar quem já é membro
+          </label>
           <span id="addGroupSelectedInfo" style="margin-left:auto; font-size:11px; color:var(--muted); align-self:center"></span>
         </div>
         <div id="addGroupList" class="group-list"></div>
@@ -530,11 +535,14 @@ function openAddModal() {
   // Reset filter state
   _addGroupList = [];
   _addGroupSelected = {};
+  _addHideMembers = false;
   document.getElementById("addGroupFilter").classList.add("hidden");
   document.getElementById("addGroupListInfo").textContent = "";
   document.getElementById("addPhone").value = "";
   document.getElementById("addPhoneFromSession").value = "";
   document.getElementById("addPromoteAdmin").checked = false;
+  var hideMembersCb = document.getElementById("addHideMembers");
+  if (hideMembersCb) hideMembersCb.checked = false;
   document.getElementById("addModal").classList.add("open");
 }
 
@@ -551,9 +559,12 @@ function onAddSessionChange() {
   // When the executing session changes, we should reset any loaded group list
   _addGroupList = [];
   _addGroupSelected = {};
+  _addHideMembers = false;
   document.getElementById("addGroupFilter").classList.add("hidden");
   document.getElementById("addGroupListInfo").textContent = "";
   document.getElementById("addGroupList").innerHTML = "";
+  var hideMembersCb = document.getElementById("addHideMembers");
+  if (hideMembersCb) hideMembersCb.checked = false;
 }
 
 // ============================================================
@@ -622,6 +633,7 @@ function submitAddJob() {
 
 var _addGroupList = [];
 var _addGroupSelected = {};
+var _addHideMembers = false;
 
 function loadAdminGroupsForModal() {
   var sid = document.getElementById("addSession").value;
@@ -655,13 +667,43 @@ function memberStatusBadge(status) {
   return '';
 }
 
+function _addGroupPriority(status) {
+  // Menor prioridade = aparece primeiro na lista (é o que você provavelmente quer adicionar)
+  if (status === "admin") return 2;  // já é admin → embaixo
+  if (status === "member") return 1; // já é membro → meio
+  return 0;                           // not_member / unknown / undefined → topo
+}
+
 function renderAddGroupList() {
   var list = document.getElementById("addGroupList");
   if (!list) return;
   var search = (document.getElementById("addGroupSearch").value || "").toLowerCase().trim();
-  var visible = search
-    ? _addGroupList.filter(function(g){ return (g.name || "").toLowerCase().indexOf(search) >= 0; })
-    : _addGroupList.slice();
+
+  // 1) Cópia do array completo
+  var visible = _addGroupList.slice();
+
+  // 2) Ordena: não-membros primeiro (é o que o usuário quase sempre quer adicionar),
+  //    depois membros, depois admins. Tie-break alfabético por nome.
+  visible.sort(function(a, b) {
+    var pa = _addGroupPriority(a.memberStatus);
+    var pb = _addGroupPriority(b.memberStatus);
+    if (pa !== pb) return pa - pb;
+    return (a.name || "").localeCompare(b.name || "", "pt-BR");
+  });
+
+  // 3) Aplica o filtro "ocultar quem já é membro" (antes do search, pra não
+  //    contar os hidden no total visível)
+  if (_addHideMembers) {
+    visible = visible.filter(function(g) {
+      return g.memberStatus !== "member" && g.memberStatus !== "admin";
+    });
+  }
+
+  // 4) Aplica o filtro de busca por nome
+  if (search) {
+    visible = visible.filter(function(g) { return (g.name || "").toLowerCase().indexOf(search) >= 0; });
+  }
+
   list.innerHTML = "";
   visible.forEach(function(g) {
     var div = document.createElement("div");
@@ -709,6 +751,52 @@ function clearAddGroupSelection() {
   _addGroupSelected = {};
   document.querySelectorAll("#addGroupList input[type=checkbox]").forEach(function(cb){ cb.checked = false; });
   updateAddSelectedCount();
+}
+function toggleAddHideMembers(cb) {
+  _addHideMembers = !!cb.checked;
+  renderAddGroupList();
+}
+function exportAddGroupListCSV() {
+  if (!_addGroupList.length) { showToast("Carregue os grupos primeiro", "error"); return; }
+  var phone = (document.getElementById("addPhone").value || "").replace(/\D/g, "");
+  var statusLabel = {
+    admin: "Já é admin",
+    member: "Já é membro",
+    not_member: "Não é membro",
+    unknown: "Desconhecido (sessão não logada)",
+  };
+  // Usa a mesma ordenação do render (não-membros primeiro)
+  var sorted = _addGroupList.slice().sort(function(a, b) {
+    var pa = _addGroupPriority(a.memberStatus);
+    var pb = _addGroupPriority(b.memberStatus);
+    if (pa !== pb) return pa - pb;
+    return (a.name || "").localeCompare(b.name || "", "pt-BR");
+  });
+  var rows = [["Nome do grupo", "JID", "Status", "Participantes"]];
+  sorted.forEach(function(g) {
+    rows.push([
+      g.name || "",
+      g.jid || "",
+      statusLabel[g.memberStatus] || "Desconhecido",
+      g.participants || 0,
+    ]);
+  });
+  var csv = rows.map(function(row) {
+    return row.map(function(cell) {
+      var s = String(cell == null ? "" : cell);
+      if (/[",;\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }).join(";");
+  }).join("\r\n");
+  var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  var fname = "grupos_membership_" + (phone || "sem_numero") + "_" + new Date().toISOString().slice(0, 10) + ".csv";
+  a.download = fname;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast("CSV exportado: " + fname, "success");
 }
 function updateAddSelectedCount() {
   document.getElementById("addGroupSelectedInfo").textContent = Object.keys(_addGroupSelected).length + " selecionado(s)";
