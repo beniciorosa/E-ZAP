@@ -32,6 +32,13 @@
     .ok { color:var(--ok); }
     .wrap { max-height:60vh; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:8px; }
     .hidden { display:none; }
+    .progress-wrap { margin:12px 0 0 0; }
+    .progress-bar-bg { width:100%; height:10px; background:var(--bg); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+    .progress-bar-fill { height:100%; background:linear-gradient(90deg,var(--primary),var(--ok)); width:0%; transition:width 0.4s ease; }
+    .progress-text { font-size:12px; color:var(--muted); margin-top:6px; text-align:center; }
+    .spinner { display:inline-block; width:12px; height:12px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin 0.9s linear infinite; vertical-align:middle; margin-right:6px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    button:disabled { opacity:.5; cursor:not-allowed; }
   </style>
 </head>
 <body>
@@ -57,12 +64,16 @@
           <select id="sessionSelect" onchange="updateCacheInfo()"><option value="">— carregue as sessões —</option></select>
         </div>
         <button class="btn-secondary" onclick="loadSessions()">Recarregar sessões</button>
-        <button class="btn-primary" onclick="loadGroups()">Extrair grupos</button>
+        <button class="btn-primary" id="extractBtn" onclick="loadGroups()">Extrair grupos</button>
         <button class="btn-secondary" id="exportBtn" onclick="exportCSV()" disabled>Exportar CSV</button>
         <button class="btn-secondary" onclick="clearCacheForSession()" title="Apaga os links salvos no navegador para esta sessão">Limpar cache</button>
       </div>
       <div class="status" id="status">Configure a URL e o token, depois carregue as sessões.</div>
       <div class="status" id="cacheInfo" style="font-size:11px"></div>
+      <div class="progress-wrap hidden" id="progressWrap">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBarFill"></div></div>
+        <div class="progress-text" id="progressText"></div>
+      </div>
     </div>
 
     <div class="card hidden" id="debugCard" style="border-color:var(--danger)">
@@ -151,12 +162,16 @@ function saveCache(sid, data) {
 function clearCacheForSession() {
   var sid = document.getElementById("sessionSelect").value;
   if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
-  if (!confirm("Apagar os " + Object.keys(getCache(sid)).length + " links salvos no navegador para esta sessão? A tabela atual será limpa.")) return;
+  var okCount = Object.keys(getCache(sid)).length;
+  var errCount = Object.keys(getErrorCache ? getErrorCache(sid) : {}).length;
+  if (!confirm("Apagar " + okCount + " link(s) e " + errCount + " erro(s) em cache para esta sessão? A tabela atual será limpa.")) return;
   localStorage.removeItem(CACHE_KEY_PREFIX + sid);
+  localStorage.removeItem(CACHE_KEY_PREFIX + sid + "_errors");
   cache = [];
   document.getElementById("tbody").innerHTML = "";
   document.getElementById("resultCard").classList.add("hidden");
   document.getElementById("exportBtn").disabled = true;
+  document.getElementById("progressWrap").classList.add("hidden");
   updateCacheInfo();
   setStatus("Cache limpo. Clique em Extrair grupos para começar do zero.");
 }
@@ -201,6 +216,26 @@ var BATCH_PAUSE_MS = 1500; // pause between batches so the user can see progress
 
 var _extractRunning = false;
 
+function updateProgress(withLink, adminCount, running) {
+  var wrap = document.getElementById("progressWrap");
+  if (!wrap) return;
+  if (!adminCount || adminCount === 0) { wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  var pct = (withLink / adminCount) * 100;
+  document.getElementById("progressBarFill").style.width = pct.toFixed(1) + "%";
+  var icon = running ? '<span class="spinner"></span>' : "";
+  var suffix = running ? " — extraindo..." : "";
+  document.getElementById("progressText").innerHTML =
+    icon + withLink + " de " + adminCount + " admins com link (" + pct.toFixed(0) + "%)" + suffix;
+}
+
+function setExtractButtonRunning(running) {
+  var btn = document.getElementById("extractBtn");
+  if (!btn) return;
+  btn.disabled = !!running;
+  btn.textContent = running ? "Extraindo..." : "Extrair grupos";
+}
+
 function renderGroupsTable(groups) {
   var tbody = document.getElementById("tbody");
   tbody.innerHTML = "";
@@ -218,57 +253,89 @@ function renderGroupsTable(groups) {
   });
 }
 
+// Cache key for "permanent errors" — groups where the invite link can never be
+// generated (e.g. community announcement channels, parent communities). Stored
+// separately from the success cache so clearCacheForSession also clears these.
+function getErrorCache(sid) {
+  try {
+    var raw = localStorage.getItem(CACHE_KEY_PREFIX + sid + "_errors");
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+function saveErrorCache(sid, data) {
+  try { localStorage.setItem(CACHE_KEY_PREFIX + sid + "_errors", JSON.stringify(data)); } catch(e) {}
+}
+
 async function loadGroups() {
   if (_extractRunning) { setStatus("Já está rodando, aguarde..."); return; }
   var sid = document.getElementById("sessionSelect").value;
   if (!sid) { setStatus("Selecione uma sessão primeiro."); return; }
 
   _extractRunning = true;
+  setExtractButtonRunning(true);
   document.getElementById("status").style.color = "";
   document.getElementById("resultCard").classList.add("hidden");
   document.getElementById("exportBtn").disabled = true;
 
   var savedCache = getCache(sid);
+  var errorCache = getErrorCache(sid);
   var totalNewLinks = 0;
   var batchNum = 0;
   var rateLimited = false;
-  var lastData = null;
 
   try {
     while (true) {
       batchNum++;
       var cachedJids = Object.keys(savedCache);
+      var errorJids = Object.keys(errorCache);
+      // Skip both: already-extracted AND permanent-error groups
+      var skipJids = cachedJids.concat(errorJids);
       setStatus("Lote " + batchNum + " — extraindo até " + BATCH_SIZE + " links (5s cada, ~"
-        + (BATCH_SIZE * 5) + "s). Já em cache: " + cachedJids.length + ".");
+        + (BATCH_SIZE * 5) + "s). Cache: " + cachedJids.length + " | erros permanentes pulados: " + errorJids.length + ".");
 
       var data = await waFetch("/api/sessions/" + sid + "/groups", "POST", {
-        skipJids: cachedJids,
+        skipJids: skipJids,
         maxCalls: BATCH_SIZE,
       });
-      lastData = data;
       var groups = data.groups || [];
 
-      // Merge cached links into skipped entries, save new links into cache
+      // Merge cached links into skipped entries, save new links, track errors
       var newThisBatch = 0;
+      var newErrorsThisBatch = 0;
       groups.forEach(function(g) {
         if (g.skipped && savedCache[g.jid]) {
           g.inviteLink = savedCache[g.jid];
           g.inviteError = null;
+        } else if (g.skipped && errorCache[g.jid]) {
+          g.inviteLink = null;
+          g.inviteError = errorCache[g.jid];
         } else if (g.inviteLink) {
           if (!savedCache[g.jid]) {
             newThisBatch++;
             totalNewLinks++;
           }
           savedCache[g.jid] = g.inviteLink;
+        } else if (g.isAdmin && g.inviteError && !isRateLimitMessage(g.inviteError)) {
+          // Permanent error: cache it so we never retry this group
+          if (!errorCache[g.jid]) {
+            errorCache[g.jid] = g.inviteError;
+            newErrorsThisBatch++;
+          }
         }
       });
       saveCache(sid, savedCache);
+      saveErrorCache(sid, errorCache);
 
       cache = groups;
       renderGroupsTable(cache);
       document.getElementById("resultCard").classList.remove("hidden");
       document.getElementById("exportBtn").disabled = cache.length === 0;
       updateCacheInfo();
+
+      // Update progress bar (running)
+      var withLinkNow = cache.filter(function(g){ return !!g.inviteLink; }).length;
+      var adminCountNow = cache.filter(function(g){ return g.isAdmin; }).length;
+      updateProgress(withLinkNow, adminCountNow, true);
 
       // Show debug panel when no admin was detected
       var debugCard = document.getElementById("debugCard");
@@ -281,29 +348,39 @@ async function loadGroups() {
 
       if (data.rateLimited) { rateLimited = true; break; }
 
-      // Stop when this batch made no progress (no new links) — we're done
-      if (newThisBatch === 0) break;
+      // Stop when this batch made no progress (no new links AND no new errors) — we're done
+      if (newThisBatch === 0 && newErrorsThisBatch === 0) break;
 
       // Small UI pause between batches so the user can see intermediate progress
       await new Promise(function(r){ setTimeout(r, BATCH_PAUSE_MS); });
     }
 
-    // Final status
+    // ===== Final status =====
     var withLink = cache.filter(function(g){ return !!g.inviteLink; }).length;
     var adminCount = cache.filter(function(g){ return g.isAdmin; }).length;
-    var missingAdminLinks = adminCount - withLink;
-    var statusMsg = cache.length + " grupos | " + adminCount + " admin | "
-      + withLink + " com link (" + totalNewLinks + " novos nesta sessão de extração)";
-    if (missingAdminLinks > 0) {
-      statusMsg += " | ⚠️ " + missingAdminLinks + " admin ainda sem link";
-    }
+    var permanentErrors = Object.keys(errorCache).length;
+    var missingAdminLinks = adminCount - withLink - permanentErrors;
+
+    updateProgress(withLink, adminCount, false);
+
+    var statusMsg;
     if (rateLimited) {
-      statusMsg = "⚠️ ABORTADO POR RATE-LIMIT — " + statusMsg
-        + ". Aguarde uns minutos e clique Extrair grupos de novo — o cache preserva o progresso.";
+      statusMsg = "⏸️ PAUSADO POR RATE-LIMIT — " + withLink + "/" + adminCount + " admins extraídos ("
+        + totalNewLinks + " novos nesta rodada). Aguarde uns minutos e clique Extrair grupos de novo — "
+        + "o cache preserva o progresso.";
       document.getElementById("status").style.color = "var(--danger)";
-    } else if (missingAdminLinks === 0 && adminCount > 0) {
-      statusMsg = "✅ " + statusMsg + " — todos os grupos admin foram extraídos.";
+    } else if (missingAdminLinks === 0 && permanentErrors > 0) {
+      statusMsg = "✅ FINALIZADO — " + withLink + " de " + adminCount + " admins extraídos. "
+        + permanentErrors + " grupo(s) admin não permitem gerar link (ex: comunidade, canal de anúncios).";
       document.getElementById("status").style.color = "var(--ok)";
+    } else if (missingAdminLinks === 0 && adminCount > 0) {
+      statusMsg = "✅ FINALIZADO — todos os " + adminCount + " grupos admin foram extraídos.";
+      document.getElementById("status").style.color = "var(--ok)";
+    } else if (adminCount === 0) {
+      statusMsg = "FINALIZADO — " + cache.length + " grupos encontrados, mas a sessão não é admin em nenhum.";
+    } else {
+      statusMsg = "FINALIZADO — " + withLink + "/" + adminCount + " admins com link | "
+        + missingAdminLinks + " ainda sem link.";
     }
     setStatus(statusMsg);
   } catch (e) {
@@ -311,7 +388,15 @@ async function loadGroups() {
     setStatus("Erro: " + e.message);
   } finally {
     _extractRunning = false;
+    setExtractButtonRunning(false);
   }
+}
+
+// Detect rate-limit messages coming back from the server so we don't cache them as permanent errors
+function isRateLimitMessage(msg) {
+  if (!msg) return false;
+  var s = String(msg).toLowerCase();
+  return s.indexOf("rate") >= 0 || s.indexOf("abortado") >= 0 || s.indexOf("too many") >= 0;
 }
 
 function exportCSV() {
