@@ -317,14 +317,17 @@ function loadSessions() {
 }
 
 // Config: batch size (max calls per HTTP request)
-// EXTRACT (groupInviteCode): 5s delay, 10 calls per batch = ~50s per request.
+// EXTRACT (groupInviteCode): ~60s delay with ±5s jitter, 3 calls per batch = ~3min per request.
+//   Strategy: "safe zone" — stay below 60 IQ calls/hour, which is comfortably
+//   under the empirical WhatsApp rate-limit threshold. Slow but can run
+//   unattended for hours without tripping any rate-limit.
 // ADD (groupParticipantsUpdate): 20s delay, 3 calls per batch = ~60s per request.
-// The add-participant API has tighter rate limits than invite-code, hence the
-// bigger delay and smaller batch.
-var BATCH_SIZE = 10;        // for link extraction
-var ADD_BATCH_SIZE = 3;     // for add-to-groups
-var ADD_DELAY_PER_CALL_S = 20; // seconds, just for display
-var BATCH_PAUSE_MS = 1500;  // pause between batches so the user can see progress
+//   Add-participant API has tighter rate limits than invite-code.
+var BATCH_SIZE = 3;              // for link extraction (3 * 60s = ~180s per HTTP request)
+var EXTRACT_DELAY_PER_CALL_S = 60; // seconds, just for display; backend adds jitter ±5s
+var ADD_BATCH_SIZE = 3;          // for add-to-groups
+var ADD_DELAY_PER_CALL_S = 20;   // seconds, just for display
+var BATCH_PAUSE_MS = 1500;       // pause between batches so the user can see progress
 
 var _extractRunning = false;
 
@@ -552,8 +555,10 @@ async function loadGroups() {
       var errorJids = Object.keys(errorCache);
       // Skip both: already-extracted AND permanent-error groups
       var skipJids = cachedJids.concat(errorJids);
-      setStatus("Lote " + batchNum + " — extraindo até " + BATCH_SIZE + " links (5s cada, ~"
-        + (BATCH_SIZE * 5) + "s). Cache: " + cachedJids.length + " | erros permanentes pulados: " + errorJids.length + ".");
+      setStatus("Lote " + batchNum + " — extraindo até " + BATCH_SIZE + " links (~"
+        + EXTRACT_DELAY_PER_CALL_S + "s por chamada com jitter, ~"
+        + Math.round(BATCH_SIZE * EXTRACT_DELAY_PER_CALL_S / 60) + "min por lote). "
+        + "Cache: " + cachedJids.length + " | erros permanentes pulados: " + errorJids.length + ".");
 
       var data = await waFetch("/api/sessions/" + sid + "/groups", "POST", {
         skipJids: skipJids,

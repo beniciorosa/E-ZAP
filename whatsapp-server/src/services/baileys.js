@@ -404,9 +404,14 @@ async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10) {
         }
       }
       callsMade++;
-      // Delay 5000ms between IQ requests — WhatsApp rate-limits ~10 calls in short windows
+      // Delay 55-65s (jitter ±5s) between IQ requests — "safe zone" strategy.
+      // Empirically the WhatsApp server tolerates ~60-120 group IQ calls per
+      // hour before rate-limiting. 60s/call gives us ~60/hour, comfortably
+      // below the threshold. Jitter breaks up bot-like patterns.
       if (!rateLimited && callsMade < maxCallsThisBatch) {
-        await new Promise(r => setTimeout(r, 5000));
+        const baseMs = 60000;
+        const jitterMs = Math.floor((Math.random() - 0.5) * 10000); // ±5000ms
+        await new Promise(r => setTimeout(r, baseMs + jitterMs));
       }
       // After the last call in this batch, stop processing further admin groups
       if (callsMade >= maxCallsThisBatch) batchLimitReached = true;
