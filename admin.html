@@ -6136,8 +6136,9 @@ function connectWaSocket() {
     _waSocket.on("session:disconnected", function() {
       loadWaSessions();
     });
-    _waSocket.on("message:new", function(data) {
-      console.log("[WA] Nova mensagem:", data.chatName, data.body);
+    _waSocket.on("connect", function() {
+      console.log("[WA] Socket connected");
+      attachWaChatListeners();
     });
   } catch(e) {
     console.warn("[WA] Socket error:", e.message);
@@ -6349,16 +6350,19 @@ function openWaChat(chatJid, chatName) {
   });
 }
 
-// Listen for real-time messages
-if (_waSocket) {
+// Listen for real-time messages — attach to socket when it connects
+function attachWaChatListeners() {
+  if (!_waSocket) return;
+  _waSocket.off("message:new");
   _waSocket.on("message:new", function(data) {
+    var sessionId = document.getElementById("waChatSession") && document.getElementById("waChatSession").value;
+    if (!sessionId || sessionId !== data.sessionId) return;
+    // Refresh current conversation if open
     if (_waCurrentChat === data.chatJid) {
-      var sessionId = document.getElementById("waChatSession").value;
-      if (sessionId === data.sessionId) openWaChat(data.chatJid, data.chatName);
+      openWaChat(data.chatJid, data.chatName);
     }
     // Refresh chat list
-    var sessionId = document.getElementById("waChatSession").value;
-    if (sessionId === data.sessionId) loadWaChats();
+    loadWaChats();
   });
 }
 
