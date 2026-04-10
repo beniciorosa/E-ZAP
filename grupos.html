@@ -302,13 +302,6 @@ var _activeJobs = {};          // jobId -> job (snapshot mais recente)
 var _jobsInThisSession = new Set(); // jobIds que iniciamos/vemos nesta sessão (persiste no storage)
 var _hiddenJobIds = new Set(); // jobIds que o usuário "fechou" (persiste no storage)
 
-// Cache para countdown monotônico do ETA.
-// { [jobId]: { at: msTimestamp, eta: secondsDisplayed } }
-// Evita que o ETA visível cresça entre polls: se a fórmula estimar um valor
-// maior que "eta anterior menos tempo decorrido", usa o decaimento natural
-// em vez disso. Limpo quando o job sai de "running".
-var _etaDisplayCache = {};
-
 var SESSION_STORAGE_KEY = "ezap_grupos_known_jobs";
 var HIDDEN_STORAGE_KEY = "ezap_grupos_hidden_jobs";
 
@@ -373,8 +366,6 @@ function calculateEtaSeconds(job) {
   // promoteToAdmin dobra o custo por grupo (2 chamadas IQ: addParticipant + promote)
   if (job.type === "add" && job.config && job.config.promoteToAdmin) delay *= 2;
 
-  var etaSec = 0;
-
   // Primary: ainda há admins CONHECIDOS sem cobertura terminal.
   // Para extract, "cobertura" = withLink (ignora não-admins que estão em
   // doneTotal por causa do inviteError "Sem permissão (não é admin)").
@@ -387,42 +378,39 @@ function calculateEtaSeconds(job) {
   }
 
   if (remainingKnownAdmins > 0) {
-    etaSec = remainingKnownAdmins * delay;
-  } else if (job.progress.total > 0) {
-    // Fallback: todos os admins conhecidos já foram cobertos, mas o loop
-    // continua iterando sobre groupFetchAllParticipating para descobrir
-    // grupos novos ou processar não-admins restantes.
-    //
-    // IMPORTANTE: NÃO usar (elapsedMs / loopDone) como taxa — durante
-    // cada delay de ~delaySec segundos, elapsedMs cresce mas loopDone
-    // fica parado, o que faz a taxa e o ETA crescerem a cada poll. Em
-    // vez disso usamos o tempo de trabalho EFETIVO:
-    //   newInThisRun × delaySec = tempo já gasto em delays reais.
-    // A taxa "delays por iteração" é estável durante as esperas.
+    return remainingKnownAdmins * delay;
+  }
+
+  // Fallback: todos os admins conhecidos já foram cobertos, mas o loop
+  // continua iterando sobre groupFetchAllParticipating para descobrir
+  // grupos novos ou processar não-admins restantes.
+  //
+  // IMPORTANTE: NÃO usar (elapsedMs / loopDone) como taxa — durante cada
+  // delay de ~delaySec segundos, elapsedMs cresce mas loopDone fica parado,
+  // o que fazia a taxa e o ETA crescerem a cada poll (bug original).
+  // Em vez disso usamos o tempo de trabalho EFETIVO:
+  //   newInThisRun × delaySec = tempo já gasto em delays reais.
+  // A taxa "delays por iteração" só muda quando o loop avança de fato,
+  // então é estável durante as esperas de delay.
+  //
+  // NOTA: não usamos cap monotônico (cache decaindo 1s/s). Ele parecia
+  // bom em simulação mas em jobs longos a cache decaia abaixo da fórmula
+  // e o display zerava mesmo com trabalho real restante. A fórmula sozinha
+  // já é estável durante as esperas e se auto-corrige conforme o loop
+  // avança, então é honesta o bastante.
+  if (job.progress.total > 0) {
     var loopDone = job.progress.done || 0;
     var loopRemaining = job.progress.total - loopDone;
     if (loopDone > 0 && loopRemaining > 0 && newInThisRun > 0) {
       var delayRate = newInThisRun / loopDone;
       var estRemainingDelays = loopRemaining * delayRate;
-      etaSec = Math.round(estRemainingDelays * delay);
+      return Math.round(estRemainingDelays * delay);
     }
-    // Se newInThisRun === 0 (ex: tudo veio do cache, nenhum fetch novo
-    // feito ainda), etaSec fica 0 — o loop só está iterando, acaba em
-    // segundos. formatEtaSeconds vai mostrar "—".
   }
-
-  // Cap monotônico: garante countdown em tempo real no display.
-  // Se a fórmula retornar um valor MAIOR que "eta anterior menos tempo
-  // decorrido", usa o decaimento natural. Absorve micro-upticks do
-  // estimador quando um novo admin é descoberto.
-  var now = Date.now();
-  var prev = _etaDisplayCache[job.id];
-  if (prev && typeof prev.eta === "number") {
-    var decayedFloor = Math.max(0, prev.eta - (now - prev.at) / 1000);
-    if (etaSec > decayedFloor) etaSec = decayedFloor;
-  }
-  _etaDisplayCache[job.id] = { at: now, eta: etaSec };
-  return etaSec;
+  // Se newInThisRun === 0 (ex: tudo veio do cache, nenhum fetch novo
+  // feito ainda), retorna 0 — o loop só está iterando, acaba em segundos.
+  // formatEtaSeconds vai mostrar "—".
+  return 0;
 }
 
 // ============================================================
@@ -873,13 +861,6 @@ function renderJobs(jobSummaries) {
 }
 
 function renderJobCard(job) {
-  // Limpa cache de ETA quando o job não está mais rodando. Assim, se ele
-  // voltar a rodar (ex: novo job com mesmo id reutilizado, ou retry), o
-  // countdown recomeça do zero em vez de herdar um decaimento antigo.
-  if (job.status !== "running" && _etaDisplayCache[job.id]) {
-    delete _etaDisplayCache[job.id];
-  }
-
   var div = document.createElement("div");
   div.className = "job-card " + job.status;
   div.id = "job-card-" + job.id;
