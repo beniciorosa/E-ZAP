@@ -859,8 +859,19 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
       break;
     }
 
-    // If a whitelist filter is active, skip groups not in the list (do not return them)
-    if (onlyJidsSet && !onlyJidsSet.has(g.id)) continue;
+    // If a whitelist filter is active, skip groups not in the list (do not return them).
+    // IMPORTANT: we still notify onProgress with row=null so the job worker can
+    // advance `job.progress.done` for every iteration of the loop. Without this,
+    // the progress bar stays pinned at the position of the last *matched* group
+    // and never reaches the total even after the loop fully completes.
+    if (onlyJidsSet && !onlyJidsSet.has(g.id)) {
+      if (onProgress) {
+        try {
+          onProgress({ processed, total, row: null, rateLimited, callsMade });
+        } catch (_) {}
+      }
+      continue;
+    }
 
     // Check if "me" is admin in this group (same matching logic as fetchGroupsWithInvites)
     let isAdmin = false;

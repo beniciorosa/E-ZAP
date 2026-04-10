@@ -293,6 +293,18 @@ async function runAddWorker(job) {
         onlyJids: job.config.onlyJids || undefined,
         shouldCancel: () => job.cancelRequested,
         onProgress: ({ processed, total, row, rateLimited }) => {
+          // Lightweight progress tick for groups skipped by the onlyJids filter:
+          // baileys calls us with row=null just to advance the loop counter so
+          // the progress bar doesn't get stuck at the last matched group.
+          if (!row) {
+            job.progress.total = total;
+            job.progress.done = processed;
+            job.progress.rateLimited = rateLimited;
+            job.progress.updatedAt = new Date().toISOString();
+            job.updatedAt = job.progress.updatedAt;
+            return;
+          }
+
           // Merge this row into results. If row is "skipped" (cache hit), preserve
           // the cached status but refresh metadata from the live loop.
           const idx = job.results.findIndex(r => r.jid === row.jid);

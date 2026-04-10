@@ -947,14 +947,30 @@ function renderJobCard(job) {
     : '';
 
   var message = "";
-  // Linha secundária com a estatística de admins extraídos (sempre visível se houver)
+  // Linha secundária com a estatística de admins extraídos/processados.
+  // Separamos "nesta rodada" (novas operações feitas agora) de "do cache"
+  // (operações de rodadas anteriores preservadas no Supabase), pra deixar
+  // claro por que o total pode ser maior que o filtro atual.
   var adminStat = "";
+  var newInRun = job.progress.newInThisRun || 0;
   if (job.type === "extract" && adminCount > 0) {
+    var fromCacheExtract = Math.max(0, withLink - newInRun);
     adminStat = ' — ' + withLink + ' / ' + adminCount + ' admins com link';
-    if (job.progress.newInThisRun) adminStat += ', ' + job.progress.newInThisRun + ' novos nesta rodada';
+    if (newInRun > 0 && fromCacheExtract > 0) {
+      adminStat += ' (' + newInRun + ' nesta rodada + ' + fromCacheExtract + ' do cache)';
+    } else if (newInRun > 0) {
+      adminStat += ', ' + newInRun + ' novos nesta rodada';
+    }
   } else if (job.type === "add" && adminCount > 0) {
-    adminStat = ' — ' + doneTotal + ' / ' + adminCount + ' admins processados';
-    if (job.progress.newInThisRun) adminStat += ', ' + job.progress.newInThisRun + ' novos nesta rodada';
+    var fromCacheAdd = Math.max(0, doneTotal - newInRun);
+    adminStat = ' — ' + doneTotal + ' admins processados';
+    if (newInRun > 0 && fromCacheAdd > 0) {
+      adminStat += ' (' + newInRun + ' nesta rodada + ' + fromCacheAdd + ' do cache)';
+    } else if (newInRun > 0) {
+      adminStat += ' (' + newInRun + ' novos nesta rodada)';
+    } else if (fromCacheAdd > 0) {
+      adminStat += ' (todos do cache)';
+    }
   }
 
   if (job.status === "running") {
