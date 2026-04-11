@@ -197,7 +197,7 @@ async function handleIncomingMessage(sessionId, msg, sock) {
 
 // ===== Send message =====
 async function sendMessage(sessionId, jid, content) {
-  const session = sessions.get(sessionId);
+  const session = await waitForSessionConnected(sessionId);
   if (!session || session.status !== "connected") {
     throw new Error("Sessão não conectada: " + sessionId);
   }
@@ -328,8 +328,23 @@ function getSessionIdentity(sock) {
   };
 }
 
+// Wait up to maxWaitMs for a session to be in "connected" state.
+// Useful when the session is auto-reconnecting (e.g., after WhatsApp
+// closes an idle connection with code 428 and baileys kicks off a
+// ~3s reconnect). Polls every 500ms and returns the session on success,
+// or the latest session snapshot (may be null/disconnected) on timeout.
+async function waitForSessionConnected(sessionId, maxWaitMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const s = sessions.get(sessionId);
+    if (s && s.status === "connected") return s;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return sessions.get(sessionId) || null;
+}
+
 async function fetchGroupsWithInvites(sessionId, skipJids = [], maxCalls = 10, options = {}) {
-  const session = sessions.get(sessionId);
+  const session = await waitForSessionConnected(sessionId);
   if (!session || session.status !== "connected") {
     throw new Error("Sessão não conectada: " + sessionId);
   }
@@ -742,7 +757,7 @@ async function listAdminGroupsWithMembership(sessionId, targetPhone) {
 
 // ===== List groups where the session is admin (lightweight, no extra IQ calls) =====
 async function listAdminGroups(sessionId) {
-  const session = sessions.get(sessionId);
+  const session = await waitForSessionConnected(sessionId);
   if (!session || session.status !== "connected") {
     throw new Error("Sessão não conectada: " + sessionId);
   }
@@ -791,7 +806,7 @@ async function listAdminGroups(sessionId) {
 //   onProgress: function     — called after each group is processed (job worker mode)
 //   shouldCancel: function   — if returns true, stop the loop (job worker mode)
 async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], maxCalls = 10, options = {}) {
-  const session = sessions.get(sessionId);
+  const session = await waitForSessionConnected(sessionId);
   if (!session || session.status !== "connected") {
     throw new Error("Sessão não conectada: " + sessionId);
   }

@@ -942,6 +942,11 @@ function renderJobCard(job) {
   var exportBtn = (job.results && job.results.length > 0)
     ? '<button class="btn-secondary btn-icon" onclick="exportJobCSV(\'' + job.id + '\')">Exportar CSV</button>'
     : '';
+  // Retry button: only on error-state jobs that have enough info to recreate.
+  // Creates a new job with the same config and hides the failed card.
+  var retryBtn = (job.status === "error" && job.type && job.sessionId && job.config)
+    ? '<button class="btn-secondary btn-icon" onclick="retryFailedJob(\'' + job.id + '\')">🔄 Tentar novamente</button>'
+    : '';
   var removeBtn = (job.status !== "running" && job.status !== "pending")
     ? '<button class="btn-secondary btn-icon" onclick="removeJobCard(\'' + job.id + '\')" title="Remover card da tela (não apaga do servidor)">✕ Fechar</button>'
     : '';
@@ -1004,7 +1009,7 @@ function renderJobCard(job) {
     '<div class="job-header">'
     + '<div class="job-title">' + title + ' — ' + esc(sessionLabel) + '</div>'
     + '<span class="job-status-badge ' + job.status + '">' + statusLabel + '</span>'
-    + cancelBtn + exportBtn + removeBtn
+    + cancelBtn + retryBtn + exportBtn + removeBtn
     + '</div>'
     + '<div class="job-config">' + esc(configLine) + '</div>'
     + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>'
@@ -1099,6 +1104,46 @@ function cancelJobAction(jobId) {
     showToast("Cancelamento solicitado", "ok");
     refreshJobs();
   }).catch(function(e) { showToast("Erro: " + e.message, "error"); });
+}
+
+// Recreate a failed job with the same config. Used by the "Tentar novamente"
+// button on cards with status="error" (e.g., when a transient "Sessão não
+// conectada" slips past the waitForSessionConnected backoff). Hides the old
+// card locally (server keeps the record, auto-cleans in 24h).
+function retryFailedJob(jobId) {
+  var job = _activeJobs[jobId];
+  if (!job) { showToast("Job não encontrado", "error"); return; }
+
+  var endpoint, body;
+  if (job.type === "extract") {
+    endpoint = "/api/jobs/extract/start";
+    body = {
+      sessionId: job.sessionId,
+      delaySec: (job.config && job.config.delaySec) || 60,
+    };
+  } else if (job.type === "add") {
+    endpoint = "/api/jobs/add/start";
+    body = {
+      sessionId: job.sessionId,
+      phone: job.config && job.config.phone,
+      delaySec: (job.config && job.config.delaySec) || 20,
+      promoteToAdmin: !!(job.config && job.config.promoteToAdmin),
+    };
+    if (job.config && job.config.onlyJids) body.onlyJids = job.config.onlyJids;
+  } else {
+    showToast("Tipo de job desconhecido: " + job.type, "error");
+    return;
+  }
+
+  waFetch(endpoint, "POST", body).then(function(data) {
+    showToast("Novo job iniciado — card antigo ocultado", "ok");
+    // Hide the failed card (server record preserved, auto-cleans in 24h)
+    _hiddenJobIds.add(jobId);
+    saveKnownJobs();
+    refreshJobs();
+  }).catch(function(e) {
+    showToast("Falha no retry: " + e.message, "error");
+  });
 }
 
 function removeJobCard(jobId) {
