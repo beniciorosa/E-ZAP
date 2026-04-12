@@ -690,6 +690,11 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
     }
   } catch(e) {}
 
+  // Parse timestamp (handle protobuf Long objects)
+  const rawTs = msg.messageTimestamp;
+  const tsSeconds = rawTs ? (typeof rawTs === "object" ? (rawTs.low || rawTs.toNumber?.() || 0) : rawTs) : 0;
+  const timestamp = tsSeconds > 0 ? new Date(tsSeconds * 1000).toISOString() : new Date().toISOString();
+
   // Save to Supabase
   await supaRest("/rest/v1/wa_messages", "POST", {
     session_id: sessionId,
@@ -701,7 +706,7 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
     sender_jid: msg.key.participant || jid,
     body: body,
     media_type: mediaType,
-    timestamp: new Date((msg.messageTimestamp || 0) * 1000).toISOString(),
+    timestamp: timestamp,
   }, "resolution=merge-duplicates,return=minimal");
 
   // Emit for real-time only (not history sync)
@@ -714,7 +719,7 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
       senderName: msg.pushName || "",
       body,
       mediaType,
-      timestamp: msg.messageTimestamp,
+      timestamp: timestamp,
     });
   }
 }

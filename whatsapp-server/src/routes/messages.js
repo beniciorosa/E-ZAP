@@ -29,7 +29,7 @@ router.get("/:sessionId", async (req, res) => {
 
     let path = "/rest/v1/wa_messages?session_id=eq." + sessionId +
       "&order=timestamp.desc&limit=" + Math.min(parseInt(limit), 200) +
-      "&select=id,message_id,chat_jid,chat_name,from_me,sender_name,sender_jid,body,media_type,media_url,timestamp";
+      "&select=id,message_id,chat_jid,chat_name,from_me,sender_name,sender_jid,body,media_type,media_url,timestamp,is_deleted,is_edited,status";
 
     if (chatJid) path += "&chat_jid=eq." + encodeURIComponent(chatJid);
     if (before) path += "&timestamp=lt." + encodeURIComponent(before);
