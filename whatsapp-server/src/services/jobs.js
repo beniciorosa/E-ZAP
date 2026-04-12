@@ -254,10 +254,14 @@ async function runAddWorker(job) {
   job.progress.updatedAt = job.progress.startedAt;
   job.updatedAt = job.progress.startedAt;
 
-  // Seed skipJids from prior terminal-state additions in Supabase
+  // Seed skipJids from prior SUCCESSFUL additions in Supabase
+  // Only skip groups where the number was actually added/is already member.
+  // Re-try groups that had errors, privacy blocks, rate limits, etc.
   const cachedAdds = await baileys.getCachedGroupAdditions(job.sessionId, job.config.phone);
-  // Everything in the cache is a "previously processed" entry — skip those
-  const terminalJids = cachedAdds.map(r => r.group_jid);
+  const successStatuses = new Set(["added", "added_and_promoted", "already_member", "already_admin", "promoted_only"]);
+  const terminalJids = cachedAdds
+    .filter(r => successStatuses.has(r.status))
+    .map(r => r.group_jid);
 
   // Pre-populate results so the frontend shows what was already done
   job.results = cachedAdds.map(r => ({
