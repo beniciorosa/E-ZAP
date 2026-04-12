@@ -120,15 +120,93 @@ async function startSession(sessionId, existingCreds = null) {
     await saveSessionCreds(sessionId, authState.creds);
   });
 
-  // Message handler
+  // Message handler — "notify" = real-time, "append" = history sync
   sock.ev.on("messages.upsert", async ({ messages: msgs, type }) => {
-    if (type !== "notify") return;
+    const isRealTime = type === "notify";
     for (const msg of msgs) {
       try {
-        await handleIncomingMessage(sessionId, msg, sock);
+        await handleIncomingMessage(sessionId, msg, sock, isRealTime);
       } catch (e) {
         console.error("[BAILEYS] Message handler error:", e.message);
       }
+    }
+  });
+
+  // History sync — bulk historical messages/chats on connection
+  sock.ev.on("messaging-history.set", async ({ messages: msgs, chats: syncedChats, isLatest }) => {
+    console.log("[BAILEYS] History sync for", sessionId, "- msgs:", (msgs || []).length, "chats:", (syncedChats || []).length, "isLatest:", isLatest);
+
+    // Save chats to wa_chats table for quick listing
+    if (syncedChats && syncedChats.length > 0) {
+      const chatBatch = syncedChats.map(c => ({
+        session_id: sessionId,
+        chat_jid: c.id,
+        chat_name: c.name || c.id.split("@")[0],
+        unread_count: c.unreadCount || 0,
+        is_group: c.id.endsWith("@g.us"),
+        last_message_timestamp: c.conversationTimestamp
+          ? new Date(typeof c.conversationTimestamp === "object" ? c.conversationTimestamp.low * 1000 : c.conversationTimestamp * 1000).toISOString()
+          : null,
+        pinned: c.pinned ? true : false,
+        archived: c.archived ? true : false,
+        muted_until: c.muteEndTime ? new Date(c.muteEndTime * 1000).toISOString() : null,
+      }));
+      // Batch insert in chunks of 100
+      for (let i = 0; i < chatBatch.length; i += 100) {
+        const chunk = chatBatch.slice(i, i + 100);
+        try {
+          await supaRest("/rest/v1/wa_chats", "POST", chunk, "resolution=merge-duplicates,return=minimal");
+        } catch(e) {
+          console.error("[BAILEYS] Chat batch save error:", e.message);
+        }
+      }
+    }
+
+    // Save historical messages in batches (no real-time emit)
+    if (msgs && msgs.length > 0) {
+      let saved = 0;
+      const batch = [];
+      for (const msg of msgs) {
+        const jid = msg.key?.remoteJid;
+        if (!jid || jid === "status@broadcast") continue;
+        const body = msg.message?.conversation
+          || msg.message?.extendedTextMessage?.text
+          || msg.message?.imageMessage?.caption
+          || msg.message?.videoMessage?.caption
+          || "";
+        const mediaType = msg.message?.imageMessage ? "image"
+          : msg.message?.videoMessage ? "video"
+          : msg.message?.audioMessage ? "audio"
+          : msg.message?.documentMessage ? "document"
+          : msg.message?.stickerMessage ? "sticker"
+          : null;
+        const ts = msg.messageTimestamp;
+        const timestamp = ts ? new Date((typeof ts === "object" ? ts.low : ts) * 1000).toISOString() : new Date().toISOString();
+
+        batch.push({
+          session_id: sessionId,
+          message_id: msg.key.id,
+          chat_jid: jid,
+          chat_name: msg.pushName || jid.split("@")[0],
+          from_me: msg.key.fromMe || false,
+          sender_name: msg.pushName || "",
+          sender_jid: msg.key.participant || jid,
+          body: body,
+          media_type: mediaType,
+          timestamp: timestamp,
+        });
+      }
+      // Insert in chunks of 200
+      for (let i = 0; i < batch.length; i += 200) {
+        const chunk = batch.slice(i, i + 200);
+        try {
+          await supaRest("/rest/v1/wa_messages", "POST", chunk, "resolution=merge-duplicates,return=minimal");
+          saved += chunk.length;
+        } catch(e) {
+          console.error("[BAILEYS] History batch save error:", e.message);
+        }
+      }
+      console.log("[BAILEYS] History sync saved", saved, "messages for", sessionId);
     }
   });
 
@@ -136,7 +214,7 @@ async function startSession(sessionId, existingCreds = null) {
 }
 
 // ===== Handle incoming message =====
-async function handleIncomingMessage(sessionId, msg, sock) {
+async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
   const jid = msg.key.remoteJid;
   if (!jid || jid === "status@broadcast") return;
 
@@ -183,16 +261,19 @@ async function handleIncomingMessage(sessionId, msg, sock) {
     timestamp: new Date((msg.messageTimestamp || 0) * 1000).toISOString(),
   }, "resolution=merge-duplicates,return=minimal");
 
-  // Emit for real-time
-  emit("message:new", {
-    sessionId,
-    chatJid: jid,
-    chatName,
-    fromMe: msg.key.fromMe || false,
-    body,
-    mediaType,
-    timestamp: msg.messageTimestamp,
-  });
+  // Emit for real-time only (not history sync)
+  if (isRealTime) {
+    emit("message:new", {
+      sessionId,
+      chatJid: jid,
+      chatName,
+      fromMe: msg.key.fromMe || false,
+      senderName: msg.pushName || "",
+      body,
+      mediaType,
+      timestamp: msg.messageTimestamp,
+    });
+  }
 }
 
 // ===== Send message =====
