@@ -6168,8 +6168,11 @@ function loadWaSessions() {
 
     var html = '<table class="data-table"><thead><tr><th>Sessão</th><th>Telefone</th><th>Status</th><th>Último acesso</th><th>Ações</th></tr></thead><tbody>';
     sessions.forEach(function(s) {
-      var statusClass = s.status === "connected" ? "active" : s.status === "qr_pending" ? "warn" : "inactive";
-      var statusLabel = s.status === "connected" ? "Conectado" : s.status === "qr_pending" ? "QR Pendente" : s.status === "banned" ? "Banido" : "Desconectado";
+      // Use live status from Baileys if available, fallback to DB status
+      var realStatus = (s.live && s.live.status) ? s.live.status : s.status;
+      var statusClass = realStatus === "connected" ? "active" : realStatus === "qr_pending" ? "warn" : "inactive";
+      var statusLabel = realStatus === "connected" ? "Conectado" : realStatus === "qr_pending" ? "QR Pendente" : realStatus === "banned" ? "Banido" : "Desconectado";
+      s.status = realStatus; // override for action buttons below
       var phone = s.phone ? formatPhoneBR(s.phone) : "-";
       var lastSeen = s.last_seen ? formatDate(s.last_seen) : "-";
 
