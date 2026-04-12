@@ -193,6 +193,21 @@ async function startSession(sessionId, existingCreds = null) {
         console.error("[BAILEYS] chats.upsert save error:", e.message);
       }
     }
+
+    // Also upsert into wa_contacts + enqueue photos
+    const contactBatch = newChats.map(c => ({
+      session_id: sessionId,
+      contact_jid: c.id,
+      push_name: c.name || null,
+      phone: c.id.split("@")[0].split(":")[0],
+      is_group: c.id.endsWith("@g.us"),
+      synced_at: new Date().toISOString(),
+    }));
+    for (let i = 0; i < contactBatch.length; i += 100) {
+      await supaRest("/rest/v1/wa_contacts", "POST", contactBatch.slice(i, i + 100),
+        "resolution=merge-duplicates,return=minimal").catch(() => {});
+    }
+    enqueuePhotos(sessionId, newChats.map(c => c.id));
   });
 
   // History sync — bulk historical messages/chats on connection (buffered event)
@@ -395,52 +410,6 @@ async function startSession(sessionId, existingCreds = null) {
     }
   });
 
-  // ===== Chat upsert — new conversation started =====
-  sock.ev.on("chats.upsert", async (chats) => {
-    if (!chats || !chats.length) return;
-    console.log("[BAILEYS] chats.upsert:", chats.length, "new chats for", sessionId);
-
-    const batch = chats.map(c => {
-      const ts = c.conversationTimestamp;
-      return {
-        session_id: sessionId,
-        chat_jid: c.id,
-        chat_name: c.name || c.id.split("@")[0],
-        unread_count: c.unreadCount || 0,
-        is_group: c.id.endsWith("@g.us"),
-        last_message_timestamp: ts ? new Date((typeof ts === "object" ? ts.low : ts) * 1000).toISOString() : null,
-        pinned: c.pinned ? true : false,
-        archived: c.archived ? true : false,
-        muted_until: c.muteEndTime ? new Date(c.muteEndTime * 1000).toISOString() : null,
-      };
-    });
-
-    for (let i = 0; i < batch.length; i += 100) {
-      const chunk = batch.slice(i, i + 100);
-      try {
-        await supaRest("/rest/v1/wa_chats", "POST", chunk, "resolution=merge-duplicates,return=minimal");
-      } catch (e) {
-        console.error("[BAILEYS] chats.upsert batch error:", e.message);
-      }
-    }
-
-    // Also add to contacts + enqueue photos
-    const jids = chats.map(c => c.id);
-    const contactBatch = chats.map(c => ({
-      session_id: sessionId,
-      contact_jid: c.id,
-      push_name: c.name || null,
-      phone: c.id.split("@")[0].split(":")[0],
-      is_group: c.id.endsWith("@g.us"),
-      synced_at: new Date().toISOString(),
-    }));
-    for (let i = 0; i < contactBatch.length; i += 100) {
-      await supaRest("/rest/v1/wa_contacts", "POST", contactBatch.slice(i, i + 100),
-        "resolution=merge-duplicates,return=minimal").catch(() => {});
-    }
-    enqueuePhotos(sessionId, jids);
-  });
-
   // ===== Chat delete — conversation deleted =====
   sock.ev.on("chats.delete", async (deletedIds) => {
     if (!deletedIds || !deletedIds.length) return;
@@ -549,6 +518,115 @@ async function startSession(sessionId, existingCreds = null) {
         // Message may not exist in DB — ignore
       }
     }
+  });
+
+  // ===== Message delete — messages deleted for everyone =====
+  sock.ev.on("messages.delete", async (data) => {
+    if (!data) return;
+    // Can be { keys: [...] } or { jid, all: true }
+    if ("all" in data && data.all) {
+      console.log("[BAILEYS] messages.delete ALL in", data.jid, "for", sessionId);
+      emit("messages:delete", { sessionId, jid: data.jid, all: true });
+    } else if (data.keys) {
+      for (const key of data.keys) {
+        if (!key.id || key.remoteJid === "status@broadcast") continue;
+        try {
+          await supaRest(
+            "/rest/v1/wa_messages?session_id=eq." + sessionId + "&message_id=eq." + encodeURIComponent(key.id),
+            "PATCH", { is_deleted: true }, "return=minimal"
+          );
+        } catch(e) {}
+      }
+      emit("messages:delete", { sessionId, keys: data.keys });
+    }
+  });
+
+  // ===== Messages media update — media decrypted/available =====
+  sock.ev.on("messages.media-update", async (updates) => {
+    if (!updates || !updates.length) return;
+    // Emit via Socket.io for frontend to update media previews
+    emit("messages:media-update", { sessionId, updates: updates.map(u => ({
+      messageId: u.key?.id, chatJid: u.key?.remoteJid, hasMedia: !!u.media, error: u.error?.message,
+    }))});
+  });
+
+  // ===== Groups upsert — new group joined/created =====
+  sock.ev.on("groups.upsert", async (groups) => {
+    if (!groups || !groups.length) return;
+    console.log("[BAILEYS] groups.upsert:", groups.length, "groups for", sessionId);
+
+    for (const g of groups) {
+      // Upsert into wa_chats
+      try {
+        await supaRest("/rest/v1/wa_chats", "POST", [{
+          session_id: sessionId,
+          chat_jid: g.id,
+          chat_name: g.subject || g.id.split("@")[0],
+          is_group: true,
+          participants_count: g.participants ? g.participants.length : 0,
+          synced_at: new Date().toISOString(),
+        }], "resolution=merge-duplicates,return=minimal");
+      } catch(e) {
+        console.error("[BAILEYS] groups.upsert save error:", e.message);
+      }
+
+      // Upsert group members
+      if (g.participants && g.participants.length > 0) {
+        const members = g.participants.map(p => ({
+          group_jid: g.id,
+          member_phone: p.id.split("@")[0].split(":")[0],
+          member_name: "",
+          role: p.admin || "member",
+          first_seen: new Date().toISOString(),
+          last_seen: new Date().toISOString(),
+        }));
+        for (let i = 0; i < members.length; i += 100) {
+          try {
+            await supaRest("/rest/v1/group_members", "POST", members.slice(i, i + 100),
+              "resolution=merge-duplicates,return=minimal");
+          } catch(e) {}
+        }
+      }
+
+      enqueuePhotos(sessionId, [g.id]);
+    }
+    emit("groups:upsert", { sessionId, groups: groups.map(g => ({ jid: g.id, subject: g.subject })) });
+  });
+
+  // ===== Chats phone number share — LID to JID mapping =====
+  sock.ev.on("chats.phoneNumberShare", async (data) => {
+    if (!data || !data.lid || !data.jid) return;
+    console.log("[BAILEYS] phoneNumberShare:", data.lid, "->", data.jid, "for", sessionId);
+    // Update wa_contacts to link LID with real JID
+    try {
+      await supaRest(
+        "/rest/v1/wa_contacts?session_id=eq." + sessionId + "&contact_jid=eq." + encodeURIComponent(data.lid),
+        "PATCH", { linked_jid: data.jid }, "return=minimal"
+      );
+    } catch(e) {}
+    emit("chats:phoneNumberShare", { sessionId, lid: data.lid, jid: data.jid });
+  });
+
+  // ===== Call events — incoming/outgoing calls =====
+  sock.ev.on("call", async (calls) => {
+    if (!calls || !calls.length) return;
+    for (const c of calls) {
+      console.log("[BAILEYS] call:", c.status, "from", c.from, "for", sessionId);
+      emit("call", { sessionId, callId: c.id, from: c.from, status: c.status, isGroup: c.isGroup, isVideo: c.isVideo });
+    }
+  });
+
+  // ===== WhatsApp Business labels — edit and association =====
+  sock.ev.on("labels.edit", async (label) => {
+    if (!label) return;
+    console.log("[BAILEYS] labels.edit:", label.name, "for", sessionId);
+    emit("labels:edit", { sessionId, label });
+  });
+
+  sock.ev.on("labels.association", async ({ association, type }) => {
+    if (!association) return;
+    console.log("[BAILEYS] labels.association:", type, "for", sessionId);
+    emit("labels:association", { sessionId, association, type });
   });
 
   return { status: "starting" };
@@ -1687,6 +1765,15 @@ async function processHistorySync(sessionId, msgs, syncedChats) {
       }
     }
     console.log("[BAILEYS] History sync saved", saved, "messages for", sessionId);
+
+    // Enqueue photo downloads for contacts seen in messages
+    const uniqueJids = [...new Set(batch.map(m => m.chat_jid).filter(j => j && j !== "status@broadcast"))];
+    enqueuePhotos(sessionId, uniqueJids);
+  }
+
+  // Enqueue photo downloads for synced chats
+  if (syncedChats && syncedChats.length > 0) {
+    enqueuePhotos(sessionId, syncedChats.map(c => c.id));
   }
 }
 
