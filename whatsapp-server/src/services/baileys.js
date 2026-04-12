@@ -661,7 +661,31 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
       } catch(e) {
         chatName = jid.split("@")[0];
       }
+    } else if (msg.key.fromMe) {
+      // Outgoing message: pushName is OUR name, not the contact's
+      // Try to get contact name from wa_contacts or wa_chats
+      try {
+        const rows = await supaRest(
+          "/rest/v1/wa_contacts?session_id=eq." + sessionId +
+          "&contact_jid=eq." + encodeURIComponent(jid) +
+          "&select=name,push_name&limit=1"
+        );
+        if (rows && rows[0]) {
+          chatName = rows[0].name || rows[0].push_name || jid.split("@")[0];
+        } else {
+          // Fallback to wa_chats
+          const chatRows = await supaRest(
+            "/rest/v1/wa_chats?session_id=eq." + sessionId +
+            "&chat_jid=eq." + encodeURIComponent(jid) +
+            "&select=chat_name&limit=1"
+          );
+          chatName = (chatRows && chatRows[0]) ? chatRows[0].chat_name : jid.split("@")[0];
+        }
+      } catch(e) {
+        chatName = jid.split("@")[0];
+      }
     } else {
+      // Incoming message: pushName IS the contact's name
       chatName = msg.pushName || jid.split("@")[0];
     }
   } catch(e) {}

@@ -93,17 +93,38 @@ router.get("/:sessionId/chats", async (req, res) => {
       };
     }
 
-    // Enrich with message data (latest message text + better names)
+    // 3. Get contact names from wa_contacts (most reliable source for individual chats)
+    const contacts = await supaRest(
+      "/rest/v1/wa_contacts?session_id=eq." + sessionId +
+      "&select=contact_jid,name,push_name" +
+      "&limit=2000"
+    ).catch(() => []);
+
+    const contactNames = {};
+    for (const c of (contacts || [])) {
+      if (c.name || c.push_name) {
+        contactNames[c.contact_jid] = c.name || c.push_name;
+      }
+    }
+
+    // Enrich with message data (latest message text) and contact names
     for (const m of (messages || [])) {
       if (!chatMap[m.chat_jid]) {
+        // Chat only exists in messages, not in wa_chats
+        const isGroup = m.chat_jid.endsWith("@g.us");
+        // For individual chats, use contact name; for from_me, DON'T use pushName (it's our name)
+        let name = contactNames[m.chat_jid] || "";
+        if (!name && !m.from_me) name = m.chat_name || "";
+        if (!name) name = m.chat_jid.split("@")[0];
+
         chatMap[m.chat_jid] = {
           chatJid: m.chat_jid,
-          chatName: m.chat_name || m.chat_jid.split("@")[0],
+          chatName: name,
           lastMessage: m.body || (m.media_type ? "[" + m.media_type + "]" : ""),
           lastTimestamp: m.timestamp,
           fromMe: m.from_me,
           unreadCount: 0,
-          isGroup: m.chat_jid.endsWith("@g.us"),
+          isGroup: isGroup,
           pinned: false,
           archived: false,
           photoUrl: null,
@@ -115,13 +136,21 @@ router.get("/:sessionId/chats", async (req, res) => {
           existing.lastMessage = m.body || (m.media_type ? "[" + m.media_type + "]" : "");
           existing.fromMe = m.from_me;
         }
-        // Use better name if available
-        if (m.chat_name && m.chat_name !== m.chat_jid.split("@")[0] && /^\d+$/.test(existing.chatName)) {
-          existing.chatName = m.chat_name;
-        }
         // Use latest timestamp
         if (m.timestamp && (!existing.lastTimestamp || new Date(m.timestamp) > new Date(existing.lastTimestamp))) {
           existing.lastTimestamp = m.timestamp;
+        }
+      }
+    }
+
+    // Apply contact names as override (most reliable for individual chats)
+    for (const jid in chatMap) {
+      if (!jid.endsWith("@g.us") && contactNames[jid]) {
+        const existing = chatMap[jid];
+        // Only override if current name is a phone number or generic
+        const phone = jid.split("@")[0];
+        if (existing.chatName === phone || /^\d+$/.test(existing.chatName)) {
+          existing.chatName = contactNames[jid];
         }
       }
     }
