@@ -43,6 +43,9 @@ async function startSession(sessionId, existingCreds = null) {
     logger: logger,
     browser: ["E-ZAP Server", "Chrome", "1.0.0"],
     generateHighQualityLinkPreview: false,
+    syncFullHistory: true,
+    shouldSyncHistoryMessage: () => true,
+    fireInitQueries: true,
   });
 
   const session = { sock, status: "connecting", qr: null, sessionId };
