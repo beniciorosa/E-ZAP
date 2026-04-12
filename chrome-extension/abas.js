@@ -991,10 +991,9 @@ function openContactPickerModal(abaId) {
     var allContacts = [];
     var _jidMap = {}; // name → jid (para salvar JIDs ao final)
     if (storeChats && storeChats.length) {
-      // Filtra apenas DMs (não-grupo) e ordena por nome
+      // Todos os chats (DMs + grupos) ordenados por nome
       var seen = {};
       storeChats.forEach(function(c) {
-        if (c.isGroup) return;
         var name = (c.name || '').trim();
         if (!name || name.length < 2) return;
         var key = name.toLowerCase();
