@@ -47,11 +47,21 @@ router.get("/:sessionId/chats", async (req, res) => {
   try {
     const { sessionId } = req.params;
 
+    const { archived: showArchived } = req.query;
+
     // 1. Get synced chats from wa_chats table (from history sync)
+    let chatFilter = "&order=last_message_timestamp.desc.nullslast&limit=500";
+    if (showArchived === "true") {
+      chatFilter = "&archived=eq.true" + chatFilter;
+    } else if (showArchived === "false") {
+      chatFilter = "&archived=eq.false" + chatFilter;
+    }
+    // If no archived param, return all chats
+
     const syncedChats = await supaRest(
       "/rest/v1/wa_chats?session_id=eq." + sessionId +
-      "&select=chat_jid,chat_name,unread_count,is_group,last_message_timestamp,pinned,archived" +
-      "&archived=eq.false&order=last_message_timestamp.desc.nullslast&limit=500"
+      "&select=chat_jid,chat_name,unread_count,is_group,last_message_timestamp,pinned,archived,photo_url,description,participants_count,is_read_only" +
+      chatFilter
     ).catch(() => []);
 
     // 2. Get latest message per chat from wa_messages
@@ -75,6 +85,11 @@ router.get("/:sessionId/chats", async (req, res) => {
         unreadCount: c.unread_count || 0,
         isGroup: c.is_group || false,
         pinned: c.pinned || false,
+        archived: c.archived || false,
+        photoUrl: c.photo_url || null,
+        description: c.description || null,
+        participantsCount: c.participants_count || null,
+        isReadOnly: c.is_read_only || false,
       };
     }
 
@@ -90,6 +105,8 @@ router.get("/:sessionId/chats", async (req, res) => {
           unreadCount: 0,
           isGroup: m.chat_jid.endsWith("@g.us"),
           pinned: false,
+          archived: false,
+          photoUrl: null,
         };
       } else {
         const existing = chatMap[m.chat_jid];

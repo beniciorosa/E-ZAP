@@ -1222,7 +1222,13 @@ function renderChatList() {
     if (preview.length > 50) preview = preview.substring(0, 50) + "...";
 
     html += '<div class="chat-item' + (isActive ? ' active' : '') + '" onclick="openChat(\'' + esc(c.chatJid) + '\',\'' + esc(c.chatName).replace(/'/g, "\\'") + '\')">';
-    html += '<div class="chat-avatar" style="background:' + getAvatarColor(c.chatName) + ';color:#fff">' + esc(getInitials(c.chatName)) + '</div>';
+    if (c.photoUrl) {
+      html += '<div class="chat-avatar" style="background:' + getAvatarColor(c.chatName) + '">' +
+        '<img src="' + esc(c.photoUrl) + '" onerror="this.style.display=\'none\';this.parentNode.style.color=\'#fff\';this.parentNode.textContent=\'' + esc(getInitials(c.chatName)) + '\'">' +
+        '</div>';
+    } else {
+      html += '<div class="chat-avatar" style="background:' + getAvatarColor(c.chatName) + ';color:#fff">' + esc(getInitials(c.chatName)) + '</div>';
+    }
     html += '<div class="chat-info">';
     html += '<div class="chat-info-top">';
     html += '<span class="chat-name">' + esc(c.chatName) + '</span>';
@@ -1261,11 +1267,18 @@ function openChat(jid, name) {
   document.getElementById("messagesArea").classList.add("show");
   document.getElementById("msgInputArea").classList.add("show");
 
-  // Header
-  document.getElementById("msgAvatar").innerHTML = '';
-  document.getElementById("msgAvatar").textContent = getInitials(name);
-  document.getElementById("msgAvatar").style.background = getAvatarColor(name);
-  document.getElementById("msgAvatar").style.color = "#fff";
+  // Header — use photo if available
+  var chatData = chats.find(function(c) { return c.chatJid === jid; });
+  var avatarEl = document.getElementById("msgAvatar");
+  avatarEl.style.background = getAvatarColor(name);
+  if (chatData && chatData.photoUrl) {
+    avatarEl.innerHTML = '<img src="' + esc(chatData.photoUrl) + '" onerror="this.style.display=\'none\';this.parentNode.style.color=\'#fff\';this.parentNode.textContent=\'' + esc(getInitials(name)) + '\'">';
+    avatarEl.style.color = "";
+  } else {
+    avatarEl.innerHTML = '';
+    avatarEl.textContent = getInitials(name);
+    avatarEl.style.color = "#fff";
+  }
   document.getElementById("msgHeaderName").textContent = name;
   document.getElementById("msgHeaderStatus").textContent = isGroup(jid) ? "Grupo" : phoneFromJid(jid);
 

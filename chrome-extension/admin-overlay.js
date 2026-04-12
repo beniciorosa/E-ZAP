@@ -276,7 +276,40 @@
 
       updateStats(_conversations.length, totalMsgs);
       renderConversationList();
+
+      // Enrich with photos from wa_contacts (async, updates avatars when ready)
+      enrichConversationPhotos();
     });
+  }
+
+  function enrichConversationPhotos() {
+    if (!_conversations.length) return;
+    var jids = _conversations.map(function(c) { return c.chatJid; }).filter(Boolean);
+    if (!jids.length) return;
+
+    // Fetch photos from wa_contacts table (any session)
+    supa("/rest/v1/wa_contacts?contact_jid=in.(" + jids.map(encodeURIComponent).join(",") + ")&photo_url=not.is.null&select=contact_jid,photo_url").then(function(rows) {
+      if (!Array.isArray(rows) || !rows.length) return;
+      var photoMap = {};
+      rows.forEach(function(r) { if (r.photo_url) photoMap[r.contact_jid] = r.photo_url; });
+
+      // Update in-memory data
+      _conversations.forEach(function(c) {
+        if (photoMap[c.chatJid]) c.photoUrl = photoMap[c.chatJid];
+      });
+
+      // Update DOM avatars
+      document.querySelectorAll(".ao-chat-item").forEach(function(el) {
+        var jid = el.getAttribute("data-jid");
+        if (jid && photoMap[jid]) {
+          var avatarEl = el.querySelector(".ao-chat-avatar");
+          if (avatarEl && !avatarEl.querySelector("img")) {
+            var initials = avatarEl.textContent;
+            avatarEl.innerHTML = '<img src="' + esc(photoMap[jid]) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + esc(initials) + '\'">';
+          }
+        }
+      });
+    }).catch(function() {});
   }
 
   function updateStats(chats, msgs) {
@@ -321,7 +354,9 @@
 
       html +=
         '<div class="ao-chat-item" data-jid="' + esc(c.chatJid) + '" data-name="' + esc(c.chatName) + '">' +
-          '<div class="ao-chat-avatar" style="background:' + color + '">' + esc(initials) + '</div>' +
+          '<div class="ao-chat-avatar" style="background:' + color + '">' +
+            (c.photoUrl ? '<img src="' + esc(c.photoUrl) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + esc(initials) + '\'">' : esc(initials)) +
+          '</div>' +
           '<div class="ao-chat-info">' +
             '<div class="ao-chat-top">' +
               '<span class="ao-chat-name">' + esc(c.chatName) + groupBadge + '</span>' +
@@ -729,7 +764,9 @@
 
       html +=
         '<div class="ao-imm-row" data-jid="' + esc(c.chatJid) + '" data-name="' + esc(c.chatName) + '">' +
-          '<div style="width:49px;height:49px;min-width:49px;border-radius:50%;background:' + color + ';display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;color:#fff">' + esc(initials) + '</div>' +
+          '<div style="width:49px;height:49px;min-width:49px;border-radius:50%;background:' + color + ';display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;color:#fff;overflow:hidden">' +
+            (c.photoUrl ? '<img src="' + esc(c.photoUrl) + '" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + esc(initials) + '\'">' : esc(initials)) +
+          '</div>' +
           '<div style="flex:1;min-width:0;padding-left:14px">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
               '<span style="font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;color:#e9edef">' + esc(c.chatName) + '</span>' +
