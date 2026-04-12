@@ -1217,71 +1217,75 @@ async function getCachedGroupAdditions(sessionId, targetPhone) {
 // of groups the target phone belongs to, and mark each group accordingly.
 // If no such session exists, all groups come back with memberStatus="unknown".
 async function listAdminGroupsWithMembership(sessionId, targetPhone) {
-  const adminGroups = await listAdminGroups(sessionId);
+  // 1. Get admin groups for the SESSION (the one that will do the adding)
+  // listAdminGroups already calls groupFetchAllParticipating — no extra API calls needed
+  const session = await waitForSessionConnected(sessionId);
+  if (!session || session.status !== "connected") {
+    throw new Error("Sessão não conectada: " + sessionId);
+  }
+  const sock = session.sock;
+  const { myJid, myLid, myPhoneBase, myLidBase } = getSessionIdentity(sock);
 
-  // Normalize the target phone
+  const groupsMap = await sock.groupFetchAllParticipating();
+  const groupList = Object.values(groupsMap || {});
+
+  // Normalize target phone
   const cleanPhone = String(targetPhone || "").replace(/\D/g, "");
-  if (!cleanPhone) {
-    return { groups: adminGroups.map(g => Object.assign({}, g, { memberStatus: "unknown" })), targetSessionFound: false };
-  }
+  const targetJid = cleanPhone ? cleanPhone + "@s.whatsapp.net" : "";
 
-  // Find a connected session whose phone matches
-  let targetSession = null;
-  for (const [id, s] of sessions) {
-    if (s && s.status === "connected") {
-      const sessPhone = s.sock?.user?.id?.split(":")[0]?.split("@")[0] || "";
-      if (sessPhone === cleanPhone) {
-        targetSession = s;
-        break;
-      }
-    }
-  }
+  // 2. Filter groups where session is admin AND check if target is already member
+  // This uses ONLY the session's data (no calls to target session = no rate limit)
+  const adminGroups = [];
 
-  if (!targetSession) {
-    return {
-      groups: adminGroups.map(g => Object.assign({}, g, { memberStatus: "unknown" })),
-      targetSessionFound: false,
-    };
-  }
-
-  // Fetch target session's groups and build a lookup map
-  const targetGroupsMap = await targetSession.sock.groupFetchAllParticipating();
-  const targetGroupsList = Object.values(targetGroupsMap || {});
-
-  // Build { groupJid -> { isMember, isAdmin } }
-  const membership = {};
-  const targetJid = targetSession.sock?.user?.id || "";
-  const targetLid = targetSession.sock?.user?.lid || "";
-  const targetPhoneBase = extractBase(targetJid);
-  const targetLidBase = extractBase(targetLid);
-
-  for (const tg of targetGroupsList) {
+  for (const g of groupList) {
+    // Check if session is admin
     let isAdmin = false;
-    if (Array.isArray(tg.participants)) {
-      const me = tg.participants.find(p => {
+    let targetMemberStatus = "unknown";
+
+    if (Array.isArray(g.participants)) {
+      // Check session admin status
+      const me = g.participants.find(p => {
         const pid = p.id || "";
         const pBase = extractBase(pid);
         const pDomain = extractDomain(pid);
-        if (pid === targetJid || pid === targetLid) return true;
-        if (pDomain === "s.whatsapp.net" && targetPhoneBase && pBase === targetPhoneBase) return true;
-        if (pDomain === "lid" && targetLidBase && pBase === targetLidBase) return true;
-        if (targetPhoneBase && pBase === targetPhoneBase) return true;
-        if (targetLidBase && pBase === targetLidBase) return true;
+        if (pid === myJid || pid === myLid) return true;
+        if (pDomain === "s.whatsapp.net" && myPhoneBase && pBase === myPhoneBase) return true;
+        if (pDomain === "lid" && myLidBase && pBase === myLidBase) return true;
+        if (myPhoneBase && pBase === myPhoneBase) return true;
+        if (myLidBase && pBase === myLidBase) return true;
         return false;
       });
       if (me && (me.admin === "admin" || me.admin === "superadmin")) isAdmin = true;
+
+      // Check if target phone is already a participant in this group
+      if (cleanPhone) {
+        const targetInGroup = g.participants.find(p => {
+          const pid = p.id || "";
+          const pBase = extractBase(pid);
+          return pid === targetJid || pBase === cleanPhone;
+        });
+        if (targetInGroup) {
+          targetMemberStatus = (targetInGroup.admin === "admin" || targetInGroup.admin === "superadmin") ? "admin" : "member";
+        } else {
+          targetMemberStatus = "not_member";
+        }
+      }
     }
-    membership[tg.id] = { isMember: true, isAdmin };
+
+    if (isAdmin) {
+      adminGroups.push({
+        jid: g.id,
+        name: g.subject || g.id.split("@")[0],
+        participants: Array.isArray(g.participants) ? g.participants.length : 0,
+        memberStatus: targetMemberStatus,
+      });
+    }
   }
 
-  const enrichedGroups = adminGroups.map(g => {
-    const m = membership[g.jid];
-    return Object.assign({}, g, {
-      memberStatus: !m ? "not_member" : (m.isAdmin ? "admin" : "member"),
-    });
-  });
+  // Sort by name (pt-BR locale)
+  adminGroups.sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR"));
 
-  return { groups: enrichedGroups, targetSessionFound: true };
+  return { groups: adminGroups, targetSessionFound: !!cleanPhone };
 }
 
 // ===== List groups where the session is admin (lightweight, no extra IQ calls) =====
