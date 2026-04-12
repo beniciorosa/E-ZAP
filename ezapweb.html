@@ -700,7 +700,7 @@
     </div>
     <div class="login-field">
       <label>URL do Servidor</label>
-      <input type="text" id="loginServerUrl" placeholder="http://87.99.141.235:3100" value="http://87.99.141.235:3100">
+      <input type="text" id="loginServerUrl" placeholder="Deixe vazio para usar o servidor atual">
     </div>
     <div class="login-field">
       <label>Token do Servidor</label>
@@ -948,7 +948,7 @@ function waFetch(path, opts) {
 // ===== AUTH =====
 function doLogin() {
   var token = document.getElementById("loginToken").value.trim();
-  var serverUrl = document.getElementById("loginServerUrl").value.trim().replace(/\/+$/, "");
+  var serverUrl = document.getElementById("loginServerUrl").value.trim().replace(/\/+$/, "") || window.location.origin;
   var serverToken = document.getElementById("loginServerToken").value.trim();
   var errEl = document.getElementById("loginError");
   errEl.textContent = "";

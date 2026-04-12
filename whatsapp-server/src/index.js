@@ -4,6 +4,7 @@ require("dotenv").config();
 
 const express = require("express");
 const http = require("http");
+const path = require("path");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const { requireAuth } = require("./middleware/auth");
@@ -15,6 +16,14 @@ const PORT = process.env.PORT || 3100;
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve ezapweb.html at root (same origin, no mixed content issues)
+app.get("/", (req, res) => {
+  res.sendFile(path.resolve(__dirname, "../../ezapweb.html"));
+});
+app.get("/ezapweb.html", (req, res) => {
+  res.sendFile(path.resolve(__dirname, "../../ezapweb.html"));
+});
 
 // Health check (public)
 app.get("/api/health", (req, res) => {
