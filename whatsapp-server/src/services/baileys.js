@@ -5,6 +5,7 @@
 const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const { supaRest } = require("./supabase");
+const photoWorker = require("./photo-worker");
 
 const logger = pino({ level: "warn" });
 
@@ -16,7 +17,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 
 // Event emitter for WebSocket broadcasting
 let _io = null;
-function setIO(io) { _io = io; }
+function setIO(io) { _io = io; photoWorker.setIO(io); }
 
 function emit(event, data) {
   if (_io) _io.emit(event, data);
@@ -42,10 +43,35 @@ async function startSession(sessionId, existingCreds = null) {
     printQRInTerminal: false,
     logger: logger,
     browser: ["E-ZAP Server", "Chrome", "1.0.0"],
+    // === History & Sync — captura completa ===
+    syncFullHistory: true,                    // Pede histórico completo (INITIAL_BOOTSTRAP + FULL + RECENT)
+    shouldSyncHistoryMessage: () => true,     // Aceita todos os tipos de history sync
+    fireInitQueries: true,                    // Executa queries iniciais (contatos, grupos, presença)
+    // === Presença & Online ===
+    markOnlineOnConnect: false,               // NÃO marca online (evita conflito com celular do usuário)
+    emitOwnEvents: true,                      // Emite eventos das próprias ações
+    // === Retry & Resiliência ===
+    maxMsgRetryCount: 10,                     // Máximo de retries para decrypt failures
+    retryRequestDelayMs: 250,                 // Delay entre retries
+    connectTimeoutMs: 30000,                  // Timeout de conexão 30s
+    defaultQueryTimeoutMs: 60000,             // Timeout para queries 60s
+    keepAliveIntervalMs: 25000,               // Ping mais frequente (25s)
+    // === Ignorar status/stories ===
+    shouldIgnoreJid: (jid) => jid === "status@broadcast",
+    // === Link preview ===
     generateHighQualityLinkPreview: false,
-    syncFullHistory: true,
-    shouldSyncHistoryMessage: () => true,
-    fireInitQueries: true,
+    // === Message retry — busca do banco para reenvio ===
+    getMessage: async (key) => {
+      try {
+        const rows = await supaRest(
+          "/rest/v1/wa_messages?message_id=eq." + key.id + "&select=body&limit=1"
+        );
+        if (rows && rows[0] && rows[0].body) {
+          return { conversation: rows[0].body };
+        }
+      } catch(e) {}
+      return undefined;
+    },
   });
 
   const session = { sock, status: "connecting", qr: null, sessionId };
@@ -72,6 +98,14 @@ async function startSession(sessionId, existingCreds = null) {
       await saveSessionCreds(sessionId, authState.creds);
       emit("session:connected", { sessionId, phone });
       console.log("[BAILEYS] Connected:", sessionId, "phone:", phone);
+
+      // Start photo download worker
+      photoWorker.startWorker(sessionId, sock);
+
+      // Sync group metadata (description, participants) in background
+      syncGroupMetadata(sessionId, sock).catch(e =>
+        console.error("[BAILEYS] syncGroupMetadata error:", e.message)
+      );
     }
 
     if (connection === "close") {
@@ -81,6 +115,7 @@ async function startSession(sessionId, existingCreds = null) {
 
       console.log("[BAILEYS] Disconnected:", sessionId, "code:", statusCode, "reconnect:", shouldReconnect);
 
+      photoWorker.stopWorker(sessionId);
       sessions.delete(sessionId);
 
       if (shouldReconnect) {
@@ -173,6 +208,347 @@ async function startSession(sessionId, existingCreds = null) {
   sock.ev.on("messaging-history.set", async ({ messages: msgs, chats: syncedChats, isLatest }) => {
     console.log("[BAILEYS] History sync (ev.on) for", sessionId, "- msgs:", (msgs || []).length, "chats:", (syncedChats || []).length);
     await processHistorySync(sessionId, msgs, syncedChats);
+  });
+
+  // ===== Contact sync — full list on connection =====
+  sock.ev.on("contacts.upsert", async (contacts) => {
+    if (!contacts || !contacts.length) return;
+    console.log("[BAILEYS] contacts.upsert:", contacts.length, "contacts for", sessionId);
+
+    const batch = contacts.map(c => ({
+      session_id: sessionId,
+      contact_jid: c.id,
+      name: c.name || null,
+      push_name: c.notify || null,
+      phone: c.id.split("@")[0].split(":")[0],
+      is_group: c.id.endsWith("@g.us"),
+      synced_at: new Date().toISOString(),
+    }));
+
+    for (let i = 0; i < batch.length; i += 100) {
+      const chunk = batch.slice(i, i + 100);
+      try {
+        await supaRest("/rest/v1/wa_contacts", "POST", chunk, "resolution=merge-duplicates,return=minimal");
+      } catch (e) {
+        console.error("[BAILEYS] contacts.upsert batch error:", e.message);
+      }
+    }
+
+    // Enqueue photo downloads
+    enqueuePhotos(sessionId, contacts.map(c => c.id));
+  });
+
+  // ===== Contact update — incremental changes =====
+  sock.ev.on("contacts.update", async (updates) => {
+    if (!updates || !updates.length) return;
+
+    for (const c of updates) {
+      if (!c.id) continue;
+      const patch = {};
+      if (c.name !== undefined) patch.name = c.name;
+      if (c.notify !== undefined) patch.push_name = c.notify;
+      patch.synced_at = new Date().toISOString();
+
+      try {
+        // Upsert: insert if not exists, update if exists
+        await supaRest("/rest/v1/wa_contacts", "POST", [{
+          session_id: sessionId,
+          contact_jid: c.id,
+          phone: c.id.split("@")[0].split(":")[0],
+          is_group: c.id.endsWith("@g.us"),
+          ...patch,
+        }], "resolution=merge-duplicates,return=minimal");
+      } catch (e) {
+        console.error("[BAILEYS] contacts.update error:", e.message);
+      }
+
+      // If imgUrl changed, re-enqueue photo
+      if (c.imgUrl !== undefined) {
+        enqueuePhotos(sessionId, [c.id], true);
+      }
+    }
+  });
+
+  // ===== Group metadata update — name, description, photo, settings =====
+  sock.ev.on("groups.update", async (updates) => {
+    if (!updates || !updates.length) return;
+
+    for (const g of updates) {
+      if (!g.id) continue;
+      const patch = {};
+      if (g.subject !== undefined) patch.chat_name = g.subject;
+      if (g.desc !== undefined) patch.description = g.desc;
+      if (g.announce !== undefined) patch.is_read_only = g.announce === true || g.announce === "true";
+      if (g.ephemeralDuration !== undefined) patch.ephemeral_duration = g.ephemeralDuration || 0;
+
+      if (Object.keys(patch).length > 0) {
+        try {
+          await supaRest(
+            "/rest/v1/wa_chats?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(g.id),
+            "PATCH", patch, "return=minimal"
+          );
+        } catch (e) {
+          console.error("[BAILEYS] groups.update error:", e.message);
+        }
+      }
+
+      // Re-enqueue photo if profile picture changed
+      if (g.imgUrl !== undefined) {
+        enqueuePhotos(sessionId, [g.id], true);
+      }
+    }
+  });
+
+  // ===== Group participants update — join, leave, promote, demote =====
+  sock.ev.on("group-participants.update", async ({ id: groupJid, participants, action }) => {
+    if (!groupJid || !participants) return;
+    console.log("[BAILEYS] group-participants.update:", action, participants.length, "in", groupJid);
+
+    const now = new Date().toISOString();
+
+    for (const pJid of participants) {
+      const phone = pJid.split("@")[0].split(":")[0];
+
+      if (action === "add") {
+        // Upsert member
+        try {
+          await supaRest("/rest/v1/group_members", "POST", [{
+            group_jid: groupJid,
+            member_phone: phone,
+            member_name: "",
+            role: "member",
+            first_seen: now,
+            last_seen: now,
+            left_at: null,
+          }], "resolution=merge-duplicates,return=minimal").catch(() => {});
+        } catch (e) { /* ignore */ }
+
+        // Enqueue photo for new member
+        enqueuePhotos(sessionId, [pJid]);
+
+      } else if (action === "remove") {
+        // Mark as left
+        try {
+          await supaRest(
+            "/rest/v1/group_members?group_jid=eq." + encodeURIComponent(groupJid) + "&member_phone=eq." + phone,
+            "PATCH", { left_at: now, last_seen: now }, "return=minimal"
+          ).catch(() => {});
+        } catch (e) { /* ignore */ }
+
+      } else if (action === "promote") {
+        try {
+          await supaRest(
+            "/rest/v1/group_members?group_jid=eq." + encodeURIComponent(groupJid) + "&member_phone=eq." + phone,
+            "PATCH", { role: "admin", last_seen: now }, "return=minimal"
+          ).catch(() => {});
+        } catch (e) { /* ignore */ }
+
+      } else if (action === "demote") {
+        try {
+          await supaRest(
+            "/rest/v1/group_members?group_jid=eq." + encodeURIComponent(groupJid) + "&member_phone=eq." + phone,
+            "PATCH", { role: "member", last_seen: now }, "return=minimal"
+          ).catch(() => {});
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    // Update participants count in wa_chats
+    try {
+      const meta = await sock.groupMetadata(groupJid).catch(() => null);
+      if (meta && meta.participants) {
+        await supaRest(
+          "/rest/v1/wa_chats?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(groupJid),
+          "PATCH", { participants_count: meta.participants.length }, "return=minimal"
+        );
+      }
+    } catch (e) { /* ignore */ }
+  });
+
+  // ===== Chat update — pin, archive, mute, settings changes =====
+  sock.ev.on("chats.update", async (updates) => {
+    if (!updates || !updates.length) return;
+
+    for (const c of updates) {
+      if (!c.id) continue;
+      const patch = {};
+      if (c.pinned !== undefined) patch.pinned = c.pinned ? true : false;
+      if (c.archived !== undefined) patch.archived = c.archived ? true : false;
+      if (c.muteEndTime !== undefined) patch.muted_until = c.muteEndTime ? new Date(c.muteEndTime * 1000).toISOString() : null;
+      if (c.unreadCount !== undefined) patch.unread_count = c.unreadCount;
+      if (c.conversationTimestamp !== undefined) {
+        const ts = typeof c.conversationTimestamp === "object" ? c.conversationTimestamp.low : c.conversationTimestamp;
+        if (ts) patch.last_message_timestamp = new Date(ts * 1000).toISOString();
+      }
+      if (c.name !== undefined) patch.chat_name = c.name;
+
+      if (Object.keys(patch).length > 0) {
+        try {
+          await supaRest(
+            "/rest/v1/wa_chats?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(c.id),
+            "PATCH", patch, "return=minimal"
+          );
+        } catch (e) {
+          console.error("[BAILEYS] chats.update error:", e.message);
+        }
+      }
+    }
+  });
+
+  // ===== Chat upsert — new conversation started =====
+  sock.ev.on("chats.upsert", async (chats) => {
+    if (!chats || !chats.length) return;
+    console.log("[BAILEYS] chats.upsert:", chats.length, "new chats for", sessionId);
+
+    const batch = chats.map(c => {
+      const ts = c.conversationTimestamp;
+      return {
+        session_id: sessionId,
+        chat_jid: c.id,
+        chat_name: c.name || c.id.split("@")[0],
+        unread_count: c.unreadCount || 0,
+        is_group: c.id.endsWith("@g.us"),
+        last_message_timestamp: ts ? new Date((typeof ts === "object" ? ts.low : ts) * 1000).toISOString() : null,
+        pinned: c.pinned ? true : false,
+        archived: c.archived ? true : false,
+        muted_until: c.muteEndTime ? new Date(c.muteEndTime * 1000).toISOString() : null,
+      };
+    });
+
+    for (let i = 0; i < batch.length; i += 100) {
+      const chunk = batch.slice(i, i + 100);
+      try {
+        await supaRest("/rest/v1/wa_chats", "POST", chunk, "resolution=merge-duplicates,return=minimal");
+      } catch (e) {
+        console.error("[BAILEYS] chats.upsert batch error:", e.message);
+      }
+    }
+
+    // Also add to contacts + enqueue photos
+    const jids = chats.map(c => c.id);
+    const contactBatch = chats.map(c => ({
+      session_id: sessionId,
+      contact_jid: c.id,
+      push_name: c.name || null,
+      phone: c.id.split("@")[0].split(":")[0],
+      is_group: c.id.endsWith("@g.us"),
+      synced_at: new Date().toISOString(),
+    }));
+    for (let i = 0; i < contactBatch.length; i += 100) {
+      await supaRest("/rest/v1/wa_contacts", "POST", contactBatch.slice(i, i + 100),
+        "resolution=merge-duplicates,return=minimal").catch(() => {});
+    }
+    enqueuePhotos(sessionId, jids);
+  });
+
+  // ===== Chat delete — conversation deleted =====
+  sock.ev.on("chats.delete", async (deletedIds) => {
+    if (!deletedIds || !deletedIds.length) return;
+    console.log("[BAILEYS] chats.delete:", deletedIds.length, "chats for", sessionId);
+
+    for (const jid of deletedIds) {
+      try {
+        await supaRest(
+          "/rest/v1/wa_chats?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(jid),
+          "DELETE", null, "return=minimal"
+        );
+      } catch (e) {
+        console.error("[BAILEYS] chats.delete error:", e.message);
+      }
+    }
+  });
+
+  // ===== Message update — edit, delete, status change =====
+  sock.ev.on("messages.update", async (updates) => {
+    if (!updates || !updates.length) return;
+
+    for (const u of updates) {
+      if (!u.key || !u.key.id) continue;
+      const msgId = u.key.id;
+      const chatJid = u.key.remoteJid;
+      if (!chatJid || chatJid === "status@broadcast") continue;
+
+      const patch = {};
+
+      // Message edit
+      if (u.update?.message) {
+        const newBody = u.update.message?.conversation
+          || u.update.message?.extendedTextMessage?.text
+          || u.update.message?.editedMessage?.message?.protocolMessage?.editedMessage?.conversation
+          || "";
+        if (newBody) {
+          patch.body = newBody;
+          patch.is_edited = true;
+          patch.edit_timestamp = new Date().toISOString();
+        }
+      }
+
+      // Message delete (for everyone)
+      if (u.update?.messageStubType === 68 || u.update?.message?.protocolMessage?.type === 0) {
+        patch.is_deleted = true;
+      }
+
+      // Status update (delivered, read)
+      if (u.update?.status !== undefined) {
+        const statusMap = { 2: "sent", 3: "delivered", 4: "read" };
+        if (statusMap[u.update.status]) {
+          patch.status = statusMap[u.update.status];
+        }
+      }
+
+      if (Object.keys(patch).length > 0) {
+        try {
+          await supaRest(
+            "/rest/v1/wa_messages?session_id=eq." + sessionId + "&message_id=eq." + encodeURIComponent(msgId),
+            "PATCH", patch, "return=minimal"
+          );
+        } catch (e) {
+          // May not exist yet in DB — ignore
+        }
+      }
+    }
+  });
+
+  // ===== Message reactions =====
+  sock.ev.on("messages.reaction", async (reactions) => {
+    if (!reactions || !reactions.length) return;
+
+    for (const r of reactions) {
+      if (!r.key || !r.key.id) continue;
+      const msgId = r.key.id;
+      const chatJid = r.key.remoteJid;
+      if (!chatJid || chatJid === "status@broadcast") continue;
+
+      const senderJid = r.reaction?.key?.participant || r.reaction?.key?.remoteJid || "";
+      const emoji = r.reaction?.text || "";
+
+      // Fetch current reactions from DB, modify, and save back
+      try {
+        const rows = await supaRest(
+          "/rest/v1/wa_messages?session_id=eq." + sessionId + "&message_id=eq." + encodeURIComponent(msgId) +
+          "&select=reactions"
+        );
+        if (!rows || rows.length === 0) continue;
+
+        let reactions = rows[0].reactions || [];
+
+        if (emoji) {
+          // Add or replace reaction from this sender
+          reactions = reactions.filter(rx => rx.sender !== senderJid);
+          reactions.push({ emoji, sender: senderJid, timestamp: new Date().toISOString() });
+        } else {
+          // Empty emoji = reaction removed
+          reactions = reactions.filter(rx => rx.sender !== senderJid);
+        }
+
+        await supaRest(
+          "/rest/v1/wa_messages?session_id=eq." + sessionId + "&message_id=eq." + encodeURIComponent(msgId),
+          "PATCH", { reactions }, "return=minimal"
+        );
+      } catch (e) {
+        // Message may not exist in DB — ignore
+      }
+    }
   });
 
   return { status: "starting" };
@@ -1363,6 +1739,94 @@ async function readChatMessages(sessionId, chatJid) {
   } catch (e) {
     console.error("[BAILEYS] readChatMessages error:", e.message);
     return false;
+  }
+}
+
+// ===== Enqueue photo downloads =====
+async function enqueuePhotos(sessionId, jids, force = false) {
+  if (!jids || !jids.length) return;
+  // Filter out broadcast and invalid JIDs
+  const valid = jids.filter(j => j && j !== "status@broadcast" && (j.includes("@s.whatsapp.net") || j.includes("@g.us")));
+  if (!valid.length) return;
+
+  const rows = valid.map(jid => ({
+    session_id: sessionId,
+    jid: jid,
+    status: "pending",
+  }));
+
+  // If force, reset existing entries
+  if (force) {
+    for (const jid of valid) {
+      await supaRest(
+        "/rest/v1/wa_photo_queue?session_id=eq." + sessionId + "&jid=eq." + encodeURIComponent(jid),
+        "PATCH", { status: "pending", attempts: 0, error: null }, "return=minimal"
+      ).catch(() => {});
+    }
+  }
+
+  // Insert new entries (ignore duplicates)
+  for (let i = 0; i < rows.length; i += 200) {
+    const chunk = rows.slice(i, i + 200);
+    await supaRest("/rest/v1/wa_photo_queue", "POST", chunk,
+      "resolution=ignore-duplicates,return=minimal").catch(() => {});
+  }
+}
+
+// ===== Sync group metadata (description, participants, settings) =====
+async function syncGroupMetadata(sessionId, sock) {
+  console.log("[BAILEYS] Syncing group metadata for:", sessionId);
+  try {
+    const groupsMap = await sock.groupFetchAllParticipating();
+    const groups = Object.values(groupsMap || {});
+    console.log("[BAILEYS] Found", groups.length, "groups for", sessionId);
+
+    const now = new Date().toISOString();
+
+    for (const g of groups) {
+      // Update wa_chats with group metadata
+      try {
+        await supaRest(
+          "/rest/v1/wa_chats?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(g.id),
+          "PATCH", {
+            chat_name: g.subject || g.id.split("@")[0],
+            description: g.desc || null,
+            participants_count: g.participants?.length || 0,
+            is_read_only: g.announce === true || g.announce === "true",
+            ephemeral_duration: g.ephemeralDuration || 0,
+          }, "return=minimal"
+        );
+      } catch (e) { /* chat may not exist yet */ }
+
+      // Upsert group members
+      if (g.participants && g.participants.length > 0) {
+        const memberBatch = g.participants.map(p => ({
+          group_jid: g.id,
+          group_name: g.subject || "",
+          member_phone: p.id.split("@")[0].split(":")[0],
+          member_name: "",
+          role: p.admin === "superadmin" ? "admin" : (p.admin || "member"),
+          first_seen: now,
+          last_seen: now,
+        }));
+
+        for (let i = 0; i < memberBatch.length; i += 100) {
+          const chunk = memberBatch.slice(i, i + 100);
+          await supaRest("/rest/v1/group_members", "POST", chunk,
+            "resolution=merge-duplicates,return=minimal").catch(() => {});
+        }
+
+        // Enqueue photos for all group members
+        enqueuePhotos(sessionId, g.participants.map(p => p.id));
+      }
+    }
+
+    // Enqueue photos for all groups
+    enqueuePhotos(sessionId, groups.map(g => g.id));
+
+    console.log("[BAILEYS] Group metadata sync done for:", sessionId, "groups:", groups.length);
+  } catch (e) {
+    console.error("[BAILEYS] syncGroupMetadata error:", e.message);
   }
 }
 
