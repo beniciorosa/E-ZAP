@@ -184,10 +184,16 @@ function scanAndStoreContacts() {
 function loadKnownContacts() {
   return new Promise(function(resolve) {
     if (!isExtensionValid()) { resolve({}); return; }
-    window._wcrmKnownContacts = {};
-    chrome.storage.local.set({ wcrm_known_contacts: {} });
-    scanAndStoreContacts();
-    resolve(window._wcrmKnownContacts || {});
+    // Carrega contatos salvos anteriormente (merge, não zera)
+    chrome.storage.local.get("wcrm_known_contacts", function(result) {
+      var saved = result.wcrm_known_contacts || {};
+      var current = window._wcrmKnownContacts || {};
+      // Merge: preserva contatos já conhecidos
+      for (var k in saved) { if (saved.hasOwnProperty(k)) current[k] = true; }
+      window._wcrmKnownContacts = current;
+      scanAndStoreContacts();
+      resolve(window._wcrmKnownContacts || {});
+    });
   });
 }
 
@@ -978,7 +984,31 @@ function openContactPickerModal(abaId) {
     var tab = data.tabs.find(function(t) { return t.id === abaId; });
     if (!tab) return;
 
-    var allContacts = getAllKnownContacts();
+    // Busca TODOS os chats do Store (incluindo arquivados) via store-bridge
+    var getChats = window.ezapGetAllChats ? window.ezapGetAllChats({ force: true }) : Promise.resolve(null);
+    return getChats.then(function(storeChats) {
+    // allContacts: array de {name, jid} — fonte: Store bridge ou fallback DOM
+    var allContacts = [];
+    var _jidMap = {}; // name → jid (para salvar JIDs ao final)
+    if (storeChats && storeChats.length) {
+      // Filtra apenas DMs (não-grupo) e ordena por nome
+      var seen = {};
+      storeChats.forEach(function(c) {
+        if (c.isGroup) return;
+        var name = (c.name || '').trim();
+        if (!name || name.length < 2) return;
+        var key = name.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        allContacts.push(name);
+        _jidMap[key] = c.jid;
+      });
+      allContacts.sort(function(a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
+    } else {
+      // Fallback: contatos do DOM (virtual scroll limitado)
+      allContacts = getAllKnownContacts();
+    }
+
     var selectedSet = {};
     (tab.contacts || []).forEach(function(c) { selectedSet[c.toLowerCase().trim()] = c; });
 
@@ -1088,6 +1118,14 @@ function openContactPickerModal(abaId) {
         var t = latestData.tabs.find(function(x) { return x.id === abaId; });
         if (t) {
           t.contacts = Object.values(selectedSet);
+          // Popular contactJids com os JIDs do Store (evita resolução async posterior)
+          if (!t.contactJids) t.contactJids = {};
+          Object.keys(selectedSet).forEach(function(key) {
+            var name = selectedSet[key];
+            if (_jidMap[key]) {
+              t.contactJids[name] = _jidMap[key];
+            }
+          });
           saveAbasData(latestData).then(function() {
             overlay.remove();
             if (abasSidebarOpen) renderAbasSidebar();
@@ -1098,6 +1136,7 @@ function openContactPickerModal(abaId) {
     });
 
     document.getElementById("wcrm-picker-search").focus();
+    }); // fecha getChats.then
   });
 }
 
@@ -1917,7 +1956,6 @@ function initAbas() {
       console.log("[WCRM ABAS] Extension context invalidated, stopping interval");
       return;
     }
-    if (abasEnabled) scanAndStoreContacts();
     injectSidebarButtons();
     if (abasEnabled) injectQuickAbaSelector();
   }, 3000);
