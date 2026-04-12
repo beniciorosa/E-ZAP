@@ -155,21 +155,37 @@ router.get("/:sessionId/chats", async (req, res) => {
       }
     }
 
-    // Resolve LID-based chats — try to find real names
+    // Resolve LID-based chats — batch lookup names from wa_contacts/wa_chats
     const lidChats = Object.values(chatMap).filter(c => c.chatJid.endsWith("@lid") && /^\d+$/.test(c.chatName));
     if (lidChats.length > 0) {
-      const resolvePromises = lidChats.map(async (c) => {
-        try {
-          const resolved = await baileys.resolveLid(sessionId, c.chatJid);
-          if (resolved && resolved.name) {
-            c.chatName = resolved.name;
-            if (resolved.phone && resolved.phone !== c.chatJid.split("@")[0]) {
-              c.resolvedPhone = resolved.phone;
-            }
+      // Single batch query instead of per-LID queries
+      const lidJids = lidChats.map(c => c.chatJid);
+      try {
+        const lidContacts = await supaRest(
+          "/rest/v1/wa_contacts?contact_jid=in.(" + lidJids.map(j => encodeURIComponent(j)).join(",") + ")" +
+          "&or=(name.not.is.null,push_name.not.is.null)" +
+          "&select=contact_jid,name,push_name&limit=500"
+        ).catch(() => []);
+        const lidNames = {};
+        (lidContacts || []).forEach(c => {
+          if (c.name || c.push_name) lidNames[c.contact_jid] = c.name || c.push_name;
+        });
+        // Also check wa_chats for names
+        const lidChatNames = await supaRest(
+          "/rest/v1/wa_chats?chat_jid=in.(" + lidJids.map(j => encodeURIComponent(j)).join(",") + ")" +
+          "&select=chat_jid,chat_name&limit=500"
+        ).catch(() => []);
+        (lidChatNames || []).forEach(c => {
+          const lid = c.chat_jid.split("@")[0];
+          if (c.chat_name && c.chat_name !== lid && !lidNames[c.chat_jid]) {
+            lidNames[c.chat_jid] = c.chat_name;
           }
-        } catch(e) {}
-      });
-      await Promise.all(resolvePromises);
+        });
+        // Apply resolved names
+        lidChats.forEach(c => {
+          if (lidNames[c.chatJid]) c.chatName = lidNames[c.chatJid];
+        });
+      } catch(e) {}
     }
 
     // Sort: pinned first, then by timestamp desc
