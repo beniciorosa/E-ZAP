@@ -101,6 +101,37 @@ router.post("/:id/reconnect", async (req, res) => {
   }
 });
 
+// POST /api/sessions/:id/fresh-qr — Force new QR scan (clears creds, keeps session_id + all history)
+router.post("/:id/fresh-qr", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1. Stop current connection
+    await baileys.stopSession(id);
+
+    // 2. Clear credentials (forces new QR on next connect)
+    await supaRest(
+      "/rest/v1/wa_sessions?id=eq." + id,
+      "PATCH",
+      { creds: null, status: "qr_pending" },
+      "return=minimal"
+    );
+
+    // 3. Start fresh session (will generate new QR)
+    await baileys.startSession(id, null);
+
+    res.json({
+      ok: true,
+      sessionId: id,
+      status: "qr_pending",
+      message: "Novo QR gerado. Escaneie para reconectar. Todo o histórico foi preservado."
+    });
+  } catch (e) {
+    console.error("[SESSIONS] Fresh QR error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // DELETE /api/sessions/:id — Disconnect and remove session
 router.delete("/:id", async (req, res) => {
   try {
