@@ -155,6 +155,23 @@ router.get("/:sessionId/chats", async (req, res) => {
       }
     }
 
+    // Resolve LID-based chats — try to find real names
+    const lidChats = Object.values(chatMap).filter(c => c.chatJid.endsWith("@lid") && /^\d+$/.test(c.chatName));
+    if (lidChats.length > 0) {
+      const resolvePromises = lidChats.map(async (c) => {
+        try {
+          const resolved = await baileys.resolveLid(sessionId, c.chatJid);
+          if (resolved && resolved.name) {
+            c.chatName = resolved.name;
+            if (resolved.phone && resolved.phone !== c.chatJid.split("@")[0]) {
+              c.resolvedPhone = resolved.phone;
+            }
+          }
+        } catch(e) {}
+      });
+      await Promise.all(resolvePromises);
+    }
+
     // Sort: pinned first, then by timestamp desc
     const result = Object.values(chatMap).sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;

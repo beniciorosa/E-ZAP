@@ -1988,6 +1988,65 @@ async function getGroupInfo(sessionId, groupJid) {
   }
 }
 
+// ===== Resolve LID to contact name/phone =====
+// LID (Linked ID) is WhatsApp's internal identifier, not a phone number.
+// We try to resolve it via: 1) wa_contacts linked_jid, 2) sock.onWhatsApp, 3) contact store
+async function resolveLid(sessionId, lidJid) {
+  if (!lidJid || !lidJid.endsWith("@lid")) return null;
+  const lid = lidJid.split("@")[0];
+
+  // 1. Check if we already have a mapping in wa_contacts
+  try {
+    const rows = await supaRest(
+      "/rest/v1/wa_contacts?session_id=eq." + sessionId +
+      "&contact_jid=eq." + encodeURIComponent(lidJid) +
+      "&select=name,push_name,linked_jid&limit=1"
+    );
+    if (rows && rows[0]) {
+      if (rows[0].linked_jid) {
+        // We have the real JID — look up name
+        const realRows = await supaRest(
+          "/rest/v1/wa_contacts?session_id=eq." + sessionId +
+          "&contact_jid=eq." + encodeURIComponent(rows[0].linked_jid) +
+          "&select=name,push_name&limit=1"
+        ).catch(() => []);
+        if (realRows && realRows[0]) {
+          return { name: realRows[0].name || realRows[0].push_name, phone: rows[0].linked_jid.split("@")[0], jid: rows[0].linked_jid };
+        }
+      }
+      if (rows[0].name || rows[0].push_name) {
+        return { name: rows[0].name || rows[0].push_name, phone: lid, jid: lidJid };
+      }
+    }
+  } catch(e) {}
+
+  // 2. Check wa_chats for a better name
+  try {
+    const chatRows = await supaRest(
+      "/rest/v1/wa_chats?session_id=eq." + sessionId +
+      "&chat_jid=eq." + encodeURIComponent(lidJid) +
+      "&select=chat_name&limit=1"
+    );
+    if (chatRows && chatRows[0] && chatRows[0].chat_name && chatRows[0].chat_name !== lid) {
+      return { name: chatRows[0].chat_name, phone: lid, jid: lidJid };
+    }
+  } catch(e) {}
+
+  // 3. Try Baileys sock.onWhatsApp (if connected)
+  const s = sessions.get(sessionId);
+  if (s && s.status === "connected") {
+    try {
+      // onWhatsApp doesn't work with LID, but we can try to get contact from store
+      const contact = s.sock.store?.contacts?.[lidJid];
+      if (contact && (contact.name || contact.notify)) {
+        return { name: contact.name || contact.notify, phone: lid, jid: lidJid };
+      }
+    } catch(e) {}
+  }
+
+  return null; // Could not resolve
+}
+
 module.exports = {
   setIO,
   startSession,
@@ -2007,4 +2066,5 @@ module.exports = {
   readChatMessages,
   downloadMedia,
   getGroupInfo,
+  resolveLid,
 };
