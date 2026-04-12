@@ -25,13 +25,15 @@ router.post("/send", async (req, res) => {
 router.get("/:sessionId", async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { chatJid, limit = 50 } = req.query;
+    const { chatJid, limit = 50, before, after } = req.query;
 
     let path = "/rest/v1/wa_messages?session_id=eq." + sessionId +
       "&order=timestamp.desc&limit=" + Math.min(parseInt(limit), 200) +
-      "&select=id,message_id,chat_jid,chat_name,from_me,sender_name,body,media_type,timestamp";
+      "&select=id,message_id,chat_jid,chat_name,from_me,sender_name,sender_jid,body,media_type,media_url,timestamp";
 
     if (chatJid) path += "&chat_jid=eq." + encodeURIComponent(chatJid);
+    if (before) path += "&timestamp=lt." + encodeURIComponent(before);
+    if (after) path += "&timestamp=gt." + encodeURIComponent(after);
 
     const messages = await supaRest(path);
     res.json(messages || []);

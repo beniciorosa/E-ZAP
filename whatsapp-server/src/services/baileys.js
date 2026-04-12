@@ -1195,6 +1195,58 @@ async function reconnectAllSessions() {
   }
 }
 
+// ===== Profile picture proxy (with in-memory cache) =====
+const _picCache = new Map(); // jid -> { url, ts }
+const PIC_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function getProfilePicture(sessionId, jid) {
+  const cacheKey = sessionId + ":" + jid;
+  const cached = _picCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < PIC_CACHE_TTL) return cached.url;
+
+  const s = sessions.get(sessionId);
+  if (!s || s.status !== "connected") return null;
+
+  try {
+    const url = await s.sock.profilePictureUrl(jid, "image");
+    _picCache.set(cacheKey, { url, ts: Date.now() });
+    return url;
+  } catch (e) {
+    // No profile picture or privacy settings block it
+    _picCache.set(cacheKey, { url: null, ts: Date.now() });
+    return null;
+  }
+}
+
+// ===== Mark chat messages as read =====
+async function readChatMessages(sessionId, chatJid) {
+  const s = sessions.get(sessionId);
+  if (!s || s.status !== "connected") return false;
+
+  try {
+    // Fetch latest message keys from DB to mark as read
+    const msgs = await supaRest(
+      "/rest/v1/wa_messages?session_id=eq." + sessionId +
+      "&chat_jid=eq." + encodeURIComponent(chatJid) +
+      "&from_me=eq.false&order=timestamp.desc&limit=5" +
+      "&select=message_id,chat_jid,sender_jid"
+    );
+    if (!msgs || msgs.length === 0) return true;
+
+    const keys = msgs.map(m => ({
+      remoteJid: m.chat_jid,
+      id: m.message_id,
+      participant: m.sender_jid || undefined,
+    }));
+
+    await s.sock.readMessages(keys);
+    return true;
+  } catch (e) {
+    console.error("[BAILEYS] readChatMessages error:", e.message);
+    return false;
+  }
+}
+
 module.exports = {
   setIO,
   startSession,
@@ -1210,4 +1262,6 @@ module.exports = {
   getCachedGroupLinks,
   getCachedGroupAdditions,
   importLocalCache,
+  getProfilePicture,
+  readChatMessages,
 };

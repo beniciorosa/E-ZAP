@@ -28,6 +28,7 @@ app.get("/api/health", (req, res) => {
 // Protected routes
 app.use("/api/sessions", requireAuth, require("./routes/sessions"));
 app.use("/api/messages", requireAuth, require("./routes/messages"));
+app.use("/api/contacts", requireAuth, require("./routes/contacts"));
 app.use("/api/jobs", requireAuth, require("./routes/jobs"));
 
 // ===== HTTP + Socket.io =====
