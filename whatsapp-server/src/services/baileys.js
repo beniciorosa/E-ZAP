@@ -2020,7 +2020,7 @@ async function resolveLid(sessionId, lidJid) {
     }
   } catch(e) {}
 
-  // 2. Check wa_chats for a better name
+  // 2. Check wa_chats for a better name (same session)
   try {
     const chatRows = await supaRest(
       "/rest/v1/wa_chats?session_id=eq." + sessionId +
@@ -2032,11 +2032,46 @@ async function resolveLid(sessionId, lidJid) {
     }
   } catch(e) {}
 
-  // 3. Try Baileys sock.onWhatsApp (if connected)
+  // 3. Cross-session: check if ANY session has this LID with a name or linked_jid
+  try {
+    const crossRows = await supaRest(
+      "/rest/v1/wa_contacts?contact_jid=eq." + encodeURIComponent(lidJid) +
+      "&or=(name.not.is.null,push_name.not.is.null)" +
+      "&select=name,push_name,linked_jid&limit=1"
+    );
+    if (crossRows && crossRows[0] && (crossRows[0].name || crossRows[0].push_name)) {
+      return { name: crossRows[0].name || crossRows[0].push_name, phone: lid, jid: lidJid };
+    }
+  } catch(e) {}
+
+  // 4. Cross-session: check wa_chats in OTHER sessions for same LID
+  try {
+    const crossChats = await supaRest(
+      "/rest/v1/wa_chats?chat_jid=eq." + encodeURIComponent(lidJid) +
+      "&chat_name=not.eq." + lid +
+      "&select=chat_name&limit=1"
+    );
+    if (crossChats && crossChats[0] && crossChats[0].chat_name) {
+      return { name: crossChats[0].chat_name, phone: lid, jid: lidJid };
+    }
+  } catch(e) {}
+
+  // 5. Last resort: search incoming messages for this LID to find sender pushName
+  try {
+    const msgRows = await supaRest(
+      "/rest/v1/wa_messages?chat_jid=eq." + encodeURIComponent(lidJid) +
+      "&from_me=eq.false&sender_name=neq." +
+      "&select=sender_name&limit=1&order=timestamp.desc"
+    );
+    if (msgRows && msgRows[0] && msgRows[0].sender_name) {
+      return { name: msgRows[0].sender_name, phone: lid, jid: lidJid };
+    }
+  } catch(e) {}
+
+  // 6. Try Baileys sock contact store (if connected)
   const s = sessions.get(sessionId);
   if (s && s.status === "connected") {
     try {
-      // onWhatsApp doesn't work with LID, but we can try to get contact from store
       const contact = s.sock.store?.contacts?.[lidJid];
       if (contact && (contact.name || contact.notify)) {
         return { name: contact.name || contact.notify, phone: lid, jid: lidJid };
