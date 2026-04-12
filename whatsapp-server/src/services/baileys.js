@@ -2,7 +2,7 @@
 // Manages multiple WhatsApp connections via Baileys library.
 // Sessions are persisted to Supabase (creds as JSONB).
 
-const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON, downloadMediaMessage } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const { supaRest } = require("./supabase");
 const photoWorker = require("./photo-worker");
@@ -1917,6 +1917,48 @@ async function syncGroupMetadata(sessionId, sock) {
   }
 }
 
+// ===== Download media from a WhatsApp message =====
+async function downloadMedia(sessionId, messageJson) {
+  const s = sessions.get(sessionId);
+  if (!s || s.status !== "connected") throw new Error("Sessão não conectada");
+  try {
+    const buffer = await downloadMediaMessage(messageJson, "buffer", {}, {
+      logger,
+      reuploadRequest: s.sock.updateMediaMessage,
+    });
+    return buffer;
+  } catch (e) {
+    throw new Error("Erro ao baixar mídia: " + e.message);
+  }
+}
+
+// ===== Get group metadata (participants, description, etc.) =====
+async function getGroupInfo(sessionId, groupJid) {
+  const s = sessions.get(sessionId);
+  if (!s || s.status !== "connected") return null;
+  try {
+    const meta = await s.sock.groupMetadata(groupJid);
+    return {
+      jid: meta.id,
+      subject: meta.subject,
+      description: meta.desc || "",
+      owner: meta.owner,
+      creation: meta.creation,
+      participants: (meta.participants || []).map(p => ({
+        jid: p.id,
+        phone: p.id.split("@")[0].split(":")[0],
+        admin: p.admin || null,
+      })),
+      participantsCount: (meta.participants || []).length,
+      announce: meta.announce,  // only admins can send
+      restrict: meta.restrict,  // only admins can edit info
+    };
+  } catch (e) {
+    console.error("[BAILEYS] getGroupInfo error:", e.message);
+    return null;
+  }
+}
+
 module.exports = {
   setIO,
   startSession,
@@ -1934,4 +1976,6 @@ module.exports = {
   importLocalCache,
   getProfilePicture,
   readChatMessages,
+  downloadMedia,
+  getGroupInfo,
 };

@@ -93,4 +93,50 @@ router.post("/:sessionId/read", async (req, res) => {
   }
 });
 
+// GET /api/contacts/:sessionId/group-info?jid=xxx — Get group metadata
+router.get("/:sessionId/group-info", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { jid } = req.query;
+    if (!jid) return res.status(400).json({ error: "jid é obrigatório" });
+    if (!jid.endsWith("@g.us")) return res.status(400).json({ error: "JID não é um grupo" });
+
+    const info = await baileys.getGroupInfo(sessionId, jid);
+    if (!info) return res.status(404).json({ error: "Grupo não encontrado" });
+    res.json(info);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/contacts/:sessionId/chat-photos — Batch get photo_url for multiple JIDs
+router.get("/:sessionId/chat-photos", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    // Get photos from wa_chats and wa_contacts
+    const chats = await supaRest(
+      "/rest/v1/wa_chats?session_id=eq." + sessionId +
+      "&photo_url=not.is.null&photo_url=neq." +
+      "&select=chat_jid,photo_url" +
+      "&limit=500"
+    ).catch(() => []);
+
+    const contacts = await supaRest(
+      "/rest/v1/wa_contacts?session_id=eq." + sessionId +
+      "&photo_url=not.is.null&photo_url=neq." +
+      "&select=contact_jid,photo_url" +
+      "&limit=500"
+    ).catch(() => []);
+
+    // Merge into a map: jid -> photo_url
+    const map = {};
+    (chats || []).forEach(c => { map[c.chat_jid] = c.photo_url; });
+    (contacts || []).forEach(c => { map[c.contact_jid] = c.photo_url; });
+
+    res.json(map);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
