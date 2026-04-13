@@ -4,10 +4,11 @@
 //
 // Flow:
 // 1. Detect meeting joined (no longer on waiting screen)
-// 2. Show banner: "Gravação iniciando..." with option to skip
-// 3. Click: More options > Manage recording > Start recording > Start
-// 4. Show recording status banner
+// 2. Show floating badge: "Gravação automática" with option to skip
+// 3. Click: Activities > Record > checkboxes > Start > Confirm
+// 4. Show recording status badge (red, with timer)
 // 5. When meeting ends, log to Supabase
+// 6. If user leaves and returns, detect active recording and resume banner
 (function() {
   "use strict";
 
@@ -28,12 +29,17 @@
   function log(msg) { console.log("[EZAP-MEET] " + msg); }
 
   // Find element by tag + text content (supports PT-BR and EN)
-  function findByText(tag, texts) {
+  // When partial=true, uses indexOf instead of exact match
+  function findByText(tag, texts, partial) {
     var els = document.querySelectorAll(tag);
     for (var i = els.length - 1; i >= 0; i--) {
       var t = (els[i].textContent || "").trim();
       for (var j = 0; j < texts.length; j++) {
-        if (t === texts[j]) return els[i];
+        if (partial) {
+          if (t.toLowerCase().indexOf(texts[j].toLowerCase()) >= 0) return els[i];
+        } else {
+          if (t === texts[j]) return els[i];
+        }
       }
     }
     return null;
@@ -69,19 +75,71 @@
     );
   }
 
-  // Check if already recording
+  // Check if already recording (robust — multiple strategies)
   function isAlreadyRecording() {
+    // Strategy 1: aria-label on divs (original check)
     var divs = document.querySelectorAll("div");
     for (var i = 0; i < divs.length; i++) {
       var label = divs[i].getAttribute("aria-label") || "";
       if (
-        (label.indexOf("sendo gravada") >= 0 || label.indexOf("being recorded") >= 0) &&
+        (label.indexOf("sendo gravada") >= 0 || label.indexOf("being recorded") >= 0 ||
+         label.indexOf("gravação") >= 0 || label.indexOf("recording") >= 0) &&
         divs[i].style.display !== "none"
-      ) return true;
+      ) {
+        // Make sure it's a recording indicator, not just any element mentioning recording
+        var txt = (divs[i].textContent || "").trim().toLowerCase();
+        if (txt.indexOf("interromper") >= 0 || txt.indexOf("stop") >= 0 ||
+            txt.indexOf("gravando") >= 0 || txt.indexOf("recording") >= 0 ||
+            txt.indexOf("sendo gravada") >= 0 || txt.indexOf("being recorded") >= 0 ||
+            txt.length < 5) {
+          log("isAlreadyRecording: found via aria-label '" + label.substring(0, 60) + "'");
+          return true;
+        }
+      }
     }
-    // Also check for the red recording indicator
+
+    // Strategy 2: data attributes
     var recDot = document.querySelector('[data-recording-indicator], [data-is-recording="true"]');
-    if (recDot) return true;
+    if (recDot) {
+      log("isAlreadyRecording: found via data attribute");
+      return true;
+    }
+
+    // Strategy 3: text content check — look for recording status text
+    var allSpans = document.querySelectorAll("span, div");
+    for (var s = 0; s < allSpans.length; s++) {
+      var spanTxt = (allSpans[s].textContent || "").trim();
+      // Must be a short label, not a big container
+      if (spanTxt.length > 3 && spanTxt.length < 60) {
+        var lower = spanTxt.toLowerCase();
+        if ((lower === "gravando" || lower === "recording" ||
+             lower.indexOf("esta reunião está sendo gravada") >= 0 ||
+             lower.indexOf("this meeting is being recorded") >= 0 ||
+             lower.indexOf("esta reunião está sendo transcrita") >= 0)) {
+          log("isAlreadyRecording: found via text '" + spanTxt + "'");
+          return true;
+        }
+      }
+    }
+
+    // Strategy 4: red recording dot icon (pulsing circle)
+    var icons = document.querySelectorAll('i.google-material-icons, i.material-icons-extended');
+    for (var ic = 0; ic < icons.length; ic++) {
+      var iconTxt = (icons[ic].textContent || "").trim();
+      if (iconTxt === "fiber_manual_record" || iconTxt === "radio_button_checked") {
+        // Check if it's in a recording context (near top of page, small container)
+        var parent = icons[ic].parentElement;
+        if (parent) {
+          var rect = parent.getBoundingClientRect();
+          // Recording indicator is usually at the top of the screen, small
+          if (rect.top < 100 && rect.height < 60) {
+            log("isAlreadyRecording: found via red dot icon");
+            return true;
+          }
+        }
+      }
+    }
+
     return false;
   }
 
@@ -178,8 +236,8 @@
 
       // Step 3: Ensure all checkboxes are checked (legendas, transcrição, Gemini)
       setTimeout(function() {
-        var checkboxes = document.querySelectorAll('input[type="checkbox"], [role="checkbox"]');
-        log("Found " + checkboxes.length + " checkboxes");
+        var checkboxes = document.querySelectorAll('input[type="checkbox"], [role="checkbox"], [role="switch"]');
+        log("Found " + checkboxes.length + " checkboxes/switches");
         for (var ci = 0; ci < checkboxes.length; ci++) {
           var cb = checkboxes[ci];
           var isChecked = cb.checked || cb.getAttribute("aria-checked") === "true";
@@ -194,7 +252,7 @@
           var lbl = labels[li];
           var txt = (lbl.textContent || "").trim().toLowerCase();
           if (txt.indexOf("legenda") >= 0 || txt.indexOf("transcrição") >= 0 || txt.indexOf("gemini") >= 0 || txt.indexOf("caption") >= 0 || txt.indexOf("transcript") >= 0) {
-            var inp = lbl.querySelector('input[type="checkbox"]') || lbl.querySelector('[role="checkbox"]');
+            var inp = lbl.querySelector('input[type="checkbox"]') || lbl.querySelector('[role="checkbox"]') || lbl.querySelector('[role="switch"]');
             if (inp && !inp.checked && inp.getAttribute("aria-checked") !== "true") {
               inp.click();
               log("Checked: " + txt);
@@ -204,13 +262,17 @@
 
         // Step 4: Click "Começar a gravar" button (aria-label based)
         setTimeout(function() {
-          var startBtn = document.querySelector('button[aria-label*="Começar a gravar"], button[aria-label*="Start recording"]');
-          // Fallback: find by text content
+          var startBtn = document.querySelector(
+            'button[aria-label*="Começar a gravar"], button[aria-label*="Start recording"], ' +
+            'button[aria-label*="Iniciar gravação"], button[aria-label*="Iniciar gravacao"]'
+          );
+          // Fallback: find by text content (partial match)
           if (!startBtn) {
             var btns = document.querySelectorAll('button');
             for (var b = 0; b < btns.length; b++) {
-              var bt = (btns[b].textContent || "").trim();
-              if (bt.indexOf("Começar a gravar") >= 0 || bt.indexOf("Start recording") >= 0) {
+              var bt = (btns[b].textContent || "").trim().toLowerCase();
+              if (bt.indexOf("começar a gravar") >= 0 || bt.indexOf("start recording") >= 0 ||
+                  bt.indexOf("iniciar gravação") >= 0 || bt.indexOf("iniciar gravacao") >= 0) {
                 startBtn = btns[b];
                 break;
               }
@@ -230,7 +292,10 @@
             var confirmBtn = findByText("button", ["Iniciar", "Start"]);
             if (!confirmBtn) confirmBtn = findByText("span", ["Iniciar", "Start"]);
             // Also try aria-label
-            if (!confirmBtn) confirmBtn = document.querySelector('button[aria-label*="Iniciar"], button[aria-label*="Start"]');
+            if (!confirmBtn) confirmBtn = document.querySelector(
+              'button[aria-label*="Iniciar"], button[aria-label*="Start"], ' +
+              'button[aria-label*="Confirmar"], button[data-mdc-dialog-action]'
+            );
             if (confirmBtn) {
               clickEl(confirmBtn);
               log("Clicked 'Iniciar' confirmation");
@@ -244,9 +309,9 @@
               updateBanner("recording", "🔴 Gravação em andamento");
               saveMeetingEvent("recording_started");
             }, 2000);
-          }, 1500);
-        }, 500);
-      }, 1000);
+          }, 2000);
+        }, 1000);
+      }, 1500);
     }
   }
 
@@ -288,7 +353,7 @@
     _banner = document.createElement("div");
     _banner.id = "ezap-meet-banner";
     _banner.className = "ezap-meet-banner";
-    document.body.prepend(_banner);
+    document.body.appendChild(_banner);
   }
 
   function updateBanner(type, message) {
@@ -301,8 +366,8 @@
       _banner.innerHTML =
         '<span class="ezap-meet-banner-icon">🎬</span>' +
         '<span>E-ZAP: Gravação automática</span>' +
-        '<button id="ezap-meet-start" class="ezap-meet-banner-btn ezap-meet-banner-btn--record">▶ Gravar agora</button>' +
-        '<button id="ezap-meet-skip" class="ezap-meet-banner-btn ezap-meet-banner-btn--skip">Não gravar</button>';
+        '<button id="ezap-meet-start" class="ezap-meet-banner-btn ezap-meet-banner-btn--record">▶ Gravar</button>' +
+        '<button id="ezap-meet-skip" class="ezap-meet-banner-btn ezap-meet-banner-btn--skip">Pular</button>';
 
       document.getElementById("ezap-meet-start").addEventListener("click", function() {
         startRecording();
@@ -318,11 +383,12 @@
     } else if (type === "recording") {
       _banner.className = "ezap-meet-banner ezap-meet-banner--recording";
       _banner.style.display = "flex";
-      _recordingStartTime = Date.now();
+      // Only reset start time if not already set (preserves time on reconnect)
+      if (!_recordingStartTime) _recordingStartTime = Date.now();
       _banner.innerHTML =
         '<span class="ezap-meet-banner-icon">🔴</span>' +
         '<span>E-ZAP Gravando</span>' +
-        '<span id="ezap-meet-timer" style="font-variant-numeric:tabular-nums;min-width:72px;font-size:22px;letter-spacing:1px">00:00</span>';
+        '<span id="ezap-meet-timer" style="font-variant-numeric:tabular-nums;min-width:56px;font-size:16px;letter-spacing:1px">00:00</span>';
       // Start timer
       if (_timerInterval) clearInterval(_timerInterval);
       _timerInterval = setInterval(function() {
@@ -380,6 +446,35 @@
     }
   }
 
+  // Try to recover recording start time from Supabase (for reconnect scenarios)
+  function tryRecoverStartTime(callback) {
+    var meetUrl = window.location.href.split("?")[0]; // Remove query params
+    try {
+      chrome.runtime.sendMessage({
+        action: "supabase_rest",
+        path: "/rest/v1/meet_recordings?meet_url=like.*" + encodeURIComponent(meetUrl.split("/").pop()) +
+              "*&event_type=eq.recording_started&order=created_at.desc&limit=1",
+        method: "GET"
+      }, function(response) {
+        if (chrome.runtime.lastError || !response || !response.length) {
+          log("Could not recover start time, using current time");
+          callback(Date.now());
+          return;
+        }
+        var recordedAt = new Date(response[0].recorded_at).getTime();
+        if (recordedAt && !isNaN(recordedAt) && (Date.now() - recordedAt) < 14400000) { // Max 4 hours
+          log("Recovered recording start time: " + response[0].recorded_at);
+          callback(recordedAt);
+        } else {
+          callback(Date.now());
+        }
+      });
+    } catch(e) {
+      log("Error recovering start time: " + e.message);
+      callback(Date.now());
+    }
+  }
+
   // ===== MAIN LOOP =====
   function mainLoop() {
     if (_state === "skipped" || _state === "done") return;
@@ -416,10 +511,17 @@
     // Not in call yet? Wait
     if (isOnWaitingScreen() || !isInCall()) return;
 
-    // In call! Check if already recording
+    // In call! Check if already recording (e.g. user left and came back)
     if (isAlreadyRecording()) {
-      log("Already recording, nothing to do");
+      log("Recording already in progress — recovering state and showing banner");
       _state = "recording";
+      _meetingTitle = _meetingTitle || getMeetingTitle();
+
+      // Try to recover the original start time from Supabase
+      tryRecoverStartTime(function(startTime) {
+        _recordingStartTime = startTime;
+        updateBanner("recording", "🔴 Gravação em andamento");
+      });
       return;
     }
 

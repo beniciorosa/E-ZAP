@@ -1,47 +1,42 @@
 /* ===== E-ZAP Meet Auto-Recorder ===== */
 
+/* Badge flutuante no canto superior direito — NÃO cobre a barra nativa do Meet */
 .ezap-meet-banner {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 56px;
-  box-sizing: border-box;
+  top: 12px;
+  right: 16px;
   z-index: 2147483647;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 0 24px;
+  gap: 12px;
+  padding: 10px 20px;
+  border-radius: 50px;
   background: linear-gradient(135deg, #00a884 0%, #008f6f 100%);
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  animation: ezapMeetSlideDown 0.3s ease-out;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  animation: ezapMeetFadeIn 0.3s ease-out;
+  white-space: nowrap;
+  pointer-events: auto;
 }
 
-@keyframes ezapMeetSlideDown {
-  from { transform: translateY(-100%); }
-  to { transform: translateY(0); }
+@keyframes ezapMeetFadeIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .ezap-meet-banner-icon {
-  font-size: 24px;
-  animation: ezapMeetPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes ezapMeetPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  font-size: 18px;
+  line-height: 1;
 }
 
 .ezap-meet-banner-btn {
-  padding: 10px 20px;
-  border-radius: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
   border: none;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
@@ -66,8 +61,16 @@
 
 .ezap-meet-banner--recording {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  padding: 0 24px;
-  font-size: 20px;
+  gap: 10px;
+}
+
+.ezap-meet-banner--recording .ezap-meet-banner-icon {
+  animation: ezapMeetPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ezapMeetPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .ezap-meet-banner--done {
