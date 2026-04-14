@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fotos de Grupos — E-ZAP</title>
+  <style>
+    :root {
+      --bg:#0f1420; --surface:#1a2030; --surface-2:#121828; --border:#2a3347;
+      --text:#e8edf5; --muted:#8a97b0; --primary:#6366f1; --primary-hover:#4f52e1;
+      --danger:#ef4444; --ok:#22c55e; --warn:#f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+    .container { max-width:1200px; margin:0 auto; }
+    h1 { font-size:22px; margin:0 0 4px; }
+    h2 { font-size:16px; margin:0 0 12px; }
+    .sub { color:var(--muted); font-size:13px; margin-bottom:24px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+    label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+    input, select, button { font:inherit; color:var(--text); }
+    input[type=text], input[type=password], input[type=file] { width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; }
+    input[type=file] { cursor:pointer; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:12px; }
+    .row > * { flex:1; min-width:200px; }
+    button { padding:10px 18px; border-radius:8px; border:none; cursor:pointer; font-weight:600; }
+    .btn-primary { background:var(--primary); color:#fff; }
+    .btn-primary:hover { background:var(--primary-hover); }
+    .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-secondary { background:var(--bg); border:1px solid var(--border); color:var(--text); }
+    .btn-secondary:hover { background:var(--surface-2); }
+    .btn-danger { background:var(--danger); color:#fff; }
+    .btn-icon { padding:6px 10px; font-size:12px; }
+
+    .drop-zone {
+      border:2px dashed var(--border); border-radius:12px; padding:32px;
+      text-align:center; cursor:pointer; transition:all .2s;
+      background:var(--surface-2);
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color:var(--primary); background:var(--bg);
+    }
+    .drop-zone p { margin:0; color:var(--muted); }
+    .drop-zone .big { font-size:15px; color:var(--text); margin-bottom:6px; font-weight:600; }
+    .drop-zone .small { font-size:12px; color:var(--muted); }
+
+    .grid {
+      display:grid; gap:16px;
+      grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));
+    }
+    .foto-card {
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      overflow:hidden; display:flex; flex-direction:column;
+    }
+    .foto-card .thumb-wrap {
+      aspect-ratio:1; background:var(--bg); display:flex; align-items:center; justify-content:center;
+      border-bottom:1px solid var(--border);
+    }
+    .foto-card .thumb-wrap img { width:100%; height:100%; object-fit:cover; }
+    .foto-card .info { padding:10px 12px; flex:1; display:flex; flex-direction:column; gap:6px; }
+    .foto-card .name { font-size:13px; font-weight:600; word-break:break-all; }
+    .foto-card .meta { font-size:11px; color:var(--muted); }
+    .foto-card .url-row {
+      display:flex; gap:4px; margin-top:auto; padding-top:8px;
+      border-top:1px solid var(--border);
+    }
+    .foto-card .url-input {
+      flex:1; padding:6px 8px; font-size:11px; background:var(--bg);
+      border:1px solid var(--border); border-radius:6px; color:var(--text);
+      overflow:hidden; text-overflow:ellipsis;
+    }
+    .foto-card .actions { display:flex; gap:6px; padding:10px 12px; border-top:1px solid var(--border); }
+    .foto-card .actions button { flex:1; padding:6px; font-size:12px; }
+
+    .toast {
+      position:fixed; top:20px; right:20px; padding:12px 20px;
+      background:var(--surface); border:1px solid var(--border); border-radius:8px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.4); font-size:13px;
+      animation:slideIn .2s;
+    }
+    .toast.ok { border-color:var(--ok); }
+    .toast.error { border-color:var(--danger); color:var(--danger); }
+    .toast.warn { border-color:var(--warn); color:var(--warn); }
+    @keyframes slideIn { from { transform:translateX(100%); opacity:0; } }
+
+    .empty-state { padding:40px; text-align:center; color:var(--muted); font-size:14px; }
+
+    .hidden { display:none !important; }
+
+    .upload-progress {
+      margin-top:12px; padding:8px 12px; background:var(--surface-2); border:1px solid var(--border);
+      border-radius:8px; font-size:12px; color:var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📸 Fotos de Grupos</h1>
+    <div class="sub">
+      Gerencie as imagens hospedadas no servidor E-ZAP. As URLs geradas aqui podem ser coladas
+      direto na coluna <b>Foto URL</b> da planilha de criação de grupos em
+      <a href="grupos.html" style="color:var(--primary)">grupos.html</a>.
+    </div>
+
+    <!-- Config (mesma lógica do grupos.html) -->
+    <div class="card">
+      <h2>Configuração</h2>
+      <div class="row">
+        <div>
+          <label>URL do servidor (ex: http://87.99.141.235:3100)</label>
+          <input type="text" id="serverUrl" placeholder="http://87.99.141.235:3100">
+        </div>
+        <div>
+          <label>Token de admin</label>
+          <input type="password" id="adminToken" placeholder="ADMIN_TOKEN">
+        </div>
+        <button class="btn-primary" onclick="saveConfig()">Salvar &amp; carregar</button>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <div class="card">
+      <h2>Subir novas fotos</h2>
+      <div id="dropZone" class="drop-zone" onclick="document.getElementById('fileInput').click()">
+        <p class="big">📤 Clique aqui ou arraste imagens</p>
+        <p class="small">JPG, PNG, WEBP ou GIF — até 10 MB por arquivo. Você pode selecionar várias de uma vez.</p>
+      </div>
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,image/gif" multiple class="hidden" onchange="handleFiles(event.target.files)">
+
+      <div style="margin-top:12px">
+        <label>
+          <input type="checkbox" id="overwriteChk" style="width:16px; height:16px; accent-color:var(--primary); vertical-align:middle">
+          <span style="font-size:13px; color:var(--muted); margin-left:4px">Sobrescrever se arquivo já existir (mesmo nome)</span>
+        </label>
+      </div>
+
+      <div id="uploadProgress" class="upload-progress hidden"></div>
+    </div>
+
+    <!-- Lista de fotos -->
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+        <h2 style="margin:0">Fotos hospedadas</h2>
+        <button class="btn-secondary btn-icon" onclick="loadFotos()">🔄 Recarregar</button>
+      </div>
+      <div id="fotosGrid" class="grid"></div>
+      <div id="emptyState" class="empty-state hidden">Nenhuma foto hospedada ainda — faça o primeiro upload acima.</div>
+    </div>
+  </div>
+
+<script>
+// ============================================================
+// Config & helpers
+// ============================================================
+
+var _fotos = [];
+var _serverBase = ""; // cached absolute base URL (http://host:port) for generating foto links
+
+function esc(s) {
+  if (s == null) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+function showToast(msg, type) {
+  var t = document.createElement("div");
+  t.className = "toast" + (type ? " " + type : "");
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 4000);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + " KB";
+  return (bytes/1024/1024).toFixed(2) + " MB";
+}
+
+function formatDate(iso) {
+  try {
+    var d = new Date(iso);
+    return d.toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", year:"2-digit", hour:"2-digit", minute:"2-digit" });
+  } catch(e) { return iso; }
+}
+
+function waFetch(path, method, body) {
+  var url = _serverBase.replace(/\/$/, "");
+  var tok = (document.getElementById("adminToken").value || "").trim();
+  if (!url || !tok) return Promise.reject(new Error("Configure URL e token primeiro."));
+  var opts = {
+    method: method || "GET",
+    headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(url + path, opts).then(function(r) {
+    return r.json().then(function(j) {
+      if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+      return j;
+    });
+  });
+}
+
+// ============================================================
+// Config (localStorage — same keys as grupos.html for consistency)
+// ============================================================
+
+(function initConfig() {
+  var url = localStorage.getItem("wa_server_url") || "";
+  var tok = localStorage.getItem("wa_admin_token") || "";
+  document.getElementById("serverUrl").value = url;
+  document.getElementById("adminToken").value = tok;
+  _serverBase = url;
+  if (url && tok) loadFotos();
+})();
+
+function saveConfig() {
+  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
+  var tok = (document.getElementById("adminToken").value || "").trim();
+  if (!url || !tok) { showToast("Preencha URL e token", "error"); return; }
+  localStorage.setItem("wa_server_url", url);
+  localStorage.setItem("wa_admin_token", tok);
+  _serverBase = url;
+  showToast("Configuração salva", "ok");
+  loadFotos();
+}
+
+// ============================================================
+// List & render
+// ============================================================
+
+function loadFotos() {
+  waFetch("/api/fotos").then(function(res) {
+    _fotos = res.fotos || [];
+    renderFotos();
+  }).catch(function(e) {
+    showToast("Erro ao carregar: " + e.message, "error");
+  });
+}
+
+function renderFotos() {
+  var grid = document.getElementById("fotosGrid");
+  var empty = document.getElementById("emptyState");
+  if (_fotos.length === 0) {
+    grid.innerHTML = "";
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  grid.innerHTML = _fotos.map(function(f) {
+    var fullUrl = _serverBase.replace(/\/$/, "") + f.url;
+    return '<div class="foto-card">'
+      + '<div class="thumb-wrap"><img src="' + esc(fullUrl) + '" alt="' + esc(f.name) + '" loading="lazy"></div>'
+      + '<div class="info">'
+        + '<div class="name">' + esc(f.name) + '</div>'
+        + '<div class="meta">' + formatSize(f.size) + ' • ' + formatDate(f.modified) + '</div>'
+        + '<div class="url-row">'
+          + '<input type="text" class="url-input" value="' + esc(fullUrl) + '" readonly onclick="this.select()">'
+          + '<button class="btn-secondary btn-icon" onclick="copyUrl(\'' + esc(fullUrl).replace(/'/g, "\\'") + '\')" title="Copiar URL">📋</button>'
+        + '</div>'
+      + '</div>'
+      + '<div class="actions">'
+        + '<button class="btn-secondary btn-icon" onclick="window.open(\'' + esc(fullUrl).replace(/'/g, "\\'") + '\', \'_blank\')">👁️ Abrir</button>'
+        + '<button class="btn-danger btn-icon" onclick="deleteFoto(\'' + esc(f.name).replace(/'/g, "\\'") + '\')">🗑️ Excluir</button>'
+      + '</div>'
+    + '</div>';
+  }).join("");
+}
+
+function copyUrl(url) {
+  navigator.clipboard.writeText(url).then(function() {
+    showToast("URL copiada", "ok");
+  }).catch(function() {
+    // Fallback: select the nearest url-input
+    showToast("Use Ctrl+C no campo selecionado", "warn");
+  });
+}
+
+function deleteFoto(name) {
+  if (!confirm('Excluir "' + name + '"? Essa ação não pode ser desfeita.')) return;
+  waFetch("/api/fotos/" + encodeURIComponent(name), "DELETE").then(function() {
+    showToast("Foto excluída", "ok");
+    loadFotos();
+  }).catch(function(e) {
+    showToast("Erro ao excluir: " + e.message, "error");
+  });
+}
+
+// ============================================================
+// Upload (drag-and-drop + file input)
+// ============================================================
+
+var dz = document.getElementById("dropZone");
+["dragenter","dragover"].forEach(function(ev) {
+  dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.add("dragover"); });
+});
+["dragleave","drop"].forEach(function(ev) {
+  dz.addEventListener(ev, function(e) { e.preventDefault(); dz.classList.remove("dragover"); });
+});
+dz.addEventListener("drop", function(e) {
+  handleFiles(e.dataTransfer.files);
+});
+
+function handleFiles(fileList) {
+  var files = Array.from(fileList || []);
+  if (files.length === 0) return;
+  var overwrite = document.getElementById("overwriteChk").checked;
+  var progress = document.getElementById("uploadProgress");
+  progress.classList.remove("hidden");
+  progress.textContent = "Preparando " + files.length + " arquivo(s)…";
+
+  var ok = 0, fail = 0, skipped = 0;
+  var queue = files.slice();
+
+  function next() {
+    if (queue.length === 0) {
+      progress.textContent = "Concluído: " + ok + " subidas, "
+        + (skipped ? skipped + " puladas (já existiam), " : "")
+        + fail + " erros";
+      loadFotos();
+      setTimeout(function() { progress.classList.add("hidden"); }, 5000);
+      return;
+    }
+    var file = queue.shift();
+    progress.textContent = "Subindo " + file.name + "… (" + (files.length - queue.length) + "/" + files.length + ")";
+
+    if (file.size > 10 * 1024 * 1024) {
+      showToast(file.name + " ignorado — maior que 10MB", "error");
+      fail++; return next();
+    }
+
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var base64 = String(ev.target.result || "").split(",")[1];
+      waFetch("/api/fotos/upload", "POST", {
+        filename: file.name,
+        base64: base64,
+        overwrite: overwrite,
+      }).then(function(res) {
+        ok++;
+        showToast("✓ " + res.name, "ok");
+        next();
+      }).catch(function(e) {
+        if (/já existe/i.test(e.message || "")) {
+          skipped++;
+          showToast("⏭️ " + file.name + " já existe (marque sobrescrever)", "warn");
+        } else {
+          fail++;
+          showToast("✗ " + file.name + ": " + e.message, "error");
+        }
+        next();
+      });
+    };
+    reader.onerror = function() {
+      fail++;
+      showToast("Erro ao ler " + file.name, "error");
+      next();
+    };
+    reader.readAsDataURL(file);
+  }
+  next();
+}
+</script>
+</body>
+</html>

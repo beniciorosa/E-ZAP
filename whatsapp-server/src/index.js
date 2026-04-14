@@ -15,7 +15,8 @@ const PORT = process.env.PORT || 3100;
 // ===== Express setup =====
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Raise body limit so /api/fotos/upload can accept base64 images up to ~10MB.
+app.use(express.json({ limit: "15mb" }));
 
 // Serve static files (group avatars, assets) — publicly accessible, no auth.
 // Upload via SFTP to /opt/ezap/whatsapp-server/public/ on the Hetzner box.
@@ -46,6 +47,7 @@ app.use("/api/sessions", requireAuth, require("./routes/sessions"));
 app.use("/api/messages", requireAuth, require("./routes/messages"));
 app.use("/api/contacts", requireAuth, require("./routes/contacts"));
 app.use("/api/jobs", requireAuth, require("./routes/jobs"));
+app.use("/api/fotos", requireAuth, require("./routes/fotos"));
 app.use("/api/sync", requireAuth, require("./routes/sync"));
 
 // ===== HTTP + Socket.io =====
