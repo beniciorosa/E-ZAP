@@ -1596,6 +1596,254 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, cancelled };
 }
 
+// ===== Bulk group creation from spreadsheet =====
+// specs: [{ specHash, name, description, photoUrl, members:[phoneDigits], lockInfo, welcomeMessage }]
+// Creates each group via sock.groupCreate and then polishes with description,
+// avatar, lock setting, and welcome message. Conservative delays between groups
+// because groupCreate is the most rate-limit-sensitive group operation.
+async function createGroupsFromList(sessionId, specs, options = {}) {
+  const session = await waitForSessionConnected(sessionId);
+  if (!session || session.status !== "connected") {
+    throw new Error("Sessão não conectada: " + sessionId);
+  }
+  const sock = session.sock;
+
+  const delaySecRaw = Number(options.delaySec) || 180;
+  const baseDelayMs = Math.max(60, Math.min(1800, delaySecRaw)) * 1000; // clamp 60s..30min
+  const INTRA_DELAY_MS = 4000;
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+  const shouldCancel = typeof options.shouldCancel === "function" ? options.shouldCancel : null;
+
+  const total = Array.isArray(specs) ? specs.length : 0;
+  const results = [];
+  let rateLimited = false;
+  let cancelled = false;
+  let processed = 0;
+
+  for (let i = 0; i < total; i++) {
+    if (shouldCancel && shouldCancel()) { cancelled = true; break; }
+    if (rateLimited) break;
+
+    const spec = specs[i];
+    processed++;
+
+    const row = {
+      index: i,
+      specHash: spec.specHash,
+      name: spec.name || "(sem nome)",
+      status: "pending",
+      statusMessage: null,
+      groupJid: null,
+      membersTotal: Array.isArray(spec.members) ? spec.members.length : 0,
+      membersAdded: 0,
+      hasDescription: false,
+      hasPhoto: false,
+      locked: false,
+      welcomeSent: false,
+      inviteLink: null,
+    };
+
+    try {
+      // Validate members exist on WhatsApp (single batch call)
+      const memberJids = await validateMembersForCreate(sock, spec.members || []);
+      if (memberJids.length === 0) {
+        throw new Error("Nenhum membro válido no WhatsApp");
+      }
+
+      // 1. Create group
+      const created = await sock.groupCreate(spec.name, memberJids);
+      row.groupJid = created?.id || null;
+      if (!row.groupJid) throw new Error("groupCreate não retornou id");
+      if (created.participants && typeof created.participants === "object") {
+        row.membersAdded = Object.values(created.participants).filter(p => !p || !p.error).length;
+      } else {
+        row.membersAdded = memberJids.length;
+      }
+      await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+
+      // 2. Description
+      if (spec.description) {
+        try {
+          await sock.groupUpdateDescription(row.groupJid, String(spec.description));
+          row.hasDescription = true;
+        } catch (e) {
+          row.statusMessage = appendNote(row.statusMessage, "desc_fail: " + (e.message || e));
+          if (isRateLimitError(e)) { rateLimited = true; }
+        }
+        await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+      }
+
+      // 3. Photo from URL
+      if (!rateLimited && spec.photoUrl) {
+        try {
+          const buf = await fetchPhotoBuffer(spec.photoUrl);
+          await sock.updateProfilePicture(row.groupJid, buf);
+          row.hasPhoto = true;
+        } catch (e) {
+          row.statusMessage = appendNote(row.statusMessage, "photo_fail: " + (e.message || e));
+          if (isRateLimitError(e)) { rateLimited = true; }
+        }
+        await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+      }
+
+      // 4. Lock info (only admins edit group info)
+      if (!rateLimited && spec.lockInfo) {
+        try {
+          await sock.groupSettingUpdate(row.groupJid, "locked");
+          row.locked = true;
+        } catch (e) {
+          row.statusMessage = appendNote(row.statusMessage, "lock_fail: " + (e.message || e));
+          if (isRateLimitError(e)) { rateLimited = true; }
+        }
+        await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+      }
+
+      // 5. Welcome message
+      if (!rateLimited && spec.welcomeMessage) {
+        try {
+          const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
+          await sock.sendMessage(row.groupJid, { text });
+          row.welcomeSent = true;
+        } catch (e) {
+          row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (e.message || e));
+          if (isRateLimitError(e)) { rateLimited = true; }
+        }
+      }
+
+      // 6. Invite link (best-effort, useful for audit trail)
+      if (!rateLimited) {
+        try {
+          const code = await sock.groupInviteCode(row.groupJid);
+          if (code) row.inviteLink = "https://chat.whatsapp.com/" + code;
+        } catch (e) { /* non-fatal */ }
+      }
+
+      row.status = rateLimited ? "rate_limited" : "created";
+      if (rateLimited && !row.statusMessage) {
+        row.statusMessage = "Rate limit detectado durante polimento do grupo";
+      }
+    } catch (e) {
+      if (isRateLimitError(e)) {
+        rateLimited = true;
+        row.status = "rate_limited";
+        row.statusMessage = "Rate limit detectado — job abortado";
+        console.warn("[BAILEYS] Rate limit during groupCreate at index", i, "name:", spec.name);
+      } else {
+        row.status = "failed";
+        row.statusMessage = e?.message || String(e);
+      }
+    }
+
+    results.push(row);
+    upsertGroupCreation(sessionId, row);
+
+    if (onProgress) {
+      try { onProgress({ processed, total, row, rateLimited }); } catch (_) {}
+    }
+
+    // Delay between groups (only if more to process and not aborting)
+    if (i < total - 1 && !rateLimited && !(shouldCancel && shouldCancel())) {
+      const jitterMs = Math.floor((Math.random() - 0.5) * 60000); // ±30s
+      await new Promise(r => setTimeout(r, baseDelayMs + jitterMs));
+    }
+  }
+
+  return { results, rateLimited, cancelled, total, processed };
+}
+
+function appendNote(existing, note) {
+  if (!existing) return note;
+  return existing + " | " + note;
+}
+
+// Validates a list of raw phone digits against WhatsApp and returns JIDs.
+// Uses a single sock.onWhatsApp call for the whole batch.
+async function validateMembersForCreate(sock, phones) {
+  const clean = (Array.isArray(phones) ? phones : [])
+    .map(p => String(p || "").replace(/\D/g, ""))
+    .filter(p => p.length >= 8);
+  if (clean.length === 0) return [];
+  try {
+    const checks = await sock.onWhatsApp(...clean);
+    const out = [];
+    const seen = new Set();
+    for (const c of (checks || [])) {
+      if (c && c.exists && c.jid && !seen.has(c.jid)) {
+        out.push(c.jid);
+        seen.add(c.jid);
+      }
+    }
+    return out;
+  } catch (e) {
+    console.error("[BAILEYS] validateMembersForCreate failed:", e.message);
+    // Fallback: assume all numbers are valid, build JIDs manually
+    return clean.map(p => p + "@s.whatsapp.net");
+  }
+}
+
+// Fetch an image URL and return a Buffer suitable for sock.updateProfilePicture.
+// Baileys itself resizes internally via jimp, so we don't need sharp here.
+async function fetchPhotoBuffer(url) {
+  if (!url || typeof url !== "string") throw new Error("URL inválida");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, { signal: controller.signal, redirect: "follow" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.startsWith("image/")) {
+      throw new Error("Content-Type não é imagem: " + contentType);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length === 0) throw new Error("Imagem vazia");
+    if (buf.length > 5 * 1024 * 1024) throw new Error("Imagem maior que 5MB");
+    return buf;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function upsertGroupCreation(sessionId, row) {
+  try {
+    await supaRest(
+      "/rest/v1/wa_group_creations?on_conflict=source_session_id,spec_hash",
+      "POST",
+      {
+        source_session_id: sessionId,
+        spec_hash: row.specHash,
+        group_name: row.name,
+        group_jid: row.groupJid || null,
+        status: row.status,
+        status_message: row.statusMessage || null,
+        members_total: row.membersTotal || 0,
+        members_added: row.membersAdded || 0,
+        has_description: !!row.hasDescription,
+        has_photo: !!row.hasPhoto,
+        locked: !!row.locked,
+        welcome_sent: !!row.welcomeSent,
+        invite_link: row.inviteLink || null,
+        updated_at: new Date().toISOString(),
+      },
+      "resolution=merge-duplicates,return=minimal"
+    );
+  } catch (e) {
+    console.error("[BAILEYS] upsertGroupCreation failed:", e.message);
+  }
+}
+
+async function getCachedGroupCreations(sessionId) {
+  try {
+    const rows = await supaRest(
+      "/rest/v1/wa_group_creations?source_session_id=eq." + sessionId +
+      "&select=spec_hash,group_name,group_jid,status,status_message,members_total,members_added,has_description,has_photo,locked,welcome_sent,invite_link,created_at&order=created_at.desc"
+    );
+    return rows || [];
+  } catch (e) {
+    console.error("[BAILEYS] getCachedGroupCreations failed:", e.message);
+    return [];
+  }
+}
+
 // ===== Stop session =====
 async function stopSession(sessionId) {
   const session = sessions.get(sessionId);
@@ -2096,10 +2344,12 @@ module.exports = {
   reconnectAllSessions,
   fetchGroupsWithInvites,
   addParticipantToAllGroups,
+  createGroupsFromList,
   listAdminGroups,
   listAdminGroupsWithMembership,
   getCachedGroupLinks,
   getCachedGroupAdditions,
+  getCachedGroupCreations,
   importLocalCache,
   getProfilePicture,
   readChatMessages,

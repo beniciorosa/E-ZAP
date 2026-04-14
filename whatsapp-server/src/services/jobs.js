@@ -365,6 +365,115 @@ async function runAddWorker(job) {
   }
 }
 
+// ===== Create-groups worker =====
+
+async function startCreateGroupsJob(sessionId, specs, config = {}) {
+  const job = createJob("create-groups", sessionId, {
+    delaySec: Math.max(60, Number(config.delaySec) || 180),
+    specCount: Array.isArray(specs) ? specs.length : 0,
+  });
+  // Specs are kept on the job object but not serialized in summaries
+  job._specs = Array.isArray(specs) ? specs : [];
+  runCreateGroupsWorker(job).catch(e => {
+    job.status = "error";
+    job.lastError = e.message || String(e);
+    job.updatedAt = new Date().toISOString();
+    console.error("[JOBS] Create-groups worker crashed:", e);
+  });
+  return job;
+}
+
+async function runCreateGroupsWorker(job) {
+  job.status = "running";
+  job.progress.startedAt = new Date().toISOString();
+  job.progress.updatedAt = job.progress.startedAt;
+  job.updatedAt = job.progress.startedAt;
+
+  // Dedup cache: rows already created (by spec_hash) are skipped in this run
+  const cached = await baileys.getCachedGroupCreations(job.sessionId);
+  const createdHashes = new Set(
+    cached.filter(r => r.status === "created").map(r => r.spec_hash)
+  );
+  const pendingSpecs = job._specs.filter(s => s && s.specHash && !createdHashes.has(s.specHash));
+
+  // Pre-populate results with the cached entries (so the frontend sees progress immediately)
+  job.results = cached.map(r => ({
+    specHash: r.spec_hash,
+    name: r.group_name || "(sem nome)",
+    groupJid: r.group_jid || null,
+    status: r.status,
+    statusMessage: r.status_message || null,
+    membersTotal: r.members_total || 0,
+    membersAdded: r.members_added || 0,
+    hasDescription: !!r.has_description,
+    hasPhoto: !!r.has_photo,
+    locked: !!r.locked,
+    welcomeSent: !!r.welcome_sent,
+    inviteLink: r.invite_link || null,
+    fromCache: true,
+  }));
+
+  // Initialize progress from cache
+  const preCreated = job.results.filter(r => r.status === "created").length;
+  job.progress.total = job._specs.length;
+  job.progress.done = 0;
+  job.progress.doneTotal = preCreated;
+  job.progress.newInThisRun = 0;
+  job.progress.updatedAt = new Date().toISOString();
+  job.updatedAt = job.progress.updatedAt;
+
+  // Edge case: nothing to do (all specs already created)
+  if (pendingSpecs.length === 0) {
+    job.status = "completed";
+    job.updatedAt = new Date().toISOString();
+    return;
+  }
+
+  let newThisRun = 0;
+
+  try {
+    const result = await baileys.createGroupsFromList(job.sessionId, pendingSpecs, {
+      delaySec: job.config.delaySec,
+      shouldCancel: () => job.cancelRequested,
+      onProgress: ({ processed, total, row, rateLimited }) => {
+        // Merge the row into results by specHash
+        const idx = job.results.findIndex(r => r.specHash === row.specHash);
+        if (idx >= 0) {
+          job.results[idx] = Object.assign({}, row, { fromCache: false });
+        } else {
+          job.results.push(Object.assign({}, row, { fromCache: false }));
+        }
+
+        if (row.status === "created") newThisRun++;
+
+        const doneTotal = job.results.filter(r => r.status === "created").length;
+
+        job.progress.total = job._specs.length;
+        job.progress.done = processed;
+        job.progress.doneTotal = doneTotal;
+        job.progress.newInThisRun = newThisRun;
+        job.progress.rateLimited = rateLimited;
+        job.progress.updatedAt = new Date().toISOString();
+        job.updatedAt = job.progress.updatedAt;
+      },
+    });
+
+    if (result.cancelled) {
+      job.status = "cancelled";
+    } else if (result.rateLimited) {
+      job.status = "rate_limited";
+    } else {
+      job.status = "completed";
+    }
+    job.updatedAt = new Date().toISOString();
+  } catch (e) {
+    job.status = "error";
+    job.lastError = e.message || String(e);
+    job.updatedAt = new Date().toISOString();
+    throw e;
+  }
+}
+
 // ===== Helpers =====
 
 function isRateLimitMessageString(msg) {
@@ -380,5 +489,6 @@ module.exports = {
   cancelJob,
   startExtractJob,
   startAddJob,
+  startCreateGroupsJob,
   summarizeJob,
 };

@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ferramenta de Grupos WhatsApp — E-ZAP</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
     :root {
       --bg:#0f1420; --surface:#1a2030; --surface-2:#121828; --border:#2a3347;
@@ -172,6 +174,7 @@
     <div class="toolbar">
       <button class="btn-primary" onclick="openExtractModal()">+ Nova extração</button>
       <button class="btn-primary" onclick="openAddModal()">+ Adicionar número</button>
+      <button class="btn-primary" onclick="openCreateGroupsModal()">+ Criar grupos</button>
       <button class="btn-secondary" onclick="refreshJobs()" title="Atualiza a lista de jobs agora (fora do intervalo de polling)">🔄 Atualizar</button>
     </div>
 
@@ -290,6 +293,69 @@
     </div>
   </div>
 
+  <!-- Modal: Criar grupos em massa -->
+  <div class="modal-backdrop" id="createGroupsModal">
+    <div class="modal">
+      <div class="modal-title">Criar grupos em massa a partir de planilha</div>
+      <div class="modal-sub">Carrega um XLSX, CSV ou link público do Google Sheets e cria todos os grupos listados. Cada grupo usa título, descrição, foto de avatar, membros, permissão e mensagem de boas-vindas conforme a planilha. Rate-limit conservador — groupCreate é a operação de grupo mais vigiada pelo WhatsApp.</div>
+
+      <div style="margin-bottom:16px">
+        <label>Sessão que vai criar os grupos</label>
+        <select id="createSession"></select>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label>Fonte dos dados</label>
+        <div class="delay-presets">
+          <label><input type="radio" name="createSourceMode" value="xlsx" checked onchange="toggleCreateSourceMode()"> XLSX</label>
+          <label><input type="radio" name="createSourceMode" value="csv" onchange="toggleCreateSourceMode()"> CSV</label>
+          <label><input type="radio" name="createSourceMode" value="gsheets" onchange="toggleCreateSourceMode()"> Google Sheets</label>
+        </div>
+      </div>
+
+      <div id="createFileBox" style="margin-bottom:16px">
+        <label>Selecione o arquivo</label>
+        <input type="file" id="createFileInput" accept=".xlsx,.xls,.csv" onchange="handleCreateFileChange(event)" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text)">
+        <div style="margin-top:8px">
+          <button class="btn-secondary btn-icon" onclick="downloadCreateTemplate()">📥 Baixar planilha modelo</button>
+        </div>
+      </div>
+
+      <div id="createGsheetsBox" class="hidden" style="margin-bottom:16px">
+        <label>Link público do Google Sheets</label>
+        <div class="row" style="margin-bottom:0">
+          <input type="text" id="createGsheetsUrl" placeholder="https://docs.google.com/spreadsheets/d/..." style="flex:3">
+          <button class="btn-secondary btn-icon" onclick="handleGsheetsLoad()" style="flex:1">Carregar</button>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">A planilha precisa estar publicada como <b>Qualquer pessoa com o link</b>.</div>
+      </div>
+
+      <div id="createPreviewBox" class="hidden" style="margin-bottom:16px">
+        <label>Pré-visualização <span id="createPreviewCount" style="color:var(--muted)"></span></label>
+        <div class="table-wrap" style="max-height:260px; overflow:auto; border:1px solid var(--border); border-radius:8px">
+          <table id="createPreviewTable"></table>
+        </div>
+        <div id="createPreviewInvalid" style="font-size:11px; color:var(--danger); margin-top:6px"></div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label>Velocidade de criação (delay entre grupos)</label>
+        <div class="delay-presets">
+          <label><input type="radio" name="createDelay" value="180" checked> 3 min — padrão</label>
+          <label><input type="radio" name="createDelay" value="300"> 5 min — seguro</label>
+          <label><input type="radio" name="createDelay" value="480"> 8 min — paranoico</label>
+          <label><input type="radio" name="createDelay" value="custom"> custom <input type="number" id="createDelayCustom" min="60" max="1800" placeholder="segundos" style="width:90px; margin-left:4px"></label>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Mínimo 60s. Jitter de ±30s é aplicado automaticamente. groupCreate é a operação mais vigiada — conservador é melhor.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('createGroupsModal')">Cancelar</button>
+        <button class="btn-primary" id="createSubmitBtn" onclick="submitCreateGroupsJob()" disabled>Iniciar criação</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 // ============================================================
 // ===== Configuração e helpers globais ========================
@@ -365,6 +431,14 @@ function calculateEtaSeconds(job) {
   var delay = (job.config && job.config.delaySec) || 60;
   // promoteToAdmin dobra o custo por grupo (2 chamadas IQ: addParticipant + promote)
   if (job.type === "add" && job.config && job.config.promoteToAdmin) delay *= 2;
+
+  // create-groups: o job tem um total fixo (specCount) e cada linha criada
+  // custa ~delaySec. ETA = (total - criados) * delaySec.
+  if (job.type === "create-groups") {
+    var totalSpecs = (job.config && job.config.specCount) || job.progress.total || 0;
+    var remaining = Math.max(0, totalSpecs - doneTotal);
+    return remaining * delay;
+  }
 
   // Primary: ainda há admins CONHECIDOS sem cobertura terminal.
   // Para extract, "cobertura" = withLink (ignora não-admins que estão em
@@ -865,7 +939,11 @@ function renderJobCard(job) {
   div.className = "job-card " + job.status;
   div.id = "job-card-" + job.id;
 
-  var title = job.type === "extract" ? "Extração de links" : "Adição de número";
+  var title;
+  if (job.type === "extract") title = "Extração de links";
+  else if (job.type === "add") title = "Adição de número";
+  else if (job.type === "create-groups") title = "Criação de grupos";
+  else title = job.type;
   var session = _sessions.find(function(s){ return s.id === job.sessionId; });
   var sessionLabel = session ? (session.label + (session.phone ? " — " + session.phone : "")) : job.sessionId.substring(0, 8);
 
@@ -883,6 +961,8 @@ function renderJobCard(job) {
   var doneTotal = job.progress.doneTotal || 0;
   var withLink = job.progress.withLink || 0;
   var progressCount = (job.type === "extract") ? withLink : doneTotal;
+  // For create-groups, the progress bar tracks "grupos criados" vs total specs
+  var specCount = (job.config && job.config.specCount) || 0;
 
   // ===== Barra principal =====
   // Enquanto o loop está iterando (loopTotal > 0), a barra reflete o progresso
@@ -892,7 +972,13 @@ function renderJobCard(job) {
   var loopTotal = job.progress.total || 0;
   var loopDone = job.progress.done || 0;
   var mainCount, mainTotal, pct;
-  if (loopTotal > 0) {
+  if (job.type === "create-groups") {
+    // create-groups uses specCount as the fixed denominator (doneTotal counts
+    // only rows that reached "created" status — which is what we want in the UI).
+    mainCount = doneTotal;
+    mainTotal = specCount || loopTotal || 0;
+    pct = mainTotal > 0 ? (mainCount / mainTotal) * 100 : 0;
+  } else if (loopTotal > 0) {
     mainCount = loopDone;
     mainTotal = loopTotal;
     pct = (loopDone / loopTotal) * 100;
@@ -929,10 +1015,13 @@ function renderJobCard(job) {
   var configLine = "";
   if (job.type === "extract") {
     configLine = "Delay: " + (job.config.delaySec || 60) + "s";
-  } else {
+  } else if (job.type === "add") {
     configLine = "Número: " + (job.config.phone || "?") + " | Delay: " + (job.config.delaySec || 20) + "s"
       + (job.config.promoteToAdmin ? " | + promover a admin" : "")
       + (job.config.onlyJids ? " | filtro: " + job.config.onlyJids.length + " grupos" : "");
+  } else if (job.type === "create-groups") {
+    var delayMin = Math.round((job.config.delaySec || 180) / 60 * 10) / 10;
+    configLine = "Total: " + (job.config.specCount || 0) + " grupos | Delay: " + delayMin + " min entre cada";
   }
 
   var spinner = (job.status === "running") ? '<span class="spinner"></span>' : '';
@@ -976,16 +1065,33 @@ function renderJobCard(job) {
     } else if (fromCacheAdd > 0) {
       adminStat += ' (todos do cache)';
     }
+  } else if (job.type === "create-groups") {
+    var fromCacheCreate = Math.max(0, doneTotal - newInRun);
+    adminStat = ' — ' + doneTotal + ' / ' + (specCount || 0) + ' grupos criados';
+    if (newInRun > 0 && fromCacheCreate > 0) {
+      adminStat += ' (' + newInRun + ' nesta rodada + ' + fromCacheCreate + ' do cache)';
+    } else if (newInRun > 0) {
+      adminStat += ' (' + newInRun + ' novos nesta rodada)';
+    } else if (fromCacheCreate > 0) {
+      adminStat += ' (todos do cache)';
+    }
   }
 
   if (job.status === "running") {
-    var verb = (job.type === "extract") ? "verificando grupos" : "processando grupos";
+    var verb;
+    if (job.type === "extract") verb = "verificando grupos";
+    else if (job.type === "create-groups") verb = "criando grupos";
+    else verb = "processando grupos";
     message = '<div class="job-message">' + spinner + mainCount + '/' + mainTotal + ' ' + verb + ' — ' + etaText + adminStat + '</div>';
   } else if (job.status === "completed") {
     message = '<div class="job-message ok">✅ Concluído' + adminStat + '</div>';
   } else if (job.status === "rate_limited") {
+    var rateLabel;
+    if (job.type === "extract") rateLabel = "extração";
+    else if (job.type === "create-groups") rateLabel = "criação";
+    else rateLabel = "adição";
     message = '<div class="job-message error">⏸️ Pausado por rate-limit' + adminStat + '. '
-      + 'Aguarde ~30min e inicie uma nova ' + (job.type === "extract" ? "extração" : "adição") + ' — o cache do Supabase preserva o progresso.</div>';
+      + 'Aguarde ~30min e inicie uma nova ' + rateLabel + ' — o cache do Supabase preserva o progresso.</div>';
   } else if (job.status === "cancelled") {
     message = '<div class="job-message warn">⏹️ Cancelado' + adminStat + '</div>';
   } else if (job.status === "error") {
@@ -1024,6 +1130,10 @@ function renderJobCard(job) {
 function renderJobResultsTable(job) {
   if (!job.results || !job.results.length) return '<div class="empty-state">Sem resultados</div>';
 
+  if (job.type === "create-groups") {
+    return renderCreateGroupsResultsTable(job);
+  }
+
   var isExtract = job.type === "extract";
   // Sort: admins first, then alphabetically
   var rows = job.results.slice().sort(function(a, b) {
@@ -1057,6 +1167,62 @@ function renderJobResultsTable(job) {
   });
   html += '</tbody></table>';
   return html;
+}
+
+function renderCreateGroupsResultsTable(job) {
+  // Sort: created first, then failed/rate_limited, alphabetically within each
+  var statusRank = { created: 0, pending: 1, failed: 2, rate_limited: 3, cancelled: 4 };
+  var rows = job.results.slice().sort(function(a, b) {
+    var ra = statusRank[a.status] != null ? statusRank[a.status] : 9;
+    var rb = statusRank[b.status] != null ? statusRank[b.status] : 9;
+    if (ra !== rb) return ra - rb;
+    return (a.name || "").localeCompare(b.name || "");
+  });
+
+  var html = '<table><thead><tr>'
+    + '<th>Nome</th>'
+    + '<th style="width:110px">Status</th>'
+    + '<th style="width:70px;text-align:center">Membros</th>'
+    + '<th style="width:50px;text-align:center">Desc</th>'
+    + '<th style="width:50px;text-align:center">Foto</th>'
+    + '<th style="width:50px;text-align:center">Lock</th>'
+    + '<th style="width:60px;text-align:center">Welcome</th>'
+    + '<th>Link</th>'
+    + '</tr></thead><tbody>';
+
+  rows.forEach(function(r) {
+    var statusCell = renderCreateStatus(r.status, r.statusMessage);
+    var membersCell = (r.membersAdded || 0) + "/" + (r.membersTotal || 0);
+    var check = function(v) { return v ? '<span class="ok">✓</span>' : '<span style="color:var(--muted)">—</span>'; };
+    var linkCell = r.inviteLink
+      ? '<a href="' + esc(r.inviteLink) + '" target="_blank">' + esc(r.inviteLink.replace("https://chat.whatsapp.com/", "")) + '</a>'
+      : '<span style="color:var(--muted)">—</span>';
+    html += '<tr>'
+      + '<td>' + esc(r.name || "(sem nome)") + '</td>'
+      + '<td>' + statusCell + '</td>'
+      + '<td style="text-align:center">' + membersCell + '</td>'
+      + '<td style="text-align:center">' + check(r.hasDescription) + '</td>'
+      + '<td style="text-align:center">' + check(r.hasPhoto) + '</td>'
+      + '<td style="text-align:center">' + check(r.locked) + '</td>'
+      + '<td style="text-align:center">' + check(r.welcomeSent) + '</td>'
+      + '<td>' + linkCell + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderCreateStatus(status, msg) {
+  var color = "var(--muted)", label = "—";
+  switch (status) {
+    case "created":      color = "var(--ok)";     label = "✅ Criado"; break;
+    case "pending":      color = "var(--warn)";   label = "⏳ Pendente"; break;
+    case "failed":       color = "var(--danger)"; label = "❌ Falhou"; break;
+    case "rate_limited": color = "var(--danger)"; label = "⏸️ Rate-limit"; break;
+    case "cancelled":    color = "var(--muted)";  label = "⏹️ Cancelado"; break;
+  }
+  var title = msg ? ' title="' + esc(msg) + '"' : '';
+  return '<span style="color:' + color + '"' + title + '>' + label + '</span>';
 }
 
 function renderAddStatus(status, msg) {
@@ -1130,6 +1296,9 @@ function retryFailedJob(jobId) {
       promoteToAdmin: !!(job.config && job.config.promoteToAdmin),
     };
     if (job.config && job.config.onlyJids) body.onlyJids = job.config.onlyJids;
+  } else if (job.type === "create-groups") {
+    showToast("Re-envie a planilha em '+ Criar grupos' — o cache preserva grupos já criados", "warn");
+    return;
   } else {
     showToast("Tipo de job desconhecido: " + job.type, "error");
     return;
@@ -1183,6 +1352,7 @@ function exportJobCSV(jobId) {
   if (!job || !job.results || !job.results.length) { showToast("Sem dados pra exportar", "error"); return; }
 
   var isExtract = job.type === "extract";
+  var isCreate = job.type === "create-groups";
   var rows;
   if (isExtract) {
     rows = [["Nome do grupo", "Link de convite", "Membros", "Admin"]];
@@ -1192,6 +1362,23 @@ function exportJobCSV(jobId) {
         r.inviteLink || r.inviteError || "",
         r.participants || 0,
         r.isAdmin ? "Sim" : "Não",
+      ]);
+    });
+  } else if (isCreate) {
+    rows = [["Nome do grupo", "Status", "Mensagem", "JID", "Link de convite", "Membros adicionados", "Membros total", "Descrição", "Foto", "Lock", "Boas-vindas"]];
+    job.results.forEach(function(r) {
+      rows.push([
+        r.name || "",
+        r.status || "",
+        r.statusMessage || "",
+        r.groupJid || "",
+        r.inviteLink || "",
+        r.membersAdded || 0,
+        r.membersTotal || 0,
+        r.hasDescription ? "Sim" : "Não",
+        r.hasPhoto ? "Sim" : "Não",
+        r.locked ? "Sim" : "Não",
+        r.welcomeSent ? "Sim" : "Não",
       ]);
     });
   } else {
@@ -1217,9 +1404,254 @@ function exportJobCSV(jobId) {
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
   a.href = url;
-  a.download = (isExtract ? "grupos_links_" : "adicoes_") + new Date().toISOString().slice(0, 10) + ".csv";
+  var prefix = isExtract ? "grupos_links_" : (isCreate ? "grupos_criados_" : "adicoes_");
+  a.download = prefix + new Date().toISOString().slice(0, 10) + ".csv";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// ===== Criação em massa de grupos ============================
+// ============================================================
+
+var _createSpecs = [];       // specs normalizadas prontas pro POST
+var _createRawRows = [];     // linhas cruas do parser, pra re-render do preview
+
+function openCreateGroupsModal() {
+  if (!_sessions.length) { showToast("Sessões ainda não carregaram", "error"); return; }
+  document.getElementById("createSession").innerHTML = sessionOptionsHTML();
+  document.getElementById("createFileInput").value = "";
+  document.getElementById("createGsheetsUrl").value = "";
+  document.getElementById("createPreviewBox").classList.add("hidden");
+  document.getElementById("createPreviewTable").innerHTML = "";
+  document.getElementById("createPreviewCount").textContent = "";
+  document.getElementById("createPreviewInvalid").textContent = "";
+  document.getElementById("createSubmitBtn").disabled = true;
+  _createSpecs = [];
+  _createRawRows = [];
+  // Reset to xlsx mode
+  var xlsxRadio = document.querySelector('input[name=createSourceMode][value=xlsx]');
+  if (xlsxRadio) xlsxRadio.checked = true;
+  toggleCreateSourceMode();
+  document.getElementById("createGroupsModal").classList.add("open");
+}
+
+function toggleCreateSourceMode() {
+  var mode = (document.querySelector('input[name=createSourceMode]:checked') || {}).value || "xlsx";
+  var fileBox = document.getElementById("createFileBox");
+  var gsheetsBox = document.getElementById("createGsheetsBox");
+  var fileInput = document.getElementById("createFileInput");
+  if (mode === "gsheets") {
+    fileBox.classList.add("hidden");
+    gsheetsBox.classList.remove("hidden");
+  } else {
+    fileBox.classList.remove("hidden");
+    gsheetsBox.classList.add("hidden");
+    fileInput.accept = (mode === "csv") ? ".csv,text/csv" : ".xlsx,.xls";
+  }
+}
+
+function downloadCreateTemplate() {
+  if (typeof XLSX === "undefined") { showToast("SheetJS não carregou — recarregue a página", "error"); return; }
+  var headers = [
+    "Nome do Grupo",
+    "Descrição",
+    "Foto URL",
+    "Membros",
+    "Apenas Admin Edita Info",
+    "Mensagem de Boas-Vindas"
+  ];
+  var example = [
+    "Turma Abril 2026 - Mentoria A",
+    "Grupo oficial da turma de mentoria. Avisos e suporte.",
+    "https://exemplo.com/foto.jpg",
+    "5511999999999, 5511988887777",
+    "sim",
+    "Olá! Bem-vindos à turma {nome_grupo} 👋"
+  ];
+  var aoa = [headers, example];
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Larguras de coluna razoáveis
+  ws["!cols"] = [{wch:30},{wch:40},{wch:30},{wch:40},{wch:20},{wch:40}];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Grupos");
+  XLSX.writeFile(wb, "modelo_criacao_grupos.xlsx");
+}
+
+function handleCreateFileChange(ev) {
+  var file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  var name = (file.name || "").toLowerCase();
+  var isCsv = name.endsWith(".csv");
+  if (isCsv) {
+    if (typeof Papa === "undefined") { showToast("PapaParse não carregou", "error"); return; }
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: function(res) { setCreatePreview(res.data || []); },
+      error: function(err) { showToast("Erro ao ler CSV: " + err.message, "error"); },
+    });
+  } else {
+    if (typeof XLSX === "undefined") { showToast("SheetJS não carregou", "error"); return; }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var wb = XLSX.read(e.target.result, { type: "array" });
+        var sheet = wb.Sheets[wb.SheetNames[0]];
+        var rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        setCreatePreview(rows);
+      } catch (err) {
+        showToast("Erro ao ler XLSX: " + err.message, "error");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function handleGsheetsLoad() {
+  var url = (document.getElementById("createGsheetsUrl").value || "").trim();
+  if (!url) { showToast("Cole a URL da planilha", "error"); return; }
+  var m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!m) { showToast("URL do Google Sheets inválida", "error"); return; }
+  var id = m[1];
+  var gidMatch = url.match(/[#&?]gid=(\d+)/);
+  var gid = gidMatch ? gidMatch[1] : "0";
+  var csvUrl = "https://docs.google.com/spreadsheets/d/" + id + "/export?format=csv&gid=" + gid;
+  fetch(csvUrl, { credentials: "omit" })
+    .then(function(r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      var ct = (r.headers.get("content-type") || "").toLowerCase();
+      return r.text().then(function(text) {
+        if (ct.indexOf("text/html") >= 0 || /<!doctype html/i.test(text)) {
+          throw new Error("Planilha precisa estar pública (Qualquer pessoa com link)");
+        }
+        return text;
+      });
+    })
+    .then(function(csv) {
+      var res = Papa.parse(csv, { header: true, skipEmptyLines: true });
+      setCreatePreview(res.data || []);
+    })
+    .catch(function(e) { showToast("Erro: " + e.message, "error"); });
+}
+
+function setCreatePreview(rawRows) {
+  _createRawRows = rawRows || [];
+  var valid = [];
+  var invalidCount = 0;
+  _createRawRows.forEach(function(raw) {
+    var spec = normalizeCreateSpec(raw);
+    if (spec) valid.push(spec);
+    else invalidCount++;
+  });
+  _createSpecs = valid;
+  document.getElementById("createPreviewBox").classList.remove("hidden");
+  document.getElementById("createPreviewCount").textContent =
+    " (" + valid.length + " válid" + (valid.length === 1 ? "o" : "os") +
+    (invalidCount ? ", " + invalidCount + " inválid" + (invalidCount === 1 ? "a" : "as") : "") + ")";
+  document.getElementById("createPreviewInvalid").textContent = invalidCount > 0
+    ? invalidCount + " linha(s) ignorada(s) por falta de nome ou membros válidos"
+    : "";
+  renderCreatePreviewTable();
+  document.getElementById("createSubmitBtn").disabled = valid.length === 0;
+  // Generate specHashes async (sha1Hex usa Web Crypto)
+  var tasks = valid.map(function(s) {
+    var hashInput = JSON.stringify([s.name, s.members.slice().sort()]);
+    return sha1Hex(hashInput).then(function(h) { s.specHash = h; });
+  });
+  Promise.all(tasks).catch(function() {}); // best-effort
+}
+
+function normalizeCreateSpec(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  var name = String(raw["Nome do Grupo"] || "").trim();
+  if (!name) return null;
+  var membersRaw = String(raw["Membros"] || "");
+  var members = membersRaw.split(/[,;\n]/)
+    .map(function(s) { return s.replace(/\D/g, ""); })
+    .filter(function(s) { return s.length >= 10; });
+  if (members.length === 0) return null;
+  return {
+    name: name,
+    description: String(raw["Descrição"] || raw["Descricao"] || "").trim() || null,
+    photoUrl: String(raw["Foto URL"] || "").trim() || null,
+    members: members,
+    lockInfo: isCreateTruthy(raw["Apenas Admin Edita Info"]),
+    welcomeMessage: String(raw["Mensagem de Boas-Vindas"] || raw["Mensagem de Boas Vindas"] || "").trim() || null,
+    specHash: null, // preenchido depois via sha1Hex
+  };
+}
+
+function isCreateTruthy(v) {
+  var s = String(v == null ? "" : v).toLowerCase().trim();
+  return s === "sim" || s === "s" || s === "yes" || s === "y"
+    || s === "true" || s === "1" || s === "x" || s === "verdadeiro";
+}
+
+function sha1Hex(str) {
+  var enc = new TextEncoder().encode(str);
+  return crypto.subtle.digest("SHA-1", enc).then(function(buf) {
+    var arr = Array.from(new Uint8Array(buf));
+    return arr.map(function(b) { return b.toString(16).padStart(2, "0"); }).join("");
+  });
+}
+
+function renderCreatePreviewTable() {
+  var tbl = document.getElementById("createPreviewTable");
+  if (!_createSpecs.length) {
+    tbl.innerHTML = '<tbody><tr><td style="color:var(--muted); padding:12px">Nenhuma linha válida</td></tr></tbody>';
+    return;
+  }
+  var html = '<thead><tr>'
+    + '<th>Nome</th><th>Descrição</th><th>Foto</th><th>Membros</th><th>Lock</th><th>Boas-vindas</th>'
+    + '</tr></thead><tbody>';
+  _createSpecs.slice(0, 20).forEach(function(s) {
+    html += '<tr>'
+      + '<td>' + esc(s.name) + '</td>'
+      + '<td>' + (s.description ? esc(s.description.slice(0, 60)) + (s.description.length > 60 ? '…' : '') : '<span style="color:var(--muted)">—</span>') + '</td>'
+      + '<td>' + (s.photoUrl ? '<span class="ok">✓</span>' : '<span style="color:var(--muted)">—</span>') + '</td>'
+      + '<td>' + s.members.length + '</td>'
+      + '<td>' + (s.lockInfo ? '<span class="ok">✓</span>' : '<span style="color:var(--muted)">—</span>') + '</td>'
+      + '<td>' + (s.welcomeMessage ? '<span class="ok">✓</span>' : '<span style="color:var(--muted)">—</span>') + '</td>'
+      + '</tr>';
+  });
+  if (_createSpecs.length > 20) {
+    html += '<tr><td colspan="6" style="color:var(--muted); text-align:center">… +' + (_createSpecs.length - 20) + ' linhas</td></tr>';
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
+function submitCreateGroupsJob() {
+  var sessionId = document.getElementById("createSession").value;
+  if (!sessionId) { showToast("Selecione uma sessão", "error"); return; }
+  if (!_createSpecs.length) { showToast("Sem grupos válidos pra criar", "error"); return; }
+
+  // Garantir que todos os specHashes estão prontos
+  var missing = _createSpecs.some(function(s) { return !s.specHash; });
+  if (missing) { showToast("Aguarde — ainda calculando hashes…", "warn"); return; }
+
+  var delayValue = (document.querySelector('input[name=createDelay]:checked') || {}).value || "180";
+  var delaySec;
+  if (delayValue === "custom") {
+    delaySec = parseInt(document.getElementById("createDelayCustom").value, 10);
+    if (!delaySec || delaySec < 60) { showToast("Delay custom mínimo é 60s", "error"); return; }
+  } else {
+    delaySec = parseInt(delayValue, 10);
+  }
+
+  var body = { sessionId: sessionId, specs: _createSpecs, delaySec: delaySec };
+  waFetch("/api/jobs/create-groups/start", "POST", body).then(function(res) {
+    showToast("Criação iniciada — " + _createSpecs.length + " grupos na fila", "ok");
+    if (res.job && res.job.id) { _jobsInThisSession.add(res.job.id); saveKnownJobs(); }
+    closeModal("createGroupsModal");
+    refreshJobs().then(function() {
+      if (_pollTimer) clearInterval(_pollTimer);
+      _pollTimer = setInterval(refreshJobs, POLL_INTERVAL_MS);
+    });
+  }).catch(function(e) {
+    showToast("Falha: " + e.message, "error");
+  });
 }
 
 // Keep polling only when there's at least one active job
