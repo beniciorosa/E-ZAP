@@ -17,6 +17,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve static files (group avatars, assets) — publicly accessible, no auth.
+// Upload via SFTP to /opt/ezap/whatsapp-server/public/ on the Hetzner box.
+app.use("/static", express.static(path.resolve(__dirname, "../public"), {
+  maxAge: "7d",
+  fallthrough: true,
+}));
+
 // Serve ezapweb.html at root (same origin, no mixed content issues)
 app.get("/", (req, res) => {
   res.sendFile(path.resolve(__dirname, "../../ezapweb.html"));
