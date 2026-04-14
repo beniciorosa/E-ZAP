@@ -2,7 +2,7 @@
 // Manages multiple WhatsApp connections via Baileys library.
 // Sessions are persisted to Supabase (creds as JSONB).
 
-const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON, downloadMediaMessage } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON, downloadMediaMessage, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const { supaRest } = require("./supabase");
 const photoWorker = require("./photo-worker");
@@ -14,6 +14,29 @@ const sessions = new Map();
 // Reconnection attempt counters: sessionId -> count
 const reconnectAttempts = new Map();
 const MAX_RECONNECT_ATTEMPTS = 5;
+
+// Cached WA Web protocol version. Baileys hardcodes a version that goes stale
+// as WhatsApp ships updates — when stale we get code 405 on connect. Refresh
+// from the live endpoint every 6 hours and reuse across sessions.
+let _cachedWaVersion = null;
+let _cachedWaVersionAt = 0;
+const WA_VERSION_TTL_MS = 6 * 60 * 60 * 1000;
+async function getWaVersion() {
+  const now = Date.now();
+  if (_cachedWaVersion && (now - _cachedWaVersionAt) < WA_VERSION_TTL_MS) {
+    return _cachedWaVersion;
+  }
+  try {
+    const r = await fetchLatestBaileysVersion();
+    _cachedWaVersion = r.version;
+    _cachedWaVersionAt = now;
+    console.log("[BAILEYS] Using WA Web version:", r.version.join("."), "(latest:", r.isLatest, ")");
+  } catch (e) {
+    console.warn("[BAILEYS] fetchLatestBaileysVersion failed, falling back to library default:", e.message);
+    _cachedWaVersion = null;
+  }
+  return _cachedWaVersion;
+}
 
 // Event emitter for WebSocket broadcasting
 let _io = null;
@@ -35,7 +58,12 @@ async function startSession(sessionId, existingCreds = null) {
   // Auth state: use in-memory creds from Supabase
   const authState = await buildAuthState(sessionId, existingCreds);
 
-  const sock = makeWASocket({
+  // Pin WA Web protocol version to the latest known — fixes code 405 on
+  // connect when WhatsApp ships a protocol update that the library default
+  // is no longer compatible with.
+  const waVersion = await getWaVersion();
+
+  const sockOpts = {
     auth: {
       creds: authState.creds,
       keys: makeCacheableSignalKeyStore(authState.keys, logger),
@@ -72,7 +100,9 @@ async function startSession(sessionId, existingCreds = null) {
       } catch(e) {}
       return undefined;
     },
-  });
+  };
+  if (waVersion) sockOpts.version = waVersion;
+  const sock = makeWASocket(sockOpts);
 
   const session = { sock, status: "connecting", qr: null, sessionId };
   sessions.set(sessionId, session);
