@@ -15,6 +15,24 @@ const sessions = new Map();
 const reconnectAttempts = new Map();
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+// Rate-limit registry — survives session recreation on reconnect (not PM2 restart).
+// Keyed by sessionId, holds { hitAt: epoch_ms } when the last rate-limit was detected.
+const rateLimitRegistry = new Map();
+const RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000; // 30 min
+function markRateLimit(sessionId) {
+  rateLimitRegistry.set(sessionId, { hitAt: Date.now() });
+}
+function getRateLimitStatus(sessionId) {
+  const entry = rateLimitRegistry.get(sessionId);
+  if (!entry) return null;
+  const age = Date.now() - entry.hitAt;
+  if (age >= RATE_LIMIT_COOLDOWN_MS) {
+    rateLimitRegistry.delete(sessionId);
+    return null;
+  }
+  return { hitAt: entry.hitAt, remainingMs: RATE_LIMIT_COOLDOWN_MS - age };
+}
+
 // Cached WA Web protocol version. Baileys hardcodes a version that goes stale
 // as WhatsApp ships updates — when stale we get code 405 on connect. Refresh
 // from the live endpoint every 6 hours and reuse across sessions.
@@ -122,6 +140,7 @@ async function startSession(sessionId, existingCreds = null) {
     if (connection === "open") {
       session.status = "connected";
       session.qr = null;
+      session.connectedAt = Date.now();
       reconnectAttempts.delete(sessionId); // Reset counter on success
       const phone = sock.user?.id?.split(":")[0] || sock.user?.id?.split("@")[0] || "";
       await updateSessionStatus(sessionId, "connected", phone);
@@ -1626,6 +1645,95 @@ async function addParticipantToAllGroups(sessionId, phoneToAdd, skipJids = [], m
   return { groups: results, rateLimited, total, processed, callsMade, batchLimitReached, cancelled };
 }
 
+// ===== Bulk group creation helpers =====
+
+const GROUP_CREATE_HOURLY_CAP = Number(process.env.GROUP_CREATE_HOURLY_CAP) || 6;
+const HOUR_MS = 60 * 60 * 1000;
+
+// Sleep in small slices so shouldCancel and progress heartbeats are responsive.
+// Reports wait phase via onProgress({ phase, remainingMs, ...extra }) every ~5s.
+async function waitWithHeartbeat(totalMs, opts) {
+  const { onProgress, shouldCancel, phase, extra } = opts || {};
+  const sliceMs = 5000;
+  let remaining = totalMs;
+  while (remaining > 0) {
+    if (shouldCancel && shouldCancel()) return false;
+    if (onProgress) {
+      try { onProgress(Object.assign({ phase, remainingMs: remaining }, extra || {})); } catch (_) {}
+    }
+    const step = Math.min(sliceMs, remaining);
+    await new Promise(r => setTimeout(r, step));
+    remaining -= step;
+  }
+  return true;
+}
+
+// Count groupCreations for this session in the last hour. Returns the list so
+// the caller can compute "when does the next slot open" from the oldest row.
+async function fetchRecentGroupCreations(sessionId, windowMs) {
+  const since = new Date(Date.now() - windowMs).toISOString();
+  const rows = await supaRest(
+    "/rest/v1/wa_group_creations?source_session_id=eq." + encodeURIComponent(sessionId) +
+    "&status=eq.created" +
+    "&updated_at=gte." + encodeURIComponent(since) +
+    "&select=updated_at&order=updated_at.asc"
+  ).catch(e => { console.error("[BAILEYS] fetchRecentGroupCreations failed:", e.message); return []; });
+  return Array.isArray(rows) ? rows : [];
+}
+
+// Gate that blocks before a groupCreate until:
+// 1. The photo-worker barrage has settled (wa_photo_queue pending+downloading below threshold)
+// 2. The hourly cap of groupCreates per account is not exceeded
+// Reports progress via onProgress with phase="photo_drain" | "hourly_budget".
+async function waitForGroupCreateBudget(sessionId, opts) {
+  const { onProgress, shouldCancel, hourlyCap } = opts || {};
+  const cap = Number(hourlyCap) || GROUP_CREATE_HOURLY_CAP;
+
+  // 1. Photo queue drain — skip if photo-worker is paused (we pause it explicitly
+  //    before the job starts, so pending requests in flight should finish fast).
+  //    We poll until pending+downloading drops below 5 or 60s elapsed.
+  const DRAIN_THRESHOLD = 5;
+  const DRAIN_MAX_MS = 60 * 1000;
+  const drainStart = Date.now();
+  while (Date.now() - drainStart < DRAIN_MAX_MS) {
+    if (shouldCancel && shouldCancel()) return;
+    let inFlight = 0;
+    try {
+      const rows = await supaRest(
+        "/rest/v1/wa_photo_queue?session_id=eq." + encodeURIComponent(sessionId) +
+        "&status=in.(pending,downloading)&select=id&limit=100"
+      );
+      inFlight = Array.isArray(rows) ? rows.length : 0;
+    } catch (_) { inFlight = 0; break; }
+    if (inFlight < DRAIN_THRESHOLD) break;
+    if (onProgress) {
+      try { onProgress({ phase: "photo_drain", remainingMs: DRAIN_MAX_MS - (Date.now() - drainStart), inFlight }); } catch (_) {}
+    }
+    await new Promise(r => setTimeout(r, 5000));
+  }
+
+  // 2. Hourly budget
+  // Re-check in a loop in case we need to wait multiple windows (unlikely but safe).
+  for (let guard = 0; guard < 10; guard++) {
+    if (shouldCancel && shouldCancel()) return;
+    const rows = await fetchRecentGroupCreations(sessionId, HOUR_MS);
+    const used = rows.length;
+    if (used < cap) {
+      console.log("[BAILEYS] hourly budget " + used + "/" + cap + " OK for session", sessionId);
+      return;
+    }
+    // Compute how long until the oldest row ages out of the 1h window
+    const oldest = new Date(rows[0].updated_at).getTime();
+    const waitMs = Math.max(10 * 1000, (oldest + HOUR_MS) - Date.now() + 5000);
+    console.log("[BAILEYS] hourly budget " + used + "/" + cap + " used, waiting " + Math.round(waitMs / 1000) + "s for session", sessionId);
+    const ok = await waitWithHeartbeat(waitMs, {
+      onProgress, shouldCancel, phase: "hourly_budget", extra: { used, cap },
+    });
+    if (!ok) return;
+    // Loop re-checks the DB to account for other jobs draining the window
+  }
+}
+
 // ===== Bulk group creation from spreadsheet =====
 // specs: [{ specHash, name, description, photoUrl, members:[phoneDigits], lockInfo, welcomeMessage }]
 // Creates each group via sock.groupCreate and then polishes with description,
@@ -1641,6 +1749,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
   const delaySecRaw = Number(options.delaySec) || 180;
   const baseDelayMs = Math.max(60, Math.min(1800, delaySecRaw)) * 1000; // clamp 60s..30min
   const INTRA_DELAY_MS = 4000;
+  const hourlyCap = Number(options.hourlyCap) || GROUP_CREATE_HOURLY_CAP;
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
   const shouldCancel = typeof options.shouldCancel === "function" ? options.shouldCancel : null;
 
@@ -1650,9 +1759,35 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
   let cancelled = false;
   let processed = 0;
 
+  // Silence the photo-worker firehose for the duration of this job.
+  // Each session has its own WhatsApp IQ budget — the photo-worker fires a
+  // profilePictureUrl every 8s, which starves groupCreate when the queue is
+  // long (e.g. just after reconnect with ~30k photos to drain). The worker is
+  // resumed in the finally block so normal sync continues after the job.
+  photoWorker.pauseSession(sessionId, sock);
+  console.log("[BAILEYS] create-groups job starting for session", sessionId, "— photo-worker paused");
+
+  try {
+
   for (let i = 0; i < total; i++) {
     if (shouldCancel && shouldCancel()) { cancelled = true; break; }
     if (rateLimited) break;
+
+    // Gate: drain pending photo IQ calls + respect hourly groupCreate cap
+    await waitForGroupCreateBudget(sessionId, { onProgress, shouldCancel, hourlyCap });
+    if (shouldCancel && shouldCancel()) { cancelled = true; break; }
+
+    // Leading delay before the FIRST create: give freshly-reconnected sessions
+    // breathing room so any residual metadata sync IQs complete before we
+    // start issuing groupCreate. Half of baseDelayMs, capped at 90s.
+    if (i === 0) {
+      const leadMs = Math.min(baseDelayMs / 2, 90 * 1000);
+      console.log("[BAILEYS] leading delay " + Math.round(leadMs / 1000) + "s before first groupCreate");
+      const ok = await waitWithHeartbeat(leadMs, {
+        onProgress, shouldCancel, phase: "leading_delay",
+      });
+      if (!ok) { cancelled = true; break; }
+    }
 
     const spec = specs[i];
     processed++;
@@ -1833,6 +1968,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     if (i < total - 1 && !rateLimited && !(shouldCancel && shouldCancel())) {
       const jitterMs = Math.floor((Math.random() - 0.5) * 60000); // ±30s
       await new Promise(r => setTimeout(r, baseDelayMs + jitterMs));
+    }
+  }
+
+  } finally {
+    // Always resume the photo-worker, even on rate-limit/cancel/error paths
+    photoWorker.resumeSession(sessionId, sock);
+    if (rateLimited) {
+      markRateLimit(sessionId);
+      console.warn("[BAILEYS] rateLimitHitAt registered for session", sessionId, "(30min cooldown)");
     }
   }
 
@@ -2422,6 +2566,20 @@ async function resolveLid(sessionId, lidJid) {
   return null; // Could not resolve
 }
 
+// Lightweight accessor for routes/sessions.js — returns metadata the UI needs
+// without leaking the live sock object. Includes timing info for anti-rate-limit UX.
+function getSessionMeta(sessionId) {
+  const session = sessions.get(sessionId);
+  const rl = getRateLimitStatus(sessionId);
+  return {
+    connected: !!(session && session.status === "connected"),
+    status: session ? session.status : "disconnected",
+    connectedAt: session && session.connectedAt ? new Date(session.connectedAt).toISOString() : null,
+    rateLimitHitAt: rl ? new Date(rl.hitAt).toISOString() : null,
+    rateLimitRemainingMs: rl ? rl.remainingMs : 0,
+  };
+}
+
 module.exports = {
   setIO,
   startSession,
@@ -2429,6 +2587,8 @@ module.exports = {
   sendMessage,
   getActiveSessions,
   getSession,
+  getSessionMeta,
+  getRateLimitStatus,
   reconnectAllSessions,
   fetchGroupsWithInvites,
   addParticipantToAllGroups,

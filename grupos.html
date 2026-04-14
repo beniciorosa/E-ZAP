@@ -175,7 +175,18 @@
       <button class="btn-primary" onclick="openExtractModal()">+ Nova extração</button>
       <button class="btn-primary" onclick="openAddModal()">+ Adicionar número</button>
       <button class="btn-primary" onclick="openCreateGroupsModal()">+ Criar grupos</button>
+      <button class="btn-secondary" onclick="window.open('fotos.html', '_blank')" title="Abre o gerenciador de fotos de grupos em uma nova aba">🖼️ Gerenciar fotos</button>
       <button class="btn-secondary" onclick="refreshJobs()" title="Atualiza a lista de jobs agora (fora do intervalo de polling)">🔄 Atualizar</button>
+    </div>
+
+    <!-- Sync do Baileys (fotos/contatos/chats) -->
+    <div id="syncCard" class="card" style="display:none">
+      <div style="display:flex; align-items:center; gap:12px; cursor:pointer" onclick="toggleSyncCard()">
+        <div style="font-weight:600; font-size:14px">📥 Sync de fotos do Baileys</div>
+        <div id="syncSummary" style="font-size:12px; color:var(--muted); flex:1"></div>
+        <div id="syncChevron" style="font-size:12px; color:var(--muted)">▼</div>
+      </div>
+      <div id="syncBody" style="margin-top:12px; display:none"></div>
     </div>
 
     <!-- Container de jobs -->
@@ -301,7 +312,8 @@
 
       <div style="margin-bottom:16px">
         <label>Sessão que vai criar os grupos</label>
-        <select id="createSession"></select>
+        <select id="createSession" onchange="onCreateSessionChange()"></select>
+        <div id="createSessionWarn" style="display:none; margin-top:8px; padding:8px 12px; border-radius:6px; font-size:12px"></div>
       </div>
 
       <div style="margin-bottom:16px">
@@ -533,7 +545,10 @@ function waFetch(path, method, body) {
   document.getElementById("adminToken").value = tok;
   loadKnownJobs();
   if (url && tok) {
-    loadSessions().then(function() { reconnectActiveJobs(); });
+    loadSessions().then(function() {
+      reconnectActiveJobs();
+      startSyncPolling();
+    });
   }
 })();
 
@@ -543,7 +558,10 @@ function saveConfig() {
   localStorage.setItem("wa_server_url", url);
   localStorage.setItem("wa_admin_token", tok);
   showToast("Configuração salva", "ok");
-  loadSessions().then(function() { reconnectActiveJobs(); });
+  loadSessions().then(function() {
+    reconnectActiveJobs();
+    startSyncPolling();
+  });
 }
 
 // ============================================================
@@ -553,13 +571,127 @@ function saveConfig() {
 function loadSessions() {
   return waFetch("/api/sessions").then(function(list) {
     _sessions = (list || []).map(function(s) {
-      return { id: s.id, label: s.label || "(sem nome)", phone: s.phone || "", status: s.status };
+      return {
+        id: s.id,
+        label: s.label || "(sem nome)",
+        phone: s.phone || "",
+        status: s.status,
+        connectedAt: s.connectedAt || null,
+        rateLimitHitAt: s.rateLimitHitAt || null,
+        rateLimitRemainingMs: s.rateLimitRemainingMs || 0,
+      };
     });
     return _sessions;
   }).catch(function(e) {
     showToast("Erro ao carregar sessões: " + e.message, "error");
     _sessions = [];
   });
+}
+
+// ============================================================
+// ===== Sync do Baileys (fotos) ===============================
+// ============================================================
+// Cada sessão tem uma fila wa_photo_queue que o photo-worker consome. Essa
+// seção mostra o progresso agregado: quantas fotos ainda pendentes vs.
+// processadas, para o usuário saber quando os números estão "quentes" e
+// prontos para criar grupos sem disputar IQ budget com o sync.
+
+var _syncCardExpanded = false;
+var _syncStatusBySession = {};
+var SYNC_POLL_INTERVAL_MS = 10000;
+var _syncPollTimer = null;
+
+function toggleSyncCard() {
+  _syncCardExpanded = !_syncCardExpanded;
+  var body = document.getElementById("syncBody");
+  var chev = document.getElementById("syncChevron");
+  if (body) body.style.display = _syncCardExpanded ? "block" : "none";
+  if (chev) chev.textContent = _syncCardExpanded ? "▲" : "▼";
+}
+
+function startSyncPolling() {
+  if (_syncPollTimer) return;
+  refreshSyncStatus();
+  _syncPollTimer = setInterval(refreshSyncStatus, SYNC_POLL_INTERVAL_MS);
+}
+
+function refreshSyncStatus() {
+  var connected = _sessions.filter(function(s) { return s.status === "connected"; });
+  if (connected.length === 0) {
+    document.getElementById("syncCard").style.display = "none";
+    return;
+  }
+  // Fetch /api/sync/:id/status for every connected session in parallel
+  var promises = connected.map(function(s) {
+    return waFetch("/api/sync/" + encodeURIComponent(s.id) + "/status")
+      .then(function(d) { return { id: s.id, label: s.label, phone: s.phone, data: d }; })
+      .catch(function() { return { id: s.id, label: s.label, phone: s.phone, data: null }; });
+  });
+  Promise.all(promises).then(function(results) {
+    _syncStatusBySession = {};
+    results.forEach(function(r) { _syncStatusBySession[r.id] = r; });
+    renderSyncCard(results);
+  });
+}
+
+function renderSyncCard(results) {
+  var card = document.getElementById("syncCard");
+  var body = document.getElementById("syncBody");
+  var summary = document.getElementById("syncSummary");
+  if (!card || !body || !summary) return;
+
+  // Aggregate totals across all sessions
+  var totalPending = 0, totalDone = 0, totalFailed = 0, totalNoPhoto = 0, totalDownloading = 0;
+  results.forEach(function(r) {
+    if (!r.data || !r.data.photoQueue) return;
+    var q = r.data.photoQueue;
+    totalPending += q.pending || 0;
+    totalDone += q.done || 0;
+    totalFailed += q.failed || 0;
+    totalNoPhoto += q.no_photo || 0;
+    totalDownloading += q.downloading || 0;
+  });
+  var totalAll = totalPending + totalDone + totalFailed + totalNoPhoto + totalDownloading;
+  var totalDoneEquiv = totalDone + totalNoPhoto + totalFailed;
+  var allDone = totalAll > 0 && totalPending === 0 && totalDownloading === 0;
+
+  if (totalAll === 0) {
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "block";
+
+  // Auto-collapse when everything is done (user can still click to expand)
+  if (allDone && !_syncCardExpanded) {
+    summary.textContent = "✅ Sync completo — " + totalDone + " fotos baixadas";
+  } else {
+    var pct = totalAll > 0 ? Math.round((totalDoneEquiv / totalAll) * 100) : 0;
+    summary.textContent = totalDoneEquiv + "/" + totalAll + " (" + pct + "%) — " + (totalPending + totalDownloading) + " em andamento";
+  }
+
+  // Build per-session bars (only rendered when expanded to keep DOM cheap)
+  if (!_syncCardExpanded) return;
+
+  var rowsHtml = "";
+  results.forEach(function(r) {
+    var q = (r.data && r.data.photoQueue) || { pending: 0, downloading: 0, done: 0, failed: 0, no_photo: 0 };
+    var total = (q.pending || 0) + (q.downloading || 0) + (q.done || 0) + (q.failed || 0) + (q.no_photo || 0);
+    var done = (q.done || 0) + (q.no_photo || 0) + (q.failed || 0);
+    var pct = total > 0 ? Math.round((done / total) * 100) : 100;
+    var label = esc(r.label) + (r.phone ? " — " + esc(r.phone) : "");
+    var detail = total === 0
+      ? "sem fila"
+      : done + "/" + total + " (" + pct + "%)" + ((q.pending + q.downloading) > 0 ? " — " + (q.pending + q.downloading) + " pendentes" : "");
+    var barColor = pct === 100 ? "var(--ok)" : "var(--primary)";
+    rowsHtml += '<div style="margin-bottom:10px">'
+      + '<div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px">'
+      + '<span>' + label + '</span>'
+      + '<span style="color:var(--muted)">' + detail + '</span>'
+      + '</div>'
+      + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%; background:' + barColor + '"></div></div>'
+      + '</div>';
+  });
+  body.innerHTML = rowsHtml;
 }
 
 function sessionOptionsHTML(includeUnknown) {
@@ -1078,11 +1210,33 @@ function renderJobCard(job) {
   }
 
   if (job.status === "running") {
-    var verb;
-    if (job.type === "extract") verb = "verificando grupos";
-    else if (job.type === "create-groups") verb = "criando grupos";
-    else verb = "processando grupos";
-    message = '<div class="job-message">' + spinner + mainCount + '/' + mainTotal + ' ' + verb + ' — ' + etaText + adminStat + '</div>';
+    // If the worker is waiting on photo drain / leading delay / hourly budget,
+    // show that explicitly instead of the normal "X/Y criando grupos" line.
+    var waitPhase = job.progress.waitPhase;
+    if (waitPhase && job.type === "create-groups") {
+      var waitRemaining = job.progress.waitRemainingMs || 0;
+      var waitSec = Math.round(waitRemaining / 1000);
+      var waitFmt = waitSec >= 60 ? (Math.floor(waitSec / 60) + "m" + (waitSec % 60) + "s") : (waitSec + "s");
+      var waitMsg = "";
+      if (waitPhase === "photo_drain") {
+        waitMsg = "⏳ Drenando fila de fotos do Baileys (" + (job.progress.photoInFlight || 0) + " em voo) — até " + waitFmt;
+      } else if (waitPhase === "leading_delay") {
+        waitMsg = "⏳ Aguardando " + waitFmt + " antes do primeiro grupo (leading delay)";
+      } else if (waitPhase === "hourly_budget") {
+        var used = job.progress.hourlyUsed || 0;
+        var cap = job.progress.hourlyCap || 6;
+        waitMsg = "⏳ Cap horário " + used + "/" + cap + " atingido — próximo slot em " + waitFmt;
+      } else {
+        waitMsg = "⏳ Aguardando " + waitFmt;
+      }
+      message = '<div class="job-message warn">' + spinner + waitMsg + adminStat + '</div>';
+    } else {
+      var verb;
+      if (job.type === "extract") verb = "verificando grupos";
+      else if (job.type === "create-groups") verb = "criando grupos";
+      else verb = "processando grupos";
+      message = '<div class="job-message">' + spinner + mainCount + '/' + mainTotal + ' ' + verb + ' — ' + etaText + adminStat + '</div>';
+    }
   } else if (job.status === "completed") {
     message = '<div class="job-message ok">✅ Concluído' + adminStat + '</div>';
   } else if (job.status === "rate_limited") {
@@ -1417,9 +1571,50 @@ function exportJobCSV(jobId) {
 var _createSpecs = [];       // specs normalizadas prontas pro POST
 var _createRawRows = [];     // linhas cruas do parser, pra re-render do preview
 
+function onCreateSessionChange() {
+  var sel = document.getElementById("createSession");
+  var warnEl = document.getElementById("createSessionWarn");
+  var submitBtn = document.getElementById("createSubmitBtn");
+  if (!sel || !warnEl) return;
+  var sessionId = sel.value;
+  var s = _sessions.find(function(x) { return x.id === sessionId; });
+  warnEl.style.display = "none";
+  warnEl.style.background = "";
+  warnEl.style.color = "";
+  warnEl.style.border = "";
+  if (!s) return;
+  // Priority 1: rate-limit cooldown → block submit
+  if (s.rateLimitHitAt && s.rateLimitRemainingMs > 0) {
+    var minutes = Math.ceil(s.rateLimitRemainingMs / 60000);
+    warnEl.innerHTML = "⏸️ <strong>Sessão em cooldown pós-rate-limit.</strong> Disponível em ~" + minutes + "min.";
+    warnEl.style.background = "rgba(239, 68, 68, 0.12)";
+    warnEl.style.color = "var(--danger)";
+    warnEl.style.border = "1px solid var(--danger)";
+    warnEl.style.display = "block";
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
+  // Priority 2: freshly reconnected → warning but allow submit (worker waits)
+  if (s.connectedAt) {
+    var ageMs = Date.now() - new Date(s.connectedAt).getTime();
+    var WARMUP_MS = 5 * 60 * 1000;
+    if (ageMs < WARMUP_MS) {
+      var mins = Math.floor(ageMs / 60000);
+      var secs = Math.floor((ageMs % 60000) / 1000);
+      var ago = mins > 0 ? mins + "m" + secs + "s" : secs + "s";
+      warnEl.innerHTML = "⚠️ <strong>Número conectado há " + ago + ".</strong> O job vai pausar o photo-worker e aguardar a fila de fotos drenar antes do primeiro grupo — isso pode levar até 60s.";
+      warnEl.style.background = "rgba(245, 158, 11, 0.12)";
+      warnEl.style.color = "var(--warn)";
+      warnEl.style.border = "1px solid var(--warn)";
+      warnEl.style.display = "block";
+    }
+  }
+}
+
 function openCreateGroupsModal() {
   if (!_sessions.length) { showToast("Sessões ainda não carregaram", "error"); return; }
   document.getElementById("createSession").innerHTML = sessionOptionsHTML();
+  onCreateSessionChange();
   document.getElementById("createFileInput").value = "";
   document.getElementById("createGsheetsUrl").value = "";
   document.getElementById("createPreviewBox").classList.add("hidden");

@@ -41,10 +41,16 @@ router.get("/", async (req, res) => {
     const activeMap = {};
     for (const a of active) activeMap[a.sessionId] = a;
 
-    const result = (dbSessions || []).map(s => ({
-      ...s,
-      live: activeMap[s.id] || null,
-    }));
+    const result = (dbSessions || []).map(s => {
+      const meta = baileys.getSessionMeta(s.id);
+      return {
+        ...s,
+        live: activeMap[s.id] || null,
+        connectedAt: meta.connectedAt,
+        rateLimitHitAt: meta.rateLimitHitAt,
+        rateLimitRemainingMs: meta.rateLimitRemainingMs,
+      };
+    });
 
     res.json(result);
   } catch (e) {

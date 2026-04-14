@@ -72,7 +72,7 @@ router.post("/create-groups/start", async (req, res) => {
     res.status(201).json({ ok: true, job: jobs.summarizeJob(job) });
   } catch (e) {
     console.error("[JOBS] Start create-groups error:", e.message);
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 

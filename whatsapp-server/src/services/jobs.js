@@ -368,6 +368,17 @@ async function runAddWorker(job) {
 // ===== Create-groups worker =====
 
 async function startCreateGroupsJob(sessionId, specs, config = {}) {
+  // Server-side cooldown: reject if the session hit a rate-limit recently.
+  // The user already sees a red banner after a rate-limit; this prevents an
+  // impatient second click from re-poking the account and making it worse.
+  const rl = baileys.getRateLimitStatus(sessionId);
+  if (rl) {
+    const minutes = Math.ceil(rl.remainingMs / 60000);
+    const err = new Error("Sessão em cooldown pós-rate-limit. Aguarde ~" + minutes + "min antes de iniciar outra criação.");
+    err.statusCode = 429;
+    throw err;
+  }
+
   const job = createJob("create-groups", sessionId, {
     delaySec: Math.max(60, Number(config.delaySec) || 180),
     specCount: Array.isArray(specs) ? specs.length : 0,
@@ -435,7 +446,27 @@ async function runCreateGroupsWorker(job) {
     const result = await baileys.createGroupsFromList(job.sessionId, pendingSpecs, {
       delaySec: job.config.delaySec,
       shouldCancel: () => job.cancelRequested,
-      onProgress: ({ processed, total, row, rateLimited }) => {
+      onProgress: (payload) => {
+        // waitForGroupCreateBudget / waitWithHeartbeat send heartbeat ticks with
+        // { phase, remainingMs, ... } and no row/processed. Surface these as
+        // waitPhase on job.progress so the frontend can render the right message.
+        if (payload && payload.phase && !payload.row) {
+          job.progress.waitPhase = payload.phase;
+          job.progress.waitRemainingMs = payload.remainingMs || 0;
+          if (typeof payload.used === "number") job.progress.hourlyUsed = payload.used;
+          if (typeof payload.cap === "number") job.progress.hourlyCap = payload.cap;
+          if (typeof payload.inFlight === "number") job.progress.photoInFlight = payload.inFlight;
+          job.progress.updatedAt = new Date().toISOString();
+          job.updatedAt = job.progress.updatedAt;
+          return;
+        }
+
+        // Normal per-row progress tick — clear any leftover wait state
+        job.progress.waitPhase = null;
+        job.progress.waitRemainingMs = 0;
+
+        const { processed, total, row, rateLimited } = payload;
+
         // Merge the row into results by specHash
         const idx = job.results.findIndex(r => r.specHash === row.specHash);
         if (idx >= 0) {

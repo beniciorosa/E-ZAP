@@ -16,6 +16,8 @@ const SUPA_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 // Active workers: sessionId -> intervalId
 const activeWorkers = new Map();
+// Paused workers: sessionId -> { sock } — kept so resumeSession can restart without losing state
+const pausedWorkers = new Map();
 // Global stats
 const _stats = { processed: 0, done: 0, noPhoto: 0, failed: 0 };
 
@@ -51,6 +53,42 @@ function stopWorker(sessionId) {
     activeWorkers.delete(sessionId);
     console.log("[PHOTO-WORKER] Stopped for session:", sessionId);
   }
+  // Also drop any paused state — stopWorker is called on disconnect and the
+  // underlying sock becomes invalid, so a stale paused entry would try to
+  // resume on a dead socket.
+  pausedWorkers.delete(sessionId);
+}
+
+// Temporarily silence the per-session IQ firehose (profilePictureUrl calls).
+// Used by createGroupsFromList to avoid competing IQ stanzas that starve
+// the WhatsApp rate budget and cause groupCreate to be rate-limited.
+// Safe to call even if the worker isn't running.
+function pauseSession(sessionId, sock) {
+  if (pausedWorkers.has(sessionId)) return; // already paused
+  const id = activeWorkers.get(sessionId);
+  if (id) {
+    clearInterval(id);
+    activeWorkers.delete(sessionId);
+  }
+  pausedWorkers.set(sessionId, { sock: sock || null });
+  console.log("[PHOTO-WORKER] Paused for session:", sessionId);
+}
+
+// Resume a previously paused session. No-op if the session isn't paused.
+function resumeSession(sessionId, sock) {
+  const entry = pausedWorkers.get(sessionId);
+  if (!entry) return;
+  pausedWorkers.delete(sessionId);
+  // Re-start the worker fresh. Prefer the sock provided here (caller has the
+  // live one); fall back to whatever was stored at pause time.
+  const live = sock || entry.sock;
+  if (!live) return;
+  startWorker(sessionId, live);
+  console.log("[PHOTO-WORKER] Resumed for session:", sessionId);
+}
+
+function isPaused(sessionId) {
+  return pausedWorkers.has(sessionId);
 }
 
 async function processNext(sessionId, sock) {
@@ -196,4 +234,4 @@ async function uploadToStorage(path, buffer) {
   return SUPA_URL + "/storage/v1/object/public/profile-photos/" + path;
 }
 
-module.exports = { setIO, startWorker, stopWorker };
+module.exports = { setIO, startWorker, stopWorker, pauseSession, resumeSession, isPaused };
