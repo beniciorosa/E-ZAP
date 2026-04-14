@@ -1654,11 +1654,30 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       const created = await sock.groupCreate(spec.name, memberJids);
       row.groupJid = created?.id || null;
       if (!row.groupJid) throw new Error("groupCreate não retornou id");
+
+      // Collect members that were rejected by privacy settings or other errors.
+      // Baileys returns participants as {jid: {error: '403'}} for privacy blocks.
+      // We'll DM these users the invite link later, since they couldn't be added directly.
+      const rejectedJids = [];
       if (created.participants && typeof created.participants === "object") {
-        row.membersAdded = Object.values(created.participants).filter(p => !p || !p.error).length;
+        const entries = Object.entries(created.participants);
+        for (const [pjid, info] of entries) {
+          if (info && (info.error || info.statusCode)) {
+            const code = String(info.error || info.statusCode || "");
+            if (code === "403" || code === "408" || code === "409") {
+              if (code === "403") rejectedJids.push(pjid);
+            }
+          }
+        }
+        row.membersAdded = entries.filter(([, p]) => !p || !p.error).length;
       } else {
         row.membersAdded = memberJids.length;
       }
+
+      // Force a metadata sync so Signal sessions with the new participants
+      // are established before we try to sendMessage. Without this, the
+      // welcome message fails with "No sessions" on brand-new groups.
+      try { await sock.groupMetadata(row.groupJid); } catch (_) {}
       await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
 
       // 2. Description
@@ -1698,24 +1717,63 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
       }
 
-      // 5. Welcome message
+      // 5. Welcome message — retry with refreshed metadata if Signal sessions aren't ready yet.
+      // "No sessions" is the error Baileys/libsignal throws when the E2E keys with
+      // new participants haven't been fetched. Refresh metadata and retry once.
       if (!rateLimited && spec.welcomeMessage) {
-        try {
-          const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
-          await sock.sendMessage(row.groupJid, { text });
-          row.welcomeSent = true;
-        } catch (e) {
-          row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (e.message || e));
-          if (isRateLimitError(e)) { rateLimited = true; }
+        const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
+        let welcomeErr = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            if (attempt > 0) {
+              try { await sock.groupMetadata(row.groupJid); } catch (_) {}
+              await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
+            }
+            await sock.sendMessage(row.groupJid, { text });
+            row.welcomeSent = true;
+            welcomeErr = null;
+            break;
+          } catch (e) {
+            welcomeErr = e;
+            if (isRateLimitError(e)) { rateLimited = true; break; }
+            // Retry on "No sessions" / Signal key errors
+            const msg = (e?.message || "").toLowerCase();
+            if (!msg.includes("no sessions") && !msg.includes("session") && !msg.includes("senderkey")) break;
+          }
+        }
+        if (welcomeErr && !row.welcomeSent) {
+          row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (welcomeErr.message || welcomeErr));
         }
       }
 
-      // 6. Invite link (best-effort, useful for audit trail)
+      // 6. Invite link (best-effort, useful for audit trail + privacy-block fallback)
       if (!rateLimited) {
         try {
           const code = await sock.groupInviteCode(row.groupJid);
           if (code) row.inviteLink = "https://chat.whatsapp.com/" + code;
         } catch (e) { /* non-fatal */ }
+      }
+
+      // 7. DM the invite link to members that were rejected by privacy settings.
+      // This way they still get a way to join even though they block being added directly.
+      if (!rateLimited && row.inviteLink && rejectedJids.length > 0) {
+        let notified = 0;
+        for (const pjid of rejectedJids) {
+          try {
+            const dmText = 'Olá! Criei o grupo "' + (spec.name || "") + '" mas '
+              + 'suas configurações de privacidade não permitem que eu te adicione '
+              + 'diretamente. Entra por este link: ' + row.inviteLink;
+            await sock.sendMessage(pjid, { text: dmText });
+            notified++;
+            await new Promise(r => setTimeout(r, 2500));
+          } catch (e) {
+            if (isRateLimitError(e)) { rateLimited = true; break; }
+          }
+        }
+        if (notified > 0) {
+          row.statusMessage = appendNote(row.statusMessage,
+            notified + "/" + rejectedJids.length + " não-adicionados receberam o link no privado");
+        }
       }
 
       row.status = rateLimited ? "rate_limited" : "created";
