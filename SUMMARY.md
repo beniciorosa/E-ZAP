@@ -1,5 +1,12 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/15
 
+> **Update 2026-04-15 (commit `3a893b2`)**: o painel de temperatura introduzido em `27afc70` estava saturando o pooler do Supabase com ~162 COUNT queries a cada 10s (9 counts × 18 sessões). Apenas o bucket "pending" tinha índice — todos os outros buckets em `wa_photo_queue` faziam seq scan. Sintomas: admin.html não logava, grupos.html nem renderizava o card, ezapweb lento. Fix em 3 camadas:
+> 1. **Migration 042**: `idx_wa_photo_queue_session_status` composto + índices parciais em `wa_contacts(photo_url)` e `wa_chats(archived)` + RPC `get_sync_status_all()` que retorna counters de todas as sessões em uma única round-trip via LATERAL + FILTER.
+> 2. **Novo endpoint** `GET /api/sync/status-all` em [whatsapp-server/src/routes/sync.js](whatsapp-server/src/routes/sync.js) com cache de 5s em memória.
+> 3. **grupos.html**: loop N-calls virou 1 call ao batch endpoint, interval 10s → 30s, e polling pausa totalmente quando `document.hidden`. Resultado: ~162 queries/10s → 1 query/30s quando visível, 0 quando escondida.
+
+
+
 Handoff para a próxima sessão do Claude. Este arquivo resume **o quê, por quê e o que falta** do fio de trabalho atual (anti-rate-limit + photo-worker + fotos no ezapweb + painel de temperatura).
 
 > Para contexto operacional geral do projeto (deploy, credenciais, convenções) ver `CLAUDE.md` na raiz. Para contexto da ferramenta de grupos especificamente, ver `.claude/grupos-tool-handoff.md`.
