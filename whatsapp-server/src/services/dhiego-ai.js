@@ -104,22 +104,30 @@ async function maybeHandle(sessionId, msg, sock) {
     const chatPhone = jidToPhone(chatJid);
     const isSelfChat = ownPhone && chatPhone === ownPhone;
 
-    // Authorization: ALLOWED paths:
-    //   A. Self-chat (message yourself) on any session  — always allowed
-    //   B. Sender in the authorized phones allowlist     — always allowed
-    //   C. fromMe BUT the chat is NOT self-chat          — NOT allowed
-    //      (the user is talking to someone else, not the bot)
+    // Authorization rules (kept strict to avoid hijacking real conversations):
+    //   - fromMe messages are ONLY handled when the chat is the bot's own JID
+    //     (WhatsApp "Message yourself"). If the user types to a client or
+    //     friend, those fromMe messages are ignored — even though fromMe is
+    //     technically "our" message, it's not a command to the bot.
+    //   - Incoming (not-fromMe) messages are handled when the sender's phone
+    //     is in the authorized allowlist (allows another person like a
+    //     partner or admin to command the bot from a different number).
     const isFromMe = !!msg.key?.fromMe;
     const senderJid = msg.key?.participant || chatJid;
     const senderPhone = jidToPhone(senderJid);
     const isInAllowlist =
       cfg.authorizedPhones && cfg.authorizedPhones.includes(senderPhone);
 
-    const isAllowed = isSelfChat || isInAllowlist;
+    let isAllowed = false;
+    if (isFromMe) {
+      // Only allow if the conversation IS the self-chat. Typing to anyone
+      // else never triggers the bot.
+      isAllowed = isSelfChat;
+    } else {
+      // Incoming from another number — must be explicitly allowed.
+      isAllowed = isInAllowlist;
+    }
     if (!isAllowed) return false;
-    // Silence a noisy edge case: if the bot itself emits outgoing messages
-    // (fromMe=true on a non-self chat), it's not for us.
-    void isFromMe;
 
     // Resolve user_id first — all turns must be tagged with it and saveTurn
     // requires a valid userId.
