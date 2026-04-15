@@ -2315,8 +2315,12 @@ async function reconnectAllSessions() {
       }
 
       await startSession(s.id, s.creds);
-      // Small delay between reconnections to avoid rate limits
-      await new Promise(r => setTimeout(r, 2000));
+      // Delay between reconnections. Each new session immediately streams
+      // history sync (thousands of inserts) + group metadata sync. With 18
+      // sessions, a short delay means 18 parallel upsert storms land on
+      // Supabase simultaneously and saturate Kong/PostgREST. 15s per session
+      // spaces them out so the in-flight queue drains between starts.
+      await new Promise(r => setTimeout(r, 15000));
     }
   } catch (e) {
     console.error("[BAILEYS] Reconnect error:", e.message);
