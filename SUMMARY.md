@@ -1,5 +1,76 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/15
 
+> **Update 2026-04-15 final — Session Quarantine Mode + fix definitivo do rate-limit de grupos (Escalada Ltda) — DEPLOYED**
+>
+> Commit: `4320fe8` — `feat(baileys): session quarantine mode — airplane mode against rate-limit leaks` (17 files, +1520/−196). PID 116023 no Hetzner, health ok, 6+ sessões conectadas e reconectando.
+>
+> **Cenário**: o Dhiego tentou criar 10 grupos na Escalada Ltda (5519993473149) com delay conservador de 300s (5min) entre cada. Bateu rate-limit depois de apenas 3/10 grupos. Como Escalada é a conta mais crítica da empresa (10-15 grupos/dia, insubstituível), fizemos um diagnóstico completo do pipeline e implementamos uma camada de defesa permanente.
+>
+> **Diagnóstico — 5 vazamentos críticos de IQs** (mapeados no [baileys.js](whatsapp-server/src/services/baileys.js) + rotas):
+> 1. `handleIncomingMessage` chamava `sock.groupMetadata(jid)` em TODA mensagem de grupo recebida pra pegar `chat_name`. Escalada é conta empresarial ativa: ~dezenas de msgs/min × ~15min de job = 100-300 IQs escondidos. **Maior leak, não estava no radar.**
+> 2. Handler `group-participants.update` chamava `sock.groupMetadata` em toda mudança de participante — disparado pelos próprios `groupCreate` da sessão. 30-40 IQs.
+> 3. `createGroupsFromList` tinha `sock.groupMetadata` force-sync após cada groupCreate (redundante, baileys emite o evento sozinho). 10 IQs.
+> 4. Welcome message retry loop (até 3×) com `groupMetadata` refresh em cada retry. 10-20 IQs.
+> 5. Rotas HTTP expostas ao ezapweb/extension: `/profile-pic`, `/group-info`, `/list-admin-groups`, `/groups`, `/add-to-groups`, `/messages/send` — cada click vira 1 IQ.
+>
+> Total: **250-480 IQs por job de 10 grupos**, onde o custo intrínseco é ~60. Mesmo com delay de 5min o rate-limit enche.
+>
+> **Solução entregue — Session Quarantine Mode**:
+>
+> 1. Novo `sessionQuarantine` Map + helpers (`quarantineSession`, `releaseSession`, `isQuarantined`, `getQuarantineStatus`) em [services/baileys.js](whatsapp-server/src/services/baileys.js) linhas 36-75. "Modo avião" por sessão: photo-worker pausado, handlers pulam `sock.groupMetadata` (persistência Supabase continua via cache), rotas HTTP retornam 409.
+> 2. Gate em [baileys.js:541](whatsapp-server/src/services/baileys.js:541) (`group-participants.update` handler) envolvendo o `sock.groupMetadata(groupJid)` com `if (!isQuarantined(sessionId))`.
+> 3. [baileys.js:~859](whatsapp-server/src/services/baileys.js:859) `handleIncomingMessage` agora lê `chat_name` cache-first do `wa_chats` — o handler `groups.update` já mantém essa coluna fresh. Fallback pra `sock.groupMetadata` só quando cache miss **AND** sessão não quarantined. **Elimina o leak #1, o maior.**
+> 4. Novo helper `applyCriticalSessionOverrides` em [baileys.js:~1944](whatsapp-server/src/services/baileys.js:1944): força `delaySec≥600`, `hourlyCap=3`, `leadingDelayMs=120000` quando `phone ∈ CRITICAL_PHONES = {"5519993473149"}` OU `failureStreak≥5` OU `timedOut≥50`. Escalada sempre pega a trilha conservadora.
+> 5. `createGroupsFromList` agora chama `quarantineSession(sessionId, "create_groups_job")` no início (substitui `photoWorker.pauseSession`). Remove `sock.groupMetadata` forçado em [baileys.js:2092](whatsapp-server/src/services/baileys.js:2092). Colapsa welcome retry loop para 1 tentativa fail-fast em [baileys.js:~2131](whatsapp-server/src/services/baileys.js:2131). Leading delay usa `options._leadingDelayMs` se presente.
+> 6. `finally` block reescrito: **se rate-limited, mantém quarentena ativa até liberação manual**. Previne photo-worker + ezapweb de re-tocarem conta flagged.
+> 7. Gates HTTP 409 em:
+>    - [routes/contacts.js](whatsapp-server/src/routes/contacts.js) — `GET /profile-pic`, `GET /group-info`, `POST /read`
+>    - [routes/sessions.js](whatsapp-server/src/routes/sessions.js) — `POST /list-admin-groups`, `POST /list-admin-groups-with-membership`, `POST /add-to-groups`, `POST /groups`
+>    - [routes/messages.js](whatsapp-server/src/routes/messages.js) — `POST /send`
+> 8. 3 novos endpoints em routes/sessions.js:
+>    - `POST /api/sessions/:id/quarantine { reason }` — entra em quarentena
+>    - `POST /api/sessions/:id/quarantine/release` — libera
+>    - `GET /api/sessions/:id/quarantine` — status atual (ou null)
+> 9. [grupos.html](grupos.html): `classifySession` tem branch quarentena como prioridade máxima (🔴 "Quarentena"); render do card de temperatura tem badge 🚨 + botão por sessão ("🚨 Quarentena" ou "▶️ Liberar"); modal `openCreateGroupsModal` tem Priority 0 que bloqueia submit com aviso vermelho "⛔ Sessão em quarentena"; `loadSessions` enriquece cada sessão com `quarantine` via `/api/sessions/:id/quarantine`; helpers `enterQuarantine(sessionId)` e `releaseQuarantine(sessionId)`.
+>
+> **Impacto projetado**: IQs por job de 10 grupos **250-480 → ~60** (~80% redução). Escalada volta a comportar 10-15 grupos/dia com margem folgada.
+>
+> **Smoke test feito em produção** (sessão aleatória, não-Escalada):
+> ```
+> GET  /api/sessions/{sid}/quarantine → {"ok":true,"status":null}
+> POST /api/sessions/{sid}/quarantine {"reason":"smoke_test"}
+>      → {"ok":true,"status":{"enteredAt":"2026-04-15T22:40:10.707Z","reason":"smoke_test","durationMs":0}}
+> GET  /api/sessions/{sid}/quarantine → durationMs=6ms (timer funcionando)
+> POST /api/sessions/{sid}/quarantine/release → {"ok":true,"status":null}
+> ```
+> Sequência completa funcional.
+>
+> **Como o Dhiego usa agora para criar grupos na Escalada com segurança**:
+> 1. Aguardar **no mínimo 2h** desde o último rate-limit (agora é suficiente — o pre-flight check em `createGroupsFromList` já bloqueia naturalmente via `getQueueFailureStats≥100 timedOut/2h`).
+> 2. No grupos.html, no card de temperatura da Escalada, clicar **🚨 Quarentena** com reason="prep" — silencia a sessão totalmente (photo-worker, handlers, ezapweb).
+> 3. Aguardar ~30min pra `rateLimitRegistry` drenar.
+> 4. Clicar **▶️ Liberar** (ou deixar como está — o `createGroupsFromList` vai re-entrar em quarentena ao iniciar, o release é só necessário se `isQuarantined` bloqueia o modal).
+> 5. Abrir o modal de criar grupos, selecionar Escalada. O helper `applyCriticalSessionOverrides` **força automaticamente**: delay mínimo 600s (10min), leading delay 120s, hourlyCap 3/h. Independente do que ele escolher no radio de velocidade no modal.
+> 6. Começar com **1 grupo só** no primeiro lote pra validar. Se passar limpo, aguardar 10min e tentar +2. Escalar até 3 no primeiro dia, só depois subir pra 5-10.
+> 7. Se algo der errado: o `finally` mantém a sessão quarantined; o badge no card vira permanente até liberação manual. Dhiego vê que a sessão precisa de atenção e libera manualmente quando achar seguro.
+>
+> **NÃO mexer em**: Outras 17 sessões (overrides só disparam pra Escalada + flagged); DHIEGO.BOT (1ae154a4-, phone 5511991154573); sessão Dhiego Rosa self-chat.
+>
+> **Arquivos críticos (para futura sessão do Claude retomar)**:
+> - [whatsapp-server/src/services/baileys.js](whatsapp-server/src/services/baileys.js) — helpers quarentena (36-75), handler gates (541, ~859), overrides helper (~1944), entry em `createGroupsFromList` (~1996), remove groupMetadata (~2092), welcome collapse (~2131), finally rewrite (~2198), exports (2859)
+> - [whatsapp-server/src/routes/sessions.js](whatsapp-server/src/routes/sessions.js) — gates 409 (174, 189, 249, 284) + 3 endpoints novos (306)
+> - [whatsapp-server/src/routes/contacts.js](whatsapp-server/src/routes/contacts.js) — gates 409 (60, 96, 83)
+> - [whatsapp-server/src/routes/messages.js](whatsapp-server/src/routes/messages.js) — gate 409 (linha 13)
+> - [grupos.html](grupos.html) — loadSessions com quarantine (594), enterQuarantine/releaseQuarantine (630/645), classifySession (744), card render (824-836), modal guard (1734)
+>
+> **Rollback rápido** se algo regredir:
+> - Runtime (sem redeploy): `curl -X POST http://localhost:3100/api/sessions/{id}/quarantine/release` + `pm2 restart ezap-whatsapp` (sessionQuarantine é in-memory, restart limpa)
+> - Código: `ssh ... 'cd /opt/ezap/whatsapp-server && git revert --no-edit 4320fe8 && <deploy flow>'`. BUT ATENÇÃO: o commit 4320fe8 bundleou também o trabalho da tarde/noite do DHIEGO.AI (LID resolution + contextual state + ideas latest/delete/update + lid_phone_map upserts). Revert perde tudo isso também. Se quiser apenas desligar a quarentena sem reverter o resto, editar só o call `quarantineSession` em `createGroupsFromList` linha ~1996 de volta pra `photoWorker.pauseSession` e o finally pra `photoWorker.resumeSession` sempre.
+>
+> **Observação sobre o deploy**: a primeira tentativa teve um bug no shell pipeline — o `git pull 2>&1 | tail -20` mascarava o exit code, então um `pm2 restart` rodou sobre estado inconsistente. Na segunda tentativa, fiz `set -e` + `git checkout --` explícito em todos os tracked files modificados + `rm -f` dos untracked overlays + `git pull` limpo + `node --check` em cada arquivo JS antes do restart. Sem essa proteção, teriam entrado erros silenciosos em produção. Preservar esse padrão (`set -e` + syntax check pré-restart) nos próximos deploys.
+
+---
+
 > **Update 2026-04-15 manhã — DHIEGO.AI self-chat mode + pivot pra WhatsApp Business (em aberto)**
 >
 > Continuação da madrugada. Acordou, tudo crítico estável (Supabase SMALL, 18 sessões reconectadas, Escalada pronta pra uso). Foco da manhã foi destravar o DHIEGO.AI que ficou bloqueado por Signal protocol issues entre iPhone primário + baileys linked device.
@@ -374,3 +445,105 @@ curl -s -X POST "https://api.supabase.com/v1/projects/xsqpqdjffjqxdcmoytfc/datab
 - **Hetzner SSH**: `~/.ssh/ezap_hetzner`
 - **PM2 app**: `ezap-whatsapp` (id 0)
 - **Health**: `curl http://localhost:3100/api/health`
+
+---
+
+> **Update 2026-04-15 tarde — DHIEGO.AI final 21: fix local para allowlist com LID (ainda nao deployado)**
+>
+> Diagnostico fechado no runtime do Hetzner:
+> - `app_settings.dhiego_ai_session_id` esta apontando para `da47bbe6-c349-49f6-b7cd-50b0283aaabd` (numero final 21, `5519997012821`)
+> - as mensagens do Dhiego entram normalmente em `wa_messages`
+> - `dhiego_conversations` fica vazio porque o sender chega como `204943038361777@lid`, entao a allowlist por telefone nao bate e o `maybeHandle()` sai antes de salvar a turn
+>
+> **Implementado localmente neste workspace**:
+> - `whatsapp-server/src/services/dhiego-ai.js`
+> - resolve sender na ordem: `participantPn` -> `wa_contacts.linked_jid` -> `lid_phone_map.phone` -> fallback `jid`
+> - log explicito para `ignoring unauthorized message` com `chatJid`, `senderJid`, `resolvedSenderPhone`, `resolutionSource`, `fromMe`, `isSelfChat`
+> - reply em chat `@lid` agora sai para `5511...@s.whatsapp.net` quando o telefone real foi resolvido
+> - `whatsapp-server/src/services/baileys.js`
+> - persiste `participantPn` em `lid_phone_map`
+> - faz upsert de `wa_contacts.linked_jid` no evento `chats.phoneNumberShare`
+> - `sendMessage()` agora consulta `resolveLid()`/`lid_phone_map` antes do fallback antigo
+> - nova migration `supabase/migration_047_wa_contacts_linked_jid.sql` formaliza a coluna `wa_contacts.linked_jid`
+>
+> **Status**:
+> - patch aplicado localmente
+> - validacao pendente/rodando nesta rodada
+> - deploy no Hetzner ainda nao executado neste update
+
+---
+
+> **Update 2026-04-15 fim de tarde — ideias: ultima ideia agora prioriza backlog aberto; deletar agora apaga de verdade**
+>
+> Bug reproduzido no WhatsApp:
+> - frase tipo "me lembra da minha ultima ideia" estava caindo em `ideas-list` com `status=all`
+> - por isso o bot reapresentava ideia `cancelled` mesmo quando o painel do admin mostrava so a backlog aberta
+> - adicionalmente, linguagem natural com verbo "deletar/apagar/remover" estava sendo mapeada para `ideas-cancel`, nao para delete real
+>
+> **Fix aplicado localmente e deployado no Hetzner**:
+> - `whatsapp-server/src/services/dhiego-ai/router.js`
+> - nova rota regex `ideas-latest` para "ultima ideia"/"me lembra da minha ultima ideia"
+> - separacao semantica: `cancelar` -> `ideas-cancel`; `deletar/apagar/remover/excluir` -> `ideas-delete`
+> - prompt do classifier atualizado com as duas tools novas
+> - `whatsapp-server/src/services/dhiego-ai/tools/ideas.js`
+> - nova tool `latestIdea()` busca primeiro a ideia aberta mais recente; se nao houver nenhuma aberta, faz fallback para a ultima ideia do banco
+> - nova tool `deleteIdea()` faz `DELETE` real na `dhiego_ideas`, alinhado com o botao de lixeira do admin
+> - `whatsapp-server/src/services/dhiego-ai.js`
+> - dispatch atualizado para `ideas-latest` e `ideas-delete`
+>
+> **Validacao local**:
+> - `me lembra da minha ultima ideia` -> `ideas-latest`
+> - `deletar ideia 2` -> `ideas-delete`
+> - `cancelar ideia 2` -> `ideas-cancel`
+>
+> **Deploy**:
+> - backups remotos: `dhiego-ai.js.bak.20260415_174925`, `router.js.bak.20260415_174925`, `ideas.js.bak.20260415_174925`
+> - arquivos copiados pro Hetzner e `pm2 restart ezap-whatsapp` executado
+> - observacao: servidor entrou em reconnect wave das sessoes; `da47...` voltou com `status=connected` no DB e ainda estava estabilizando o `live` em memoria no ultimo poll
+
+> **Update 2026-04-15 noite � DHIEGO.AI contextual: estado ativo, follow-ups e smoke test**
+>
+> Entregue uma segunda camada de interpretacao para o DHIEGO.AI, mais proxima de um assistente com contexto do que de um parser puro de comandos.
+>
+> **Implementado localmente e deployado no Hetzner**:
+> - whatsapp-server/src/services/dhiego-ai/state.js
+> - novo estado ativo por (user_id, session_id, chat_jid) com ctive_task, ctive_tool, ocus_idea_id e state_payload
+> - fallback em memoria se a tabela do Supabase nao estiver acessivel
+> - supabase/migration_048_dhiego_ai_state.sql
+> - formaliza a tabela dhiego_ai_state
+> - whatsapp-server/src/services/dhiego-ai/router.js
+> - separacao entre roteamento explicito, follow-up contextual e classifier LLM
+> - follow-ups como manda atualizado, 
+ao mostre a cancelada e tualiza para: ... agora usam contexto recente + ideia em foco
+> - nova tool ideas-show
+> - whatsapp-server/src/services/dhiego-ai/tools/ideas.js
+> - novas tools showIdea() e updateIdea(); helpers para buscar ideia por id e ultima aberta
+> - whatsapp-server/src/services/dhiego-ai/tools/llm-freeform.js
+> - injeta resumo do estado ativo no fallback livre e evita duplicar o turno atual no contexto
+> - whatsapp-server/src/services/dhiego-ai.js
+> - carrega ecentHistory + ctiveState antes do roteamento e sincroniza o estado apos a resposta
+> - whatsapp-server/src/routes/dhiego-ai.js
+> - nova rota GET /api/dhiego-ai/state e limpeza do estado junto com DELETE /api/dhiego-ai/conversations
+> - whatsapp-server/scripts/dhiego-ai-smoke.js
+> - smoke test versionado com frases reais do Dhiego
+>
+> **Validacao local**:
+> - 
+ode --check passou para dhiego-ai.js, outer.js, state.js, history.js, ideas.js, llm-freeform.js e rota dhiego-ai.js
+> - 
+pm run test:dhiego-ai passou com cenarios:
+>   - me lembra da minha ultima ideia
+>   - deletar ideia 2
+>   - tualiza a ideia 3: ...
+>   - manda atualizado
+>   - 
+ao mostre a cancelada
+>   - tualiza para: ... com ideia em foco
+>   - me lembra dela
+>   - como esta a ideia 7
+>
+> **Deploy**:
+> - backup remoto: 20260415_184353
+> - arquivos de runtime copiados manualmente pro Hetzner e pm2 restart ezap-whatsapp executado
+> - migration  48 aplicada via Supabase Management API depois de contornar o payload do curl com arquivo temporario
+> - observacao: o state funciona mesmo se a tabela falhar, mas a migration ja entrou no projeto
