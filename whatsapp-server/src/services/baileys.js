@@ -688,6 +688,18 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
   const jid = msg.key.remoteJid;
   if (!jid || jid === "status@broadcast") return;
 
+  // DHIEGO.AI hook — only active on the configured assistant session. Runs
+  // fire-and-forget so the normal message persistence path is never blocked
+  // by LLM latency. Errors are swallowed inside dhiegoAi.maybeHandle.
+  if (isRealTime) {
+    try {
+      const dhiegoAi = require("./dhiego-ai");
+      dhiegoAi.maybeHandle(sessionId, msg, sock).catch(e => {
+        console.error("[DHIEGO.AI] unhandled:", e.message);
+      });
+    } catch (_) { /* module might fail to load if deps missing — don't break baileys */ }
+  }
+
   // Lazy photo fetch: enqueue the chat's JID and (for groups) the sender's
   // JID. wa_photo_queue uses ignore-duplicates so already-known rows are
   // skipped. The worker polls at 60s intervals so even heavy message traffic

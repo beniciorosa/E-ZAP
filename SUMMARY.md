@@ -1,5 +1,8 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/15
 
+> **Update 2026-04-15 (DHIEGO.AI — Fase 1 MVP)**: nova feature — assistente pessoal via WhatsApp. Sessão dedicada `DHIEGO.AI` (5511989473088, id `d9f39bb5-5f3e-4bf3-8d47-9944c9cf78ff`) escuta mensagens, autoriza sender (fromMe OU allowlist admin), roteia intent (regex fast-path + Claude classifier fallback) e executa: `ideas-add` / `ideas-list` / `ideas-complete` / `ideas-cancel` / `ideas-pdf` / `llm-freeform`. Stack: Anthropic Claude via `@anthropic-ai/sdk` (Haiku 4.5 default), `pdfkit` pra PDF de backlog, tabela `dhiego_ideas` (migration 043). Admin panel novo tab "🤖 DHIEGO.AI" com toggle enabled, dropdown de sessão, allowlist de phones, seletor de modelo, e lista de ideias com ações. `claude_api_key` está em `app_settings` (injetada via SQL one-shot, NUNCA commitada). HubSpot/Whisper/áudio/Supabase queries = Fase 2. Detalhes em §2 "(próximo commit)" e arquivos em `whatsapp-server/src/services/dhiego-ai/*`.
+
+
 > **Update 2026-04-15 (commit `3a893b2`)**: o painel de temperatura introduzido em `27afc70` estava saturando o pooler do Supabase com ~162 COUNT queries a cada 10s (9 counts × 18 sessões). Apenas o bucket "pending" tinha índice — todos os outros buckets em `wa_photo_queue` faziam seq scan. Sintomas: admin.html não logava, grupos.html nem renderizava o card, ezapweb lento. Fix em 3 camadas:
 > 1. **Migration 042**: `idx_wa_photo_queue_session_status` composto + índices parciais em `wa_contacts(photo_url)` e `wa_chats(archived)` + RPC `get_sync_status_all()` que retorna counters de todas as sessões em uma única round-trip via LATERAL + FILTER.
 > 2. **Novo endpoint** `GET /api/sync/status-all` em [whatsapp-server/src/routes/sync.js](whatsapp-server/src/routes/sync.js) com cache de 5s em memória.

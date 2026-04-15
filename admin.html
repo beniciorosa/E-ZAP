@@ -1370,6 +1370,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
         WhatsApp Server
       </button>
+      <button class="sidebar-nav-item" data-tab="dhiego-ai" onclick="switchTab('dhiego-ai')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+        DHIEGO.AI
+      </button>
       <button class="sidebar-nav-item" data-tab="settings" onclick="switchTab('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Configurações
@@ -1944,6 +1948,74 @@
       </div>
     </div>
 
+    <div class="panel" id="panel-dhiego-ai">
+      <div class="page-header">
+        <div class="page-title">🤖 DHIEGO.AI</div>
+        <div class="page-subtitle">Assistente pessoal via WhatsApp — configuração, autorizações e backlog de ideias</div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(99,102,241,0.1)"><span>⚙️</span></div>
+          <div>
+            <div class="settings-card-title">Configuração</div>
+            <div class="settings-card-desc">Ativa o assistente, escolhe a sessão WhatsApp e define quem pode mandar comandos</div>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div style="display:flex;gap:12px;margin-bottom:14px;align-items:center">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="dhiegoAiEnabled" onchange="saveDhiegoAiConfig({ enabled: this.checked })" style="width:18px;height:18px;accent-color:#6366f1">
+              <span style="font-size:14px">Ativar DHIEGO.AI</span>
+            </label>
+            <span id="dhiegoAiKeyStatus" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+          </div>
+
+          <div style="margin-bottom:14px">
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Sessão WhatsApp (número do assistente)</label>
+            <select id="dhiegoAiSessionSelect" onchange="saveDhiegoAiConfig({ sessionId: this.value })" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text)"></select>
+          </div>
+
+          <div style="margin-bottom:14px">
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Modelo Claude</label>
+            <select id="dhiegoAiLlmModel" onchange="saveDhiegoAiConfig({ llmModel: this.value })" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+              <option value="claude-haiku-4-5-20251001">Haiku 4.5 (rápido, barato — recomendado)</option>
+              <option value="claude-sonnet-4-6">Sonnet 4.6 (mais capaz)</option>
+              <option value="claude-opus-4-6">Opus 4.6 (máximo)</option>
+            </select>
+          </div>
+
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Números autorizados (além do próprio — fromMe é sempre permitido)</label>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <input type="text" id="dhiegoAiPhoneInput" placeholder="5511999999999" style="flex:1;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text)">
+              <button class="btn-secondary" onclick="addDhiegoAiPhone()">+ Adicionar</button>
+            </div>
+            <div id="dhiegoAiPhonesList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:16px">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(34,197,94,0.1)"><span>💡</span></div>
+          <div>
+            <div class="settings-card-title">Backlog de ideias</div>
+            <div class="settings-card-desc">Comandos enviados via WhatsApp criam ideias aqui. Você pode marcar como feito ou deletar.</div>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <button class="btn-secondary" onclick="loadDhiegoAiIdeas('open')">⏳ Abertas</button>
+            <button class="btn-secondary" onclick="loadDhiegoAiIdeas('done')">✅ Concluídas</button>
+            <button class="btn-secondary" onclick="loadDhiegoAiIdeas('all')">📝 Todas</button>
+            <button class="btn-secondary" onclick="loadDhiegoAiIdeas(_dhiegoAiIdeasFilter)" style="margin-left:auto">🔄 Atualizar</button>
+          </div>
+          <div id="dhiegoAiIdeasList" style="max-height:500px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="panel" id="panel-settings">
       <div class="page-header">
         <div class="page-title">Configurações</div>
@@ -2134,6 +2206,7 @@ function showApp() {
   loadButtonConfig();
   loadWidgetConfigAdmin();
   loadFlows();
+  loadDhiegoAi();
 }
 
 // Auto-login
@@ -6558,6 +6631,162 @@ function attachWaChatListeners() {
   if (urlInput && WA_SERVER_URL) urlInput.value = WA_SERVER_URL;
   if (tokenInput && WA_ADMIN_TOKEN) tokenInput.value = WA_ADMIN_TOKEN;
 })();
+
+// ===== DHIEGO.AI panel =====
+var _dhiegoAiConfig = null;
+var _dhiegoAiIdeasFilter = "open";
+
+function loadDhiegoAi() {
+  if (!WA_SERVER_URL || !WA_ADMIN_TOKEN) return;
+  // Load config + session list in parallel
+  Promise.all([
+    waFetch("/api/dhiego-ai/config"),
+    waFetch("/api/sessions"),
+  ]).then(function(results) {
+    _dhiegoAiConfig = results[0] || {};
+    var sessions = results[1] || [];
+    renderDhiegoAiConfig(_dhiegoAiConfig, sessions);
+    // Load ideas for Dhiego user
+    loadDhiegoAiIdeas("open");
+  }).catch(function(e) {
+    console.error("[DHIEGO.AI] load error:", e);
+  });
+}
+
+function renderDhiegoAiConfig(cfg, sessions) {
+  var enabledCb = document.getElementById("dhiegoAiEnabled");
+  var sessionSelect = document.getElementById("dhiegoAiSessionSelect");
+  var modelSelect = document.getElementById("dhiegoAiLlmModel");
+  var keyStatus = document.getElementById("dhiegoAiKeyStatus");
+  if (!enabledCb || !sessionSelect || !modelSelect) return;
+
+  enabledCb.checked = !!cfg.enabled;
+
+  sessionSelect.innerHTML = '<option value="">— selecione uma sessão —</option>' +
+    (sessions || [])
+      .filter(function(s) { return s.status === "connected" || s.status === "qr_pending" || s.phone; })
+      .map(function(s) {
+        var label = (s.label || "(sem nome)") + (s.phone ? " — " + s.phone : "");
+        var sel = s.id === cfg.sessionId ? " selected" : "";
+        return '<option value="' + esc(s.id) + '"' + sel + '>' + esc(label) + '</option>';
+      }).join("");
+
+  modelSelect.value = cfg.llmModel || "claude-haiku-4-5-20251001";
+
+  keyStatus.innerHTML = cfg.hasClaudeKey
+    ? '<span style="color:#22c55e">● Chave Claude configurada</span>'
+    : '<span style="color:#ef4444">● Chave Claude ausente</span>';
+
+  renderDhiegoAiPhones(cfg.authorizedPhones || []);
+}
+
+function renderDhiegoAiPhones(phones) {
+  var listEl = document.getElementById("dhiegoAiPhonesList");
+  if (!listEl) return;
+  if (!phones.length) {
+    listEl.innerHTML = '<span style="font-size:12px;color:var(--muted)">Nenhum número além do fromMe</span>';
+    return;
+  }
+  listEl.innerHTML = phones.map(function(p) {
+    return '<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:16px;font-size:12px">'
+      + esc(p)
+      + '<span onclick="removeDhiegoAiPhone(\'' + esc(p) + '\')" style="cursor:pointer;color:var(--danger);font-weight:bold">✕</span>'
+      + '</span>';
+  }).join("");
+}
+
+function addDhiegoAiPhone() {
+  var input = document.getElementById("dhiegoAiPhoneInput");
+  var phone = (input.value || "").replace(/\D/g, "");
+  if (phone.length < 10) { alert("Número inválido — pelo menos 10 dígitos"); return; }
+  var phones = ((_dhiegoAiConfig && _dhiegoAiConfig.authorizedPhones) || []).slice();
+  if (phones.indexOf(phone) !== -1) { alert("Número já está na lista"); return; }
+  phones.push(phone);
+  saveDhiegoAiConfig({ authorizedPhones: phones });
+  input.value = "";
+}
+
+function removeDhiegoAiPhone(phone) {
+  var phones = ((_dhiegoAiConfig && _dhiegoAiConfig.authorizedPhones) || []).filter(function(p) { return p !== phone; });
+  saveDhiegoAiConfig({ authorizedPhones: phones });
+}
+
+function saveDhiegoAiConfig(patch) {
+  waFetch("/api/dhiego-ai/config", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  }).then(function(data) {
+    if (data && data.config) {
+      _dhiegoAiConfig = data.config;
+      // Refresh just the phones + key status (no need to re-fetch sessions)
+      var keyStatus = document.getElementById("dhiegoAiKeyStatus");
+      if (keyStatus) {
+        keyStatus.innerHTML = _dhiegoAiConfig.hasClaudeKey
+          ? '<span style="color:#22c55e">● Chave Claude configurada</span>'
+          : '<span style="color:#ef4444">● Chave Claude ausente</span>';
+      }
+      renderDhiegoAiPhones(_dhiegoAiConfig.authorizedPhones || []);
+    }
+  }).catch(function(e) {
+    alert("Erro ao salvar config DHIEGO.AI: " + e.message);
+  });
+}
+
+function loadDhiegoAiIdeas(status) {
+  _dhiegoAiIdeasFilter = status || "open";
+  var listEl = document.getElementById("dhiegoAiIdeasList");
+  if (!listEl) return;
+  // Dhiego's user_id is hardcoded from migration_043 for now — in Phase 2 we'll
+  // get it from currentAdmin or session→user join
+  var userId = (currentAdmin && currentAdmin.user_id) || "58db56f3-f84e-43b2-bbb2-17af8f52b9b8";
+  listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Carregando...</div>';
+  waFetch("/api/dhiego-ai/ideas?userId=" + userId + "&status=" + _dhiegoAiIdeasFilter).then(function(ideas) {
+    if (!ideas || ideas.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Nenhuma ideia encontrada.</div>';
+      return;
+    }
+    var statusColor = { open: "#6366f1", done: "#22c55e", cancelled: "#ef4444" };
+    var statusEmoji = { open: "⏳", done: "✅", cancelled: "❌" };
+    listEl.innerHTML = ideas.map(function(i) {
+      var color = statusColor[i.status] || "#888";
+      var emoji = statusEmoji[i.status] || "•";
+      var dt = i.created_at ? new Date(i.created_at).toLocaleString("pt-BR") : "";
+      return '<div style="padding:12px;margin-bottom:8px;background:var(--surface-2);border-left:3px solid ' + color + ';border-radius:8px">'
+        + '<div style="display:flex;gap:8px;align-items:start">'
+        +   '<span style="font-size:18px">' + emoji + '</span>'
+        +   '<div style="flex:1">'
+        +     '<div style="font-size:14px">#' + i.id + ' — ' + esc(i.text) + '</div>'
+        +     '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + dt + ' · ' + esc(i.source || "") + '</div>'
+        +   '</div>'
+        +   '<div style="display:flex;gap:4px">'
+        +     (i.status === "open" ? '<button class="btn-secondary btn-icon" onclick="setDhiegoAiIdeaStatus(' + i.id + ', \'done\')" title="Concluir">✅</button>' : "")
+        +     '<button class="btn-secondary btn-icon" onclick="deleteDhiegoAiIdea(' + i.id + ')" title="Deletar">🗑️</button>'
+        +   '</div>'
+        + '</div>'
+        + '</div>';
+    }).join("");
+  }).catch(function(e) {
+    listEl.innerHTML = '<div style="color:var(--danger);padding:20px">Erro: ' + esc(e.message) + '</div>';
+  });
+}
+
+function setDhiegoAiIdeaStatus(id, status) {
+  waFetch("/api/dhiego-ai/ideas/" + id, {
+    method: "PATCH",
+    body: JSON.stringify({ status: status }),
+  }).then(function() {
+    loadDhiegoAiIdeas(_dhiegoAiIdeasFilter);
+  }).catch(function(e) {
+    alert("Erro: " + e.message);
+  });
+}
+
+function deleteDhiegoAiIdea(id) {
+  if (!confirm("Deletar ideia #" + id + "?")) return;
+  waFetch("/api/dhiego-ai/ideas/" + id, { method: "DELETE" })
+    .then(function() { loadDhiegoAiIdeas(_dhiegoAiIdeasFilter); })
+    .catch(function(e) { alert("Erro: " + e.message); });
+}
 </script>
 </body>
 </html>

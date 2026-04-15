@@ -49,6 +49,7 @@ app.use("/api/contacts", requireAuth, require("./routes/contacts"));
 app.use("/api/jobs", requireAuth, require("./routes/jobs"));
 app.use("/api/fotos", requireAuth, require("./routes/fotos"));
 app.use("/api/sync", requireAuth, require("./routes/sync"));
+app.use("/api/dhiego-ai", requireAuth, require("./routes/dhiego-ai"));
 
 // ===== HTTP + Socket.io =====
 const server = http.createServer(app);
