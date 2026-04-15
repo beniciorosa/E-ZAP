@@ -4,18 +4,23 @@
 //
 // ARCHITECTURE: One worker per session, each running independently.
 // Each session has its own WhatsApp rate limit, so parallel is safe.
-// Rate: 1 photo every 15 seconds per session (conservative after observing
-// cascading "Timed Out" failures from WhatsApp silently rate-limiting the
-// profilePictureUrl IQ after long backlogs).
+// Rate: 1 photo every 60 seconds per session — intentionally slow so the
+// sync drifts in over days/week rather than flooding the IQ budget. After
+// observing cascading "Timed Out" failures from WhatsApp silently rate-
+// limiting the profilePictureUrl IQ, we prefer correctness over throughput.
 //
 // AUTO-PAUSE ON TIMEOUT CASCADE: if a session sees 10 consecutive Timed Out
 // errors, we assume WhatsApp is silently throttling the account and pause
 // this session's worker for 15 minutes (and mark rate-limit in baileys so
 // create-groups jobs see the cooldown too).
+//
+// FAILED ROWS ARE NOT RETRIED: once a row hits MAX_ATTEMPTS it stays failed
+// forever. The user can trigger a manual retry later via SQL when accounts
+// are healthy — we do not auto-reset to avoid re-poking cold accounts.
 
 const { supaRest } = require("./supabase");
 
-const PHOTO_INTERVAL_MS = 15000; // 1 pic every 15 seconds per session
+const PHOTO_INTERVAL_MS = 60000; // 1 pic every 60 seconds per session
 const MAX_ATTEMPTS = 3;
 const FAILURE_STREAK_PAUSE_THRESHOLD = 10;
 const AUTO_PAUSE_MS = 15 * 60 * 1000; // 15 min pause after cascade detected
