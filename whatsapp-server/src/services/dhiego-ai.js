@@ -90,13 +90,36 @@ async function maybeHandle(sessionId, msg, sock) {
     const chatJid = msg.key?.remoteJid;
     if (!chatJid || chatJid === "status@broadcast") return false;
 
-    // Authorization: fromMe (user talking to himself) OR sender phone in allowlist
+    // Self-chat mode: when the bot session is the user's OWN primary WhatsApp
+    // number, we only want to react to "Message yourself" — not to every
+    // fromMe message the user sends to clients, friends, etc. If the chat is
+    // with the bot's own JID, it's a self-message and we proceed. Everything
+    // else gets ignored.
+    //
+    // This is the recommended mode for users who don't have a dedicated
+    // burner phone for the assistant: messaging yourself avoids all the
+    // Signal cross-device issues that plague the linked-device approach.
+    const ownJid = sock.user?.id || "";
+    const ownPhone = jidToPhone(ownJid);
+    const chatPhone = jidToPhone(chatJid);
+    const isSelfChat = ownPhone && chatPhone === ownPhone;
+
+    // Authorization: ALLOWED paths:
+    //   A. Self-chat (message yourself) on any session  — always allowed
+    //   B. Sender in the authorized phones allowlist     — always allowed
+    //   C. fromMe BUT the chat is NOT self-chat          — NOT allowed
+    //      (the user is talking to someone else, not the bot)
     const isFromMe = !!msg.key?.fromMe;
     const senderJid = msg.key?.participant || chatJid;
     const senderPhone = jidToPhone(senderJid);
-    const isAllowed = isFromMe
-      || (cfg.authorizedPhones && cfg.authorizedPhones.includes(senderPhone));
+    const isInAllowlist =
+      cfg.authorizedPhones && cfg.authorizedPhones.includes(senderPhone);
+
+    const isAllowed = isSelfChat || isInAllowlist;
     if (!isAllowed) return false;
+    // Silence a noisy edge case: if the bot itself emits outgoing messages
+    // (fromMe=true on a non-self chat), it's not for us.
+    void isFromMe;
 
     // Resolve user_id first — all turns must be tagged with it and saveTurn
     // requires a valid userId.
