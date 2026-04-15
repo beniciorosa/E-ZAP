@@ -181,4 +181,33 @@ router.get("/:sessionId/chat-photos", async (req, res) => {
   }
 });
 
+// POST /api/contacts/:sessionId/enqueue-photos — Lazy enqueue of profile photos
+// Body: { jids: ["123@s.whatsapp.net", "456@g.us", ...] }
+//
+// Used by the frontend lazy-fetch strategy: when the user opens a chat OR
+// scrolls through the chat list, the missing-photo JIDs are POSTed here and
+// the photo-worker picks them up on its next cycle (60s).
+//
+// wa_photo_queue uses ignore-duplicates, so already-queued JIDs are no-op.
+// This intentionally does NOT retry "failed" rows — resetting those is a
+// separate, user-initiated operation (see SUMMARY.md §4.1 for the planned
+// controlled retry).
+router.post("/:sessionId/enqueue-photos", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { jids } = req.body || {};
+    if (!Array.isArray(jids) || jids.length === 0) {
+      return res.status(400).json({ error: "jids (array) é obrigatório" });
+    }
+    if (jids.length > 200) {
+      return res.status(400).json({ error: "Máximo de 200 jids por chamada" });
+    }
+    await baileys.enqueuePhotos(sessionId, jids);
+    res.json({ ok: true, enqueued: jids.length });
+  } catch (e) {
+    console.error("[CONTACTS] enqueue-photos error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

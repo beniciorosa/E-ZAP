@@ -44,3 +44,10 @@ Chrome Extension (Manifest V3) para gestao de WhatsApp Business. Inclui CRM, men
 - Supabase REST via handler `supabase_rest` no background.js
 - Idioma da UI: Portugues (BR), sem acentos no codigo
 - Commits em ingles com `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
+
+## Memoria de sessao (SUMMARY.md) — IMPORTANTE
+- **SEMPRE atualizar `SUMMARY.md` na raiz ao final de cada rodada de trabalho.** E o handoff da proxima sessao do Claude e precisa refletir o estado real pos-deploy.
+- Ao terminar uma rodada: adicionar o novo commit no historico, mover pendencias entregues de "em andamento" para "concluido", atualizar o "Estado atual" com o commit deployed, e registrar qualquer decisao nova
+- Se uma pendencia importante surgir no meio do trabalho, documentar logo com filepaths e linhas relevantes
+- Arquivo esta em portugues (mixed com termos tecnicos em ingles) — manter o mesmo estilo
+- Contas criticas mencionadas devem ser preservadas (ex: Escalada Ltda 5519993473149)

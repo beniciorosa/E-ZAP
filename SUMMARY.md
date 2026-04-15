@@ -62,6 +62,14 @@ Arquivos: `whatsapp-server/src/services/baileys.js`, `jobs.js`, `routes/sessions
 - **Novas rotas**: `GET /api/sync/photo-worker/status`, `POST /api/sync/photo-worker/pause`, `POST /api/sync/photo-worker/resume`
 - **Painel de temperatura** (grupos.html): sync card virou "🌡️ Temperatura das contas" permanente (começa expandido). Classificação 🟢🟡🔴 por sessão baseada em success rate, failure streak, cooldown. Por sessão: barra tri-color, ✅/❌ pode criar grupos, badge de streak, linha de motivo humano. Ordenação red-first. Header tem toggle ⏸/▶ global
 
+### (próximo commit) — Lazy fetch (A+C) + fix do toggle button
+- **Bug crítico corrigido**: em `routes/sync.js`, as rotas `/photo-worker/status|pause|resume` estavam registradas DEPOIS da rota parametrizada `/:sessionId/status`. Express matava por ordem, então `GET /api/sync/photo-worker/status` caía em `/:sessionId/status` com `sessionId="photo-worker"`, retornava payload sem `globalPaused`, e o botão da UI revertia pra "Pausar" depois do click. Fix: rotas literais agora vêm ANTES da parametrizada
+- **UI do botão agora é imediato**: `togglePhotoWorkerGlobal` atualiza `_globalPhotoWorkerPaused` e chama `updatePhotoWorkerButtonUI()` direto do POST response, sem depender de um GET follow-up. `refreshGlobalPhotoWorkerStatus` ficou mais defensivo (só confia no payload se tem `typeof globalPaused === "boolean"`)
+- **Novo endpoint backend**: `POST /api/contacts/:sessionId/enqueue-photos { jids: [...] }` — até 200 jids por chamada, usa `ignore-duplicates`, NÃO retenta failed rows. Exportou `baileys.enqueuePhotos`
+- **ezapweb.html (A) lazy-on-chat-open**: `openChat(jid, name)` agora detecta se o chat não tem foto (nem em `chats.photoUrl` nem em `chatPhotos`) e faz `POST /enqueue-photos` pro JID. Foto chega via `photo:ready` Socket.io event em até 60s
+- **ezapweb.html (C) lazy-on-visible-list**: `renderChatList` chama `enqueueVisibleChatPhotos(filtered)` com debounce de 400ms. Coleta até 30 JIDs sem foto dos chats visíveis, dedupe via `_visiblePhotoEnqueued[sessionId]` pra garantir que cada jid só é requisitado uma vez por page load
+- **CLAUDE.md**: adicionada seção "Memória de sessão (SUMMARY.md) — IMPORTANTE" lembrando de sempre atualizar o arquivo ao final de cada rodada
+
 ### SQL one-shot (não comitado, rodado via Management API)
 ```sql
 UPDATE wa_photo_queue SET status='pending', attempts=0, error=NULL, last_attempt_at=NULL
@@ -74,7 +82,7 @@ WHERE status='downloading';
 ## 3. Estado atual (deployed + running)
 
 - **Vercel**: grupos.html + ezapweb.html + fotos.html — auto-deploy no push da `main`
-- **Hetzner** (`root@87.99.141.235`, `/opt/ezap/whatsapp-server`): rodando commit **`27afc70`**, PM2 online, 18 sessões reconectando em background
+- **Hetzner** (`root@87.99.141.235`, `/opt/ezap/whatsapp-server`): rodando commit do último deploy (ver `git log` na raiz), PM2 online, 18 sessões reconectando em background
 - **Supabase photo queue** (na hora do commit 7863b33): 1122 done, 119 no_photo, 6281 failed, 0 pending/downloading/active. Todos os workers ociosos — zero IQs saindo. Este é o estado mais seguro possível pras contas.
 - **Lazy fetch agora ativo**: o próximo reconnect NÃO vai re-inundar a fila. Só novos IQs a partir de mensagens reais
 - **Photo-worker global**: por padrão ATIVO (não pausado). Botão no grupos.html pode pausar instantaneamente se necessário. Estado persistido em `/opt/ezap/whatsapp-server/data/photo-worker-state.json`

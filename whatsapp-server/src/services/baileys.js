@@ -2639,6 +2639,7 @@ module.exports = {
   getRateLimitStatus,
   markRateLimit,
   getQueueFailureStats,
+  enqueuePhotos,
   reconnectAllSessions,
   fetchGroupsWithInvites,
   addParticipantToAllGroups,

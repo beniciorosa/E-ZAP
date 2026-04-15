@@ -863,6 +863,8 @@ var userMessages = [];
 var activeAbaFilter = null;
 var unreadCounts = {};
 var chatPhotos = {};       // jid -> photo_url
+var _visiblePhotoEnqueued = {};  // sessionId -> { jid: true } — dedup for lazy (C) fetch
+var _visiblePhotoEnqueueTimer = null;
 var groupInfoCache = {};   // jid -> group metadata
 var _notifSound = null;    // notification audio element
 
@@ -1256,6 +1258,12 @@ function renderChatList() {
     return;
   }
 
+  // Lazy photo fetch (C): collect the top-30 visible chats that don't have a
+  // photo yet and ask the backend to enqueue them. Debounced so rapid filter
+  // toggles don't spam the endpoint. Dedup via _visiblePhotoEnqueued so the
+  // same jid is only requested once per session load.
+  enqueueVisibleChatPhotos(filtered);
+
   var html = "";
   filtered.forEach(function(c) {
     var isActive = c.chatJid === activeChatJid;
@@ -1290,6 +1298,33 @@ function renderChatList() {
 
 function filterChats() { renderChatList(); }
 
+// Lazy fetch (C) — collect up-to-30 visible chats without photos and POST
+// them to the backend for enqueue. Debounced 400ms so rapid re-renders (typing
+// in the search box, toggling filters) only fire once. Dedup per session so
+// each jid is requested at most once per page load.
+function enqueueVisibleChatPhotos(filtered) {
+  if (!activeSessionId || !filtered || filtered.length === 0) return;
+  if (_visiblePhotoEnqueueTimer) clearTimeout(_visiblePhotoEnqueueTimer);
+  _visiblePhotoEnqueueTimer = setTimeout(function() {
+    if (!_visiblePhotoEnqueued[activeSessionId]) _visiblePhotoEnqueued[activeSessionId] = {};
+    var bucket = _visiblePhotoEnqueued[activeSessionId];
+    var newJids = [];
+    for (var i = 0; i < filtered.length && newJids.length < 30; i++) {
+      var c = filtered[i];
+      if (!c || !c.chatJid) continue;
+      if (c.photoUrl || chatPhotos[c.chatJid]) continue;
+      if (bucket[c.chatJid]) continue;
+      bucket[c.chatJid] = true;
+      newJids.push(c.chatJid);
+    }
+    if (newJids.length === 0) return;
+    waFetch("/api/contacts/" + activeSessionId + "/enqueue-photos", {
+      method: "POST",
+      body: { jids: newJids },
+    }).catch(function() {});
+  }, 400);
+}
+
 function setFilter(f) {
   chatFilter = f;
   document.querySelectorAll(".chat-filter-btn").forEach(function(btn) {
@@ -1305,6 +1340,18 @@ function openChat(jid, name) {
   messages = [];
   unreadCounts[jid] = 0;
 
+  // Lazy photo fetch (A): if this chat has no photo yet, ask the backend to
+  // enqueue one. The photo-worker picks it up within 60s and the Socket.io
+  // "photo:ready" event updates the avatar in-place. Fire-and-forget.
+  var chatData = chats.find(function(c) { return c.chatJid === jid; });
+  var hasPhoto = (chatData && chatData.photoUrl) || chatPhotos[jid];
+  if (!hasPhoto && activeSessionId) {
+    waFetch("/api/contacts/" + activeSessionId + "/enqueue-photos", {
+      method: "POST",
+      body: { jids: [jid] },
+    }).catch(function() {});
+  }
+
   // Show UI
   document.getElementById("emptyState").style.display = "none";
   document.getElementById("msgHeader").classList.add("show");
@@ -1312,8 +1359,7 @@ function openChat(jid, name) {
   document.getElementById("msgInputArea").classList.add("show");
 
   // Header — use photo if available
-  var chatData = chats.find(function(c) { return c.chatJid === jid; });
-  var photo = (chatData && chatData.photoUrl) || chatPhotos[jid];
+  var photo = hasPhoto;
   var avatarEl = document.getElementById("msgAvatar");
   avatarEl.style.background = getAvatarColor(name);
   if (photo) {

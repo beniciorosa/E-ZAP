@@ -627,14 +627,23 @@ function startSyncPolling() {
   }, SYNC_POLL_INTERVAL_MS);
 }
 
+function updatePhotoWorkerButtonUI() {
+  var btn = document.getElementById("syncToggleBtn");
+  if (!btn) return;
+  btn.textContent = _globalPhotoWorkerPaused ? "▶ Ativar fotos" : "⏸ Pausar fotos";
+  btn.style.borderColor = _globalPhotoWorkerPaused ? "var(--warn)" : "";
+  btn.style.color = _globalPhotoWorkerPaused ? "var(--warn)" : "";
+}
+
 function refreshGlobalPhotoWorkerStatus() {
   waFetch("/api/sync/photo-worker/status").then(function(data) {
-    _globalPhotoWorkerPaused = !!(data && data.globalPaused);
-    var btn = document.getElementById("syncToggleBtn");
-    if (btn) {
-      btn.textContent = _globalPhotoWorkerPaused ? "▶ Ativar fotos" : "⏸ Pausar fotos";
-      btn.style.borderColor = _globalPhotoWorkerPaused ? "var(--warn)" : "";
-      btn.style.color = _globalPhotoWorkerPaused ? "var(--warn)" : "";
+    // Defensive: only trust the response if it has the expected shape.
+    // A missing globalPaused field usually means the request was caught by
+    // a different route (was the /:sessionId/status bug) — don't let that
+    // silently flip the UI back to "not paused".
+    if (data && typeof data.globalPaused === "boolean") {
+      _globalPhotoWorkerPaused = data.globalPaused;
+      updatePhotoWorkerButtonUI();
     }
   }).catch(function() {});
 }
@@ -642,8 +651,15 @@ function refreshGlobalPhotoWorkerStatus() {
 function togglePhotoWorkerGlobal() {
   var endpoint = _globalPhotoWorkerPaused ? "/api/sync/photo-worker/resume" : "/api/sync/photo-worker/pause";
   waFetch(endpoint, "POST").then(function(data) {
-    _globalPhotoWorkerPaused = !!(data && data.globalPaused);
-    refreshGlobalPhotoWorkerStatus();
+    // Update state + UI directly from the POST response — no round-trip GET.
+    // The POST response is authoritative since the handler mutates the flag
+    // before responding.
+    if (data && typeof data.globalPaused === "boolean") {
+      _globalPhotoWorkerPaused = data.globalPaused;
+    } else {
+      _globalPhotoWorkerPaused = !_globalPhotoWorkerPaused; // optimistic fallback
+    }
+    updatePhotoWorkerButtonUI();
     showToast(_globalPhotoWorkerPaused ? "Photo-worker pausado globalmente" : "Photo-worker ativado", "ok");
   }).catch(function(e) {
     showToast("Erro ao alternar: " + e.message, "error");

@@ -4,6 +4,29 @@ const router = express.Router();
 const { supaCount } = require("../services/supabase");
 const photoWorker = require("../services/photo-worker");
 
+// ===== Photo-worker global control =====
+// IMPORTANT: literal paths must be registered BEFORE the /:sessionId/status
+// wildcard below — otherwise Express routes /photo-worker/status to the
+// parametrized handler with sessionId="photo-worker", which swallows the
+// response and breaks the UI toggle. Order matters here.
+
+// GET /api/sync/photo-worker/status — { globalPaused: bool }
+router.get("/photo-worker/status", (req, res) => {
+  res.json({ globalPaused: photoWorker.isGlobalPaused() });
+});
+
+// POST /api/sync/photo-worker/pause — toggle on
+router.post("/photo-worker/pause", (req, res) => {
+  photoWorker.pauseGlobal();
+  res.json({ ok: true, globalPaused: true });
+});
+
+// POST /api/sync/photo-worker/resume — toggle off
+router.post("/photo-worker/resume", (req, res) => {
+  photoWorker.resumeGlobal();
+  res.json({ ok: true, globalPaused: false });
+});
+
 // GET /api/sync/:sessionId/status — Sync dashboard with counters
 // Uses supaCount (HEAD + count=exact + Content-Range) for accurate counts
 // without hitting the PostgREST 1000-row default page cap.
@@ -48,28 +71,6 @@ router.get("/:sessionId/status", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-});
-
-// ===== Photo-worker global control =====
-// Tiny admin-only endpoints used by grupos.html to flip the global kill-switch
-// and read the current state. Persisted to disk inside photo-worker.js so PM2
-// restart preserves the flag.
-
-// GET /api/sync/photo-worker/status — { globalPaused: bool }
-router.get("/photo-worker/status", (req, res) => {
-  res.json({ globalPaused: photoWorker.isGlobalPaused() });
-});
-
-// POST /api/sync/photo-worker/pause — toggle on
-router.post("/photo-worker/pause", (req, res) => {
-  photoWorker.pauseGlobal();
-  res.json({ ok: true, globalPaused: true });
-});
-
-// POST /api/sync/photo-worker/resume — toggle off
-router.post("/photo-worker/resume", (req, res) => {
-  photoWorker.resumeGlobal();
-  res.json({ ok: true, globalPaused: false });
 });
 
 module.exports = router;
