@@ -237,7 +237,12 @@ async function startSession(sessionId, existingCreds = null) {
     }));
     for (let i = 0; i < chatBatch.length; i += 100) {
       try {
-        await supaRest("/rest/v1/wa_chats", "POST", chatBatch.slice(i, i + 100), "resolution=merge-duplicates,return=minimal");
+        await supaRest(
+          "/rest/v1/wa_chats?on_conflict=session_id,chat_jid",
+          "POST",
+          chatBatch.slice(i, i + 100),
+          "resolution=merge-duplicates,return=minimal"
+        );
       } catch(e) {
         console.error("[BAILEYS] chats.upsert save error:", e.message);
       }
@@ -253,8 +258,12 @@ async function startSession(sessionId, existingCreds = null) {
       synced_at: new Date().toISOString(),
     }));
     for (let i = 0; i < contactBatch.length; i += 100) {
-      await supaRest("/rest/v1/wa_contacts", "POST", contactBatch.slice(i, i + 100),
-        "resolution=merge-duplicates,return=minimal").catch(() => {});
+      await supaRest(
+        "/rest/v1/wa_contacts?on_conflict=session_id,contact_jid",
+        "POST",
+        contactBatch.slice(i, i + 100),
+        "resolution=merge-duplicates,return=minimal"
+      ).catch(() => {});
     }
     // No bulk photo enqueue here — photos are fetched lazily when the contact
     // actually sends a message (see handleIncomingMessage). Dumping thousands
@@ -295,7 +304,12 @@ async function startSession(sessionId, existingCreds = null) {
     for (let i = 0; i < batch.length; i += 100) {
       const chunk = batch.slice(i, i + 100);
       try {
-        await supaRest("/rest/v1/wa_contacts", "POST", chunk, "resolution=merge-duplicates,return=minimal");
+        await supaRest(
+          "/rest/v1/wa_contacts?on_conflict=session_id,contact_jid",
+          "POST",
+          chunk,
+          "resolution=merge-duplicates,return=minimal"
+        );
       } catch (e) {
         console.error("[BAILEYS] contacts.upsert batch error:", e.message);
       }
@@ -317,13 +331,18 @@ async function startSession(sessionId, existingCreds = null) {
 
       try {
         // Upsert: insert if not exists, update if exists
-        await supaRest("/rest/v1/wa_contacts", "POST", [{
-          session_id: sessionId,
-          contact_jid: c.id,
-          phone: c.id.split("@")[0].split(":")[0],
-          is_group: c.id.endsWith("@g.us"),
-          ...patch,
-        }], "resolution=merge-duplicates,return=minimal");
+        await supaRest(
+          "/rest/v1/wa_contacts?on_conflict=session_id,contact_jid",
+          "POST",
+          [{
+            session_id: sessionId,
+            contact_jid: c.id,
+            phone: c.id.split("@")[0].split(":")[0],
+            is_group: c.id.endsWith("@g.us"),
+            ...patch,
+          }],
+          "resolution=merge-duplicates,return=minimal"
+        );
       } catch (e) {
         console.error("[BAILEYS] contacts.update error:", e.message);
       }
@@ -378,15 +397,20 @@ async function startSession(sessionId, existingCreds = null) {
       if (action === "add") {
         // Upsert member
         try {
-          await supaRest("/rest/v1/group_members", "POST", [{
-            group_jid: groupJid,
-            member_phone: phone,
-            member_name: "",
-            role: "member",
-            first_seen: now,
-            last_seen: now,
-            left_at: null,
-          }], "resolution=merge-duplicates,return=minimal").catch(() => {});
+          await supaRest(
+            "/rest/v1/group_members?on_conflict=group_jid,member_phone",
+            "POST",
+            [{
+              group_jid: groupJid,
+              member_phone: phone,
+              member_name: "",
+              role: "member",
+              first_seen: now,
+              last_seen: now,
+              left_at: null,
+            }],
+            "resolution=merge-duplicates,return=minimal"
+          ).catch(() => {});
         } catch (e) { /* ignore */ }
 
         // Enqueue photo for new member
@@ -609,14 +633,19 @@ async function startSession(sessionId, existingCreds = null) {
     for (const g of groups) {
       // Upsert into wa_chats
       try {
-        await supaRest("/rest/v1/wa_chats", "POST", [{
-          session_id: sessionId,
-          chat_jid: g.id,
-          chat_name: g.subject || g.id.split("@")[0],
-          is_group: true,
-          participants_count: g.participants ? g.participants.length : 0,
-          synced_at: new Date().toISOString(),
-        }], "resolution=merge-duplicates,return=minimal");
+        await supaRest(
+          "/rest/v1/wa_chats?on_conflict=session_id,chat_jid",
+          "POST",
+          [{
+            session_id: sessionId,
+            chat_jid: g.id,
+            chat_name: g.subject || g.id.split("@")[0],
+            is_group: true,
+            participants_count: g.participants ? g.participants.length : 0,
+            synced_at: new Date().toISOString(),
+          }],
+          "resolution=merge-duplicates,return=minimal"
+        );
       } catch(e) {
         console.error("[BAILEYS] groups.upsert save error:", e.message);
       }
@@ -633,8 +662,12 @@ async function startSession(sessionId, existingCreds = null) {
         }));
         for (let i = 0; i < members.length; i += 100) {
           try {
-            await supaRest("/rest/v1/group_members", "POST", members.slice(i, i + 100),
-              "resolution=merge-duplicates,return=minimal");
+            await supaRest(
+              "/rest/v1/group_members?on_conflict=group_jid,member_phone",
+              "POST",
+              members.slice(i, i + 100),
+              "resolution=merge-duplicates,return=minimal"
+            );
           } catch(e) {}
         }
       }
@@ -774,19 +807,28 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
   const tsSeconds = rawTs ? (typeof rawTs === "object" ? (rawTs.low || rawTs.toNumber?.() || 0) : rawTs) : 0;
   const timestamp = tsSeconds > 0 ? new Date(tsSeconds * 1000).toISOString() : new Date().toISOString();
 
-  // Save to Supabase
-  await supaRest("/rest/v1/wa_messages", "POST", {
-    session_id: sessionId,
-    message_id: msg.key.id,
-    chat_jid: jid,
-    chat_name: chatName,
-    from_me: msg.key.fromMe || false,
-    sender_name: msg.pushName || "",
-    sender_jid: msg.key.participant || jid,
-    body: body,
-    media_type: mediaType,
-    timestamp: timestamp,
-  }, "resolution=merge-duplicates,return=minimal");
+  // Save to Supabase. NOTE: on_conflict=session_id,message_id is REQUIRED
+  // for resolution=merge-duplicates to target the idx_wa_messages_dedup
+  // unique constraint instead of the primary key. Without it, PostgREST
+  // tries a plain INSERT and every duplicate message returns 409, creating
+  // a flood of wasted round-trips that saturates Kong/PostgREST.
+  await supaRest(
+    "/rest/v1/wa_messages?on_conflict=session_id,message_id",
+    "POST",
+    {
+      session_id: sessionId,
+      message_id: msg.key.id,
+      chat_jid: jid,
+      chat_name: chatName,
+      from_me: msg.key.fromMe || false,
+      sender_name: msg.pushName || "",
+      sender_jid: msg.key.participant || jid,
+      body: body,
+      media_type: mediaType,
+      timestamp: timestamp,
+    },
+    "resolution=merge-duplicates,return=minimal"
+  );
 
   // Emit for real-time only (not history sync)
   if (isRealTime) {
@@ -864,18 +906,23 @@ async function sendMessage(sessionId, jid, content) {
   // Save sent message to Supabase
   const textBody = content.text || content.caption || (typeof content === "string" ? content : "");
   try {
-    await supaRest("/rest/v1/wa_messages", "POST", {
-      session_id: sessionId,
-      message_id: sentMsg.key.id,
-      chat_jid: jid,
-      chat_name: chatName,
-      from_me: true,
-      sender_name: "Eu",
-      sender_jid: session.sock.user?.id || "",
-      body: textBody,
-      media_type: content.image ? "image" : null,
-      timestamp: new Date().toISOString(),
-    }, "resolution=merge-duplicates,return=minimal");
+    await supaRest(
+      "/rest/v1/wa_messages?on_conflict=session_id,message_id",
+      "POST",
+      {
+        session_id: sessionId,
+        message_id: sentMsg.key.id,
+        chat_jid: jid,
+        chat_name: chatName,
+        from_me: true,
+        sender_name: "Eu",
+        sender_jid: session.sock.user?.id || "",
+        body: textBody,
+        media_type: content.image ? "image" : null,
+        timestamp: new Date().toISOString(),
+      },
+      "resolution=merge-duplicates,return=minimal"
+    );
   } catch(e) {
     console.error("[BAILEYS] Failed to save sent message:", e.message);
   }
@@ -2295,7 +2342,12 @@ async function processHistorySync(sessionId, msgs, syncedChats) {
     }));
     for (let i = 0; i < chatBatch.length; i += 100) {
       try {
-        await supaRest("/rest/v1/wa_chats", "POST", chatBatch.slice(i, i + 100), "resolution=merge-duplicates,return=minimal");
+        await supaRest(
+          "/rest/v1/wa_chats?on_conflict=session_id,chat_jid",
+          "POST",
+          chatBatch.slice(i, i + 100),
+          "resolution=merge-duplicates,return=minimal"
+        );
       } catch(e) {
         console.error("[BAILEYS] Chat batch save error:", e.message);
       }
@@ -2339,7 +2391,12 @@ async function processHistorySync(sessionId, msgs, syncedChats) {
     }
     for (let i = 0; i < batch.length; i += 200) {
       try {
-        await supaRest("/rest/v1/wa_messages", "POST", batch.slice(i, i + 200), "resolution=merge-duplicates,return=minimal");
+        await supaRest(
+          "/rest/v1/wa_messages?on_conflict=session_id,message_id",
+          "POST",
+          batch.slice(i, i + 200),
+          "resolution=merge-duplicates,return=minimal"
+        );
         saved += batch.slice(i, i + 200).length;
       } catch(e) {
         console.error("[BAILEYS] History batch save error:", e.message);
@@ -2473,8 +2530,12 @@ async function syncGroupMetadata(sessionId, sock) {
 
         for (let i = 0; i < memberBatch.length; i += 100) {
           const chunk = memberBatch.slice(i, i + 100);
-          await supaRest("/rest/v1/group_members", "POST", chunk,
-            "resolution=merge-duplicates,return=minimal").catch(() => {});
+          await supaRest(
+            "/rest/v1/group_members?on_conflict=group_jid,member_phone",
+            "POST",
+            chunk,
+            "resolution=merge-duplicates,return=minimal"
+          ).catch(() => {});
         }
 
         // No bulk photo enqueue for participants — lazy fetch on message arrival
