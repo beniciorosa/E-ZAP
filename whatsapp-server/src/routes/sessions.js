@@ -81,6 +81,23 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// GET /api/sessions/:id/qr-raw — Returns the current QR string (or null).
+// Use as fallback when the admin Socket.io subscription doesn't deliver
+// session:qr events. The caller can render it with any QR generator.
+router.get("/:id/qr-raw", (req, res) => {
+  try {
+    const live = baileys.getSession(req.params.id);
+    if (!live) return res.status(404).json({ error: "Sessão não está ativa em memória" });
+    res.json({
+      sessionId: req.params.id,
+      status: live.status,
+      qr: live.qr || null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // PATCH /api/sessions/:id — Update session (rename, etc.)
 router.patch("/:id", async (req, res) => {
   try {
