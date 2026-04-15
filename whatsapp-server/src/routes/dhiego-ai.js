@@ -6,6 +6,7 @@ const express = require("express");
 const router = express.Router();
 const { supaRest } = require("../services/supabase");
 const { loadConfig, invalidateCache } = require("../services/dhiego-ai/config");
+const { clearStateForUser } = require("../services/dhiego-ai/state");
 
 // ===== Config =====
 
@@ -108,6 +109,23 @@ router.get("/conversations", async (req, res) => {
   }
 });
 
+// GET /api/dhiego-ai/state?userId=...&sessionId=...&chatJid=...
+router.get("/state", async (req, res) => {
+  try {
+    const { userId, sessionId, chatJid } = req.query;
+    if (!userId) return res.status(400).json({ error: "userId obrigatÃ³rio" });
+    let path = "/rest/v1/dhiego_ai_state?user_id=eq." + encodeURIComponent(userId) +
+      "&select=id,session_id,chat_jid,active_task,active_tool,focus_idea_id,state_payload,updated_at,expires_at" +
+      "&order=updated_at.desc&limit=20";
+    if (sessionId) path += "&session_id=eq." + encodeURIComponent(sessionId);
+    if (chatJid) path += "&chat_jid=eq." + encodeURIComponent(chatJid);
+    const rows = await supaRest(path);
+    res.json(rows || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // DELETE /api/dhiego-ai/conversations?userId=... — wipe memory for a user
 // Requires explicit userId to prevent accidental global deletes.
 router.delete("/conversations", async (req, res) => {
@@ -120,6 +138,7 @@ router.delete("/conversations", async (req, res) => {
       null,
       "return=minimal"
     );
+    await clearStateForUser(userId);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

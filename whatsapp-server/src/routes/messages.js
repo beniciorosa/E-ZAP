@@ -11,6 +11,9 @@ router.post("/send", async (req, res) => {
     if (!sessionId) return res.status(400).json({ error: "sessionId é obrigatório" });
     if (!to) return res.status(400).json({ error: "Destinatário (to) é obrigatório" });
     if (!text && !image) return res.status(400).json({ error: "text ou image é obrigatório" });
+    if (baileys.isQuarantined(sessionId)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
 
     const content = image ? { image, caption } : { text };
     await baileys.sendMessage(sessionId, to, content);

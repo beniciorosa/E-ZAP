@@ -16,7 +16,8 @@
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const { loadConfig } = require("./dhiego-ai/config");
 const { routeIntent } = require("./dhiego-ai/router");
-const { loadRecentTurns, saveTurn } = require("./dhiego-ai/history");
+const { loadRecentEntries, saveTurn } = require("./dhiego-ai/history");
+const { loadState, syncStateAfterTurn } = require("./dhiego-ai/state");
 const { transcribeAudio } = require("./dhiego-ai/transcribe");
 const ideasTool = require("./dhiego-ai/tools/ideas");
 const ideasPdfTool = require("./dhiego-ai/tools/ideas-pdf");
@@ -88,6 +89,43 @@ function jidToPhone(jid) {
   return String(jid).split(":")[0].split("@")[0].replace(/\D/g, "");
 }
 
+function normalizePhone(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+async function resolveSenderIdentity(sessionId, senderJid, msg) {
+  const payloadPhone = normalizePhone(
+    msg?.key?.participantPn
+    || msg?.participantPn
+  );
+  if (payloadPhone) {
+    return { phone: payloadPhone, source: "participantPn" };
+  }
+
+  if (senderJid && senderJid.endsWith("@lid")) {
+    const contactRows = await supaRest(
+      "/rest/v1/wa_contacts?session_id=eq." + encodeURIComponent(sessionId) +
+      "&contact_jid=eq." + encodeURIComponent(senderJid) +
+      "&select=linked_jid&limit=1"
+    ).catch(() => []);
+    const linkedPhone = normalizePhone(contactRows?.[0]?.linked_jid || "");
+    if (linkedPhone) {
+      return { phone: linkedPhone, source: "wa_contacts.linked_jid" };
+    }
+
+    const lidRows = await supaRest(
+      "/rest/v1/lid_phone_map?lid=eq." + encodeURIComponent(senderJid) +
+      "&select=phone&limit=1"
+    ).catch(() => []);
+    const mappedPhone = normalizePhone(lidRows?.[0]?.phone || "");
+    if (mappedPhone) {
+      return { phone: mappedPhone, source: "lid_phone_map" };
+    }
+  }
+
+  return { phone: jidToPhone(senderJid), source: "jid" };
+}
+
 async function resolveUserIdForSession(sessionId) {
   const rows = await supaRest(
     "/rest/v1/wa_sessions?id=eq." + encodeURIComponent(sessionId) + "&select=user_id&limit=1"
@@ -130,7 +168,8 @@ async function maybeHandle(sessionId, msg, sock) {
     //     partner or admin to command the bot from a different number).
     const isFromMe = !!msg.key?.fromMe;
     const senderJid = msg.key?.participant || chatJid;
-    const senderPhone = jidToPhone(senderJid);
+    const senderIdentity = await resolveSenderIdentity(sessionId, senderJid, msg);
+    const senderPhone = senderIdentity.phone;
     const isInAllowlist =
       cfg.authorizedPhones && cfg.authorizedPhones.includes(senderPhone);
 
@@ -143,13 +182,29 @@ async function maybeHandle(sessionId, msg, sock) {
       // Incoming from another number — must be explicitly allowed.
       isAllowed = isInAllowlist;
     }
-    if (!isAllowed) return false;
+    if (!isAllowed) {
+      console.log("[DHIEGO.AI] ignoring unauthorized message", {
+        sessionId,
+        chatJid,
+        senderJid,
+        resolvedSenderPhone: senderPhone,
+        resolutionSource: senderIdentity.source,
+        fromMe: isFromMe,
+        isSelfChat,
+      });
+      return false;
+    }
+
+    const replyJid =
+      !isFromMe && chatJid.endsWith("@lid") && senderIdentity.source !== "jid" && senderPhone
+        ? senderPhone + "@s.whatsapp.net"
+        : chatJid;
 
     // Resolve user_id first — all turns must be tagged with it and saveTurn
     // requires a valid userId.
     const userId = await resolveUserIdForSession(sessionId);
     if (!userId) {
-      await sock.sendMessage(chatJid, {
+      await sock.sendMessage(replyJid, {
         text: "⚠️ Sessão DHIEGO.AI não está vinculada a um user_id. Configure no admin.html.",
       });
       return true;
@@ -170,7 +225,7 @@ async function maybeHandle(sessionId, msg, sock) {
 
     if (!text || !text.trim()) {
       if (audioErr) {
-        await sock.sendMessage(chatJid, {
+        await sock.sendMessage(replyJid, {
           text: "⚠️ Não consegui transcrever o áudio: " + audioErr,
         });
         return true;
@@ -185,15 +240,22 @@ async function maybeHandle(sessionId, msg, sock) {
       "text:", text.slice(0, 80)
     );
 
-    // Save the user turn BEFORE routing so the history reflects the
-    // conversation order even if the tool fails below.
-    await saveTurn(ctx, "user", text, wasTranscribed ? "audio" : null);
+    // Load recent history BEFORE saving the current user turn. This keeps
+    // the router focused on prior context and avoids duplicating the same
+    // message inside the freeform tool.
+    const recentHistory = await loadRecentEntries(ctx, 8);
+    const activeState = await loadState(ctx);
+    ctx.activeState = activeState;
 
     // Route the intent
-    const intent = await routeIntent(text).catch(e => {
+    const intent = await routeIntent(text, { history: recentHistory, state: activeState }).catch(e => {
       console.error("[DHIEGO.AI] routeIntent error:", e.message);
       return { tool: "llm-freeform", args: {} };
     });
+
+    // Save the user turn after routing so we can persist the detected intent.
+    ctx.prefetchedHistory = recentHistory;
+    await saveTurn(ctx, "user", text, intent.tool || (wasTranscribed ? "audio" : null));
 
     // Dispatch
     let result;
@@ -207,18 +269,19 @@ async function maybeHandle(sessionId, msg, sock) {
     // Send reply
     let replyText = result && result.reply ? result.reply : "⚠️ Comando não produziu resposta.";
     if (result && result.document) {
-      await sock.sendMessage(chatJid, {
+      await sock.sendMessage(replyJid, {
         document: result.document.buffer,
         fileName: result.document.filename,
         mimetype: result.document.mimetype || "application/pdf",
         caption: result.reply || undefined,
       });
     } else {
-      await sock.sendMessage(chatJid, { text: replyText });
+      await sock.sendMessage(replyJid, { text: replyText });
     }
 
     // Save the assistant turn so the next message has full context.
     await saveTurn(ctx, "assistant", replyText, intent.tool);
+    await syncStateAfterTurn({ ctx, intent, result, currentState: activeState });
     return true;
   } catch (e) {
     console.error("[DHIEGO.AI] maybeHandle fatal:", e);
@@ -242,6 +305,17 @@ async function dispatch(intent, ctx, originalText) {
         status: intent.args?.status || "open",
       });
     }
+    case "ideas-latest": {
+      return ideasTool.latestIdea({
+        userId: ctx.userId,
+      });
+    }
+    case "ideas-show": {
+      return ideasTool.showIdea({
+        userId: ctx.userId,
+        ideaId: intent.args?.ideaId,
+      });
+    }
     case "ideas-complete": {
       return ideasTool.completeIdea({
         userId: ctx.userId,
@@ -252,6 +326,19 @@ async function dispatch(intent, ctx, originalText) {
       return ideasTool.cancelIdea({
         userId: ctx.userId,
         ideaId: intent.args?.ideaId,
+      });
+    }
+    case "ideas-delete": {
+      return ideasTool.deleteIdea({
+        userId: ctx.userId,
+        ideaId: intent.args?.ideaId,
+      });
+    }
+    case "ideas-update": {
+      return ideasTool.updateIdea({
+        userId: ctx.userId,
+        ideaId: intent.args?.ideaId,
+        text: intent.args?.text || "",
       });
     }
     case "ideas-pdf": {

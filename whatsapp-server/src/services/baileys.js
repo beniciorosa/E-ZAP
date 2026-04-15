@@ -33,6 +33,45 @@ function getRateLimitStatus(sessionId) {
   return { hitAt: entry.hitAt, remainingMs: RATE_LIMIT_COOLDOWN_MS - age };
 }
 
+// ===== Session Quarantine =====
+// Puts a session in "airplane mode": blocks IQ-generating handlers and HTTP
+// routes without disconnecting the socket. Used by createGroupsFromList to
+// silence ambient IQ traffic (incoming group message → groupMetadata fetch,
+// participant update → groupMetadata refresh, photo-worker, ezapweb calls)
+// while a delicate groupCreate sequence runs.
+//
+// Persistence is deliberately in-memory: on PM2 restart every session starts
+// fresh (no stuck quarantine), and runtime release is instant.
+const sessionQuarantine = new Map(); // sessionId -> { enteredAt, reason }
+function quarantineSession(sessionId, reason) {
+  if (sessionQuarantine.has(sessionId)) return;
+  sessionQuarantine.set(sessionId, { enteredAt: Date.now(), reason: reason || "manual" });
+  try {
+    const s = sessions.get(sessionId);
+    photoWorker.pauseSession(sessionId, s ? s.sock : null, { reason: reason || "manual" });
+  } catch (_) {}
+  emit("session:quarantine", { sessionId, reason: reason || "manual" });
+  console.warn("[QUARANTINE] " + sessionId + " entered quarantine: " + (reason || "manual"));
+}
+function releaseSession(sessionId) {
+  if (!sessionQuarantine.has(sessionId)) return;
+  sessionQuarantine.delete(sessionId);
+  try {
+    const s = sessions.get(sessionId);
+    photoWorker.resumeSession(sessionId, s ? s.sock : null);
+  } catch (_) {}
+  emit("session:quarantine:release", { sessionId });
+  console.log("[QUARANTINE] " + sessionId + " released");
+}
+function isQuarantined(sessionId) {
+  return sessionQuarantine.has(sessionId);
+}
+function getQuarantineStatus(sessionId) {
+  const q = sessionQuarantine.get(sessionId);
+  if (!q) return null;
+  return { enteredAt: new Date(q.enteredAt).toISOString(), reason: q.reason, durationMs: Date.now() - q.enteredAt };
+}
+
 // Cached WA Web protocol version. Baileys hardcodes a version that goes stale
 // as WhatsApp ships updates — when stale we get code 405 on connect. Refresh
 // from the live endpoint every 6 hours and reuse across sessions.
@@ -62,6 +101,89 @@ function setIO(io) { _io = io; photoWorker.setIO(io); }
 
 function emit(event, data) {
   if (_io) _io.emit(event, data);
+}
+
+function normalizePhone(raw) {
+  return String(raw || "").replace(/\D/g, "");
+}
+
+function extractParticipantPhone(msg) {
+  return normalizePhone(
+    msg?.key?.participantPn
+    || msg?.participantPn
+    || ""
+  );
+}
+
+async function persistLidPhoneMapping(sessionId, lidJid, phone, contactName = "") {
+  const normalizedPhone = normalizePhone(phone);
+  if (!lidJid || !lidJid.endsWith("@lid") || !normalizedPhone) return;
+
+  try {
+    await supaRest(
+      "/rest/v1/lid_phone_map?on_conflict=lid",
+      "POST",
+      {
+        lid: lidJid,
+        phone: normalizedPhone,
+        contact_name: contactName || null,
+        updated_at: new Date().toISOString(),
+      },
+      "resolution=merge-duplicates,return=minimal"
+    );
+  } catch (e) {
+    console.error("[BAILEYS] lid_phone_map upsert error:", e.message);
+  }
+
+  const contactRow = {
+    session_id: sessionId,
+    contact_jid: lidJid,
+    phone: normalizedPhone,
+    is_group: false,
+    synced_at: new Date().toISOString(),
+  };
+  if (contactName) contactRow.push_name = contactName;
+
+  try {
+    await supaRest(
+      "/rest/v1/wa_contacts?on_conflict=session_id,contact_jid",
+      "POST",
+      [contactRow],
+      "resolution=merge-duplicates,return=minimal"
+    );
+  } catch (e) {
+    console.error("[BAILEYS] wa_contacts LID phone upsert error:", e.message);
+  }
+}
+
+async function persistLidLinkedJid(sessionId, lidJid, linkedJid, contactName = "") {
+  if (!lidJid || !lidJid.endsWith("@lid") || !linkedJid) return;
+
+  const linkedPhone = normalizePhone(linkedJid);
+  const contactRow = {
+    session_id: sessionId,
+    contact_jid: lidJid,
+    linked_jid: linkedJid,
+    is_group: false,
+    synced_at: new Date().toISOString(),
+  };
+  if (linkedPhone) contactRow.phone = linkedPhone;
+  if (contactName) contactRow.push_name = contactName;
+
+  try {
+    await supaRest(
+      "/rest/v1/wa_contacts?on_conflict=session_id,contact_jid",
+      "POST",
+      [contactRow],
+      "resolution=merge-duplicates,return=minimal"
+    );
+  } catch (e) {
+    console.error("[BAILEYS] wa_contacts linked_jid upsert error:", e.message);
+  }
+
+  if (linkedPhone) {
+    await persistLidPhoneMapping(sessionId, lidJid, linkedPhone, contactName);
+  }
 }
 
 // ===== Create or reconnect a session =====
@@ -443,16 +565,21 @@ async function startSession(sessionId, existingCreds = null) {
       }
     }
 
-    // Update participants count in wa_chats
-    try {
-      const meta = await sock.groupMetadata(groupJid).catch(() => null);
-      if (meta && meta.participants) {
-        await supaRest(
-          "/rest/v1/wa_chats?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(groupJid),
-          "PATCH", { participants_count: meta.participants.length }, "return=minimal"
-        );
-      }
-    } catch (e) { /* ignore */ }
+    // Update participants count in wa_chats — only when the session isn't in
+    // quarantine. During createGroupsFromList the groupCreate itself triggers
+    // this event for each newly-added participant; the groupMetadata refresh
+    // competes for the WhatsApp IQ budget we're trying to protect.
+    if (!isQuarantined(sessionId)) {
+      try {
+        const meta = await sock.groupMetadata(groupJid).catch(() => null);
+        if (meta && meta.participants) {
+          await supaRest(
+            "/rest/v1/wa_chats?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(groupJid),
+            "PATCH", { participants_count: meta.participants.length }, "return=minimal"
+          );
+        }
+      } catch (e) { /* ignore */ }
+    }
   });
 
   // ===== Chat update — pin, archive, mute, settings changes =====
@@ -681,13 +808,7 @@ async function startSession(sessionId, existingCreds = null) {
   sock.ev.on("chats.phoneNumberShare", async (data) => {
     if (!data || !data.lid || !data.jid) return;
     console.log("[BAILEYS] phoneNumberShare:", data.lid, "->", data.jid, "for", sessionId);
-    // Update wa_contacts to link LID with real JID
-    try {
-      await supaRest(
-        "/rest/v1/wa_contacts?session_id=eq." + sessionId + "&contact_jid=eq." + encodeURIComponent(data.lid),
-        "PATCH", { linked_jid: data.jid }, "return=minimal"
-      );
-    } catch(e) {}
+    await persistLidLinkedJid(sessionId, data.lid, data.jid);
     emit("chats:phoneNumberShare", { sessionId, lid: data.lid, jid: data.jid });
   });
 
@@ -720,6 +841,12 @@ async function startSession(sessionId, existingCreds = null) {
 async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
   const jid = msg.key.remoteJid;
   if (!jid || jid === "status@broadcast") return;
+  const senderJid = msg.key.participant || jid;
+  const participantPhone = extractParticipantPhone(msg);
+
+  if (participantPhone && senderJid.endsWith("@lid")) {
+    persistLidPhoneMapping(sessionId, senderJid, participantPhone, msg.pushName || "").catch(() => {});
+  }
 
   // DHIEGO.AI hook — only active on the configured assistant session. Runs
   // fire-and-forget so the normal message persistence path is never blocked
@@ -766,10 +893,32 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
   let chatName = "";
   try {
     if (jid.endsWith("@g.us")) {
-      // Group: get group subject from Baileys
+      // Group: prefer cached chat_name from wa_chats to avoid a groupMetadata
+      // IQ on every incoming group message. The groups.update / groups.upsert
+      // handlers keep wa_chats.chat_name in sync on subject changes, so the
+      // cache is fresh. Falls back to a live groupMetadata fetch only when
+      // the row doesn't exist AND the session isn't in quarantine. This
+      // previously fired ~dozens of IQs/min on busy business accounts and
+      // was the biggest silent leak into WhatsApp's rate budget during
+      // createGroupsFromList.
       try {
-        const groupMeta = await sock.groupMetadata(jid);
-        chatName = groupMeta?.subject || jid.split("@")[0];
+        const cachedRows = await supaRest(
+          "/rest/v1/wa_chats?session_id=eq." + sessionId +
+          "&chat_jid=eq." + encodeURIComponent(jid) +
+          "&select=chat_name&limit=1"
+        ).catch(() => null);
+        if (cachedRows && cachedRows[0] && cachedRows[0].chat_name) {
+          chatName = cachedRows[0].chat_name;
+        } else if (!isQuarantined(sessionId)) {
+          try {
+            const groupMeta = await sock.groupMetadata(jid);
+            chatName = groupMeta?.subject || jid.split("@")[0];
+          } catch(e) {
+            chatName = jid.split("@")[0];
+          }
+        } else {
+          chatName = jid.split("@")[0];
+        }
       } catch(e) {
         chatName = jid.split("@")[0];
       }
@@ -822,7 +971,7 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
       chat_name: chatName,
       from_me: msg.key.fromMe || false,
       sender_name: msg.pushName || "",
-      sender_jid: msg.key.participant || jid,
+      sender_jid: senderJid,
       body: body,
       media_type: mediaType,
       timestamp: timestamp,
@@ -867,6 +1016,21 @@ async function sendMessage(sessionId, jid, content) {
       }
     } catch(e) {
       console.log("[BAILEYS] LID resolve failed, trying sender_jid from DB...");
+    }
+
+    if (jid.includes("@lid")) {
+      try {
+        const resolved = await resolveLid(sessionId, jid);
+        if (resolved && resolved.jid && !resolved.jid.endsWith("@lid")) {
+          jid = resolved.jid;
+          console.log("[BAILEYS] Resolved from LID registry to:", jid);
+        }
+      } catch (e) {
+        console.log("[BAILEYS] LID registry resolve failed:", e.message);
+      }
+    }
+
+    if (jid.includes("@lid")) {
       // Fallback: get phone from wa_messages (sender_jid from last received message)
       try {
         const msgs = await supaRest("/rest/v1/wa_messages?session_id=eq." + sessionId + "&chat_jid=eq." + encodeURIComponent(jid) + "&from_me=eq.false&order=timestamp.desc&limit=1&select=sender_jid");
@@ -1831,6 +1995,41 @@ async function waitForGroupCreateBudget(sessionId, opts) {
   }
 }
 
+// Phones that must ALWAYS receive the conservative group-creation profile,
+// regardless of what the caller passes in `options`. These accounts have a
+// track record of being flagged by WhatsApp and cannot afford another
+// rate-overlimit trip. Any other session that looks unhealthy at job start
+// (failureStreak ≥ 5 or ≥ 50 recent timeouts) gets the same treatment.
+const CRITICAL_PHONES = new Set(["5519993473149"]); // Escalada Ltda
+
+async function applyCriticalSessionOverrides(sessionId, sock, options) {
+  const rawId = String((sock && sock.user && sock.user.id) || "");
+  const phone = rawId.split(":")[0].split("@")[0].replace(/\D/g, "");
+  const isCritical = CRITICAL_PHONES.has(phone);
+
+  let isFlagged = false;
+  try {
+    const health = photoWorker.getSessionHealth(sessionId);
+    const queueStats = await getQueueFailureStats(sessionId).catch(() => ({ timedOut: 0 }));
+    isFlagged = (health && health.failureStreak >= 5) || ((queueStats && queueStats.timedOut) >= 50);
+  } catch (_) {}
+
+  if (!isCritical && !isFlagged) return options;
+
+  const out = Object.assign({}, options);
+  out.delaySec = Math.max(Number(out.delaySec) || 0, 600); // minimum 10min
+  out.hourlyCap = Math.min(Number(out.hourlyCap) || GROUP_CREATE_HOURLY_CAP, 3);
+  out._leadingDelayMs = 120 * 1000; // 2min leading delay
+  out._criticalMode = true;
+  out._criticalPhone = phone;
+  console.warn(
+    "[BAILEYS] critical session override active: sessionId=" + sessionId +
+    " phone=" + phone + " reason=" + (isCritical ? "critical_phone" : "flagged_health") +
+    " delaySec=" + out.delaySec + " hourlyCap=" + out.hourlyCap + " leading=120s"
+  );
+  return out;
+}
+
 // ===== Bulk group creation from spreadsheet =====
 // specs: [{ specHash, name, description, photoUrl, members:[phoneDigits], lockInfo, welcomeMessage }]
 // Creates each group via sock.groupCreate and then polishes with description,
@@ -1842,6 +2041,11 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     throw new Error("Sessão não conectada: " + sessionId);
   }
   const sock = session.sock;
+
+  // Force the conservative profile on Escalada and any session that smells
+  // flagged. This runs BEFORE we parse delaySec/hourlyCap so the rest of the
+  // function sees the hardened values.
+  options = await applyCriticalSessionOverrides(sessionId, sock, options);
 
   const delaySecRaw = Number(options.delaySec) || 180;
   const baseDelayMs = Math.max(60, Math.min(1800, delaySecRaw)) * 1000; // clamp 60s..30min
@@ -1874,13 +2078,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     throw err;
   }
 
-  // Silence the photo-worker firehose for the duration of this job.
-  // Each session has its own WhatsApp IQ budget — the photo-worker fires a
-  // profilePictureUrl every 15s, which starves groupCreate when the queue is
-  // long (e.g. just after reconnect with ~30k photos to drain). The worker is
-  // resumed in the finally block so normal sync continues after the job.
-  photoWorker.pauseSession(sessionId, sock);
-  console.log("[BAILEYS] create-groups job starting for session", sessionId, "— photo-worker paused");
+  // Enter full quarantine for the duration of the job. This pauses the
+  // photo-worker AND gates every IQ-generating event handler (incoming group
+  // messages stop triggering groupMetadata, participant-update refreshes
+  // are skipped) AND blocks ezapweb/extension HTTP routes that would call
+  // the socket (profile-pic, group-info, list-admin-groups, groups,
+  // add-to-groups, messages/send) — they all return 409 while quarantined.
+  // The finally block decides whether to release based on rate-limit status.
+  quarantineSession(sessionId, "create_groups_job");
+  console.log("[BAILEYS] create-groups job starting for session", sessionId, "— session quarantined (all IQ traffic blocked)");
 
   try {
 
@@ -1894,9 +2100,10 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
     // Leading delay before the FIRST create: give freshly-reconnected sessions
     // breathing room so any residual metadata sync IQs complete before we
-    // start issuing groupCreate. Half of baseDelayMs, capped at 90s.
+    // start issuing groupCreate. Critical sessions override this to a fixed
+    // 120s; normal sessions get baseDelayMs/2 capped at 90s.
     if (i === 0) {
-      const leadMs = Math.min(baseDelayMs / 2, 90 * 1000);
+      const leadMs = options._leadingDelayMs || Math.min(baseDelayMs / 2, 90 * 1000);
       console.log("[BAILEYS] leading delay " + Math.round(leadMs / 1000) + "s before first groupCreate");
       const ok = await waitWithHeartbeat(leadMs, {
         onProgress, shouldCancel, phase: "leading_delay",
@@ -1954,10 +2161,10 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         row.membersAdded = memberJids.length;
       }
 
-      // Force a metadata sync so Signal sessions with the new participants
-      // are established before we try to sendMessage. Without this, the
-      // welcome message fails with "No sessions" on brand-new groups.
-      try { await sock.groupMetadata(row.groupJid); } catch (_) {}
+      // Signal key establishment with the new participants happens inside
+      // baileys automatically after groupCreate returns — the old force
+      // sync via sock.groupMetadata was a redundant IQ competing with our
+      // own rate budget. A plain 4s wait is enough for libsignal to settle.
       await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
 
       // 2. Description
@@ -1997,32 +2204,19 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
       }
 
-      // 5. Welcome message — retry with refreshed metadata if Signal sessions aren't ready yet.
-      // "No sessions" is the error Baileys/libsignal throws when the E2E keys with
-      // new participants haven't been fetched. Refresh metadata and retry once.
+      // 5. Welcome message — single fail-fast attempt. The old 3× retry loop
+      // with groupMetadata refresh in between was burning 3 extra IQs per
+      // group on "No sessions" errors, and Signal keys usually settle on
+      // the first attempt anyway. If welcome fails, note it and move on —
+      // user can resend manually from the ezapweb later.
       if (!rateLimited && spec.welcomeMessage) {
         const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
-        let welcomeErr = null;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            if (attempt > 0) {
-              try { await sock.groupMetadata(row.groupJid); } catch (_) {}
-              await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
-            }
-            await sock.sendMessage(row.groupJid, { text });
-            row.welcomeSent = true;
-            welcomeErr = null;
-            break;
-          } catch (e) {
-            welcomeErr = e;
-            if (isRateLimitError(e)) { rateLimited = true; break; }
-            // Retry on "No sessions" / Signal key errors
-            const msg = (e?.message || "").toLowerCase();
-            if (!msg.includes("no sessions") && !msg.includes("session") && !msg.includes("senderkey")) break;
-          }
-        }
-        if (welcomeErr && !row.welcomeSent) {
-          row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (welcomeErr.message || welcomeErr));
+        try {
+          await sock.sendMessage(row.groupJid, { text });
+          row.welcomeSent = true;
+        } catch (e) {
+          if (isRateLimitError(e)) { rateLimited = true; }
+          row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (e?.message || e));
         }
       }
 
@@ -2087,11 +2281,16 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
   }
 
   } finally {
-    // Always resume the photo-worker, even on rate-limit/cancel/error paths
-    photoWorker.resumeSession(sessionId, sock);
     if (rateLimited) {
       markRateLimit(sessionId);
-      console.warn("[BAILEYS] rateLimitHitAt registered for session", sessionId, "(30min cooldown)");
+      // Keep the session quarantined — photo-worker stays paused, handlers
+      // stay gated, ezapweb routes keep returning 409. This prevents us
+      // from re-probing a flagged number the moment the job aborts. User
+      // must manually release via the grupos.html "▶️ Liberar" button after
+      // the 30min cooldown is clearly past.
+      console.warn("[BAILEYS] rate-limit during job for session " + sessionId + " — quarantine HELD for manual release (30min cooldown registered)");
+    } else {
+      releaseSession(sessionId);
     }
   }
 
@@ -2599,7 +2798,8 @@ async function getGroupInfo(sessionId, groupJid) {
 
 // ===== Resolve LID to contact name/phone =====
 // LID (Linked ID) is WhatsApp's internal identifier, not a phone number.
-// We try to resolve it via: 1) wa_contacts linked_jid, 2) sock.onWhatsApp, 3) contact store
+// We try to resolve it via: 1) wa_contacts linked_jid, 2) lid_phone_map,
+// 3) wa_chats/messages/contact store for a name fallback.
 async function resolveLid(sessionId, lidJid) {
   if (!lidJid || !lidJid.endsWith("@lid")) return null;
   const lid = lidJid.split("@")[0];
@@ -2629,7 +2829,22 @@ async function resolveLid(sessionId, lidJid) {
     }
   } catch(e) {}
 
-  // 2. Check wa_chats for a better name (same session)
+  // 2. Dedicated LID -> phone registry populated from participantPn.
+  try {
+    const lidRows = await supaRest(
+      "/rest/v1/lid_phone_map?lid=eq." + encodeURIComponent(lidJid) +
+      "&select=phone,contact_name&limit=1"
+    );
+    if (lidRows && lidRows[0] && lidRows[0].phone) {
+      return {
+        name: lidRows[0].contact_name || lid,
+        phone: lidRows[0].phone,
+        jid: lidRows[0].phone + "@s.whatsapp.net",
+      };
+    }
+  } catch(e) {}
+
+  // 3. Check wa_chats for a better name (same session)
   try {
     const chatRows = await supaRest(
       "/rest/v1/wa_chats?session_id=eq." + sessionId +
@@ -2641,7 +2856,7 @@ async function resolveLid(sessionId, lidJid) {
     }
   } catch(e) {}
 
-  // 3. Cross-session: check if ANY session has this LID with a name or linked_jid
+  // 4. Cross-session: check if ANY session has this LID with a name or linked_jid
   try {
     const crossRows = await supaRest(
       "/rest/v1/wa_contacts?contact_jid=eq." + encodeURIComponent(lidJid) +
@@ -2653,7 +2868,7 @@ async function resolveLid(sessionId, lidJid) {
     }
   } catch(e) {}
 
-  // 4. Cross-session: check wa_chats in OTHER sessions for same LID
+  // 5. Cross-session: check wa_chats in OTHER sessions for same LID
   try {
     const crossChats = await supaRest(
       "/rest/v1/wa_chats?chat_jid=eq." + encodeURIComponent(lidJid) +
@@ -2665,7 +2880,7 @@ async function resolveLid(sessionId, lidJid) {
     }
   } catch(e) {}
 
-  // 5. Last resort: search incoming messages for this LID to find sender pushName
+  // 6. Last resort: search incoming messages for this LID to find sender pushName
   try {
     const msgRows = await supaRest(
       "/rest/v1/wa_messages?chat_jid=eq." + encodeURIComponent(lidJid) +
@@ -2677,7 +2892,7 @@ async function resolveLid(sessionId, lidJid) {
     }
   } catch(e) {}
 
-  // 6. Try Baileys sock contact store (if connected)
+  // 7. Try Baileys sock contact store (if connected)
   const s = sessions.get(sessionId);
   if (s && s.status === "connected") {
     try {
@@ -2732,4 +2947,8 @@ module.exports = {
   downloadMedia,
   getGroupInfo,
   resolveLid,
+  quarantineSession,
+  releaseSession,
+  isQuarantined,
+  getQuarantineStatus,
 };

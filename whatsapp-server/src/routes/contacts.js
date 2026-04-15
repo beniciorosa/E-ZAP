@@ -62,6 +62,9 @@ router.get("/:sessionId/profile-pic", async (req, res) => {
     const { sessionId } = req.params;
     const { jid } = req.query;
     if (!jid) return res.status(400).json({ error: "jid é obrigatório" });
+    if (baileys.isQuarantined(sessionId)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
 
     const url = await baileys.getProfilePicture(sessionId, jid);
     if (!url) return res.status(404).json({ error: "Sem foto de perfil" });
@@ -85,6 +88,9 @@ router.post("/:sessionId/read", async (req, res) => {
     const { sessionId } = req.params;
     const { chatJid } = req.body;
     if (!chatJid) return res.status(400).json({ error: "chatJid é obrigatório" });
+    if (baileys.isQuarantined(sessionId)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
 
     const ok = await baileys.readChatMessages(sessionId, chatJid);
     res.json({ ok });
@@ -100,6 +106,9 @@ router.get("/:sessionId/group-info", async (req, res) => {
     const { jid } = req.query;
     if (!jid) return res.status(400).json({ error: "jid é obrigatório" });
     if (!jid.endsWith("@g.us")) return res.status(400).json({ error: "JID não é um grupo" });
+    if (baileys.isQuarantined(sessionId)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
 
     const info = await baileys.getGroupInfo(sessionId, jid);
     if (!info) return res.status(404).json({ error: "Grupo não encontrado" });

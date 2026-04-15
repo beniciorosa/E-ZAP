@@ -173,6 +173,9 @@ router.delete("/:id", async (req, res) => {
 // Returns: { ok, count, groups: [{ jid, name, participants }] } sorted by name (pt-BR)
 router.post("/:id/list-admin-groups", async (req, res) => {
   try {
+    if (baileys.isQuarantined(req.params.id)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
     const groups = await baileys.listAdminGroups(req.params.id);
     res.json({ ok: true, count: groups.length, groups });
   } catch (e) {
@@ -188,6 +191,9 @@ router.post("/:id/list-admin-groups", async (req, res) => {
 // Otherwise groups come back with memberStatus="unknown".
 router.post("/:id/list-admin-groups-with-membership", async (req, res) => {
   try {
+    if (baileys.isQuarantined(req.params.id)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
     const targetPhone = req.body?.targetPhone || "";
     const result = await baileys.listAdminGroupsWithMembership(req.params.id, targetPhone);
     res.json({
@@ -248,6 +254,9 @@ router.get("/:id/cached-additions", async (req, res) => {
 //   onlyJids?: string[]      — if provided, only process groups whose JID is in this list
 router.post("/:id/add-to-groups", async (req, res) => {
   try {
+    if (baileys.isQuarantined(req.params.id)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
     const { phone } = req.body || {};
     if (!phone) return res.status(400).json({ error: "Campo 'phone' é obrigatório" });
     const skipJids = Array.isArray(req.body?.skipJids) ? req.body.skipJids : [];
@@ -283,6 +292,9 @@ router.post("/:id/add-to-groups", async (req, res) => {
 //   maxCalls?: number     — max groupInviteCode calls in this batch (default 10, max 50)
 router.post("/:id/groups", async (req, res) => {
   try {
+    if (baileys.isQuarantined(req.params.id)) {
+      return res.status(409).json({ error: "Sessão em quarentena — tente novamente após liberar" });
+    }
     const skipJids = Array.isArray(req.body?.skipJids) ? req.body.skipJids : [];
     const maxCalls = Number(req.body?.maxCalls) || 10;
     const data = await baileys.fetchGroupsWithInvites(req.params.id, skipJids, maxCalls);
@@ -299,6 +311,46 @@ router.post("/:id/groups", async (req, res) => {
     });
   } catch (e) {
     console.error("[SESSIONS] Groups error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== Session quarantine (airplane mode) =====
+// Puts a session in "no IQs" state: photo-worker paused, event handlers gated,
+// ezapweb routes return 409. Used before creating groups on flagged numbers,
+// or automatically by createGroupsFromList. Does NOT disconnect the socket —
+// credentials preserved, no re-QR risk.
+
+// POST /api/sessions/:id/quarantine — Manually enter quarantine
+// Body: { reason?: string }
+router.post("/:id/quarantine", (req, res) => {
+  try {
+    const { id } = req.params;
+    const reason = (req.body && req.body.reason) || "manual";
+    baileys.quarantineSession(id, reason);
+    res.json({ ok: true, status: baileys.getQuarantineStatus(id) });
+  } catch (e) {
+    console.error("[SESSIONS] Quarantine enter error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/sessions/:id/quarantine/release — Manually release quarantine
+router.post("/:id/quarantine/release", (req, res) => {
+  try {
+    baileys.releaseSession(req.params.id);
+    res.json({ ok: true, status: baileys.getQuarantineStatus(req.params.id) });
+  } catch (e) {
+    console.error("[SESSIONS] Quarantine release error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/sessions/:id/quarantine — Current quarantine status
+router.get("/:id/quarantine", (req, res) => {
+  try {
+    res.json({ ok: true, status: baileys.getQuarantineStatus(req.params.id) });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });

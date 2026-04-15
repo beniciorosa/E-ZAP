@@ -23,11 +23,29 @@ async function answerFreeform({ text, ctx }) {
     const systemPrompt = (cfg.systemPrompt && cfg.systemPrompt.trim())
       || DEFAULT_SYSTEM_PROMPT;
 
-    // Load the recent history so the assistant has continuity.
-    // The current user turn is NOT yet in the DB (dhiego-ai.js saves it
-    // after this call returns), so we append it explicitly here.
-    const history = ctx ? await loadRecentTurns(ctx) : [];
-    const messages = [...history, { role: "user", content: text.trim() }];
+    // Reuse the router history when available so we do not duplicate the
+    // current user turn after dhiego-ai.js persists it with the detected
+    // intent. Fall back to DB only when the preloaded history is absent.
+    const rawHistory = ctx && Array.isArray(ctx.prefetchedHistory)
+      ? ctx.prefetchedHistory
+      : ctx ? await loadRecentTurns(ctx) : [];
+    const history = rawHistory.map(entry => ({
+      role: entry.role,
+      content: entry.content,
+    })).filter(entry => entry.role && entry.content);
+    const state = ctx && ctx.activeState;
+    const stateSummary = state ? [
+      "Contexto ativo do assistente:",
+      "- tarefa: " + (state.activeTask || "nenhuma"),
+      "- tool: " + (state.activeTool || "nenhuma"),
+      "- ideia em foco: " + (state.focusIdeaId || "nenhuma"),
+      "- payload: " + JSON.stringify(state.payload || {}),
+    ].join("\n") : "";
+    const messages = [
+      ...history,
+      ...(stateSummary ? [{ role: "assistant", content: stateSummary }] : []),
+      { role: "user", content: text.trim() },
+    ];
 
     const resp = await complete({
       system: systemPrompt,

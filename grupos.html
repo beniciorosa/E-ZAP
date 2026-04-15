@@ -583,13 +583,50 @@ function loadSessions() {
         rateLimitHitAt: s.rateLimitHitAt || null,
         rateLimitRemainingMs: s.rateLimitRemainingMs || 0,
         photoWorkerHealth: s.photoWorkerHealth || null,
+        quarantine: null,
       };
     });
-    return _sessions;
+    // Enrich with quarantine status (one parallel call per connected session).
+    // Backward-compat: older backends return 404 on the new endpoint — we
+    // swallow it so the UI still renders.
+    var connected = _sessions.filter(function(s) { return s.status === "connected"; });
+    return Promise.all(connected.map(function(s) {
+      return waFetch("/api/sessions/" + s.id + "/quarantine")
+        .then(function(payload) { s.quarantine = (payload && payload.status) || null; })
+        .catch(function() { s.quarantine = null; });
+    })).then(function() { return _sessions; });
   }).catch(function(e) {
     showToast("Erro ao carregar sessões: " + e.message, "error");
     _sessions = [];
   });
+}
+
+// ===== Quarentena (manual + automática durante createGroupsFromList) =====
+// Quarentena é o "modo avião" da sessão: backend para TUDO que geraria IQ
+// no socket daquela sessão (photo-worker, handlers de mensagem entrante,
+// rotas /profile-pic, /group-info, /list-admin-groups, /groups,
+// /add-to-groups, /messages/send). Credenciais ficam intactas — não requer
+// re-scan de QR. Usado automaticamente durante createGroupsFromList pra
+// impedir vazamento de rate-limit e manualmente pra contas flagged (Escalada).
+function enterQuarantine(sessionId) {
+  var reason = prompt("Motivo da quarentena (ex: prep, incident, manual):", "manual");
+  if (reason === null) return;
+  if (!reason.trim()) reason = "manual";
+  waFetch("/api/sessions/" + sessionId + "/quarantine", "POST", { reason: reason })
+    .then(function() {
+      showToast("Sessão em quarentena: " + reason, "ok");
+      loadSessions().then(function() { refreshSyncStatus(); });
+    })
+    .catch(function(e) { showToast("Erro: " + e.message, "error"); });
+}
+function releaseQuarantine(sessionId) {
+  if (!confirm("Liberar a sessão da quarentena? IQs e rotas do ezapweb voltam a ser permitidos.")) return;
+  waFetch("/api/sessions/" + sessionId + "/quarantine/release", "POST")
+    .then(function() {
+      showToast("Sessão liberada", "ok");
+      loadSessions().then(function() { refreshSyncStatus(); });
+    })
+    .catch(function(e) { showToast("Erro: " + e.message, "error"); });
 }
 
 // ============================================================
@@ -705,6 +742,14 @@ function classifySession(sess, queue) {
   var failed = q.failed || 0;
   var successRate = total > 0 ? (success / total) : 1; // unknown → assume ok
 
+  // Quarantine → highest priority, always red, blocked. Indicates the backend
+  // is silencing this session entirely (ezapweb routes return 409, handlers
+  // skip groupMetadata calls). Set automatically during createGroupsFromList
+  // or manually via the "🚨 Quarentena" button.
+  if (sess.quarantine) {
+    return { dot: "🔴", label: "Quarentena", canCreate: false, reason: "Em quarentena — " + (sess.quarantine.reason || "manual") };
+  }
+
   // Explicit cooldown → always red, blocked
   if (sess.rateLimitHitAt && sess.rateLimitRemainingMs > 0) {
     var mins = Math.ceil(sess.rateLimitRemainingMs / 60000);
@@ -812,6 +857,10 @@ function renderSyncCard(results) {
     if (sess.photoWorkerHealth && sess.photoWorkerHealth.failureStreak > 0) {
       streakBadge = ' <span style="font-size:10px; padding:1px 6px; border-radius:8px; background:rgba(245,158,11,0.15); color:var(--warn)">streak ' + sess.photoWorkerHealth.failureStreak + '</span>';
     }
+    var quarantineBadge = "";
+    if (sess.quarantine) {
+      quarantineBadge = ' <span style="font-size:10px; padding:1px 6px; border-radius:8px; background:rgba(239,68,68,0.15); color:var(--danger); border:1px solid var(--danger)" title="Sessão em quarentena (modo avião)">🚨 quarentena</span>';
+    }
 
     var detailBits = [];
     if (total > 0) detailBits.push(success + "/" + total + " (" + pct + "%)");
@@ -821,10 +870,17 @@ function renderSyncCard(results) {
 
     var reasonLine = cls.reason ? '<div style="font-size:11px; color:var(--muted); margin-top:2px">' + esc(cls.reason) + '</div>' : '';
 
+    var quarBtnHtml = "";
+    if (sess.quarantine) {
+      quarBtnHtml = '<button class="btn-icon btn-secondary" style="font-size:10px; padding:3px 8px; color:var(--ok); border-color:var(--ok)" onclick="releaseQuarantine(\'' + esc(row.id) + '\')">▶️ Liberar</button>';
+    } else {
+      quarBtnHtml = '<button class="btn-icon btn-secondary" style="font-size:10px; padding:3px 8px; color:var(--danger); border-color:var(--danger)" onclick="enterQuarantine(\'' + esc(row.id) + '\')">🚨 Quarentena</button>';
+    }
+
     rowsHtml += '<div style="margin-bottom:14px; padding:10px 12px; background:var(--surface-2); border-radius:8px; border-left:3px solid ' + (cls.dot === '🔴' ? 'var(--danger)' : cls.dot === '🟡' ? 'var(--warn)' : 'var(--ok)') + '">'
       + '<div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; margin-bottom:6px; gap:8px; flex-wrap:wrap">'
-      +   '<span style="font-weight:600">' + cls.dot + ' ' + label + streakBadge + '</span>'
-      +   '<span style="color:var(--muted); display:flex; align-items:center; gap:8px">' + detailBits.join(' · ') + ' ' + canCreateIcon + '</span>'
+      +   '<span style="font-weight:600">' + cls.dot + ' ' + label + streakBadge + quarantineBadge + '</span>'
+      +   '<span style="color:var(--muted); display:flex; align-items:center; gap:8px">' + detailBits.join(' · ') + ' ' + canCreateIcon + ' ' + quarBtnHtml + '</span>'
       + '</div>'
       + '<div class="progress-bar-bg" style="display:flex">'
       +   '<div style="width:' + successW + '%; background:var(--ok); height:100%"></div>'
@@ -1730,6 +1786,20 @@ function onCreateSessionChange() {
   if (submitBtn && _createSpecs.length > 0) submitBtn.disabled = false;
 
   if (!s) return;
+
+  // Priority 0: session in quarantine → block submit (highest priority).
+  // Quarantine is the "airplane mode" — entered automatically during
+  // createGroupsFromList, or manually for flagged accounts. While active,
+  // every IQ-generating path (handlers + ezapweb routes) is silenced.
+  if (s.quarantine) {
+    warnEl.innerHTML = "⛔ <strong>Sessão em quarentena.</strong> Motivo: " + esc(s.quarantine.reason || "manual") + ". Libere manualmente no card de temperatura acima antes de criar grupos.";
+    warnEl.style.background = "rgba(239, 68, 68, 0.12)";
+    warnEl.style.color = "var(--danger)";
+    warnEl.style.border = "1px solid var(--danger)";
+    warnEl.style.display = "block";
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
 
   // Priority 1: rate-limit cooldown → block submit
   if (s.rateLimitHitAt && s.rateLimitRemainingMs > 0) {

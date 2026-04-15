@@ -30,6 +30,24 @@ async function loadRecentTurns(ctx, limit = DEFAULT_LIMIT) {
   }
 }
 
+async function loadRecentEntries(ctx, limit = DEFAULT_LIMIT) {
+  if (!ctx || !ctx.userId || !ctx.sessionId) return [];
+  try {
+    const rows = await supaRest(
+      "/rest/v1/dhiego_conversations" +
+      "?user_id=eq." + encodeURIComponent(ctx.userId) +
+      "&session_id=eq." + encodeURIComponent(ctx.sessionId) +
+      "&select=role,content,intent,created_at" +
+      "&order=created_at.desc" +
+      "&limit=" + limit
+    );
+    return (rows || []).reverse();
+  } catch (e) {
+    console.error("[DHIEGO.AI] loadRecentEntries failed:", e.message);
+    return [];
+  }
+}
+
 // Persists a single turn. Fire-and-forget — logs on error but never throws.
 async function saveTurn(ctx, role, content, intent = null) {
   if (!ctx || !ctx.userId || !ctx.sessionId || !content) return;
@@ -53,4 +71,4 @@ async function saveTurn(ctx, role, content, intent = null) {
   }
 }
 
-module.exports = { loadRecentTurns, saveTurn };
+module.exports = { loadRecentTurns, loadRecentEntries, saveTurn };
