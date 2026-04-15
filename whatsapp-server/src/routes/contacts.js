@@ -110,28 +110,70 @@ router.get("/:sessionId/group-info", async (req, res) => {
 });
 
 // GET /api/contacts/:sessionId/chat-photos — Batch get photo_url for multiple JIDs
+//
+// Source-of-truth strategy: wa_photo_queue status='done' means the file exists
+// at the deterministic Supabase Storage path. We compute the URL from
+// (sessionId, jid) without relying on wa_chats/wa_contacts.photo_url, which
+// can be stale or missing when the original PATCH landed on a row that didn't
+// exist yet. Falls back to merging whatever photo_url is present in
+// wa_chats/wa_contacts too, so legacy rows still work.
 router.get("/:sessionId/chat-photos", async (req, res) => {
   try {
     const { sessionId } = req.params;
-    // Get photos from wa_chats and wa_contacts
-    const chats = await supaRest(
-      "/rest/v1/wa_chats?session_id=eq." + sessionId +
-      "&photo_url=not.is.null&photo_url=neq." +
-      "&select=chat_jid,photo_url" +
-      "&limit=500"
-    ).catch(() => []);
+    const SUPA_URL = process.env.SUPABASE_URL;
+    const sid = encodeURIComponent(sessionId);
 
-    const contacts = await supaRest(
-      "/rest/v1/wa_contacts?session_id=eq." + sessionId +
-      "&photo_url=not.is.null&photo_url=neq." +
-      "&select=contact_jid,photo_url" +
-      "&limit=500"
-    ).catch(() => []);
+    // Paginate through wa_photo_queue done rows to bypass the 1000-row cap.
+    // Each session has at most a few thousand done photos so 5 chunks is plenty.
+    const queueRows = [];
+    for (let chunk = 0; chunk < 5; chunk++) {
+      const offset = chunk * 1000;
+      const rows = await supaRest(
+        "/rest/v1/wa_photo_queue?session_id=eq." + sid +
+        "&status=eq.done&select=jid&limit=1000&offset=" + offset
+      ).catch(() => []);
+      if (!rows || !rows.length) break;
+      queueRows.push(...rows);
+      if (rows.length < 1000) break;
+    }
 
-    // Merge into a map: jid -> photo_url
     const map = {};
-    (chats || []).forEach(c => { map[c.chat_jid] = c.photo_url; });
-    (contacts || []).forEach(c => { map[c.contact_jid] = c.photo_url; });
+    for (const r of queueRows) {
+      if (!r.jid) continue;
+      // Must mirror the safeName logic in photo-worker.js line 125
+      const safeName = r.jid.replace(/@/g, "_").replace(/:/g, "_") + ".jpg";
+      map[r.jid] = SUPA_URL + "/storage/v1/object/public/profile-photos/" + sessionId + "/" + safeName;
+    }
+
+    // Legacy merge — wa_chats/wa_contacts may have photo_url populated from
+    // previous runs (or from single-contact profile refreshes). Only used
+    // when the queue doesn't already have that jid covered.
+    const fetchChunks = async (baseUrl) => {
+      const out = [];
+      for (let chunk = 0; chunk < 3; chunk++) {
+        const rows = await supaRest(baseUrl + "&limit=1000&offset=" + (chunk * 1000)).catch(() => []);
+        if (!rows || !rows.length) break;
+        out.push(...rows);
+        if (rows.length < 1000) break;
+      }
+      return out;
+    };
+
+    const chats = await fetchChunks(
+      "/rest/v1/wa_chats?session_id=eq." + sid +
+      "&photo_url=not.is.null&select=chat_jid,photo_url"
+    );
+    const contacts = await fetchChunks(
+      "/rest/v1/wa_contacts?session_id=eq." + sid +
+      "&photo_url=not.is.null&select=contact_jid,photo_url"
+    );
+
+    for (const c of chats) {
+      if (c.photo_url && !map[c.chat_jid]) map[c.chat_jid] = c.photo_url;
+    }
+    for (const c of contacts) {
+      if (c.photo_url && !map[c.contact_jid]) map[c.contact_jid] = c.photo_url;
+    }
 
     res.json(map);
   } catch (e) {

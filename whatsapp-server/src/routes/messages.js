@@ -49,20 +49,24 @@ router.get("/:sessionId/chats", async (req, res) => {
 
     const { archived: showArchived } = req.query;
 
-    // 1. Get synced chats from wa_chats table (from history sync)
-    let chatFilter = "&order=last_message_timestamp.desc.nullslast&limit=500";
-    if (showArchived === "true") {
-      chatFilter = "&archived=eq.true" + chatFilter;
-    } else if (showArchived === "false") {
-      chatFilter = "&archived=eq.false" + chatFilter;
-    }
-    // If no archived param, return all chats
+    // 1. Get synced chats from wa_chats table (from history sync).
+    // Paginate to bypass Supabase PostgREST's default 1000-row cap — heavy
+    // sessions (CX, Escalada, Follow Up) have 900-1800 chats.
+    let archFilter = "";
+    if (showArchived === "true") archFilter = "&archived=eq.true";
+    else if (showArchived === "false") archFilter = "&archived=eq.false";
 
-    const syncedChats = await supaRest(
-      "/rest/v1/wa_chats?session_id=eq." + sessionId +
-      "&select=chat_jid,chat_name,unread_count,is_group,last_message_timestamp,pinned,archived,photo_url,description,participants_count,is_read_only" +
-      chatFilter
-    ).catch(() => []);
+    const syncedChats = [];
+    for (let chunk = 0; chunk < 5; chunk++) {
+      const rows = await supaRest(
+        "/rest/v1/wa_chats?session_id=eq." + sessionId + archFilter +
+        "&select=chat_jid,chat_name,unread_count,is_group,last_message_timestamp,pinned,archived,photo_url,description,participants_count,is_read_only" +
+        "&order=last_message_timestamp.desc.nullslast&limit=1000&offset=" + (chunk * 1000)
+      ).catch(() => []);
+      if (!rows || !rows.length) break;
+      syncedChats.push(...rows);
+      if (rows.length < 1000) break;
+    }
 
     // 2. Get latest message per chat from wa_messages
     const messages = await supaRest(
@@ -187,6 +191,29 @@ router.get("/:sessionId/chats", async (req, res) => {
         });
       } catch(e) {}
     }
+
+    // Backfill photoUrl from wa_photo_queue done rows — these are the source of
+    // truth for what's actually in Supabase Storage. Each done row maps to a
+    // deterministic public URL that we can compute without a DB PATCH.
+    try {
+      const SUPA_URL = process.env.SUPABASE_URL;
+      const queueDone = [];
+      for (let chunk = 0; chunk < 5; chunk++) {
+        const rows = await supaRest(
+          "/rest/v1/wa_photo_queue?session_id=eq." + sessionId +
+          "&status=eq.done&select=jid&limit=1000&offset=" + (chunk * 1000)
+        ).catch(() => []);
+        if (!rows || !rows.length) break;
+        queueDone.push(...rows);
+        if (rows.length < 1000) break;
+      }
+      for (const r of queueDone) {
+        if (!r.jid || !chatMap[r.jid]) continue;
+        if (chatMap[r.jid].photoUrl) continue; // already populated from wa_chats
+        const safeName = r.jid.replace(/@/g, "_").replace(/:/g, "_") + ".jpg";
+        chatMap[r.jid].photoUrl = SUPA_URL + "/storage/v1/object/public/profile-photos/" + sessionId + "/" + safeName;
+      }
+    } catch (_) {}
 
     // Sort: pinned first, then by timestamp desc
     const result = Object.values(chatMap).sort((a, b) => {
