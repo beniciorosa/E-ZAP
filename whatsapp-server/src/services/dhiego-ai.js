@@ -6,21 +6,26 @@
 //   2. Is the message on the configured assistant session?
 //   3. Is the sender authorized (fromMe OR phone in allowlist)?
 //
-// If all yes → extract text → route → execute tool → reply via sock.sendMessage.
+// If all yes → extract text (transcribe audio if needed) → save user turn →
+// route → execute tool → save assistant turn → reply via sock.sendMessage.
 // If any no → silently ignore (return false so baileys continues normal flow).
 //
-// This function is idempotent: baileys.js already persists every message to
-// wa_messages. Nothing here writes to wa_messages.
+// Persistent memory lives in dhiego_conversations; every turn (user +
+// assistant) is stored so the freeform LLM can load recent context.
 
+const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const { loadConfig } = require("./dhiego-ai/config");
 const { routeIntent } = require("./dhiego-ai/router");
+const { loadRecentTurns, saveTurn } = require("./dhiego-ai/history");
+const { transcribeAudio } = require("./dhiego-ai/transcribe");
 const ideasTool = require("./dhiego-ai/tools/ideas");
 const ideasPdfTool = require("./dhiego-ai/tools/ideas-pdf");
 const freeformTool = require("./dhiego-ai/tools/llm-freeform");
 const { supaRest } = require("./supabase");
 
 // Extracts plain text from a Baileys message. Returns empty string if the
-// message has no readable text (stickers, media without caption, etc).
+// message is audio-only or has no readable content — audio is handled
+// separately via extractTextOrTranscribe.
 function extractText(msg) {
   const m = msg.message || {};
   return m.conversation
@@ -28,6 +33,36 @@ function extractText(msg) {
     || m.imageMessage?.caption
     || m.videoMessage?.caption
     || "";
+}
+
+// Returns { text, wasTranscribed }. Text priority:
+// 1. Normal text (conversation, extendedText, captions)
+// 2. Audio → download + Whisper transcription
+// 3. Empty string if neither
+async function extractTextOrTranscribe(msg, sock) {
+  const plain = extractText(msg);
+  if (plain && plain.trim()) return { text: plain, wasTranscribed: false };
+
+  const m = msg.message || {};
+  const audio = m.audioMessage;
+  if (!audio) return { text: "", wasTranscribed: false };
+
+  console.log("[DHIEGO.AI] Received audio message — downloading + transcribing");
+  try {
+    const buffer = await downloadMediaMessage(
+      msg,
+      "buffer",
+      {},
+      { reuploadRequest: sock.updateMediaMessage }
+    );
+    const mimetype = audio.mimetype || "audio/ogg";
+    const transcribed = await transcribeAudio(buffer, mimetype);
+    console.log("[DHIEGO.AI] Transcription:", transcribed.slice(0, 120));
+    return { text: transcribed, wasTranscribed: true };
+  } catch (e) {
+    console.error("[DHIEGO.AI] audio transcription failed:", e.message);
+    return { text: "", wasTranscribed: false, error: e.message };
+  }
 }
 
 // Normalizes a JID to a bare phone string (digits only), matching how the
@@ -63,24 +98,10 @@ async function maybeHandle(sessionId, msg, sock) {
       || (cfg.authorizedPhones && cfg.authorizedPhones.includes(senderPhone));
     if (!isAllowed) return false;
 
-    // Must have readable text (Phase 1 — audio in Phase 2)
-    const text = extractText(msg);
-    if (!text || !text.trim()) {
-      console.log("[DHIEGO.AI] ignoring empty/non-text message from", senderPhone);
-      return false;
-    }
-
-    console.log("[DHIEGO.AI] Processing message from", senderPhone, "text:", text.slice(0, 80));
-
-    // Route the intent
-    const intent = await routeIntent(text).catch(e => {
-      console.error("[DHIEGO.AI] routeIntent error:", e.message);
-      return { tool: "llm-freeform", args: {} };
-    });
-
-    // Need user_id for the ideas tools (they're per-user)
+    // Resolve user_id first — all turns must be tagged with it and saveTurn
+    // requires a valid userId.
     const userId = await resolveUserIdForSession(sessionId);
-    if (!userId && intent.tool.startsWith("ideas-")) {
+    if (!userId) {
       await sock.sendMessage(chatJid, {
         text: "⚠️ Sessão DHIEGO.AI não está vinculada a um user_id. Configure no admin.html.",
       });
@@ -90,9 +111,42 @@ async function maybeHandle(sessionId, msg, sock) {
     const ctx = {
       userId,
       sessionId,
+      chatJid,
       sourceMessageId: msg.key?.id || null,
       sourcePhone: senderPhone,
     };
+
+    // Extract text (or transcribe audio). If we still have nothing, tell the
+    // user we need text or a voice note.
+    const { text, wasTranscribed, error: audioErr } =
+      await extractTextOrTranscribe(msg, sock);
+
+    if (!text || !text.trim()) {
+      if (audioErr) {
+        await sock.sendMessage(chatJid, {
+          text: "⚠️ Não consegui transcrever o áudio: " + audioErr,
+        });
+        return true;
+      }
+      console.log("[DHIEGO.AI] ignoring empty/non-text message from", senderPhone);
+      return false;
+    }
+
+    console.log(
+      "[DHIEGO.AI] Processing message from", senderPhone,
+      wasTranscribed ? "(transcribed) " : "",
+      "text:", text.slice(0, 80)
+    );
+
+    // Save the user turn BEFORE routing so the history reflects the
+    // conversation order even if the tool fails below.
+    await saveTurn(ctx, "user", text, wasTranscribed ? "audio" : null);
+
+    // Route the intent
+    const intent = await routeIntent(text).catch(e => {
+      console.error("[DHIEGO.AI] routeIntent error:", e.message);
+      return { tool: "llm-freeform", args: {} };
+    });
 
     // Dispatch
     let result;
@@ -104,19 +158,20 @@ async function maybeHandle(sessionId, msg, sock) {
     }
 
     // Send reply
+    let replyText = result && result.reply ? result.reply : "⚠️ Comando não produziu resposta.";
     if (result && result.document) {
-      // PDF / file attachment
       await sock.sendMessage(chatJid, {
         document: result.document.buffer,
         fileName: result.document.filename,
         mimetype: result.document.mimetype || "application/pdf",
         caption: result.reply || undefined,
       });
-    } else if (result && result.reply) {
-      await sock.sendMessage(chatJid, { text: result.reply });
     } else {
-      await sock.sendMessage(chatJid, { text: "⚠️ Comando não produziu resposta." });
+      await sock.sendMessage(chatJid, { text: replyText });
     }
+
+    // Save the assistant turn so the next message has full context.
+    await saveTurn(ctx, "assistant", replyText, intent.tool);
     return true;
   } catch (e) {
     console.error("[DHIEGO.AI] maybeHandle fatal:", e);
@@ -165,7 +220,7 @@ async function dispatch(intent, ctx, originalText) {
     }
     case "llm-freeform":
     default: {
-      return freeformTool.answerFreeform({ text: originalText });
+      return freeformTool.answerFreeform({ text: originalText, ctx });
     }
   }
 }

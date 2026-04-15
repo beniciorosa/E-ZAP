@@ -1998,6 +1998,23 @@
 
       <div class="settings-card" style="margin-top:16px">
         <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(249,115,22,0.1)"><span>📜</span></div>
+          <div>
+            <div class="settings-card-title">Contexto e regras globais</div>
+            <div class="settings-card-desc">System prompt injetado em TODAS as respostas do assistente. Escreva como um CLAUDE.md — quem você é, o que sabe sobre o Dhiego, tom, regras do que pode e não pode.</div>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <textarea id="dhiegoAiSystemPrompt" rows="14" placeholder="Exemplo:&#10;Você é o assistente pessoal do Dhiego Rosa.&#10;&#10;## Sobre ele&#10;- Dono da Escalada Ltda, vende imóveis&#10;- Fala em português brasileiro, direto e informal&#10;&#10;## Regras&#10;- Respostas curtas (máx 4 parágrafos)&#10;- Nunca invente dados que não tiver" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:ui-monospace,Menlo,monospace;font-size:13px;resize:vertical"></textarea>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+            <button class="btn-secondary" onclick="saveDhiegoAiSystemPrompt()">💾 Salvar contexto</button>
+            <span id="dhiegoAiSystemPromptStatus" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:16px">
+        <div class="settings-card-header">
           <div class="settings-card-icon" style="background:rgba(34,197,94,0.1)"><span>💡</span></div>
           <div>
             <div class="settings-card-title">Backlog de ideias</div>
@@ -2012,6 +2029,24 @@
             <button class="btn-secondary" onclick="loadDhiegoAiIdeas(_dhiegoAiIdeasFilter)" style="margin-left:auto">🔄 Atualizar</button>
           </div>
           <div id="dhiegoAiIdeasList" style="max-height:500px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <div class="settings-card" style="margin-top:16px">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:rgba(59,130,246,0.1)"><span>💬</span></div>
+          <div>
+            <div class="settings-card-title">Histórico de conversas</div>
+            <div class="settings-card-desc">Últimas mensagens trocadas com o assistente. Serve tanto pra auditar quanto pra ver o que ele "lembra".</div>
+          </div>
+        </div>
+        <div class="settings-card-body">
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+            <button class="btn-secondary" onclick="loadDhiegoAiConversations()">🔄 Atualizar</button>
+            <button class="btn-secondary" onclick="clearDhiegoAiConversations()" style="color:#ef4444">🗑️ Limpar memória</button>
+            <span id="dhiegoAiConvStatus" style="font-size:12px;color:var(--muted);margin-left:auto"></span>
+          </div>
+          <div id="dhiegoAiConvList" style="max-height:500px;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
         </div>
       </div>
     </div>
@@ -6646,8 +6681,8 @@ function loadDhiegoAi() {
     _dhiegoAiConfig = results[0] || {};
     var sessions = results[1] || [];
     renderDhiegoAiConfig(_dhiegoAiConfig, sessions);
-    // Load ideas for Dhiego user
     loadDhiegoAiIdeas("open");
+    loadDhiegoAiConversations();
   }).catch(function(e) {
     console.error("[DHIEGO.AI] load error:", e);
   });
@@ -6673,11 +6708,21 @@ function renderDhiegoAiConfig(cfg, sessions) {
 
   modelSelect.value = cfg.llmModel || "claude-haiku-4-5-20251001";
 
-  keyStatus.innerHTML = cfg.hasClaudeKey
-    ? '<span style="color:#22c55e">● Chave Claude configurada</span>'
-    : '<span style="color:#ef4444">● Chave Claude ausente</span>';
+  var claudeOk = cfg.hasClaudeKey
+    ? '<span style="color:#22c55e">● Claude</span>'
+    : '<span style="color:#ef4444">● Claude ausente</span>';
+  var openaiOk = cfg.hasOpenaiKey
+    ? '<span style="color:#22c55e">● Whisper</span>'
+    : '<span style="color:#ef4444">● Whisper ausente</span>';
+  keyStatus.innerHTML = claudeOk + " &nbsp; " + openaiOk;
 
   renderDhiegoAiPhones(cfg.authorizedPhones || []);
+
+  // Populate the system prompt textarea (CLAUDE.md-style global context)
+  var promptEl = document.getElementById("dhiegoAiSystemPrompt");
+  if (promptEl && typeof cfg.systemPrompt === "string") {
+    promptEl.value = cfg.systemPrompt;
+  }
 }
 
 function renderDhiegoAiPhones(phones) {
@@ -6718,18 +6763,95 @@ function saveDhiegoAiConfig(patch) {
   }).then(function(data) {
     if (data && data.config) {
       _dhiegoAiConfig = data.config;
-      // Refresh just the phones + key status (no need to re-fetch sessions)
       var keyStatus = document.getElementById("dhiegoAiKeyStatus");
       if (keyStatus) {
-        keyStatus.innerHTML = _dhiegoAiConfig.hasClaudeKey
-          ? '<span style="color:#22c55e">● Chave Claude configurada</span>'
-          : '<span style="color:#ef4444">● Chave Claude ausente</span>';
+        var claudeOk = _dhiegoAiConfig.hasClaudeKey
+          ? '<span style="color:#22c55e">● Claude</span>'
+          : '<span style="color:#ef4444">● Claude ausente</span>';
+        var openaiOk = _dhiegoAiConfig.hasOpenaiKey
+          ? '<span style="color:#22c55e">● Whisper</span>'
+          : '<span style="color:#ef4444">● Whisper ausente</span>';
+        keyStatus.innerHTML = claudeOk + " &nbsp; " + openaiOk;
       }
       renderDhiegoAiPhones(_dhiegoAiConfig.authorizedPhones || []);
     }
   }).catch(function(e) {
     alert("Erro ao salvar config DHIEGO.AI: " + e.message);
   });
+}
+
+// ===== System prompt (CLAUDE.md-style global context) =====
+function saveDhiegoAiSystemPrompt() {
+  var el = document.getElementById("dhiegoAiSystemPrompt");
+  var statusEl = document.getElementById("dhiegoAiSystemPromptStatus");
+  if (!el) return;
+  var value = el.value || "";
+  if (statusEl) statusEl.textContent = "Salvando...";
+  waFetch("/api/dhiego-ai/config", {
+    method: "PATCH",
+    body: JSON.stringify({ systemPrompt: value }),
+  }).then(function(data) {
+    if (data && data.config) _dhiegoAiConfig = data.config;
+    if (statusEl) {
+      statusEl.textContent = "✓ Salvo " + new Date().toLocaleTimeString("pt-BR");
+      statusEl.style.color = "#22c55e";
+      setTimeout(function() {
+        if (statusEl) { statusEl.textContent = ""; statusEl.style.color = ""; }
+      }, 4000);
+    }
+  }).catch(function(e) {
+    if (statusEl) {
+      statusEl.textContent = "Erro: " + e.message;
+      statusEl.style.color = "#ef4444";
+    }
+  });
+}
+
+// ===== Conversations history viewer =====
+function _dhiegoAiUserId() {
+  return (currentAdmin && currentAdmin.user_id) || "58db56f3-f84e-43b2-bbb2-17af8f52b9b8";
+}
+
+function loadDhiegoAiConversations() {
+  var listEl = document.getElementById("dhiegoAiConvList");
+  var statusEl = document.getElementById("dhiegoAiConvStatus");
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Carregando...</div>';
+  waFetch("/api/dhiego-ai/conversations?userId=" + _dhiegoAiUserId() + "&limit=100")
+    .then(function(rows) {
+      if (!rows || rows.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Sem histórico ainda. Manda uma mensagem pro assistente pra começar.</div>';
+        if (statusEl) statusEl.textContent = "";
+        return;
+      }
+      if (statusEl) statusEl.textContent = rows.length + " mensagens";
+      // API returns DESC (newest first). Reverse to show chronological so
+      // the reader flows top→bottom like a chat.
+      var ordered = rows.slice().reverse();
+      listEl.innerHTML = ordered.map(function(r) {
+        var isUser = r.role === "user";
+        var bg = isUser ? "rgba(99,102,241,0.08)" : "rgba(34,197,94,0.08)";
+        var border = isUser ? "#6366f1" : "#22c55e";
+        var who = isUser ? ("👤 " + esc(r.sender_phone || "user")) : "🤖 DHIEGO.AI";
+        var dt = r.created_at ? new Date(r.created_at).toLocaleString("pt-BR") : "";
+        var intent = r.intent ? ' · <span style="color:var(--muted)">' + esc(r.intent) + '</span>' : "";
+        return '<div style="padding:10px 12px;background:' + bg + ';border-left:3px solid ' + border + ';border-radius:6px">'
+          + '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">' + who + ' · ' + dt + intent + '</div>'
+          + '<div style="font-size:13px;white-space:pre-wrap;word-break:break-word">' + esc(r.content) + '</div>'
+          + '</div>';
+      }).join("");
+      // Scroll to bottom (latest message)
+      listEl.scrollTop = listEl.scrollHeight;
+    }).catch(function(e) {
+      listEl.innerHTML = '<div style="color:var(--danger);padding:20px">Erro: ' + esc(e.message) + '</div>';
+    });
+}
+
+function clearDhiegoAiConversations() {
+  if (!confirm("Apagar TODO o histórico de conversas do DHIEGO.AI? Isso não pode ser desfeito — o assistente perde a memória.")) return;
+  waFetch("/api/dhiego-ai/conversations?userId=" + _dhiegoAiUserId(), { method: "DELETE" })
+    .then(function() { loadDhiegoAiConversations(); })
+    .catch(function(e) { alert("Erro: " + e.message); });
 }
 
 function loadDhiegoAiIdeas(status) {

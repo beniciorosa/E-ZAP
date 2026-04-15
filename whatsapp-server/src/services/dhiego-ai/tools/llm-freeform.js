@@ -1,33 +1,43 @@
 // ===== DHIEGO.AI — Freeform LLM tool =====
-// Fallback when the router doesn't match a specific tool. Sends the user's
-// message to Claude with a short system prompt and returns the reply as text.
-//
-// Kept intentionally simple — no conversation history yet (Phase 4 idea).
-// Each invocation is stateless.
+// Fallback when the router doesn't match a specific tool. Loads recent
+// conversation history + the admin-editable system prompt, sends everything
+// to Claude, and returns the reply as text.
 
 const { complete } = require("../llm");
+const { loadConfig } = require("../config");
+const { loadRecentTurns } = require("../history");
 
-const SYSTEM_PROMPT = `Você é o DHIEGO.AI, um assistente pessoal do Dhiego rodando dentro do WhatsApp dele.
+const DEFAULT_SYSTEM_PROMPT = `Você é o DHIEGO.AI, um assistente pessoal do Dhiego rodando dentro do WhatsApp dele.
 Responda de forma direta, curta e útil — como se fosse uma conversa no WhatsApp.
 Use no máximo 3-4 parágrafos e prefira listas curtas quando fizer sentido.
 NUNCA invente dados pessoais, contas ou números que você não tenha. Se não souber, diz que não sabe.
 Idioma: português brasileiro.`;
 
-async function answerFreeform({ text }) {
+async function answerFreeform({ text, ctx }) {
   if (!text || !text.trim()) {
     return { ok: false, reply: "❌ Preciso de uma pergunta ou comando." };
   }
 
   try {
+    const cfg = await loadConfig();
+    const systemPrompt = (cfg.systemPrompt && cfg.systemPrompt.trim())
+      || DEFAULT_SYSTEM_PROMPT;
+
+    // Load the recent history so the assistant has continuity.
+    // The current user turn is NOT yet in the DB (dhiego-ai.js saves it
+    // after this call returns), so we append it explicitly here.
+    const history = ctx ? await loadRecentTurns(ctx) : [];
+    const messages = [...history, { role: "user", content: text.trim() }];
+
     const resp = await complete({
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: text.trim() }],
+      system: systemPrompt,
+      messages,
       maxTokens: 1024,
     });
     return {
       ok: true,
       reply: resp.text || "(resposta vazia do modelo)",
-      meta: { model: resp.model, usage: resp.usage },
+      meta: { model: resp.model, usage: resp.usage, historyLen: history.length },
     };
   } catch (e) {
     console.error("[DHIEGO.AI] llm-freeform error:", e.message);

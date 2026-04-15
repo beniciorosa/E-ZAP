@@ -19,7 +19,9 @@ router.get("/config", async (req, res) => {
       sessionId: cfg.sessionId,
       authorizedPhones: cfg.authorizedPhones,
       llmModel: cfg.llmModel,
+      systemPrompt: cfg.systemPrompt,
       hasClaudeKey: !!cfg.claudeApiKey,
+      hasOpenaiKey: !!cfg.openaiApiKey,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -27,7 +29,7 @@ router.get("/config", async (req, res) => {
 });
 
 // PATCH /api/dhiego-ai/config — update one or more config keys at once
-// Body: { enabled?, sessionId?, authorizedPhones?, llmModel? }
+// Body: { enabled?, sessionId?, authorizedPhones?, llmModel?, systemPrompt? }
 router.patch("/config", async (req, res) => {
   try {
     const body = req.body || {};
@@ -47,6 +49,9 @@ router.patch("/config", async (req, res) => {
     }
     if (typeof body.llmModel === "string" && body.llmModel) {
       updates.push({ key: "dhiego_ai_llm_model", value: body.llmModel });
+    }
+    if (typeof body.systemPrompt === "string") {
+      updates.push({ key: "dhiego_ai_system_prompt", value: body.systemPrompt });
     }
 
     if (updates.length === 0) {
@@ -71,11 +76,52 @@ router.patch("/config", async (req, res) => {
         sessionId: fresh.sessionId,
         authorizedPhones: fresh.authorizedPhones,
         llmModel: fresh.llmModel,
+        systemPrompt: fresh.systemPrompt,
         hasClaudeKey: !!fresh.claudeApiKey,
+        hasOpenaiKey: !!fresh.openaiApiKey,
       },
     });
   } catch (e) {
     console.error("[DHIEGO.AI] config PATCH error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== Conversations (memory) =====
+
+// GET /api/dhiego-ai/conversations?userId=...&limit=50
+// Returns the latest N turns ordered DESC (most recent first) so the admin
+// can scroll back through what the user and the assistant said.
+router.get("/conversations", async (req, res) => {
+  try {
+    const { userId, limit = 50 } = req.query;
+    if (!userId) return res.status(400).json({ error: "userId obrigatório" });
+    const safeLimit = Math.min(parseInt(limit, 10) || 50, 500);
+    const rows = await supaRest(
+      "/rest/v1/dhiego_conversations?user_id=eq." + encodeURIComponent(userId) +
+      "&select=id,session_id,chat_jid,sender_phone,role,content,intent,created_at" +
+      "&order=created_at.desc&limit=" + safeLimit
+    );
+    res.json(rows || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/dhiego-ai/conversations?userId=... — wipe memory for a user
+// Requires explicit userId to prevent accidental global deletes.
+router.delete("/conversations", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: "userId obrigatório" });
+    await supaRest(
+      "/rest/v1/dhiego_conversations?user_id=eq." + encodeURIComponent(userId),
+      "DELETE",
+      null,
+      "return=minimal"
+    );
+    res.json({ ok: true });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });

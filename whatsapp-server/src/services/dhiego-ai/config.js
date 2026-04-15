@@ -16,7 +16,9 @@ const KEYS = [
   "dhiego_ai_session_id",
   "dhiego_ai_authorized_phones",
   "dhiego_ai_llm_model",
+  "dhiego_ai_system_prompt",
   "claude_api_key",
+  "openai_api_key",
 ];
 
 async function loadConfig(force = false) {
@@ -45,7 +47,9 @@ async function loadConfig(force = false) {
     sessionId: bag.dhiego_ai_session_id || "",
     authorizedPhones: authorizedPhones.map(p => String(p).replace(/\D/g, "")),
     llmModel: bag.dhiego_ai_llm_model || "claude-haiku-4-5-20251001",
+    systemPrompt: bag.dhiego_ai_system_prompt || "",
     claudeApiKey: bag.claude_api_key || "",
+    openaiApiKey: bag.openai_api_key || "",
   };
   _cachedAt = now;
   return _cache;
