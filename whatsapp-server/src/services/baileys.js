@@ -1668,6 +1668,26 @@ async function waitWithHeartbeat(totalMs, opts) {
   return true;
 }
 
+// Queue health snapshot: counts recent Timed Out failures in wa_photo_queue
+// for the given session. High counts are a strong signal that the account is
+// silently rate-limited by WhatsApp and ANY IQ-heavy operation will fail.
+async function getQueueFailureStats(sessionId) {
+  const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // last 2h
+  const rows = await supaRest(
+    "/rest/v1/wa_photo_queue?session_id=eq." + encodeURIComponent(sessionId) +
+    "&status=eq.failed" +
+    "&last_attempt_at=gte." + encodeURIComponent(since) +
+    "&select=error&limit=500"
+  ).catch(() => []);
+  const list = Array.isArray(rows) ? rows : [];
+  let timedOut = 0;
+  for (const r of list) {
+    const msg = (r.error || "").toLowerCase();
+    if (msg.includes("timed out") || msg.includes("timeout")) timedOut++;
+  }
+  return { totalFailed: list.length, timedOut };
+}
+
 // Count groupCreations for this session in the last hour. Returns the list so
 // the caller can compute "when does the next slot open" from the oldest row.
 async function fetchRecentGroupCreations(sessionId, windowMs) {
@@ -1759,9 +1779,27 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
   let cancelled = false;
   let processed = 0;
 
+  // Pre-flight: refuse to start if the photo worker just auto-paused due to
+  // cascading timeouts, or the wa_photo_queue shows heavy "Timed Out" activity
+  // in the last 2 hours. Both are strong signals that WhatsApp has the account
+  // on a silent cooldown and any groupCreate will fail with rate-overlimit.
+  const health = photoWorker.getSessionHealth(sessionId);
+  if (health.paused && health.pauseReason === "timeout_cascade") {
+    const remain = health.autoResumeAt ? Math.max(0, new Date(health.autoResumeAt).getTime() - Date.now()) : 0;
+    const err = new Error("Sessão em cooldown de timeout cascade (photo-worker pausado automáticamente). Aguarde ~" + Math.ceil(remain / 60000) + "min.");
+    err.statusCode = 429;
+    throw err;
+  }
+  const queueStats = await getQueueFailureStats(sessionId);
+  if (queueStats.timedOut >= 100) {
+    const err = new Error("Sessão com " + queueStats.timedOut + " timeouts recentes no photo-worker — sinal de rate-limit silencioso do WhatsApp. Aguarde os números esfriarem antes de criar grupos.");
+    err.statusCode = 429;
+    throw err;
+  }
+
   // Silence the photo-worker firehose for the duration of this job.
   // Each session has its own WhatsApp IQ budget — the photo-worker fires a
-  // profilePictureUrl every 8s, which starves groupCreate when the queue is
+  // profilePictureUrl every 15s, which starves groupCreate when the queue is
   // long (e.g. just after reconnect with ~30k photos to drain). The worker is
   // resumed in the finally block so normal sync continues after the job.
   photoWorker.pauseSession(sessionId, sock);
@@ -2589,6 +2627,8 @@ module.exports = {
   getSession,
   getSessionMeta,
   getRateLimitStatus,
+  markRateLimit,
+  getQueueFailureStats,
   reconnectAllSessions,
   fetchGroupsWithInvites,
   addParticipantToAllGroups,

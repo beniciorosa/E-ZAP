@@ -4,22 +4,36 @@
 //
 // ARCHITECTURE: One worker per session, each running independently.
 // Each session has its own WhatsApp rate limit, so parallel is safe.
-// Rate: 1 photo every 8 seconds per session.
-// With 17 sessions: ~7000 photos in ~35 minutes.
+// Rate: 1 photo every 15 seconds per session (conservative after observing
+// cascading "Timed Out" failures from WhatsApp silently rate-limiting the
+// profilePictureUrl IQ after long backlogs).
+//
+// AUTO-PAUSE ON TIMEOUT CASCADE: if a session sees 10 consecutive Timed Out
+// errors, we assume WhatsApp is silently throttling the account and pause
+// this session's worker for 15 minutes (and mark rate-limit in baileys so
+// create-groups jobs see the cooldown too).
 
 const { supaRest } = require("./supabase");
 
-const PHOTO_INTERVAL_MS = 8000; // 1 pic every 8 seconds per session
+const PHOTO_INTERVAL_MS = 15000; // 1 pic every 15 seconds per session
 const MAX_ATTEMPTS = 3;
+const FAILURE_STREAK_PAUSE_THRESHOLD = 10;
+const AUTO_PAUSE_MS = 15 * 60 * 1000; // 15 min pause after cascade detected
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 // Active workers: sessionId -> intervalId
 const activeWorkers = new Map();
-// Paused workers: sessionId -> { sock } — kept so resumeSession can restart without losing state
+// Paused workers: sessionId -> { sock, reason, autoResumeAt } — kept so resumeSession can restart without losing state
 const pausedWorkers = new Map();
+// Per-session consecutive failure counter (reset on any success or no_photo)
+const failureStreaks = new Map();
 // Global stats
 const _stats = { processed: 0, done: 0, noPhoto: 0, failed: 0 };
+
+// Injected by index.js on startup — avoids a require() cycle with baileys.js
+let _markRateLimit = null;
+function setRateLimitMarker(fn) { _markRateLimit = fn; }
 
 // Reference to Socket.io for real-time updates
 let _io = null;
@@ -62,16 +76,21 @@ function stopWorker(sessionId) {
 // Temporarily silence the per-session IQ firehose (profilePictureUrl calls).
 // Used by createGroupsFromList to avoid competing IQ stanzas that starve
 // the WhatsApp rate budget and cause groupCreate to be rate-limited.
+// Also used by the auto-pause-on-timeout-cascade logic.
 // Safe to call even if the worker isn't running.
-function pauseSession(sessionId, sock) {
+function pauseSession(sessionId, sock, meta) {
   if (pausedWorkers.has(sessionId)) return; // already paused
   const id = activeWorkers.get(sessionId);
   if (id) {
     clearInterval(id);
     activeWorkers.delete(sessionId);
   }
-  pausedWorkers.set(sessionId, { sock: sock || null });
-  console.log("[PHOTO-WORKER] Paused for session:", sessionId);
+  pausedWorkers.set(sessionId, {
+    sock: sock || null,
+    reason: (meta && meta.reason) || "manual",
+    autoResumeAt: (meta && meta.autoResumeAt) || null,
+  });
+  console.log("[PHOTO-WORKER] Paused for session:", sessionId, "reason:", (meta && meta.reason) || "manual");
 }
 
 // Resume a previously paused session. No-op if the session isn't paused.
@@ -89,6 +108,18 @@ function resumeSession(sessionId, sock) {
 
 function isPaused(sessionId) {
   return pausedWorkers.has(sessionId);
+}
+
+// Lightweight health snapshot for a session — used by sessions route and
+// createGroupsFromList to decide whether a bulk job is safe right now.
+function getSessionHealth(sessionId) {
+  const paused = pausedWorkers.get(sessionId);
+  return {
+    failureStreak: failureStreaks.get(sessionId) || 0,
+    paused: !!paused,
+    pauseReason: paused ? paused.reason : null,
+    autoResumeAt: paused && paused.autoResumeAt ? new Date(paused.autoResumeAt).toISOString() : null,
+  };
 }
 
 async function processNext(sessionId, sock) {
@@ -138,6 +169,7 @@ async function processNext(sessionId, sock) {
           "return=minimal"
         );
         _stats.noPhoto++;
+        failureStreaks.delete(sessionId);
         return;
       }
       throw e;
@@ -189,6 +221,7 @@ async function processNext(sessionId, sock) {
     );
 
     _stats.done++;
+    failureStreaks.delete(sessionId); // reset consecutive-failure counter on success
 
     // 9. Emit real-time event so UI can update avatar
     if (_io) {
@@ -210,6 +243,33 @@ async function processNext(sessionId, sock) {
     ).catch(() => {});
 
     if (newAttempts >= MAX_ATTEMPTS) _stats.failed++;
+
+    // Failure streak detection — if WhatsApp silently stops responding to
+    // profilePictureUrl (cascade of "Timed Out"), pause this session's worker
+    // for 15 min and mark it as rate-limited so create-groups jobs block too.
+    const msg = (e?.message || "").toLowerCase();
+    const isTimeout = msg.includes("timed out") || msg.includes("timeout");
+    if (isTimeout) {
+      const streak = (failureStreaks.get(sessionId) || 0) + 1;
+      failureStreaks.set(sessionId, streak);
+      if (streak >= FAILURE_STREAK_PAUSE_THRESHOLD) {
+        console.warn("[PHOTO-WORKER] " + streak + " consecutive timeouts on", sessionId, "— auto-pausing for 15min");
+        if (_markRateLimit) {
+          try { _markRateLimit(sessionId); } catch (_) {}
+        }
+        pauseSession(sessionId, sock, {
+          reason: "timeout_cascade",
+          autoResumeAt: Date.now() + AUTO_PAUSE_MS,
+        });
+        setTimeout(() => {
+          if (pausedWorkers.has(sessionId) && pausedWorkers.get(sessionId).reason === "timeout_cascade") {
+            console.log("[PHOTO-WORKER] Auto-resuming", sessionId, "after 15min timeout pause");
+            failureStreaks.delete(sessionId);
+            resumeSession(sessionId);
+          }
+        }, AUTO_PAUSE_MS);
+      }
+    }
   }
 }
 
@@ -234,4 +294,4 @@ async function uploadToStorage(path, buffer) {
   return SUPA_URL + "/storage/v1/object/public/profile-photos/" + path;
 }
 
-module.exports = { setIO, startWorker, stopWorker, pauseSession, resumeSession, isPaused };
+module.exports = { setIO, setRateLimitMarker, startWorker, stopWorker, pauseSession, resumeSession, isPaused, getSessionHealth };

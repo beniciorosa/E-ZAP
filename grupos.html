@@ -579,6 +579,7 @@ function loadSessions() {
         connectedAt: s.connectedAt || null,
         rateLimitHitAt: s.rateLimitHitAt || null,
         rateLimitRemainingMs: s.rateLimitRemainingMs || 0,
+        photoWorkerHealth: s.photoWorkerHealth || null,
       };
     });
     return _sessions;
@@ -641,19 +642,20 @@ function renderSyncCard(results) {
   if (!card || !body || !summary) return;
 
   // Aggregate totals across all sessions
-  var totalPending = 0, totalDone = 0, totalFailed = 0, totalNoPhoto = 0, totalDownloading = 0;
+  var totPending = 0, totDownloading = 0, totDone = 0, totNoPhoto = 0, totFailed = 0;
   results.forEach(function(r) {
     if (!r.data || !r.data.photoQueue) return;
     var q = r.data.photoQueue;
-    totalPending += q.pending || 0;
-    totalDone += q.done || 0;
-    totalFailed += q.failed || 0;
-    totalNoPhoto += q.no_photo || 0;
-    totalDownloading += q.downloading || 0;
+    totPending += q.pending || 0;
+    totDownloading += q.downloading || 0;
+    totDone += q.done || 0;
+    totNoPhoto += q.no_photo || 0;
+    totFailed += q.failed || 0;
   });
-  var totalAll = totalPending + totalDone + totalFailed + totalNoPhoto + totalDownloading;
-  var totalDoneEquiv = totalDone + totalNoPhoto + totalFailed;
-  var allDone = totalAll > 0 && totalPending === 0 && totalDownloading === 0;
+  var totalAll = totPending + totDownloading + totDone + totNoPhoto + totFailed;
+  var totalSuccess = totDone + totNoPhoto; // only "real" successes (downloaded or confirmed absent)
+  var totalActive = totPending + totDownloading;
+  var allQuiet = totalAll > 0 && totalActive === 0;
 
   if (totalAll === 0) {
     card.style.display = "none";
@@ -661,13 +663,18 @@ function renderSyncCard(results) {
   }
   card.style.display = "block";
 
-  // Auto-collapse when everything is done (user can still click to expand)
-  if (allDone && !_syncCardExpanded) {
-    summary.textContent = "✅ Sync completo — " + totalDone + " fotos baixadas";
-  } else {
-    var pct = totalAll > 0 ? Math.round((totalDoneEquiv / totalAll) * 100) : 0;
-    summary.textContent = totalDoneEquiv + "/" + totalAll + " (" + pct + "%) — " + (totalPending + totalDownloading) + " em andamento";
+  // Summary line: real successes, active, and failures separately — no more
+  // lumping failures into "done" which made the old card look like progress.
+  var pctSuccess = totalAll > 0 ? Math.round((totalSuccess / totalAll) * 100) : 0;
+  var summaryBits = [
+    '<span style="color:var(--ok)">✓ ' + totalSuccess + '</span>',
+    '<span style="color:var(--muted)">' + totalActive + ' ativas</span>',
+  ];
+  if (totFailed > 0) {
+    summaryBits.push('<span style="color:var(--danger)">⚠ ' + totFailed + ' falhas</span>');
   }
+  var summaryTag = allQuiet && totFailed === 0 ? "✅ Sync completo — " : "";
+  summary.innerHTML = summaryTag + summaryBits.join(' · ') + ' · ' + totalAll + ' total (' + pctSuccess + '%)';
 
   // Build per-session bars (only rendered when expanded to keep DOM cheap)
   if (!_syncCardExpanded) return;
@@ -676,19 +683,34 @@ function renderSyncCard(results) {
   results.forEach(function(r) {
     var q = (r.data && r.data.photoQueue) || { pending: 0, downloading: 0, done: 0, failed: 0, no_photo: 0 };
     var total = (q.pending || 0) + (q.downloading || 0) + (q.done || 0) + (q.failed || 0) + (q.no_photo || 0);
-    var done = (q.done || 0) + (q.no_photo || 0) + (q.failed || 0);
-    var pct = total > 0 ? Math.round((done / total) * 100) : 100;
+    var success = (q.done || 0) + (q.no_photo || 0);
+    var active = (q.pending || 0) + (q.downloading || 0);
+    var failed = q.failed || 0;
+    var pct = total > 0 ? Math.round((success / total) * 100) : 100;
     var label = esc(r.label) + (r.phone ? " — " + esc(r.phone) : "");
-    var detail = total === 0
-      ? "sem fila"
-      : done + "/" + total + " (" + pct + "%)" + ((q.pending + q.downloading) > 0 ? " — " + (q.pending + q.downloading) + " pendentes" : "");
-    var barColor = pct === 100 ? "var(--ok)" : "var(--primary)";
+
+    var detailBits = [];
+    if (total > 0) detailBits.push(success + "/" + total + " (" + pct + "%)");
+    if (active > 0) detailBits.push('<span style="color:var(--primary)">' + active + ' ativas</span>');
+    if (failed > 0) detailBits.push('<span style="color:var(--danger)">' + failed + ' falhas</span>');
+    if (total === 0) detailBits.push("sem fila");
+
+    // Bar split: green for success, amber for active, red for failed. All
+    // on the same track, proportional to totals.
+    var successW = total > 0 ? (success / total) * 100 : 0;
+    var activeW = total > 0 ? (active / total) * 100 : 0;
+    var failedW = total > 0 ? (failed / total) * 100 : 0;
+
     rowsHtml += '<div style="margin-bottom:10px">'
       + '<div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px">'
       + '<span>' + label + '</span>'
-      + '<span style="color:var(--muted)">' + detail + '</span>'
+      + '<span style="color:var(--muted)">' + detailBits.join(' · ') + '</span>'
       + '</div>'
-      + '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' + pct + '%; background:' + barColor + '"></div></div>'
+      + '<div class="progress-bar-bg" style="display:flex">'
+      +   '<div style="width:' + successW + '%; background:var(--ok); height:100%"></div>'
+      +   '<div style="width:' + activeW + '%; background:var(--primary); height:100%"></div>'
+      +   '<div style="width:' + failedW + '%; background:var(--danger); height:100%"></div>'
+      + '</div>'
       + '</div>';
   });
   body.innerHTML = rowsHtml;
@@ -1578,11 +1600,16 @@ function onCreateSessionChange() {
   if (!sel || !warnEl) return;
   var sessionId = sel.value;
   var s = _sessions.find(function(x) { return x.id === sessionId; });
+
+  // Reset visual state + re-enable submit (the preview-loaded guard also checks this)
   warnEl.style.display = "none";
   warnEl.style.background = "";
   warnEl.style.color = "";
   warnEl.style.border = "";
+  if (submitBtn && _createSpecs.length > 0) submitBtn.disabled = false;
+
   if (!s) return;
+
   // Priority 1: rate-limit cooldown → block submit
   if (s.rateLimitHitAt && s.rateLimitRemainingMs > 0) {
     var minutes = Math.ceil(s.rateLimitRemainingMs / 60000);
@@ -1594,7 +1621,33 @@ function onCreateSessionChange() {
     if (submitBtn) submitBtn.disabled = true;
     return;
   }
-  // Priority 2: freshly reconnected → warning but allow submit (worker waits)
+
+  // Priority 2: photo-worker auto-paused by timeout cascade → block submit
+  var pw = s.photoWorkerHealth;
+  if (pw && pw.paused && pw.pauseReason === "timeout_cascade") {
+    var remain = 0;
+    if (pw.autoResumeAt) remain = Math.max(0, new Date(pw.autoResumeAt).getTime() - Date.now());
+    var rmin = Math.ceil(remain / 60000);
+    warnEl.innerHTML = "⏸️ <strong>Photo-worker pausado por timeout cascade.</strong> WhatsApp parou de responder — aguarde ~" + rmin + "min.";
+    warnEl.style.background = "rgba(239, 68, 68, 0.12)";
+    warnEl.style.color = "var(--danger)";
+    warnEl.style.border = "1px solid var(--danger)";
+    warnEl.style.display = "block";
+    if (submitBtn) submitBtn.disabled = true;
+    return;
+  }
+
+  // Priority 3: photo-worker has been failing a lot (streak >= 5) → warning
+  if (pw && pw.failureStreak >= 5) {
+    warnEl.innerHTML = "⚠️ <strong>Photo-worker com " + pw.failureStreak + " timeouts consecutivos.</strong> A conta pode estar entrando em rate-limit silencioso — criar grupos agora é arriscado.";
+    warnEl.style.background = "rgba(245, 158, 11, 0.12)";
+    warnEl.style.color = "var(--warn)";
+    warnEl.style.border = "1px solid var(--warn)";
+    warnEl.style.display = "block";
+    return;
+  }
+
+  // Priority 4: freshly reconnected → warning but allow submit (worker waits)
   if (s.connectedAt) {
     var ageMs = Date.now() - new Date(s.connectedAt).getTime();
     var WARMUP_MS = 5 * 60 * 1000;

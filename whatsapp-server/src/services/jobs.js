@@ -379,6 +379,24 @@ async function startCreateGroupsJob(sessionId, specs, config = {}) {
     throw err;
   }
 
+  // Queue health pre-flight: if the photo-worker is auto-paused from timeout
+  // cascade, or the wa_photo_queue shows heavy recent Timed Out activity,
+  // refuse to start — WhatsApp is silently rate-limiting the account.
+  const photoWorker = require("./photo-worker");
+  const health = photoWorker.getSessionHealth(sessionId);
+  if (health.paused && health.pauseReason === "timeout_cascade") {
+    const remain = health.autoResumeAt ? Math.max(0, new Date(health.autoResumeAt).getTime() - Date.now()) : 0;
+    const err = new Error("Sessão em cooldown por timeout cascade no photo-worker. Aguarde ~" + Math.ceil(remain / 60000) + "min.");
+    err.statusCode = 429;
+    throw err;
+  }
+  const queueStats = await baileys.getQueueFailureStats(sessionId);
+  if (queueStats.timedOut >= 100) {
+    const err = new Error("Sessão com " + queueStats.timedOut + " timeouts recentes no photo-worker — sinal de rate-limit silencioso do WhatsApp. Aguarde os números esfriarem (pelo menos 30min) antes de criar grupos.");
+    err.statusCode = 429;
+    throw err;
+  }
+
   const job = createJob("create-groups", sessionId, {
     delaySec: Math.max(60, Number(config.delaySec) || 180),
     specCount: Array.isArray(specs) ? specs.length : 0,

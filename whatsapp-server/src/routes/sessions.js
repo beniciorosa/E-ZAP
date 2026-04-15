@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const { supaRest } = require("../services/supabase");
 const baileys = require("../services/baileys");
+const photoWorker = require("../services/photo-worker");
 
 // POST /api/sessions — Create new session and start QR
 router.post("/", async (req, res) => {
@@ -43,12 +44,14 @@ router.get("/", async (req, res) => {
 
     const result = (dbSessions || []).map(s => {
       const meta = baileys.getSessionMeta(s.id);
+      const health = photoWorker.getSessionHealth(s.id);
       return {
         ...s,
         live: activeMap[s.id] || null,
         connectedAt: meta.connectedAt,
         rateLimitHitAt: meta.rateLimitHitAt,
         rateLimitRemainingMs: meta.rateLimitRemainingMs,
+        photoWorkerHealth: health, // { failureStreak, paused, pauseReason, autoResumeAt }
       };
     });
 

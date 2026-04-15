@@ -26,4 +26,25 @@ async function supaRpc(fn, args = {}) {
   return supaRest("/rest/v1/rpc/" + fn, "POST", args);
 }
 
-module.exports = { supaRest, supaRpc };
+// Count rows matching a PostgREST filter without fetching the data.
+// Uses HEAD + Prefer: count=exact and parses the Content-Range response header.
+// Example: supaCount("/rest/v1/wa_photo_queue?session_id=eq.X&status=eq.failed")
+async function supaCount(path) {
+  const headers = {
+    "apikey": SUPA_KEY,
+    "Authorization": "Bearer " + SUPA_KEY,
+    "Prefer": "count=exact",
+    "Range-Unit": "items",
+    "Range": "0-0",
+  };
+  const resp = await fetch(SUPA_URL + path, { method: "HEAD", headers });
+  if (!resp.ok && resp.status !== 206) {
+    return 0;
+  }
+  const cr = resp.headers.get("content-range") || "";
+  const m = cr.match(/\/(\d+|\*)$/);
+  if (!m || m[1] === "*") return 0;
+  return parseInt(m[1], 10) || 0;
+}
+
+module.exports = { supaRest, supaRpc, supaCount };

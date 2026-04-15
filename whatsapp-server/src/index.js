@@ -76,6 +76,11 @@ io.on("connection", (socket) => {
 // Connect Socket.io to Baileys for event broadcasting
 baileys.setIO(io);
 
+// Wire the photo-worker's auto-pause to the baileys rate-limit registry so
+// cascading timeouts on the photo queue also block create-groups jobs.
+const photoWorker = require("./services/photo-worker");
+photoWorker.setRateLimitMarker(baileys.markRateLimit);
+
 // ===== Start server =====
 server.listen(PORT, async () => {
   console.log("===========================================");
