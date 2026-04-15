@@ -1,5 +1,78 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/15
 
+> **Update 2026-04-15 manhã — DHIEGO.AI self-chat mode + pivot pra WhatsApp Business (em aberto)**
+>
+> Continuação da madrugada. Acordou, tudo crítico estável (Supabase SMALL, 18 sessões reconectadas, Escalada pronta pra uso). Foco da manhã foi destravar o DHIEGO.AI que ficou bloqueado por Signal protocol issues entre iPhone primário + baileys linked device.
+>
+> **Commits da manhã** (todos deployados no Hetzner):
+> - `1147dc1` — `feat(dhiego-ai): self-chat mode` — novo filtro em `maybeHandle`: detecta `ownPhone = sock.user.id` e `chatPhone`, se `chatPhone === ownPhone` marca `isSelfChat`. Autorização: `isAllowed = isSelfChat || isInAllowlist`.
+> - `0f52ec9` — `fix(dhiego-ai): strict fromMe requires self-chat` — o filtro anterior tinha um bug: com `authorizedPhones=["5511989473088"]` (o próprio número do user), toda mensagem `fromMe` passava pelo allowlist (sender = 5511989473088 = own). Isso significava que TYPING pra um cliente ou amigo disparava o bot, exatamente o hijack que a gente queria prevenir. Fix: `if (isFromMe) isAllowed = isSelfChat; else isAllowed = isInAllowlist;`. Paths mutuamente exclusivos.
+> - `db1f7e3` — `fix(dhiego-ai): unwrap deviceSent/ephemeral/viewOnce envelopes` — mensagens entre linked devices próprios (ex: "Message Yourself" no iPhone) vêm embaladas em `msg.message.deviceSentMessage.message.conversation`. Adicionou `unwrapMessage()` recursivo que trata `deviceSentMessage`, `ephemeralMessage`, `viewOnceMessage`, `viewOnceMessageV2`, `viewOnceMessageV2Extension`, `documentWithCaptionMessage`. Plain text self-chat já funcionava; isso é pra edge cases.
+>
+> **Self-chat mode TESTADO E FUNCIONAL** — a sessão "Dhiego Rosa" (id `235d25ac-b2b4-4680-b5ed-3f1e0b373916`, phone 5511989473088, logada pelo próprio iPhone principal do Dhiego) recebeu texto, roteou pro Claude, respondeu via WhatsApp. Fluxo verificado nos logs:
+> ```
+> [DHIEGO.AI] Processing message from 5511989473088  text: oi
+> [DHIEGO.AI] routed via Claude: llm-freeform
+> [DHIEGO.AI] Processing message from 5511989473088  text: como vai?
+> [DHIEGO.AI] Processing message from 5511989473088  text: mande os postos de gasolina perto de mim
+> ```
+> O Dhiego viu as respostas chegando no "Mensagem para si mesmo". **Funcionou 100%**.
+>
+> **Por que abandonou self-chat**: UX. No "Message Yourself", todas as mensagens (user + bot) aparecem do mesmo lado (verde, direita) — fica difícil visualmente diferenciar pergunta de resposta. O Dhiego pediu: "gostaria de poder falar com outro numero pra diferenciar o que eu envio do que eu recebo".
+>
+> **Pivot — DHIEGO.BOT via WhatsApp Business no iPhone**:
+>
+> O Dhiego tem um iPhone **dual-chip** com:
+> - **WhatsApp normal** logado com 5511989473088 (pessoal)
+> - **WhatsApp Business** logado com 5511991154573 (bot)
+>
+> Apps separados, cada um com ciclo de vida independente no iOS. Plano: linkar nosso baileys como aparelho conectado do **WhatsApp Business** (5511991154573). Mensagens do 3088 pro 4573 caem no allowlist (`authorizedPhones` já tem `["5511989473088"]`).
+>
+> **Passos executados**:
+> 1. Disconectei a sessão antiga DHIEGO.AI (`da47bbe6`, phone 5519997012821) e a sessão self-chat "Dhiego Rosa" (`235d25ac`, phone 5511989473088) — ambas com `status='disconnected'` + `creds=null` no DB.
+> 2. PM2 restart pra purgar as sessões da memória do baileys (achei um bug: `stopSession()` não remove do `sessions` Map, só pára — o restart contorna).
+> 3. Dhiego criou no admin uma nova sessão "DHIEGO.BOT" (id `1ae154a4-8c8e-4956-a716-6c5f5159023a`).
+> 4. Fresh-qr, escaneou o QR com o WhatsApp Business do iPhone, sessão ficou `connected` com phone `5511991154573`.
+> 5. Atualizei:
+>    - `wa_sessions.user_id` = `58db56f3-f84e-43b2-bbb2-17af8f52b9b8` (Dhiego Rosa)
+>    - `app_settings.dhiego_ai_session_id` = `1ae154a4-8c8e-4956-a716-6c5f5159023a`
+>    - Invalidate cache via PATCH `/api/dhiego-ai/config`
+> 6. Config atual confirmada: enabled=true, sessionId=`1ae154a4...`, authorizedPhones=`["5511989473088"]`, llm_model=`claude-sonnet-4-6`, systemPrompt default, Claude+Whisper keys presentes.
+>
+> **PROBLEMA EM ABERTO AGORA**:
+>
+> Dhiego manda mensagens de 5511989473088 (WhatsApp Web + WhatsApp pessoal iPhone) pro contato "DHIEGO.BOT" (5511991154573). No remetente, chegam a **`✓✓` (dois checks = delivered)**. Mas **nenhuma mensagem chega no nosso baileys** — zero eventos em logs filtrados por `DHIEGO.AI` ou `1ae154a4` ou `5511989473088` durante os últimos ~200 log lines. Não tem Processing, não tem decrypt error, não tem ignoring — literalmente nada.
+>
+> **Hipótese principal**: cache de device-list no cliente do Dhiego. Tanto o WhatsApp Web quanto o WhatsApp pessoal do iPhone tinham o 5511991154573 na lista de contatos ANTES do baileys ser linkado. Eles estão entregando as mensagens apenas pros devices que conheciam (WhatsApp Business no iPhone), pulando nosso baileys novo. O `✓✓` vem do Business acking, não do nosso.
+>
+> **Fix sugerido mas NÃO TESTADO** (deixei de comunicar pro Dhiego logo antes desse handoff):
+> 1. Force-quit WhatsApp Business no iPhone
+> 2. Reabrir, esperar 5s
+> 3. Fechar WhatsApp Web inteiro, reabrir e re-scanear QR pelo iPhone
+> 4. Ou alternativa mais rápida: mandar mensagem direto **do iPhone** (não do Web) — isso força device list refresh localmente
+>
+> **Outras hipóteses** se a primeira não resolver:
+> - History sync massivo do WhatsApp Business consumindo toda a banda de eventos (vi `msgs: 5000 chats: 0` em loop várias vezes no log do `1ae154a4`). Talvez o baileys ainda não tenha saído do initial sync quando o Dhiego mandou as mensagens de teste. Solução: esperar o history sync terminar (talvez 5-10min dependendo do tamanho).
+> - iOS suspendendo o WhatsApp Business mesmo em foreground (improvável se user está ativamente olhando).
+> - Bug na pairing: alguma coisa no QR scan que não completou 100%.
+>
+> **Fallback garantido** se o caminho DHIEGO.BOT não destravar: voltar pro **self-chat mode** (sessão "Dhiego Rosa" com 5511989473088). Deploy ainda está lá, código self-chat ativo. Basta re-escanear QR no admin pra reativar. Opcional: adicionar 1 linha em `llm-freeform.js` pra prefixar respostas do bot com `🤖 ` e dar diferenciação visual no "Message Yourself".
+>
+> **Estado atual no servidor**:
+> - PM2 online, PID 104429, commit `db1f7e3` (último da manhã)
+> - Sessões: 18+ conectadas (Escalada, CX, outras), + `1ae154a4-...` DHIEGO.BOT marcado connected
+> - Config DHIEGO.AI: sessionId=`1ae154a4-8c8e-4956-a716-6c5f5159023a`, allowlist=`["5511989473088"]`
+> - Sessões deprecated: `da47bbe6` (DHIEGO.AI antiga, phone 5519997012821) e `235d25ac` (Dhiego Rosa self-chat, 5511989473088) — ambas disconnected + creds=null, preservadas pra referência no DB
+>
+> **Como retomar**:
+> 1. Ler o último diagnóstico: se as mensagens do Dhiego chegarem no baileys, deve aparecer `[DHIEGO.AI] Processing message from 5511989473088` nos logs do PM2. `ssh root@87.99.141.235 'pm2 logs ezap-whatsapp --lines 300 --nostream' | grep DHIEGO.AI`
+> 2. Se nada chegou ainda, sugerir os 4 passos do fix acima pro Dhiego (force-quit + reabrir)
+> 3. Se força-quit não resolver, esperar ~10min pra history sync terminar e tentar de novo
+> 4. Se ainda não funcionar, voltar pro self-chat mode como plano B — funciona 100%, só requer re-scan do QR da sessão Dhiego Rosa
+> 5. Feature nice-to-have pós-tudo: prefix `🤖 ` nas respostas do bot pra UX distinction (1 linha em `llm-freeform.js`, `return { ok: true, reply: "🤖 " + resp.text, ... }`)
+
+---
+
 > **Update 2026-04-15 madrugada — incidente de capacidade + DHIEGO.AI Fase 2 + bug crítico do dedup index**
 >
 > **Linha do tempo da madrugada (commits `5211bf7` → `26ca82a`)**:
