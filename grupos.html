@@ -318,13 +318,26 @@
       <div style="margin-bottom:16px">
         <label>Fonte dos dados</label>
         <div class="delay-presets">
-          <label><input type="radio" name="createSourceMode" value="xlsx" checked onchange="toggleCreateSourceMode()"> XLSX</label>
+          <label><input type="radio" name="createSourceMode" value="hubspot" checked onchange="toggleCreateSourceMode()"> 🎫 Tickets HubSpot</label>
+          <label><input type="radio" name="createSourceMode" value="xlsx" onchange="toggleCreateSourceMode()"> XLSX</label>
           <label><input type="radio" name="createSourceMode" value="csv" onchange="toggleCreateSourceMode()"> CSV</label>
           <label><input type="radio" name="createSourceMode" value="gsheets" onchange="toggleCreateSourceMode()"> Google Sheets</label>
         </div>
       </div>
 
-      <div id="createFileBox" style="margin-bottom:16px">
+      <div id="createHubspotBox" style="margin-bottom:16px">
+        <label>Links ou IDs de tickets HubSpot (1 por linha)</label>
+        <textarea id="hubspotTicketUrls" rows="5" placeholder="https://app.hubspot.com/contacts/49377285/record/0-5/44167704933&#10;https://app.hubspot.com/contacts/49377285/record/0-5/44391166513&#10;44384218675" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:monospace; font-size:12px; resize:vertical"></textarea>
+        <div style="display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap">
+          <button class="btn-secondary btn-icon" onclick="resolveHubspotTickets()">🔍 Resolver tickets</button>
+          <span id="hubspotResolveStatus" style="font-size:12px; color:var(--muted)"></span>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:6px">
+          Cada ticket precisa estar na tabela <code>mentorados</code> (populada pelo webhook HubSpot → Supabase). O resolver pega <b>nome do cliente</b>, <b>mentor</b>, <b>whatsapp</b> e <b>tier</b> (Pro/Business/Starter) pra montar os grupos automaticamente.
+        </div>
+      </div>
+
+      <div id="createFileBox" class="hidden" style="margin-bottom:16px">
         <label>Selecione o arquivo</label>
         <input type="file" id="createFileInput" accept=".xlsx,.xls,.csv" onchange="handleCreateFileChange(event)" style="width:100%; padding:8px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text)">
         <div style="margin-top:8px">
@@ -339,6 +352,12 @@
           <button class="btn-secondary btn-icon" onclick="handleGsheetsLoad()" style="flex:1">Carregar</button>
         </div>
         <div style="font-size:11px; color:var(--muted); margin-top:4px">A planilha precisa estar publicada como <b>Qualquer pessoa com o link</b>.</div>
+      </div>
+
+      <div id="helperSessionsBox" style="margin-bottom:16px">
+        <label>Membros "helper" (sessões que entram em TODOS os grupos do lote)</label>
+        <div id="helperSessionsChecklist" style="display:flex; flex-wrap:wrap; gap:8px; padding:10px; background:var(--bg); border:1px solid var(--border); border-radius:8px; max-height:140px; overflow-y:auto"></div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Ex: CX2 ou o assistente que deve estar em cada grupo. O mentor do ticket já entra automaticamente — não precisa marcar.</div>
       </div>
 
       <div id="createPreviewBox" class="hidden" style="margin-bottom:16px">
@@ -1572,6 +1591,7 @@ function exportJobCSV(jobId) {
 
 var _createSpecs = [];       // specs normalizadas prontas pro POST
 var _createRawRows = [];     // linhas cruas do parser, pra re-render do preview
+var _hubspotResolved = [];   // cache dos tickets resolvidos via /api/hubspot/resolve-tickets
 
 function onCreateSessionChange() {
   var sel = document.getElementById("createSession");
@@ -1664,6 +1684,8 @@ function openCreateGroupsModal() {
   onCreateSessionChange();
   document.getElementById("createFileInput").value = "";
   document.getElementById("createGsheetsUrl").value = "";
+  document.getElementById("hubspotTicketUrls").value = "";
+  document.getElementById("hubspotResolveStatus").textContent = "";
   document.getElementById("createPreviewBox").classList.add("hidden");
   document.getElementById("createPreviewTable").innerHTML = "";
   document.getElementById("createPreviewCount").textContent = "";
@@ -1671,25 +1693,75 @@ function openCreateGroupsModal() {
   document.getElementById("createSubmitBtn").disabled = true;
   _createSpecs = [];
   _createRawRows = [];
-  // Reset to xlsx mode
-  var xlsxRadio = document.querySelector('input[name=createSourceMode][value=xlsx]');
-  if (xlsxRadio) xlsxRadio.checked = true;
+  _hubspotResolved = [];
+  // Populate helper sessions checklist from connected sessions
+  renderHelperSessionsChecklist();
+  // Default to HubSpot mode (Tickets é o fluxo principal agora)
+  var hubRadio = document.querySelector('input[name=createSourceMode][value=hubspot]');
+  if (hubRadio) hubRadio.checked = true;
   toggleCreateSourceMode();
   document.getElementById("createGroupsModal").classList.add("open");
 }
 
 function toggleCreateSourceMode() {
-  var mode = (document.querySelector('input[name=createSourceMode]:checked') || {}).value || "xlsx";
+  var mode = (document.querySelector('input[name=createSourceMode]:checked') || {}).value || "hubspot";
+  var hubspotBox = document.getElementById("createHubspotBox");
   var fileBox = document.getElementById("createFileBox");
   var gsheetsBox = document.getElementById("createGsheetsBox");
   var fileInput = document.getElementById("createFileInput");
-  if (mode === "gsheets") {
-    fileBox.classList.add("hidden");
+
+  // Hide all source boxes first
+  hubspotBox.classList.add("hidden");
+  fileBox.classList.add("hidden");
+  gsheetsBox.classList.add("hidden");
+
+  if (mode === "hubspot") {
+    hubspotBox.classList.remove("hidden");
+  } else if (mode === "gsheets") {
     gsheetsBox.classList.remove("hidden");
   } else {
     fileBox.classList.remove("hidden");
-    gsheetsBox.classList.add("hidden");
     fileInput.accept = (mode === "csv") ? ".csv,text/csv" : ".xlsx,.xls";
+  }
+
+  // Clear any preview from the previous source mode — avoids a stale xlsx
+  // preview lingering after the user switches to HubSpot, or vice versa.
+  _createSpecs = [];
+  _createRawRows = [];
+  _hubspotResolved = [];
+  document.getElementById("createPreviewBox").classList.add("hidden");
+  document.getElementById("createPreviewTable").innerHTML = "";
+  document.getElementById("createPreviewCount").textContent = "";
+  document.getElementById("createPreviewInvalid").textContent = "";
+  document.getElementById("createSubmitBtn").disabled = true;
+  var statusEl = document.getElementById("hubspotResolveStatus");
+  if (statusEl) statusEl.textContent = "";
+}
+
+function renderHelperSessionsChecklist() {
+  var container = document.getElementById("helperSessionsChecklist");
+  if (!container) return;
+  var connected = _sessions.filter(function(s) { return s.status === "connected"; });
+  if (connected.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted); font-size:12px">Nenhuma sessão conectada</div>';
+    return;
+  }
+  // Sort alphabetically, excluding Escalada (likely the creator, not a helper)
+  connected.sort(function(a, b) { return (a.label || "").localeCompare(b.label || "", "pt-BR"); });
+  container.innerHTML = connected.map(function(s) {
+    return '<label style="display:flex; align-items:center; gap:6px; padding:4px 10px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:12px">'
+      + '<input type="checkbox" data-phone="' + esc(s.phone || "") + '" data-session-id="' + esc(s.id) + '" onchange="onHelperChecklistChange()" style="width:14px; height:14px; accent-color:var(--primary)">'
+      + '<span>' + esc(s.label) + '</span>'
+      + (s.phone ? '<span style="color:var(--muted); font-size:10px">' + esc(s.phone) + '</span>' : '')
+      + '</label>';
+  }).join("");
+}
+
+// Rebuild the HubSpot preview when the helper checklist changes (only if
+// we already have resolved tickets in memory — no-op otherwise).
+function onHelperChecklistChange() {
+  if (_hubspotResolved.length > 0) {
+    buildSpecsFromHubspotResolved();
   }
 }
 
@@ -1859,6 +1931,229 @@ function renderCreatePreviewTable() {
   });
   if (_createSpecs.length > 20) {
     html += '<tr><td colspan="6" style="color:var(--muted); text-align:center">… +' + (_createSpecs.length - 20) + ' linhas</td></tr>';
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
+// ============================================================
+// ===== Fluxo HubSpot (criar grupos a partir de tickets) =====
+// ============================================================
+
+var HUBSPOT_PHOTO_BASE = "https://ezap-server.geia.dev.br/static/fotos/";
+var HUBSPOT_WELCOME_TEMPLATE = "Opa, tudo bem? seja muito bem-vindo a nossa Mentoria Escalada. Em breve o mentor de vocês fará uma apresentação e iniciaremos a nossa jornada juntos! #aMETAéoTOPO";
+
+// Extrai ticket_ids de uma lista de URLs/IDs brutos.
+// Aceita:
+//   - https://app.hubspot.com/contacts/{portal}/record/0-5/{ticketId}
+//   - https://app.hubspot.com/contacts/{portal}/record/0-5/{ticketId}/...
+//   - Número puro (12345)
+function parseHubspotTicketInput(text) {
+  var lines = String(text || "").split(/\r?\n/).map(function(l) { return l.trim(); }).filter(Boolean);
+  var rx = /\/record\/0-5\/(\d+)/;
+  var out = [];
+  lines.forEach(function(l) {
+    var m = l.match(rx);
+    if (m) out.push(Number(m[1]));
+    else if (/^\d+$/.test(l)) out.push(Number(l));
+  });
+  // Dedup preservando ordem
+  var seen = {};
+  return out.filter(function(id) {
+    if (seen[id]) return false;
+    seen[id] = true;
+    return true;
+  });
+}
+
+// Normaliza telefone brasileiro. Aceita formatos tipo "+5519991947021",
+// "(11) 99740-2370", "5519 99002-4413", etc. Retorna só dígitos com DDI 55.
+// Retorna null se não conseguir normalizar pra algo válido (12 ou 13 dígitos).
+function normalizePhoneBr(raw) {
+  var digits = String(raw == null ? "" : raw).replace(/\D/g, "");
+  if (digits.length === 10 || digits.length === 11) return "55" + digits;
+  if (digits.length === 12 || digits.length === 13) return digits;
+  return null;
+}
+
+async function resolveHubspotTickets() {
+  var text = document.getElementById("hubspotTicketUrls").value || "";
+  var ticketIds = parseHubspotTicketInput(text);
+  if (!ticketIds.length) { showToast("Cole pelo menos 1 URL ou ID de ticket HubSpot", "error"); return; }
+
+  var statusEl = document.getElementById("hubspotResolveStatus");
+  statusEl.textContent = "Resolvendo " + ticketIds.length + " tickets…";
+  statusEl.style.color = "var(--muted)";
+
+  try {
+    var payload = await waFetch("/api/hubspot/resolve-tickets", "POST", { ticketIds: ticketIds });
+    _hubspotResolved = (payload && payload.resolved) || [];
+    var notFound = (payload && payload.notFound) || [];
+    var ok = _hubspotResolved.filter(function(r) { return !r.warning; }).length;
+    var warn = _hubspotResolved.filter(function(r) { return !!r.warning; }).length;
+    statusEl.innerHTML = '<span style="color:var(--ok)">' + ok + ' OK</span>'
+      + (warn ? ' · <span style="color:var(--warn)">' + warn + ' com aviso</span>' : '')
+      + (notFound.length ? ' · <span style="color:var(--danger)">' + notFound.length + ' não encontrados (' + notFound.slice(0, 3).join(", ") + (notFound.length > 3 ? "…" : "") + ')</span>' : '');
+    await buildSpecsFromHubspotResolved();
+  } catch (e) {
+    statusEl.textContent = "";
+    showToast("Erro ao resolver: " + e.message, "error");
+  }
+}
+
+async function buildSpecsFromHubspotResolved() {
+  if (!_hubspotResolved.length) {
+    _createSpecs = [];
+    document.getElementById("createPreviewBox").classList.add("hidden");
+    document.getElementById("createSubmitBtn").disabled = true;
+    return;
+  }
+
+  // Lê sessões helper marcadas no checklist
+  var helperPhones = [];
+  document.querySelectorAll("#helperSessionsChecklist input[type=checkbox]:checked").forEach(function(cb) {
+    var p = cb.getAttribute("data-phone") || "";
+    if (p) helperPhones.push(p.replace(/\D/g, ""));
+  });
+
+  // Converte cada ticket resolvido em um objeto de preview + spec (quando válido)
+  var previewRows = _hubspotResolved.map(function(r) {
+    var tierLabel = r.tier === "pro" ? "Pro"
+                   : r.tier === "business" ? "Business"
+                   : r.tier === "starter" ? "Starter"
+                   : null;
+    var photoUrl = r.tier === "pro" ? HUBSPOT_PHOTO_BASE + "Pro.png"
+                  : r.tier === "business" ? HUBSPOT_PHOTO_BASE + "business.png"
+                  : r.tier === "starter" ? HUBSPOT_PHOTO_BASE + "starter.png"
+                  : null;
+
+    var clientPhone = normalizePhoneBr(r.whatsapp);
+    var mentorPhone = r.mentorSessionPhone ? String(r.mentorSessionPhone).replace(/\D/g, "") : null;
+
+    // Dedup membros (cliente + mentor + helpers)
+    var members = [];
+    var seen = {};
+    function addMember(p) {
+      if (!p) return;
+      if (seen[p]) return;
+      seen[p] = true;
+      members.push(p);
+    }
+    addMember(clientPhone);
+    addMember(mentorPhone);
+    helperPhones.forEach(addMember);
+
+    // Determina disabled + reason
+    var disabled = false;
+    var reason = null;
+    if (!r.mentorSessionPhone) {
+      disabled = true;
+      reason = "Mentor sem sessão conectada: " + (r.mentor || "—");
+    } else if (!clientPhone) {
+      disabled = true;
+      reason = "Telefone do cliente inválido: " + (r.whatsapp || "—");
+    } else if (members.length < 2) {
+      disabled = true;
+      reason = "Menos de 2 membros válidos";
+    }
+
+    var spec = null;
+    if (!disabled) {
+      spec = {
+        name: (r.ticket_name || "(sem nome)") + " | " + (r.mentor || ""),
+        description: "[" + r.ticket_id + "]",
+        photoUrl: photoUrl,
+        members: members,
+        lockInfo: true,
+        welcomeMessage: HUBSPOT_WELCOME_TEMPLATE,
+        specHash: null,
+      };
+    }
+
+    return {
+      ticket_id: r.ticket_id,
+      ticket_name: r.ticket_name,
+      mentor: r.mentor,
+      tier: r.tier,
+      tierLabel: tierLabel,
+      photoUrl: photoUrl,
+      memberCount: members.length,
+      disabled: disabled,
+      reason: reason,
+      warning: r.warning,
+      spec: spec,
+    };
+  });
+
+  // Calcula specHash pra cada spec válido (async em paralelo)
+  var validRows = previewRows.filter(function(r) { return !r.disabled && r.spec; });
+  var hashTasks = validRows.map(function(r) {
+    var hashInput = JSON.stringify([r.spec.name, r.spec.members.slice().sort()]);
+    return sha1Hex(hashInput).then(function(h) { r.spec.specHash = h; return r.spec; });
+  });
+
+  try {
+    await Promise.all(hashTasks);
+  } catch (_) {}
+
+  _createSpecs = validRows.map(function(r) { return r.spec; });
+  renderHubspotPreview(previewRows);
+  document.getElementById("createSubmitBtn").disabled = _createSpecs.length === 0;
+}
+
+function renderHubspotPreview(rows) {
+  var box = document.getElementById("createPreviewBox");
+  var tbl = document.getElementById("createPreviewTable");
+  var count = document.getElementById("createPreviewCount");
+  var invalid = document.getElementById("createPreviewInvalid");
+  if (!box || !tbl) return;
+
+  box.classList.remove("hidden");
+  var valid = rows.filter(function(r) { return !r.disabled; }).length;
+  var disabled = rows.length - valid;
+  count.textContent = " (" + valid + " pronto" + (valid === 1 ? "" : "s") +
+    (disabled ? ", " + disabled + " com erro" : "") + ")";
+  invalid.textContent = disabled > 0
+    ? disabled + " linha(s) ignorada(s) — veja a coluna Status"
+    : "";
+
+  if (!rows.length) {
+    tbl.innerHTML = '<tbody><tr><td style="color:var(--muted); padding:12px">Nenhum ticket resolvido</td></tr></tbody>';
+    return;
+  }
+
+  var html = '<thead><tr>'
+    + '<th>#</th><th>Cliente</th><th>Mentor</th><th>Tier</th><th>Foto</th><th>Membros</th><th>Status</th>'
+    + '</tr></thead><tbody>';
+  rows.slice(0, 30).forEach(function(r) {
+    var rowStyle = r.disabled ? ' style="opacity:0.55"' : '';
+    var tierBadge = r.tierLabel
+      ? '<span style="padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:rgba(99,102,241,0.15); color:var(--primary)">' + esc(r.tierLabel) + '</span>'
+      : '<span style="color:var(--muted)">—</span>';
+    var fotoCell = r.photoUrl
+      ? '<img src="' + esc(r.photoUrl) + '" style="width:24px; height:24px; border-radius:4px; object-fit:cover" onerror="this.outerHTML=\'<span class=ok>✓</span>\'">'
+      : '<span style="color:var(--muted)">—</span>';
+    var statusCell;
+    if (r.disabled) {
+      statusCell = '<span style="color:var(--danger)" title="' + esc(r.reason || "") + '">🔴 ' + esc(r.reason || "erro") + '</span>';
+    } else if (r.warning) {
+      statusCell = '<span style="color:var(--warn)" title="' + esc(r.warning) + '">🟡 ' + esc(r.warning) + '</span>';
+    } else {
+      statusCell = '<span style="color:var(--ok)">🟢 OK</span>';
+    }
+
+    html += '<tr' + rowStyle + '>'
+      + '<td style="color:var(--muted); font-size:11px">' + esc(String(r.ticket_id)) + '</td>'
+      + '<td>' + esc(r.ticket_name || "—") + '</td>'
+      + '<td>' + esc(r.mentor || "—") + '</td>'
+      + '<td>' + tierBadge + '</td>'
+      + '<td>' + fotoCell + '</td>'
+      + '<td>' + r.memberCount + '</td>'
+      + '<td style="font-size:11px">' + statusCell + '</td>'
+      + '</tr>';
+  });
+  if (rows.length > 30) {
+    html += '<tr><td colspan="7" style="color:var(--muted); text-align:center">… +' + (rows.length - 30) + ' linhas</td></tr>';
   }
   html += '</tbody>';
   tbl.innerHTML = html;
