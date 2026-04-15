@@ -45,6 +45,7 @@ router.get("/", async (req, res) => {
     const result = (dbSessions || []).map(s => {
       const meta = baileys.getSessionMeta(s.id);
       const health = photoWorker.getSessionHealth(s.id);
+      const quarantine = baileys.getQuarantineStatus(s.id);
       return {
         ...s,
         live: activeMap[s.id] || null,
@@ -52,6 +53,7 @@ router.get("/", async (req, res) => {
         rateLimitHitAt: meta.rateLimitHitAt,
         rateLimitRemainingMs: meta.rateLimitRemainingMs,
         photoWorkerHealth: health, // { failureStreak, paused, pauseReason, autoResumeAt }
+        quarantine, // { enteredAt, reason, durationMs } | null
       };
     });
 
