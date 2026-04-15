@@ -48,7 +48,6 @@ app.use("/api/messages", requireAuth, require("./routes/messages"));
 app.use("/api/contacts", requireAuth, require("./routes/contacts"));
 app.use("/api/jobs", requireAuth, require("./routes/jobs"));
 app.use("/api/fotos", requireAuth, require("./routes/fotos"));
-app.use("/api/sync", requireAuth, require("./routes/sync"));
 app.use("/api/dhiego-ai", requireAuth, require("./routes/dhiego-ai"));
 
 // ===== HTTP + Socket.io =====
@@ -76,11 +75,6 @@ io.on("connection", (socket) => {
 
 // Connect Socket.io to Baileys for event broadcasting
 baileys.setIO(io);
-
-// Wire the photo-worker's auto-pause to the baileys rate-limit registry so
-// cascading timeouts on the photo queue also block create-groups jobs.
-const photoWorker = require("./services/photo-worker");
-photoWorker.setRateLimitMarker(baileys.markRateLimit);
 
 // ===== Start server =====
 server.listen(PORT, async () => {

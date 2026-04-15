@@ -862,9 +862,6 @@ var globalMessages = [];
 var userMessages = [];
 var activeAbaFilter = null;
 var unreadCounts = {};
-var chatPhotos = {};       // jid -> photo_url
-var _visiblePhotoEnqueued = {};  // sessionId -> { jid: true } — dedup for lazy (C) fetch
-var _visiblePhotoEnqueueTimer = null;
 var groupInfoCache = {};   // jid -> group metadata
 var _notifSound = null;    // notification audio element
 
@@ -1086,18 +1083,6 @@ function connectSocket() {
     loadSessions();
   });
   _socket.on("message:new", handleNewMessage);
-  // Photo ready — update avatars in real-time
-  _socket.on("photo:ready", function(data) {
-    if (data.sessionId === activeSessionId && data.jid && data.photoUrl) {
-      chatPhotos[data.jid] = data.photoUrl;
-      renderChatList();
-      // Update header if current chat
-      if (data.jid === activeChatJid) {
-        var avatarEl = document.getElementById("msgAvatar");
-        avatarEl.innerHTML = '<img src="' + esc(data.photoUrl) + '" onerror="this.remove()">';
-      }
-    }
-  });
 }
 
 function handleNewMessage(data) {
@@ -1218,19 +1203,9 @@ function loadChats() {
       return new Date(b.lastTimestamp || 0) - new Date(a.lastTimestamp || 0);
     });
     renderChatList();
-    // Load photos in background
-    loadChatPhotos();
   }).catch(function(e) {
     document.getElementById("chatList").innerHTML = '<div class="crm-empty">Erro ao carregar conversas</div>';
   });
-}
-
-function loadChatPhotos() {
-  if (!activeSessionId) return;
-  waFetch("/api/contacts/" + activeSessionId + "/chat-photos").then(function(map) {
-    chatPhotos = map || {};
-    renderChatList(); // Re-render with photos
-  }).catch(function() {});
 }
 
 function renderChatList() {
@@ -1258,12 +1233,6 @@ function renderChatList() {
     return;
   }
 
-  // Lazy photo fetch (C): collect the top-30 visible chats that don't have a
-  // photo yet and ask the backend to enqueue them. Debounced so rapid filter
-  // toggles don't spam the endpoint. Dedup via _visiblePhotoEnqueued so the
-  // same jid is only requested once per session load.
-  enqueueVisibleChatPhotos(filtered);
-
   var html = "";
   filtered.forEach(function(c) {
     var isActive = c.chatJid === activeChatJid;
@@ -1273,14 +1242,7 @@ function renderChatList() {
     if (preview.length > 50) preview = preview.substring(0, 50) + "...";
 
     html += '<div class="chat-item' + (isActive ? ' active' : '') + '" onclick="openChat(\'' + esc(c.chatJid) + '\',\'' + esc(c.chatName).replace(/'/g, "\\'") + '\')">';
-    var photo = c.photoUrl || chatPhotos[c.chatJid];
-    if (photo) {
-      html += '<div class="chat-avatar" style="background:' + getAvatarColor(c.chatName) + '">' +
-        '<img src="' + esc(photo) + '" onerror="this.style.display=\'none\';this.parentNode.style.color=\'#fff\';this.parentNode.textContent=\'' + esc(getInitials(c.chatName)) + '\'">' +
-        '</div>';
-    } else {
-      html += '<div class="chat-avatar" style="background:' + getAvatarColor(c.chatName) + ';color:#fff">' + esc(getInitials(c.chatName)) + '</div>';
-    }
+    html += '<div class="chat-avatar" style="background:' + getAvatarColor(c.chatName) + ';color:#fff">' + esc(getInitials(c.chatName)) + '</div>';
     html += '<div class="chat-info">';
     html += '<div class="chat-info-top">';
     html += '<span class="chat-name">' + esc(c.chatName) + '</span>';
@@ -1298,33 +1260,6 @@ function renderChatList() {
 
 function filterChats() { renderChatList(); }
 
-// Lazy fetch (C) — collect up-to-30 visible chats without photos and POST
-// them to the backend for enqueue. Debounced 400ms so rapid re-renders (typing
-// in the search box, toggling filters) only fire once. Dedup per session so
-// each jid is requested at most once per page load.
-function enqueueVisibleChatPhotos(filtered) {
-  if (!activeSessionId || !filtered || filtered.length === 0) return;
-  if (_visiblePhotoEnqueueTimer) clearTimeout(_visiblePhotoEnqueueTimer);
-  _visiblePhotoEnqueueTimer = setTimeout(function() {
-    if (!_visiblePhotoEnqueued[activeSessionId]) _visiblePhotoEnqueued[activeSessionId] = {};
-    var bucket = _visiblePhotoEnqueued[activeSessionId];
-    var newJids = [];
-    for (var i = 0; i < filtered.length && newJids.length < 30; i++) {
-      var c = filtered[i];
-      if (!c || !c.chatJid) continue;
-      if (c.photoUrl || chatPhotos[c.chatJid]) continue;
-      if (bucket[c.chatJid]) continue;
-      bucket[c.chatJid] = true;
-      newJids.push(c.chatJid);
-    }
-    if (newJids.length === 0) return;
-    waFetch("/api/contacts/" + activeSessionId + "/enqueue-photos", {
-      method: "POST",
-      body: { jids: newJids },
-    }).catch(function() {});
-  }, 400);
-}
-
 function setFilter(f) {
   chatFilter = f;
   document.querySelectorAll(".chat-filter-btn").forEach(function(btn) {
@@ -1340,36 +1275,19 @@ function openChat(jid, name) {
   messages = [];
   unreadCounts[jid] = 0;
 
-  // Lazy photo fetch (A): if this chat has no photo yet, ask the backend to
-  // enqueue one. The photo-worker picks it up within 60s and the Socket.io
-  // "photo:ready" event updates the avatar in-place. Fire-and-forget.
-  var chatData = chats.find(function(c) { return c.chatJid === jid; });
-  var hasPhoto = (chatData && chatData.photoUrl) || chatPhotos[jid];
-  if (!hasPhoto && activeSessionId) {
-    waFetch("/api/contacts/" + activeSessionId + "/enqueue-photos", {
-      method: "POST",
-      body: { jids: [jid] },
-    }).catch(function() {});
-  }
-
   // Show UI
   document.getElementById("emptyState").style.display = "none";
   document.getElementById("msgHeader").classList.add("show");
   document.getElementById("messagesArea").classList.add("show");
   document.getElementById("msgInputArea").classList.add("show");
 
-  // Header — use photo if available
-  var photo = hasPhoto;
+  // Header avatar — initials only (photo-worker removed; HubSpot-based
+  // product avatars will replace this later).
   var avatarEl = document.getElementById("msgAvatar");
   avatarEl.style.background = getAvatarColor(name);
-  if (photo) {
-    avatarEl.innerHTML = '<img src="' + esc(photo) + '" onerror="this.style.display=\'none\';this.parentNode.style.color=\'#fff\';this.parentNode.textContent=\'' + esc(getInitials(name)) + '\'">';
-    avatarEl.style.color = "";
-  } else {
-    avatarEl.innerHTML = '';
-    avatarEl.textContent = getInitials(name);
-    avatarEl.style.color = "#fff";
-  }
+  avatarEl.innerHTML = '';
+  avatarEl.textContent = getInitials(name);
+  avatarEl.style.color = "#fff";
   document.getElementById("msgHeaderName").textContent = name;
   var statusText = isGroup(jid) ? "Grupo" : phoneFromJid(jid);
   document.getElementById("msgHeaderStatus").textContent = statusText;

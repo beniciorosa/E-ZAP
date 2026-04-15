@@ -5,7 +5,6 @@
 const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON, downloadMediaMessage, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const { supaRest } = require("./supabase");
-const photoWorker = require("./photo-worker");
 
 const logger = pino({ level: "warn" });
 
@@ -37,8 +36,8 @@ function getRateLimitStatus(sessionId) {
 // Puts a session in "airplane mode": blocks IQ-generating handlers and HTTP
 // routes without disconnecting the socket. Used by createGroupsFromList to
 // silence ambient IQ traffic (incoming group message → groupMetadata fetch,
-// participant update → groupMetadata refresh, photo-worker, ezapweb calls)
-// while a delicate groupCreate sequence runs.
+// participant update → groupMetadata refresh, ezapweb routes) while a
+// delicate groupCreate sequence runs.
 //
 // Persistence is deliberately in-memory: on PM2 restart every session starts
 // fresh (no stuck quarantine), and runtime release is instant.
@@ -46,20 +45,12 @@ const sessionQuarantine = new Map(); // sessionId -> { enteredAt, reason }
 function quarantineSession(sessionId, reason) {
   if (sessionQuarantine.has(sessionId)) return;
   sessionQuarantine.set(sessionId, { enteredAt: Date.now(), reason: reason || "manual" });
-  try {
-    const s = sessions.get(sessionId);
-    photoWorker.pauseSession(sessionId, s ? s.sock : null, { reason: reason || "manual" });
-  } catch (_) {}
   emit("session:quarantine", { sessionId, reason: reason || "manual" });
   console.warn("[QUARANTINE] " + sessionId + " entered quarantine: " + (reason || "manual"));
 }
 function releaseSession(sessionId) {
   if (!sessionQuarantine.has(sessionId)) return;
   sessionQuarantine.delete(sessionId);
-  try {
-    const s = sessions.get(sessionId);
-    photoWorker.resumeSession(sessionId, s ? s.sock : null);
-  } catch (_) {}
   emit("session:quarantine:release", { sessionId });
   console.log("[QUARANTINE] " + sessionId + " released");
 }
@@ -97,7 +88,7 @@ async function getWaVersion() {
 
 // Event emitter for WebSocket broadcasting
 let _io = null;
-function setIO(io) { _io = io; photoWorker.setIO(io); }
+function setIO(io) { _io = io; }
 
 function emit(event, data) {
   if (_io) _io.emit(event, data);
@@ -270,9 +261,6 @@ async function startSession(sessionId, existingCreds = null) {
       emit("session:connected", { sessionId, phone });
       console.log("[BAILEYS] Connected:", sessionId, "phone:", phone);
 
-      // Start photo download worker
-      photoWorker.startWorker(sessionId, sock);
-
       // Sync group metadata (description, participants) in background
       syncGroupMetadata(sessionId, sock).catch(e =>
         console.error("[BAILEYS] syncGroupMetadata error:", e.message)
@@ -286,7 +274,6 @@ async function startSession(sessionId, existingCreds = null) {
 
       console.log("[BAILEYS] Disconnected:", sessionId, "code:", statusCode, "reconnect:", shouldReconnect);
 
-      photoWorker.stopWorker(sessionId);
       sessions.delete(sessionId);
 
       if (shouldReconnect) {
@@ -468,11 +455,6 @@ async function startSession(sessionId, existingCreds = null) {
       } catch (e) {
         console.error("[BAILEYS] contacts.update error:", e.message);
       }
-
-      // If imgUrl changed, re-enqueue photo
-      if (c.imgUrl !== undefined) {
-        enqueuePhotos(sessionId, [c.id], true);
-      }
     }
   });
 
@@ -497,11 +479,6 @@ async function startSession(sessionId, existingCreds = null) {
         } catch (e) {
           console.error("[BAILEYS] groups.update error:", e.message);
         }
-      }
-
-      // Re-enqueue photo if profile picture changed
-      if (g.imgUrl !== undefined) {
-        enqueuePhotos(sessionId, [g.id], true);
       }
     }
   });
@@ -534,9 +511,6 @@ async function startSession(sessionId, existingCreds = null) {
             "resolution=merge-duplicates,return=minimal"
           ).catch(() => {});
         } catch (e) { /* ignore */ }
-
-        // Enqueue photo for new member
-        enqueuePhotos(sessionId, [pJid]);
 
       } else if (action === "remove") {
         // Mark as left
@@ -798,8 +772,6 @@ async function startSession(sessionId, existingCreds = null) {
           } catch(e) {}
         }
       }
-
-      enqueuePhotos(sessionId, [g.id]);
     }
     emit("groups:upsert", { sessionId, groups: groups.map(g => ({ jid: g.id, subject: g.subject })) });
   });
@@ -858,22 +830,6 @@ async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
         console.error("[DHIEGO.AI] unhandled:", e.message);
       });
     } catch (_) { /* module might fail to load if deps missing — don't break baileys */ }
-  }
-
-  // Lazy photo fetch: enqueue the chat's JID and (for groups) the sender's
-  // JID. wa_photo_queue uses ignore-duplicates so already-known rows are
-  // skipped. The worker polls at 60s intervals so even heavy message traffic
-  // only fires at most 60 profilePictureUrl IQs per hour per session. This
-  // replaces the old bulk enqueue on reconnect that starved WhatsApp's IQ
-  // budget and silently rate-limited the accounts.
-  if (isRealTime) {
-    try {
-      const lazyJids = [jid];
-      if (jid.endsWith("@g.us") && msg.key.participant && msg.key.participant !== jid) {
-        lazyJids.push(msg.key.participant);
-      }
-      enqueuePhotos(sessionId, lazyJids);
-    } catch (_) {}
   }
 
   const body = msg.message?.conversation
@@ -1909,26 +1865,6 @@ async function waitWithHeartbeat(totalMs, opts) {
   return true;
 }
 
-// Queue health snapshot: counts recent Timed Out failures in wa_photo_queue
-// for the given session. High counts are a strong signal that the account is
-// silently rate-limited by WhatsApp and ANY IQ-heavy operation will fail.
-async function getQueueFailureStats(sessionId) {
-  const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // last 2h
-  const rows = await supaRest(
-    "/rest/v1/wa_photo_queue?session_id=eq." + encodeURIComponent(sessionId) +
-    "&status=eq.failed" +
-    "&last_attempt_at=gte." + encodeURIComponent(since) +
-    "&select=error&limit=500"
-  ).catch(() => []);
-  const list = Array.isArray(rows) ? rows : [];
-  let timedOut = 0;
-  for (const r of list) {
-    const msg = (r.error || "").toLowerCase();
-    if (msg.includes("timed out") || msg.includes("timeout")) timedOut++;
-  }
-  return { totalFailed: list.length, timedOut };
-}
-
 // Count groupCreations for this session in the last hour. Returns the list so
 // the caller can compute "when does the next slot open" from the oldest row.
 async function fetchRecentGroupCreations(sessionId, windowMs) {
@@ -1942,39 +1878,15 @@ async function fetchRecentGroupCreations(sessionId, windowMs) {
   return Array.isArray(rows) ? rows : [];
 }
 
-// Gate that blocks before a groupCreate until:
-// 1. The photo-worker barrage has settled (wa_photo_queue pending+downloading below threshold)
-// 2. The hourly cap of groupCreates per account is not exceeded
-// Reports progress via onProgress with phase="photo_drain" | "hourly_budget".
+// Gate that blocks before a groupCreate until the hourly cap of groupCreates
+// per account is not exceeded. Reports progress via onProgress with
+// phase="hourly_budget".
 async function waitForGroupCreateBudget(sessionId, opts) {
   const { onProgress, shouldCancel, hourlyCap } = opts || {};
   const cap = Number(hourlyCap) || GROUP_CREATE_HOURLY_CAP;
 
-  // 1. Photo queue drain — skip if photo-worker is paused (we pause it explicitly
-  //    before the job starts, so pending requests in flight should finish fast).
-  //    We poll until pending+downloading drops below 5 or 60s elapsed.
-  const DRAIN_THRESHOLD = 5;
-  const DRAIN_MAX_MS = 60 * 1000;
-  const drainStart = Date.now();
-  while (Date.now() - drainStart < DRAIN_MAX_MS) {
-    if (shouldCancel && shouldCancel()) return;
-    let inFlight = 0;
-    try {
-      const rows = await supaRest(
-        "/rest/v1/wa_photo_queue?session_id=eq." + encodeURIComponent(sessionId) +
-        "&status=in.(pending,downloading)&select=id&limit=100"
-      );
-      inFlight = Array.isArray(rows) ? rows.length : 0;
-    } catch (_) { inFlight = 0; break; }
-    if (inFlight < DRAIN_THRESHOLD) break;
-    if (onProgress) {
-      try { onProgress({ phase: "photo_drain", remainingMs: DRAIN_MAX_MS - (Date.now() - drainStart), inFlight }); } catch (_) {}
-    }
-    await new Promise(r => setTimeout(r, 5000));
-  }
-
-  // 2. Hourly budget
-  // Re-check in a loop in case we need to wait multiple windows (unlikely but safe).
+  // Hourly budget — re-check in a loop in case we need to wait multiple
+  // windows (unlikely but safe).
   for (let guard = 0; guard < 10; guard++) {
     if (shouldCancel && shouldCancel()) return;
     const rows = await fetchRecentGroupCreations(sessionId, HOUR_MS);
@@ -1998,23 +1910,14 @@ async function waitForGroupCreateBudget(sessionId, opts) {
 // Phones that must ALWAYS receive the conservative group-creation profile,
 // regardless of what the caller passes in `options`. These accounts have a
 // track record of being flagged by WhatsApp and cannot afford another
-// rate-overlimit trip. Any other session that looks unhealthy at job start
-// (failureStreak ≥ 5 or ≥ 50 recent timeouts) gets the same treatment.
+// rate-overlimit trip.
 const CRITICAL_PHONES = new Set(["5519993473149"]); // Escalada Ltda
 
 async function applyCriticalSessionOverrides(sessionId, sock, options) {
   const rawId = String((sock && sock.user && sock.user.id) || "");
   const phone = rawId.split(":")[0].split("@")[0].replace(/\D/g, "");
   const isCritical = CRITICAL_PHONES.has(phone);
-
-  let isFlagged = false;
-  try {
-    const health = photoWorker.getSessionHealth(sessionId);
-    const queueStats = await getQueueFailureStats(sessionId).catch(() => ({ timedOut: 0 }));
-    isFlagged = (health && health.failureStreak >= 5) || ((queueStats && queueStats.timedOut) >= 50);
-  } catch (_) {}
-
-  if (!isCritical && !isFlagged) return options;
+  if (!isCritical) return options;
 
   const out = Object.assign({}, options);
   out.delaySec = Math.max(Number(out.delaySec) || 0, 600); // minimum 10min
@@ -2024,8 +1927,8 @@ async function applyCriticalSessionOverrides(sessionId, sock, options) {
   out._criticalPhone = phone;
   console.warn(
     "[BAILEYS] critical session override active: sessionId=" + sessionId +
-    " phone=" + phone + " reason=" + (isCritical ? "critical_phone" : "flagged_health") +
-    " delaySec=" + out.delaySec + " hourlyCap=" + out.hourlyCap + " leading=120s"
+    " phone=" + phone + " delaySec=" + out.delaySec +
+    " hourlyCap=" + out.hourlyCap + " leading=120s"
   );
   return out;
 }
@@ -2060,31 +1963,13 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
   let cancelled = false;
   let processed = 0;
 
-  // Pre-flight: refuse to start if the photo worker just auto-paused due to
-  // cascading timeouts, or the wa_photo_queue shows heavy "Timed Out" activity
-  // in the last 2 hours. Both are strong signals that WhatsApp has the account
-  // on a silent cooldown and any groupCreate will fail with rate-overlimit.
-  const health = photoWorker.getSessionHealth(sessionId);
-  if (health.paused && health.pauseReason === "timeout_cascade") {
-    const remain = health.autoResumeAt ? Math.max(0, new Date(health.autoResumeAt).getTime() - Date.now()) : 0;
-    const err = new Error("Sessão em cooldown de timeout cascade (photo-worker pausado automáticamente). Aguarde ~" + Math.ceil(remain / 60000) + "min.");
-    err.statusCode = 429;
-    throw err;
-  }
-  const queueStats = await getQueueFailureStats(sessionId);
-  if (queueStats.timedOut >= 100) {
-    const err = new Error("Sessão com " + queueStats.timedOut + " timeouts recentes no photo-worker — sinal de rate-limit silencioso do WhatsApp. Aguarde os números esfriarem antes de criar grupos.");
-    err.statusCode = 429;
-    throw err;
-  }
-
-  // Enter full quarantine for the duration of the job. This pauses the
-  // photo-worker AND gates every IQ-generating event handler (incoming group
-  // messages stop triggering groupMetadata, participant-update refreshes
-  // are skipped) AND blocks ezapweb/extension HTTP routes that would call
-  // the socket (profile-pic, group-info, list-admin-groups, groups,
-  // add-to-groups, messages/send) — they all return 409 while quarantined.
-  // The finally block decides whether to release based on rate-limit status.
+  // Enter full quarantine for the duration of the job. Gates every
+  // IQ-generating event handler (incoming group messages stop triggering
+  // groupMetadata, participant-update refreshes are skipped) AND blocks
+  // ezapweb/extension HTTP routes that would call the socket (profile-pic,
+  // group-info, list-admin-groups, groups, add-to-groups, messages/send)
+  // — they all return 409 while quarantined. The finally block decides
+  // whether to release based on rate-limit status.
   quarantineSession(sessionId, "create_groups_job");
   console.log("[BAILEYS] create-groups job starting for session", sessionId, "— session quarantined (all IQ traffic blocked)");
 
@@ -2663,37 +2548,6 @@ async function readChatMessages(sessionId, chatJid) {
   }
 }
 
-// ===== Enqueue photo downloads =====
-async function enqueuePhotos(sessionId, jids, force = false) {
-  if (!jids || !jids.length) return;
-  // Filter out broadcast and invalid JIDs
-  const valid = jids.filter(j => j && j !== "status@broadcast" && (j.includes("@s.whatsapp.net") || j.includes("@g.us")));
-  if (!valid.length) return;
-
-  const rows = valid.map(jid => ({
-    session_id: sessionId,
-    jid: jid,
-    status: "pending",
-  }));
-
-  // If force, reset existing entries
-  if (force) {
-    for (const jid of valid) {
-      await supaRest(
-        "/rest/v1/wa_photo_queue?session_id=eq." + sessionId + "&jid=eq." + encodeURIComponent(jid),
-        "PATCH", { status: "pending", attempts: 0, error: null }, "return=minimal"
-      ).catch(() => {});
-    }
-  }
-
-  // Insert new entries (ignore duplicates)
-  for (let i = 0; i < rows.length; i += 200) {
-    const chunk = rows.slice(i, i + 200);
-    await supaRest("/rest/v1/wa_photo_queue", "POST", chunk,
-      "resolution=ignore-duplicates,return=minimal").catch(() => {});
-  }
-}
-
 // ===== Sync group metadata (description, participants, settings) =====
 async function syncGroupMetadata(sessionId, sock) {
   console.log("[BAILEYS] Syncing group metadata for:", sessionId);
@@ -2930,8 +2784,6 @@ module.exports = {
   getSessionMeta,
   getRateLimitStatus,
   markRateLimit,
-  getQueueFailureStats,
-  enqueuePhotos,
   reconnectAllSessions,
   fetchGroupsWithInvites,
   addParticipantToAllGroups,
