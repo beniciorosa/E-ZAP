@@ -23,11 +23,27 @@ const ideasPdfTool = require("./dhiego-ai/tools/ideas-pdf");
 const freeformTool = require("./dhiego-ai/tools/llm-freeform");
 const { supaRest } = require("./supabase");
 
+// Unwrap common Baileys message envelopes. When a message is sent between
+// the user's own linked devices (e.g. iPhone -> our baileys linked device,
+// or "Message yourself"), it often comes wrapped in deviceSentMessage. Same
+// for ephemeral chats and view-once. Unwrap recursively until we hit the
+// actual content.
+function unwrapMessage(m) {
+  if (!m) return m;
+  if (m.deviceSentMessage && m.deviceSentMessage.message) return unwrapMessage(m.deviceSentMessage.message);
+  if (m.ephemeralMessage && m.ephemeralMessage.message) return unwrapMessage(m.ephemeralMessage.message);
+  if (m.viewOnceMessage && m.viewOnceMessage.message) return unwrapMessage(m.viewOnceMessage.message);
+  if (m.viewOnceMessageV2 && m.viewOnceMessageV2.message) return unwrapMessage(m.viewOnceMessageV2.message);
+  if (m.viewOnceMessageV2Extension && m.viewOnceMessageV2Extension.message) return unwrapMessage(m.viewOnceMessageV2Extension.message);
+  if (m.documentWithCaptionMessage && m.documentWithCaptionMessage.message) return unwrapMessage(m.documentWithCaptionMessage.message);
+  return m;
+}
+
 // Extracts plain text from a Baileys message. Returns empty string if the
 // message is audio-only or has no readable content — audio is handled
 // separately via extractTextOrTranscribe.
 function extractText(msg) {
-  const m = msg.message || {};
+  const m = unwrapMessage(msg.message) || {};
   return m.conversation
     || m.extendedTextMessage?.text
     || m.imageMessage?.caption
