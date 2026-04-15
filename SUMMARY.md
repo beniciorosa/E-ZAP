@@ -1,5 +1,39 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/15
 
+> **Update 2026-04-15 madrugada — incidente de capacidade + DHIEGO.AI Fase 2 + bug crítico do dedup index**
+>
+> **Linha do tempo da madrugada (commits `5211bf7` → `26ca82a`)**:
+>
+> 1. **Latência 90–270s no `validate_token`** voltou após o commit do DHIEGO.AI Fase 1. Causa: 18 sessões reconectando paralelamente disparavam history sync simultâneo + cada upsert de mensagem retornava 409 (`merge-duplicates` sem `on_conflict` parametrizado), gerando milhares de round-trips por segundo. Kong/PostgREST saturaram → admin.html parava de logar.
+> 2. **Fix 1 (commit `5211bf7`)**: adicionei `?on_conflict=session_id,message_id` (e equivalentes pra wa_chats, wa_contacts, group_members) em todos os upserts hot-path do baileys. Erros 409 zeraram. **MAS** isso introduziu o bug crítico do item 6 abaixo.
+> 3. **Fix 2 (commit `edbe679`)**: semáforo `SUPA_MAX_CONCURRENCY=6` em `services/supabase.js` envolvendo `supaRest` + delay 2s→15s entre reconnects em `reconnectAllSessions`. Espaça as 18 sessões ao longo de ~4.5min em vez de detonar tudo de uma vez.
+> 4. **Restart manual do Supabase** (REST/Kong ficaram unhealthy mesmo com Postgres ok) — usuário clicou no dashboard. Voltou em ~2min.
+> 5. **Upgrade plan compute MICRO → SMALL** (1GB → 2GB RAM, recomendado pelo agente). Postgres patch 17.6.1.052 → .104 ficou pendente pra fim de semana calmo.
+> 6. **Bug crítico descoberto via DHIEGO.AI** (commit `26ca82a`, **migration 045**): o `idx_wa_messages_dedup` é um índice unique PARCIAL com `WHERE message_id IS NOT NULL`. PostgREST **não consegue** usar índice parcial como alvo de `?on_conflict=...` — Postgres rejeita com 42P10. Resultado: desde o commit `5211bf7`, **todos os inserts em `wa_messages` falhavam silenciosamente** (HTTP 400 do PostgREST). Sintomas: ezapweb não persistia mensagens, e o hook do DHIEGO.AI nem rodava porque `handleIncomingMessage` jogava exceção no `supaRest` ANTES de chegar no hook. **Fix**: drop do índice parcial + recreate como UNIQUE regular (zero rows com NULL, comportamento idêntico). Migration 045 já rodada.
+>
+> **DHIEGO.AI Fase 2 entregue** (commit `5441168`):
+> - **Memória persistente** — nova tabela `dhiego_conversations` (migration 044), helper `services/dhiego-ai/history.js` com `loadRecentTurns` (20 últimas) + `saveTurn`. `llm-freeform.js` agora prepende o histórico no `messages` antes do `complete()`.
+> - **System prompt editável** — nova chave `app_settings.dhiego_ai_system_prompt`, exposta no `config.js` e usada como `system` no Claude call (com fallback hardcoded). Admin tem textarea estilo CLAUDE.md no card "📜 Contexto e regras globais".
+> - **Audio transcription via Whisper** — novo helper `services/dhiego-ai/transcribe.js`, usa `app_settings.openai_api_key` (já existia). `dhiego-ai.js` `extractTextOrTranscribe` baixa áudio via `downloadMediaMessage` e roda Whisper, retorna texto que segue o fluxo normal.
+> - **Admin panel novo**: cards "Contexto e regras globais", "Histórico de conversas" (lista cronológica role-coded com refresh + clear). Status indicator agora mostra Claude + Whisper.
+> - **Novos endpoints**: `GET /api/dhiego-ai/conversations?userId=...&limit=50`, `DELETE /api/dhiego-ai/conversations?userId=...` (userId obrigatório).
+> - **Endpoint emergencial**: `GET /api/sessions/:id/qr-raw` (commit `a5c0987`) retorna o QR string da sessão em memória pra fallback quando o socket do admin não entrega `session:qr`.
+>
+> **PROBLEMA EM ABERTO — DHIEGO.AI não recebe mensagens do iPhone do Dhiego**:
+> - A sessão DHIEGO.AI está hoje no número **5511991154573**, num iPhone que tem WhatsApp instalado como device primário. O baileys entra como linked device.
+> - **Sintoma**: mensagens só chegam quando o Dhiego abre a tela da conversa no iPhone. Quando fecha, baileys recebe mensagens criptografadas mas falha em decryptar com `PreKeyError: Invalid PreKey ID` ou `SessionError: No session record`.
+> - **Causa**: iOS suspende WhatsApp em background mais agressivamente que Android (sem opção de "desabilitar otimização de bateria"). Quando o app primário está dormindo, prekeys não são distribuídas pro linked device baileys.
+> - **Plano combinado pra amanhã**: desconectar o número 5511991154573 e usar **outro chip num outro aparelho** (provavelmente Android antigo deixado ligado 24/7 dedicado). Quando o novo número for escaneado, atualizar `app_settings.dhiego_ai_session_id` e `wa_sessions.user_id` (= `58db56f3-f84e-43b2-bbb2-17af8f52b9b8` do Dhiego Rosa).
+>
+> **Estado atual (deployed e rodando)**:
+> - Hetzner PM2 commit `26ca82a` online com 18+ sessões reconectadas e estáveis
+> - Latência Supabase saudável (~300-500ms validate_token, ~1s GET /users)
+> - Photo-worker: ainda pausado globalmente (state em `data/photo-worker-state.json`)
+> - DHIEGO.AI: enabled, session=`da47bbe6-c349-49f6-b7cd-50b0283aaabd` (a ser trocada amanhã), authorized_phones=`["5511989473088"]`, llm_model=`claude-sonnet-4-6`, system_prompt no default
+> - Pendente Escalada (5519993473149) pra criação de grupos pela manhã — pre-flight liberado, plano de teste "1 grupo, 3 membros, delay 180s" continua válido
+
+---
+
 > **Update 2026-04-15 (DHIEGO.AI — Fase 1 MVP)**: nova feature — assistente pessoal via WhatsApp. Sessão dedicada `DHIEGO.AI` (5511989473088, id `d9f39bb5-5f3e-4bf3-8d47-9944c9cf78ff`) escuta mensagens, autoriza sender (fromMe OU allowlist admin), roteia intent (regex fast-path + Claude classifier fallback) e executa: `ideas-add` / `ideas-list` / `ideas-complete` / `ideas-cancel` / `ideas-pdf` / `llm-freeform`. Stack: Anthropic Claude via `@anthropic-ai/sdk` (Haiku 4.5 default), `pdfkit` pra PDF de backlog, tabela `dhiego_ideas` (migration 043). Admin panel novo tab "🤖 DHIEGO.AI" com toggle enabled, dropdown de sessão, allowlist de phones, seletor de modelo, e lista de ideias com ações. `claude_api_key` está em `app_settings` (injetada via SQL one-shot, NUNCA commitada). HubSpot/Whisper/áudio/Supabase queries = Fase 2. Detalhes em §2 "(próximo commit)" e arquivos em `whatsapp-server/src/services/dhiego-ai/*`.
 
 
