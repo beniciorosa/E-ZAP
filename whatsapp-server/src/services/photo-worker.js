@@ -19,6 +19,8 @@
 // are healthy — we do not auto-reset to avoid re-poking cold accounts.
 
 const { supaRest } = require("./supabase");
+const fs = require("fs");
+const path = require("path");
 
 const PHOTO_INTERVAL_MS = 60000; // 1 pic every 60 seconds per session
 const MAX_ATTEMPTS = 3;
@@ -26,6 +28,60 @@ const FAILURE_STREAK_PAUSE_THRESHOLD = 10;
 const AUTO_PAUSE_MS = 15 * 60 * 1000; // 15 min pause after cascade detected
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+// Global kill-switch — persisted to disk so PM2 restart preserves the state.
+// Toggled via POST /api/photo-worker/pause|resume. When globalPaused is true,
+// processNext short-circuits immediately for every session without issuing
+// any profilePictureUrl IQ. The worker intervals keep running but do nothing,
+// so enabling the flag is cheap and reversible.
+const STATE_DIR = path.join(__dirname, "..", "..", "data");
+const STATE_FILE = path.join(STATE_DIR, "photo-worker-state.json");
+let globalPaused = false;
+
+function loadGlobalState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const raw = fs.readFileSync(STATE_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+      globalPaused = !!parsed.globalPaused;
+      console.log("[PHOTO-WORKER] Loaded state: globalPaused=" + globalPaused);
+    }
+  } catch (e) {
+    console.error("[PHOTO-WORKER] Could not load state file:", e.message);
+  }
+}
+
+function saveGlobalState() {
+  try {
+    if (!fs.existsSync(STATE_DIR)) {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+    }
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ globalPaused, savedAt: new Date().toISOString() }));
+  } catch (e) {
+    console.error("[PHOTO-WORKER] Could not save state file:", e.message);
+  }
+}
+
+function pauseGlobal() {
+  if (globalPaused) return;
+  globalPaused = true;
+  saveGlobalState();
+  console.log("[PHOTO-WORKER] Global pause ENABLED — all sessions will short-circuit");
+}
+
+function resumeGlobal() {
+  if (!globalPaused) return;
+  globalPaused = false;
+  saveGlobalState();
+  console.log("[PHOTO-WORKER] Global pause DISABLED — sessions resume normal processing");
+}
+
+function isGlobalPaused() {
+  return globalPaused;
+}
+
+// Load persisted state on module require
+loadGlobalState();
 
 // Active workers: sessionId -> intervalId
 const activeWorkers = new Map();
@@ -128,6 +184,8 @@ function getSessionHealth(sessionId) {
 }
 
 async function processNext(sessionId, sock) {
+  // Global kill-switch — user can pause all sessions from the UI without SSH
+  if (globalPaused) return;
   // Skip if socket disconnected
   if (!sock || !sock.user) return;
 
@@ -299,4 +357,16 @@ async function uploadToStorage(path, buffer) {
   return SUPA_URL + "/storage/v1/object/public/profile-photos/" + path;
 }
 
-module.exports = { setIO, setRateLimitMarker, startWorker, stopWorker, pauseSession, resumeSession, isPaused, getSessionHealth };
+module.exports = {
+  setIO,
+  setRateLimitMarker,
+  startWorker,
+  stopWorker,
+  pauseSession,
+  resumeSession,
+  isPaused,
+  getSessionHealth,
+  pauseGlobal,
+  resumeGlobal,
+  isGlobalPaused,
+};

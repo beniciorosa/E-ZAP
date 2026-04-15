@@ -256,7 +256,10 @@ async function startSession(sessionId, existingCreds = null) {
       await supaRest("/rest/v1/wa_contacts", "POST", contactBatch.slice(i, i + 100),
         "resolution=merge-duplicates,return=minimal").catch(() => {});
     }
-    enqueuePhotos(sessionId, newChats.map(c => c.id));
+    // No bulk photo enqueue here — photos are fetched lazily when the contact
+    // actually sends a message (see handleIncomingMessage). Dumping thousands
+    // of profilePictureUrl IQs on reconnect is what got accounts silently
+    // rate-limited by WhatsApp in the first place.
   });
 
   // History sync — bulk historical messages/chats on connection (buffered event)
@@ -298,8 +301,7 @@ async function startSession(sessionId, existingCreds = null) {
       }
     }
 
-    // Enqueue photo downloads
-    enqueuePhotos(sessionId, contacts.map(c => c.id));
+    // No bulk photo enqueue — lazy on first incoming message instead.
   });
 
   // ===== Contact update — incremental changes =====
@@ -685,6 +687,22 @@ async function startSession(sessionId, existingCreds = null) {
 async function handleIncomingMessage(sessionId, msg, sock, isRealTime) {
   const jid = msg.key.remoteJid;
   if (!jid || jid === "status@broadcast") return;
+
+  // Lazy photo fetch: enqueue the chat's JID and (for groups) the sender's
+  // JID. wa_photo_queue uses ignore-duplicates so already-known rows are
+  // skipped. The worker polls at 60s intervals so even heavy message traffic
+  // only fires at most 60 profilePictureUrl IQs per hour per session. This
+  // replaces the old bulk enqueue on reconnect that starved WhatsApp's IQ
+  // budget and silently rate-limited the accounts.
+  if (isRealTime) {
+    try {
+      const lazyJids = [jid];
+      if (jid.endsWith("@g.us") && msg.key.participant && msg.key.participant !== jid) {
+        lazyJids.push(msg.key.participant);
+      }
+      enqueuePhotos(sessionId, lazyJids);
+    } catch (_) {}
+  }
 
   const body = msg.message?.conversation
     || msg.message?.extendedTextMessage?.text
@@ -2316,15 +2334,8 @@ async function processHistorySync(sessionId, msgs, syncedChats) {
       }
     }
     console.log("[BAILEYS] History sync saved", saved, "messages for", sessionId);
-
-    // Enqueue photo downloads for contacts seen in messages
-    const uniqueJids = [...new Set(batch.map(m => m.chat_jid).filter(j => j && j !== "status@broadcast"))];
-    enqueuePhotos(sessionId, uniqueJids);
-  }
-
-  // Enqueue photo downloads for synced chats
-  if (syncedChats && syncedChats.length > 0) {
-    enqueuePhotos(sessionId, syncedChats.map(c => c.id));
+    // Photos for historical chats are fetched lazily when the contact sends
+    // a new message (see handleIncomingMessage). No bulk enqueue here.
   }
 }
 
@@ -2454,13 +2465,12 @@ async function syncGroupMetadata(sessionId, sock) {
             "resolution=merge-duplicates,return=minimal").catch(() => {});
         }
 
-        // Enqueue photos for all group members
-        enqueuePhotos(sessionId, g.participants.map(p => p.id));
+        // No bulk photo enqueue for participants — lazy fetch on message arrival
       }
     }
 
-    // Enqueue photos for all groups
-    enqueuePhotos(sessionId, groups.map(g => g.id));
+    // No bulk photo enqueue for groups either — a group's photo is fetched
+    // when someone sends a message in it (see handleIncomingMessage).
 
     console.log("[BAILEYS] Group metadata sync done for:", sessionId, "groups:", groups.length);
   } catch (e) {

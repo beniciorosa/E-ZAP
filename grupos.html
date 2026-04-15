@@ -179,14 +179,17 @@
       <button class="btn-secondary" onclick="refreshJobs()" title="Atualiza a lista de jobs agora (fora do intervalo de polling)">🔄 Atualizar</button>
     </div>
 
-    <!-- Sync do Baileys (fotos/contatos/chats) -->
+    <!-- Temperatura das contas — dashboard permanente -->
     <div id="syncCard" class="card" style="display:none">
-      <div style="display:flex; align-items:center; gap:12px; cursor:pointer" onclick="toggleSyncCard()">
-        <div style="font-weight:600; font-size:14px">📥 Sync de fotos do Baileys</div>
-        <div id="syncSummary" style="font-size:12px; color:var(--muted); flex:1"></div>
-        <div id="syncChevron" style="font-size:12px; color:var(--muted)">▼</div>
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+        <div style="cursor:pointer; flex:1; display:flex; align-items:center; gap:12px" onclick="toggleSyncCard()">
+          <div style="font-weight:600; font-size:14px">🌡️ Temperatura das contas</div>
+          <div id="syncSummary" style="font-size:12px; color:var(--muted); flex:1"></div>
+          <div id="syncChevron" style="font-size:12px; color:var(--muted)">▲</div>
+        </div>
+        <button id="syncToggleBtn" class="btn-secondary btn-icon" onclick="togglePhotoWorkerGlobal()" title="Pausa/retoma o photo-worker em TODAS as sessões">⏸ Pausar fotos</button>
       </div>
-      <div id="syncBody" style="margin-top:12px; display:none"></div>
+      <div id="syncBody" style="margin-top:12px"></div>
     </div>
 
     <!-- Container de jobs -->
@@ -597,10 +600,12 @@ function loadSessions() {
 // processadas, para o usuário saber quando os números estão "quentes" e
 // prontos para criar grupos sem disputar IQ budget com o sync.
 
-var _syncCardExpanded = false;
+// Default expanded — it's now a permanent temperature dashboard, not a transient sync progress
+var _syncCardExpanded = true;
 var _syncStatusBySession = {};
 var SYNC_POLL_INTERVAL_MS = 10000;
 var _syncPollTimer = null;
+var _globalPhotoWorkerPaused = false;
 
 function toggleSyncCard() {
   _syncCardExpanded = !_syncCardExpanded;
@@ -608,12 +613,41 @@ function toggleSyncCard() {
   var chev = document.getElementById("syncChevron");
   if (body) body.style.display = _syncCardExpanded ? "block" : "none";
   if (chev) chev.textContent = _syncCardExpanded ? "▲" : "▼";
+  // Re-render with the new expanded state
+  if (_syncCardExpanded) refreshSyncStatus();
 }
 
 function startSyncPolling() {
   if (_syncPollTimer) return;
+  refreshGlobalPhotoWorkerStatus();
   refreshSyncStatus();
-  _syncPollTimer = setInterval(refreshSyncStatus, SYNC_POLL_INTERVAL_MS);
+  _syncPollTimer = setInterval(function() {
+    refreshGlobalPhotoWorkerStatus();
+    refreshSyncStatus();
+  }, SYNC_POLL_INTERVAL_MS);
+}
+
+function refreshGlobalPhotoWorkerStatus() {
+  waFetch("/api/sync/photo-worker/status").then(function(data) {
+    _globalPhotoWorkerPaused = !!(data && data.globalPaused);
+    var btn = document.getElementById("syncToggleBtn");
+    if (btn) {
+      btn.textContent = _globalPhotoWorkerPaused ? "▶ Ativar fotos" : "⏸ Pausar fotos";
+      btn.style.borderColor = _globalPhotoWorkerPaused ? "var(--warn)" : "";
+      btn.style.color = _globalPhotoWorkerPaused ? "var(--warn)" : "";
+    }
+  }).catch(function() {});
+}
+
+function togglePhotoWorkerGlobal() {
+  var endpoint = _globalPhotoWorkerPaused ? "/api/sync/photo-worker/resume" : "/api/sync/photo-worker/pause";
+  waFetch(endpoint, "POST").then(function(data) {
+    _globalPhotoWorkerPaused = !!(data && data.globalPaused);
+    refreshGlobalPhotoWorkerStatus();
+    showToast(_globalPhotoWorkerPaused ? "Photo-worker pausado globalmente" : "Photo-worker ativado", "ok");
+  }).catch(function(e) {
+    showToast("Erro ao alternar: " + e.message, "error");
+  });
 }
 
 function refreshSyncStatus() {
@@ -635,82 +669,142 @@ function refreshSyncStatus() {
   });
 }
 
+// Classify a session for the temperature dashboard.
+// Returns { dot: "🟢|🟡|🔴", label: str, canCreate: bool, reason: str|null }
+function classifySession(sess, queue) {
+  var q = queue || { pending: 0, downloading: 0, done: 0, failed: 0, no_photo: 0 };
+  var total = (q.pending || 0) + (q.downloading || 0) + (q.done || 0) + (q.failed || 0) + (q.no_photo || 0);
+  var success = (q.done || 0) + (q.no_photo || 0);
+  var failed = q.failed || 0;
+  var successRate = total > 0 ? (success / total) : 1; // unknown → assume ok
+
+  // Explicit cooldown → always red, blocked
+  if (sess.rateLimitHitAt && sess.rateLimitRemainingMs > 0) {
+    var mins = Math.ceil(sess.rateLimitRemainingMs / 60000);
+    return { dot: "🔴", label: "Cooldown", canCreate: false, reason: "Rate-limit — libera em ~" + mins + "min" };
+  }
+
+  var pw = sess.photoWorkerHealth;
+  if (pw && pw.paused && pw.pauseReason === "timeout_cascade") {
+    var remain = 0;
+    if (pw.autoResumeAt) remain = Math.max(0, new Date(pw.autoResumeAt).getTime() - Date.now());
+    var rmin = Math.ceil(remain / 60000);
+    return { dot: "🔴", label: "Auto-pause", canCreate: false, reason: "Photo-worker pausado (cascade) — libera em ~" + rmin + "min" };
+  }
+
+  // High failure rate or many recent failures → red (even if pre-flight might
+  // technically allow, we warn visually so user doesn't gamble the account)
+  if (failed >= 100 || (total >= 50 && successRate < 0.3)) {
+    return { dot: "🔴", label: "Quente", canCreate: false, reason: failed + " falhas — aguarde esfriar" };
+  }
+
+  if (pw && pw.failureStreak >= 5) {
+    return { dot: "🟡", label: "Instável", canCreate: true, reason: pw.failureStreak + " timeouts consecutivos" };
+  }
+
+  if (total >= 20 && successRate < 0.65) {
+    return { dot: "🟡", label: "Média", canCreate: true, reason: Math.round(successRate * 100) + "% sucesso — cautela" };
+  }
+
+  return { dot: "🟢", label: "Saudável", canCreate: true, reason: null };
+}
+
 function renderSyncCard(results) {
   var card = document.getElementById("syncCard");
   var body = document.getElementById("syncBody");
   var summary = document.getElementById("syncSummary");
   if (!card || !body || !summary) return;
 
-  // Aggregate totals across all sessions
-  var totPending = 0, totDownloading = 0, totDone = 0, totNoPhoto = 0, totFailed = 0;
-  results.forEach(function(r) {
-    if (!r.data || !r.data.photoQueue) return;
-    var q = r.data.photoQueue;
-    totPending += q.pending || 0;
-    totDownloading += q.downloading || 0;
-    totDone += q.done || 0;
-    totNoPhoto += q.no_photo || 0;
-    totFailed += q.failed || 0;
-  });
-  var totalAll = totPending + totDownloading + totDone + totNoPhoto + totFailed;
-  var totalSuccess = totDone + totNoPhoto; // only "real" successes (downloaded or confirmed absent)
-  var totalActive = totPending + totDownloading;
-  var allQuiet = totalAll > 0 && totalActive === 0;
-
-  if (totalAll === 0) {
+  if (!results || results.length === 0) {
     card.style.display = "none";
     return;
   }
   card.style.display = "block";
 
-  // Summary line: real successes, active, and failures separately — no more
-  // lumping failures into "done" which made the old card look like progress.
-  var pctSuccess = totalAll > 0 ? Math.round((totalSuccess / totalAll) * 100) : 0;
-  var summaryBits = [
-    '<span style="color:var(--ok)">✓ ' + totalSuccess + '</span>',
-    '<span style="color:var(--muted)">' + totalActive + ' ativas</span>',
-  ];
-  if (totFailed > 0) {
-    summaryBits.push('<span style="color:var(--danger)">⚠ ' + totFailed + ' falhas</span>');
-  }
-  var summaryTag = allQuiet && totFailed === 0 ? "✅ Sync completo — " : "";
-  summary.innerHTML = summaryTag + summaryBits.join(' · ') + ' · ' + totalAll + ' total (' + pctSuccess + '%)';
+  // Build an enriched row per session with the classification
+  var sessionRows = results.map(function(r) {
+    var sess = _sessions.find(function(s) { return s.id === r.id; }) || { id: r.id, label: r.label, phone: r.phone };
+    var q = (r.data && r.data.photoQueue) || { pending: 0, downloading: 0, done: 0, failed: 0, no_photo: 0 };
+    return {
+      id: r.id,
+      label: r.label,
+      phone: r.phone,
+      sess: sess,
+      q: q,
+      cls: classifySession(sess, q),
+    };
+  });
 
-  // Build per-session bars (only rendered when expanded to keep DOM cheap)
+  // Sort: red first, then yellow, then green; within each group, by failure count desc
+  var order = { "🔴": 0, "🟡": 1, "🟢": 2 };
+  sessionRows.sort(function(a, b) {
+    var d = order[a.cls.dot] - order[b.cls.dot];
+    if (d !== 0) return d;
+    return (b.q.failed || 0) - (a.q.failed || 0);
+  });
+
+  // Aggregate summary
+  var red = sessionRows.filter(function(r) { return r.cls.dot === "🔴"; }).length;
+  var yellow = sessionRows.filter(function(r) { return r.cls.dot === "🟡"; }).length;
+  var green = sessionRows.filter(function(r) { return r.cls.dot === "🟢"; }).length;
+  var totDone = sessionRows.reduce(function(a, r) { return a + (r.q.done || 0) + (r.q.no_photo || 0); }, 0);
+  var totFailed = sessionRows.reduce(function(a, r) { return a + (r.q.failed || 0); }, 0);
+  var totAll = sessionRows.reduce(function(a, r) {
+    return a + (r.q.pending || 0) + (r.q.downloading || 0) + (r.q.done || 0) + (r.q.no_photo || 0) + (r.q.failed || 0);
+  }, 0);
+
+  var summaryBits = [];
+  if (red > 0) summaryBits.push('<span style="color:var(--danger)">🔴 ' + red + '</span>');
+  if (yellow > 0) summaryBits.push('<span style="color:var(--warn)">🟡 ' + yellow + '</span>');
+  if (green > 0) summaryBits.push('<span style="color:var(--ok)">🟢 ' + green + '</span>');
+  if (totFailed > 0) summaryBits.push('<span style="color:var(--muted)">· ' + totFailed + ' falhas</span>');
+  if (_globalPhotoWorkerPaused) summaryBits.push('<span style="color:var(--warn)">· ⏸ worker pausado</span>');
+  summary.innerHTML = summaryBits.join(' ') + ' · ' + totDone + '/' + totAll + ' fotos';
+
+  // Per-session rows (only rendered when expanded)
   if (!_syncCardExpanded) return;
 
   var rowsHtml = "";
-  results.forEach(function(r) {
-    var q = (r.data && r.data.photoQueue) || { pending: 0, downloading: 0, done: 0, failed: 0, no_photo: 0 };
+  sessionRows.forEach(function(row) {
+    var q = row.q;
+    var cls = row.cls;
+    var sess = row.sess;
     var total = (q.pending || 0) + (q.downloading || 0) + (q.done || 0) + (q.failed || 0) + (q.no_photo || 0);
     var success = (q.done || 0) + (q.no_photo || 0);
     var active = (q.pending || 0) + (q.downloading || 0);
     var failed = q.failed || 0;
-    var pct = total > 0 ? Math.round((success / total) * 100) : 100;
-    var label = esc(r.label) + (r.phone ? " — " + esc(r.phone) : "");
+    var pct = total > 0 ? Math.round((success / total) * 100) : 0;
 
-    var detailBits = [];
-    if (total > 0) detailBits.push(success + "/" + total + " (" + pct + "%)");
-    if (active > 0) detailBits.push('<span style="color:var(--primary)">' + active + ' ativas</span>');
-    if (failed > 0) detailBits.push('<span style="color:var(--danger)">' + failed + ' falhas</span>');
-    if (total === 0) detailBits.push("sem fila");
-
-    // Bar split: green for success, amber for active, red for failed. All
-    // on the same track, proportional to totals.
+    var label = esc(row.label) + (row.phone ? " — " + esc(row.phone) : "");
     var successW = total > 0 ? (success / total) * 100 : 0;
     var activeW = total > 0 ? (active / total) * 100 : 0;
     var failedW = total > 0 ? (failed / total) * 100 : 0;
 
-    rowsHtml += '<div style="margin-bottom:10px">'
-      + '<div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px">'
-      + '<span>' + label + '</span>'
-      + '<span style="color:var(--muted)">' + detailBits.join(' · ') + '</span>'
+    var canCreateIcon = cls.canCreate ? '<span style="color:var(--ok)" title="Pode criar grupos">✅</span>' : '<span style="color:var(--danger)" title="Criar grupos bloqueado">❌</span>';
+    var streakBadge = "";
+    if (sess.photoWorkerHealth && sess.photoWorkerHealth.failureStreak > 0) {
+      streakBadge = ' <span style="font-size:10px; padding:1px 6px; border-radius:8px; background:rgba(245,158,11,0.15); color:var(--warn)">streak ' + sess.photoWorkerHealth.failureStreak + '</span>';
+    }
+
+    var detailBits = [];
+    if (total > 0) detailBits.push(success + "/" + total + " (" + pct + "%)");
+    else detailBits.push("sem fila");
+    if (active > 0) detailBits.push('<span style="color:var(--primary)">' + active + ' ativas</span>');
+    if (failed > 0) detailBits.push('<span style="color:var(--danger)">' + failed + ' falhas</span>');
+
+    var reasonLine = cls.reason ? '<div style="font-size:11px; color:var(--muted); margin-top:2px">' + esc(cls.reason) + '</div>' : '';
+
+    rowsHtml += '<div style="margin-bottom:14px; padding:10px 12px; background:var(--surface-2); border-radius:8px; border-left:3px solid ' + (cls.dot === '🔴' ? 'var(--danger)' : cls.dot === '🟡' ? 'var(--warn)' : 'var(--ok)') + '">'
+      + '<div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; margin-bottom:6px; gap:8px; flex-wrap:wrap">'
+      +   '<span style="font-weight:600">' + cls.dot + ' ' + label + streakBadge + '</span>'
+      +   '<span style="color:var(--muted); display:flex; align-items:center; gap:8px">' + detailBits.join(' · ') + ' ' + canCreateIcon + '</span>'
       + '</div>'
       + '<div class="progress-bar-bg" style="display:flex">'
       +   '<div style="width:' + successW + '%; background:var(--ok); height:100%"></div>'
       +   '<div style="width:' + activeW + '%; background:var(--primary); height:100%"></div>'
       +   '<div style="width:' + failedW + '%; background:var(--danger); height:100%"></div>'
       + '</div>'
+      + reasonLine
       + '</div>';
   });
   body.innerHTML = rowsHtml;
