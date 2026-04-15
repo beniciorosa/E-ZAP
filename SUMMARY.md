@@ -56,6 +56,12 @@ Arquivos: `whatsapp-server/src/services/baileys.js`, `jobs.js`, `routes/sessions
 - Paginado wa_chats fetch (1000-row chunks) pra sessões pesadas: CX 1826 chats, Escalada 930
 - Legacy `photo_url` de `wa_chats`/`wa_contacts` continua como fallback
 
+### [27afc70](https://github.com/beniciorosa/E-ZAP/commit/27afc70) — Lazy fetch + toggle global + painel de temperatura
+- **Lazy fetch**: REMOVEU todos os `enqueuePhotos` em massa de `syncGroupMetadata`, `chats.upsert`, `contacts.upsert`, `processHistorySync`. Adicionou `enqueuePhotos(sessionId, [jid])` em `handleIncomingMessage` (linha 685) — só baixa foto de quem MANDA mensagem. Com o intervalo de 60s, mesmo tráfego pesado = máx 60 IQs/hora por sessão
+- **Global pause**: `photoWorker.pauseGlobal()` / `resumeGlobal()` / `isGlobalPaused()`. Flag persistido em `/opt/ezap/whatsapp-server/data/photo-worker-state.json` — sobrevive a PM2 restart. `processNext` short-circuit quando pausado
+- **Novas rotas**: `GET /api/sync/photo-worker/status`, `POST /api/sync/photo-worker/pause`, `POST /api/sync/photo-worker/resume`
+- **Painel de temperatura** (grupos.html): sync card virou "🌡️ Temperatura das contas" permanente (começa expandido). Classificação 🟢🟡🔴 por sessão baseada em success rate, failure streak, cooldown. Por sessão: barra tri-color, ✅/❌ pode criar grupos, badge de streak, linha de motivo humano. Ordenação red-first. Header tem toggle ⏸/▶ global
+
 ### SQL one-shot (não comitado, rodado via Management API)
 ```sql
 UPDATE wa_photo_queue SET status='pending', attempts=0, error=NULL, last_attempt_at=NULL
@@ -68,8 +74,10 @@ WHERE status='downloading';
 ## 3. Estado atual (deployed + running)
 
 - **Vercel**: grupos.html + ezapweb.html + fotos.html — auto-deploy no push da `main`
-- **Hetzner** (`root@87.99.141.235`, `/opt/ezap/whatsapp-server`): rodando commit `7863b33`, PM2 online, 2 sessões reconectadas no último restart, 18 sessões totais reconectando em background
-- **Supabase photo queue atual**: 1122 done, 119 no_photo, 6281 failed, 0 pending/downloading/active. Todos os workers ociosos — zero IQs saindo. **Este é o estado mais seguro possível pras contas.**
+- **Hetzner** (`root@87.99.141.235`, `/opt/ezap/whatsapp-server`): rodando commit **`27afc70`**, PM2 online, 18 sessões reconectando em background
+- **Supabase photo queue** (na hora do commit 7863b33): 1122 done, 119 no_photo, 6281 failed, 0 pending/downloading/active. Todos os workers ociosos — zero IQs saindo. Este é o estado mais seguro possível pras contas.
+- **Lazy fetch agora ativo**: o próximo reconnect NÃO vai re-inundar a fila. Só novos IQs a partir de mensagens reais
+- **Photo-worker global**: por padrão ATIVO (não pausado). Botão no grupos.html pode pausar instantaneamente se necessário. Estado persistido em `/opt/ezap/whatsapp-server/data/photo-worker-state.json`
 
 ### Saúde das sessões (snapshot anterior — a calibrar quando retomar)
 🟢 **Seguras** (sucesso >65%):
@@ -92,55 +100,23 @@ WHERE status='downloading';
 
 ---
 
-## 4. Pendências ativas (em andamento nesta sessão)
+## 4. Pendências ativas
 
-O usuário pediu **3 coisas** que ainda não foram feitas. Cover todas no próximo commit:
+**Nenhuma neste momento.** Todas as 3 frentes que estavam em andamento (lazy fetch, toggle global, painel de temperatura) foram entregues em `27afc70`. Próximos passos ficam a critério do usuário:
 
-### 4.1. Lazy photo fetch (remove bulk, adiciona on-message)
-**Problema que resolve**: atualmente, toda reconexão re-enfileira milhares de fotos via `syncGroupMetadata`, `chats.upsert`, `contacts.upsert`, `processHistorySync`. Isso é o que causou o flood original.
+### 4.1. (Sugerido) Retry controlado das 6281 fotos em `failed`
+Quando o usuário quiser recuperar as fotos que falharam (gradualmente, sem risco), criar um job que:
+- Seleciona N rows por hora (ex: 20) por sessão que estiver `🟢` no painel de temperatura
+- Reseta pra `pending` com `attempts=0`
+- Deixa o photo-worker consumir no ritmo de 60s
+- Auto-aborta se `failureStreak` subir rápido
+- Ideal como um novo botão "Recuperar fotos falhadas" no painel, com modal de confirmação
 
-**Solução**: transformar o photo-worker em lazy. Só enfileira foto quando há interação real.
+### 4.2. (Sugerido) Toggle do photo-worker por sessão
+Hoje o toggle é global. Útil ter um botão "pausar só Escalada Ltda" (ou outras contas críticas) mantendo as demais rodando. Implementação: expandir `pauseSession(sessionId, sock, { reason: "manual" })` e expor via rota `POST /api/sync/photo-worker/:sessionId/pause|resume`.
 
-**Mudanças em `whatsapp-server/src/services/baileys.js`**:
-- **REMOVER** as chamadas `enqueuePhotos(...)` das seguintes funções/handlers:
-  - `syncGroupMetadata` (linhas ~2276-2281) — remove enqueue de participants e groups
-  - `chats.upsert` handler (linha ~259) — remove enqueue de newChats
-  - `contacts.upsert` handler (linha ~302) — remove enqueue de contacts
-  - `processHistorySync` (linhas ~2322, ~2327) — remove enqueue de uniqueJids e syncedChats
-- **ADICIONAR** `enqueuePhotos(sessionId, [jid])` em `handleIncomingMessage` (linha ~685) — lazy: só baixa foto quando alguém manda mensagem. Usa `ignore-duplicates` então se já existe na queue, skip
-- Deixar as chamadas singulares em `contacts.update` (linhas 331, 361) e `listAdminGroups` (linha 640) pois são orgânicas
-
-### 4.2. Toggle global do photo-worker com persistência em disco
-**Arquivo**: `whatsapp-server/src/services/photo-worker.js`
-
-- Adicionar `globalPaused` flag em memória
-- Persistir em `/opt/ezap/whatsapp-server/data/photo-worker-state.json` (criar dir se não existir via `fs.mkdirSync(..., { recursive: true })`)
-- `processNext` faz short-circuit (return imediato) quando `globalPaused===true`
-- Carregar estado no require() do módulo (read sync)
-- Funções: `pauseGlobal()`, `resumeGlobal()`, `isGlobalPaused()`
-
-**Nova rota** em `whatsapp-server/src/routes/sync.js` (ou novo `routes/photo-worker.js`):
-- `GET /api/photo-worker/status` → `{ globalPaused, sessions: [{ sessionId, paused, failureStreak, pauseReason }] }`
-- `POST /api/photo-worker/pause` → seta flag + persiste
-- `POST /api/photo-worker/resume` → limpa flag + persiste
-
-### 4.3. Painel de temperatura permanente em grupos.html
-**Onde**: substituir/expandir o `syncCard` existente no topo do grupos.html. Título: "🌡️ Temperatura das contas".
-
-**Dados exibidos (por sessão)**:
-- 🟢🟡🔴 dot baseado em: success rate, failureStreak, rateLimitHitAt (verde >65%, amarelo 30-65%, vermelho <30% ou failureStreak>=5 ou cooldown ativo)
-- Label + telefone
-- Barra tri-color: done/pending/failed (reutilizar o render atual)
-- Badge "timeout streak: N" se N > 0
-- "Pode criar grupos: ✅/❌" baseado no mesmo predicado do pre-flight (≥100 timed out nas últimas 2h → ❌)
-- Última atividade (`last_attempt_at` do queue)
-- Relógio se `rateLimitHitAt` ativo com contagem regressiva
-
-**Header global do card**:
-- Botão "⏸ Pausar fotos / ▶ Ativar fotos" (toggle via POST `/api/photo-worker/pause|resume`)
-- Contador agregado
-
-**Polling**: 10s. Ordenação: vermelhas primeiro.
+### 4.3. (Sugerido) Dashboard aparece também em admin.html
+Hoje o painel de temperatura só vive em `grupos.html`. O usuário pediu "acompanhar permanentemente" — seria interessante embedar o mesmo card (ou uma versão resumida) em `admin.html` pra que ele tenha acesso sem precisar abrir a ferramenta de grupos.
 
 ---
 
