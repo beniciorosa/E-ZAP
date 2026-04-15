@@ -1,7 +1,7 @@
 // ===== Sync status routes =====
 const express = require("express");
 const router = express.Router();
-const { supaCount } = require("../services/supabase");
+const { supaCount, supaRpc } = require("../services/supabase");
 const photoWorker = require("../services/photo-worker");
 
 // ===== Photo-worker global control =====
@@ -25,6 +25,53 @@ router.post("/photo-worker/pause", (req, res) => {
 router.post("/photo-worker/resume", (req, res) => {
   photoWorker.resumeGlobal();
   res.json({ ok: true, globalPaused: false });
+});
+
+// GET /api/sync/status-all — Batch sync dashboard for ALL sessions in ONE
+// Supabase round-trip. Uses the get_sync_status_all() RPC which returns per
+// -session counters via indexed FILTER aggregates. Replaces the N * 9 COUNT
+// HEAD requests from the previous per-session endpoint (which was seq
+// scanning wa_photo_queue every 10s and starving the Supabase pooler).
+// Cached in-memory for SYNC_STATUS_CACHE_MS to survive rapid reloads.
+let _syncStatusCache = null;
+let _syncStatusCachedAt = 0;
+const SYNC_STATUS_CACHE_MS = 5000;
+
+router.get("/status-all", async (req, res) => {
+  try {
+    const now = Date.now();
+    if (_syncStatusCache && now - _syncStatusCachedAt < SYNC_STATUS_CACHE_MS) {
+      return res.json(_syncStatusCache);
+    }
+    const rows = await supaRpc("get_sync_status_all", {});
+    const bySession = {};
+    for (const r of rows || []) {
+      bySession[r.session_id] = {
+        contacts: {
+          total: Number(r.total_contacts) || 0,
+          withPhoto: Number(r.contacts_with_photo) || 0,
+          pending: (Number(r.q_pending) || 0) + (Number(r.q_downloading) || 0),
+        },
+        chats: {
+          total: Number(r.total_chats) || 0,
+          archived: Number(r.archived_chats) || 0,
+        },
+        photoQueue: {
+          pending: Number(r.q_pending) || 0,
+          downloading: Number(r.q_downloading) || 0,
+          done: Number(r.q_done) || 0,
+          failed: Number(r.q_failed) || 0,
+          no_photo: Number(r.q_no_photo) || 0,
+        },
+      };
+    }
+    const payload = { ok: true, bySession, cachedAt: now };
+    _syncStatusCache = payload;
+    _syncStatusCachedAt = now;
+    res.json(payload);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /api/sync/:sessionId/status — Sync dashboard with counters

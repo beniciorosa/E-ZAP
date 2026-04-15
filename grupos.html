@@ -603,7 +603,7 @@ function loadSessions() {
 // Default expanded — it's now a permanent temperature dashboard, not a transient sync progress
 var _syncCardExpanded = true;
 var _syncStatusBySession = {};
-var SYNC_POLL_INTERVAL_MS = 10000;
+var SYNC_POLL_INTERVAL_MS = 30000;
 var _syncPollTimer = null;
 var _globalPhotoWorkerPaused = false;
 
@@ -617,15 +617,23 @@ function toggleSyncCard() {
   if (_syncCardExpanded) refreshSyncStatus();
 }
 
-function startSyncPolling() {
-  if (_syncPollTimer) return;
+function _syncPollTick() {
+  if (document.hidden) return; // never poll when tab isn't visible
   refreshGlobalPhotoWorkerStatus();
   refreshSyncStatus();
-  _syncPollTimer = setInterval(function() {
-    refreshGlobalPhotoWorkerStatus();
-    refreshSyncStatus();
-  }, SYNC_POLL_INTERVAL_MS);
 }
+
+function startSyncPolling() {
+  if (_syncPollTimer) return;
+  _syncPollTick();
+  _syncPollTimer = setInterval(_syncPollTick, SYNC_POLL_INTERVAL_MS);
+}
+
+// Resume immediately when the tab becomes visible again so the dashboard
+// doesn't show stale numbers after the user Alt-Tabs back.
+document.addEventListener("visibilitychange", function() {
+  if (!document.hidden && _syncPollTimer) _syncPollTick();
+});
 
 function updatePhotoWorkerButtonUI() {
   var btn = document.getElementById("syncToggleBtn");
@@ -672,16 +680,19 @@ function refreshSyncStatus() {
     document.getElementById("syncCard").style.display = "none";
     return;
   }
-  // Fetch /api/sync/:id/status for every connected session in parallel
-  var promises = connected.map(function(s) {
-    return waFetch("/api/sync/" + encodeURIComponent(s.id) + "/status")
-      .then(function(d) { return { id: s.id, label: s.label, phone: s.phone, data: d }; })
-      .catch(function() { return { id: s.id, label: s.label, phone: s.phone, data: null }; });
-  });
-  Promise.all(promises).then(function(results) {
+  // Single batch call — get_sync_status_all() RPC returns counters for every
+  // session in one round-trip, replacing the previous N * 9 COUNT queries
+  // that were saturating Supabase and cascading slowness to admin/ezapweb.
+  waFetch("/api/sync/status-all").then(function(payload) {
+    var bySession = (payload && payload.bySession) || {};
+    var results = connected.map(function(s) {
+      return { id: s.id, label: s.label, phone: s.phone, data: bySession[s.id] || null };
+    });
     _syncStatusBySession = {};
     results.forEach(function(r) { _syncStatusBySession[r.id] = r; });
     renderSyncCard(results);
+  }).catch(function() {
+    // Silent fail — next tick will retry
   });
 }
 
