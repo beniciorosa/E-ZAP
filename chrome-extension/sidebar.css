@@ -360,17 +360,18 @@
   border-bottom-color: var(--ezap-primary, #00a884);
 }
 
-/* ===== RESIZE HANDLE ===== */
+/* ===== RESIZE HANDLE (sidebar left edge — fixed on body) ===== */
 .ezap-resize-handle {
-  position: absolute; left: 0; top: 0;
-  width: 4px; height: 100%;
-  cursor: col-resize; z-index: 100000;
+  position: fixed; top: 0;
+  width: 6px; height: 100vh;
+  cursor: col-resize; z-index: 100001;
   background: transparent;
   transition: background 0.15s;
+  display: none;
 }
 .ezap-resize-handle:hover,
-.ezap-resize-handle--active {
-  background: rgba(0,168,132,0.4);
+.ezap-resize-handle.ezap-resize-handle--active {
+  background: rgba(0,168,132,0.5);
 }
 
 /* ===== BUTTON DRAG-AND-DROP ===== */

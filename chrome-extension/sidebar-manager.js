@@ -74,10 +74,11 @@
       container.style.right = "";
     }
     container.style.display = "flex";
-    // Collapse button removed — tab bar has close functionality via Escape key
+    // Cleanup legacy collapse button if still in DOM
     var oldCollapseBtn = document.getElementById("ezap-collapse-btn");
     if (oldCollapseBtn) oldCollapseBtn.remove();
     _highlightActiveButton();
+    _positionResizeHandle();
   }
 
   // ===== Tab Bar =====
@@ -151,44 +152,59 @@
   }
 
   // ===== Resize Handle =====
+  // Resize handle — positioned on body as fixed element, aligned to sidebar left edge
   function _ensureResizeHandle() {
-    document.querySelectorAll(".ezap-sidebar").forEach(function(sb) {
-      if (sb.querySelector(".ezap-resize-handle")) return;
-      var handle = document.createElement("div");
-      handle.className = "ezap-resize-handle";
-      sb.appendChild(handle);
+    if (document.getElementById("ezap-sidebar-resize-handle")) return;
+    var handle = document.createElement("div");
+    handle.id = "ezap-sidebar-resize-handle";
+    handle.className = "ezap-resize-handle";
+    document.body.appendChild(handle);
+    _positionResizeHandle();
 
-      var startX, startW;
-      handle.addEventListener("mousedown", function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        startX = e.clientX;
-        startW = SIDEBAR_W;
-        handle.classList.add("ezap-resize-handle--active");
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
+    var startX, startW;
+    handle.addEventListener("mousedown", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      startX = e.clientX;
+      startW = SIDEBAR_W;
+      handle.classList.add("ezap-resize-handle--active");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
 
-        function onMove(ev) {
-          var diff = startX - ev.clientX; // Moving left = wider
-          var newW = Math.max(MIN_W, Math.min(MAX_W, startW + diff));
-          SIDEBAR_W = newW;
-          _applySidebarWidth();
-        }
-        function onUp() {
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-          handle.classList.remove("ezap-resize-handle--active");
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-          // Save
-          var obj = {};
-          obj[STORAGE_KEY_WIDTH] = SIDEBAR_W;
-          if (chrome.storage) chrome.storage.local.set(obj);
-        }
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-      });
+      function onMove(ev) {
+        var diff = startX - ev.clientX; // Moving left = wider
+        var newW = Math.max(MIN_W, Math.min(MAX_W, startW + diff));
+        SIDEBAR_W = newW;
+        _applySidebarWidth();
+        _positionResizeHandle();
+      }
+      function onUp() {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        handle.classList.remove("ezap-resize-handle--active");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        var obj = {};
+        obj[STORAGE_KEY_WIDTH] = SIDEBAR_W;
+        if (chrome.storage) chrome.storage.local.set(obj);
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
     });
+  }
+
+  function _positionResizeHandle() {
+    var handle = document.getElementById("ezap-sidebar-resize-handle");
+    if (!handle) return;
+    var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
+      return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
+    });
+    if (anyShrinkOpen) {
+      handle.style.display = "block";
+      handle.style.right = (SIDEBAR_W + RAIL_W - 3) + "px";
+    } else {
+      handle.style.display = "none";
+    }
   }
 
   // ===== Drag-and-Drop Button Reorder =====
