@@ -34,7 +34,7 @@ router.post("/", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const dbSessions = await supaRest(
-      "/rest/v1/wa_sessions?select=id,user_id,phone,label,status,last_seen,created_at&order=created_at.asc"
+      "/rest/v1/wa_sessions?select=id,user_id,phone,label,status,last_seen,created_at,skip_group_sync&order=created_at.asc"
     );
     // Enrich with live status
     const active = baileys.getActiveSessions();
@@ -100,10 +100,11 @@ router.get("/:id/qr-raw", (req, res) => {
 // PATCH /api/sessions/:id — Update session (rename, etc.)
 router.patch("/:id", async (req, res) => {
   try {
-    const { label, userId } = req.body;
+    const { label, userId, skipGroupSync } = req.body;
     const body = {};
     if (label) body.label = label;
     if (userId !== undefined) body.user_id = userId || null;
+    if (skipGroupSync !== undefined) body.skip_group_sync = !!skipGroupSync;
     await supaRest("/rest/v1/wa_sessions?id=eq." + req.params.id, "PATCH", body, "return=minimal");
     res.json({ ok: true });
   } catch (e) {

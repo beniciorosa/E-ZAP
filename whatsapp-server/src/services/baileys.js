@@ -261,10 +261,27 @@ async function startSession(sessionId, existingCreds = null) {
       emit("session:connected", { sessionId, phone });
       console.log("[BAILEYS] Connected:", sessionId, "phone:", phone);
 
-      // Sync group metadata (description, participants) in background
-      syncGroupMetadata(sessionId, sock).catch(e =>
-        console.error("[BAILEYS] syncGroupMetadata error:", e.message)
-      );
+      // Sync group metadata (description, participants) in background —
+      // but SKIP if the session has skip_group_sync=true in wa_sessions.
+      // Heavy sessions (Escalada 719 groups, CX, CX2, Follow Up) have
+      // this flag set to avoid the batch IQ on every reconnect. The toggle
+      // is controllable per-session via the grupos.html sessions card.
+      try {
+        const syncCheck = await supaRest(
+          "/rest/v1/wa_sessions?id=eq." + sessionId + "&select=skip_group_sync"
+        ).catch(() => []);
+        const skipSync = syncCheck && syncCheck[0] && syncCheck[0].skip_group_sync === true;
+        if (skipSync) {
+          console.log("[BAILEYS] Skipping group metadata sync for", sessionId, "(skip_group_sync=true)");
+        } else {
+          syncGroupMetadata(sessionId, sock).catch(e =>
+            console.error("[BAILEYS] syncGroupMetadata error:", e.message)
+          );
+        }
+      } catch (_) {
+        // If the check fails, sync anyway (safe default)
+        syncGroupMetadata(sessionId, sock).catch(() => {});
+      }
     }
 
     if (connection === "close") {

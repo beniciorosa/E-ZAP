@@ -646,6 +646,7 @@ function loadSessions() {
         rateLimitRemainingMs: s.rateLimitRemainingMs || 0,
         photoWorkerHealth: s.photoWorkerHealth || null,
         quarantine: s.quarantine || null,
+        skipGroupSync: s.skip_group_sync || false,
       };
     });
     return _sessions;
@@ -673,6 +674,19 @@ function enterQuarantine(sessionId) {
     })
     .catch(function(e) { showToast("Erro: " + e.message, "error"); });
 }
+function toggleGroupSync(sessionId, newSkipValue) {
+  var action = newSkipValue ? "desligar" : "ligar";
+  waFetch("/api/sessions/" + sessionId, "PATCH", { skipGroupSync: newSkipValue })
+    .then(function() {
+      // Update local state immediately
+      var s = _sessions.find(function(x) { return x.id === sessionId; });
+      if (s) s.skipGroupSync = newSkipValue;
+      renderSessionsCard();
+      showToast("Sync de grupos " + (newSkipValue ? "desligado" : "ligado"), "ok");
+    })
+    .catch(function(e) { showToast("Erro ao " + action + " sync: " + e.message, "error"); });
+}
+
 function releaseQuarantine(sessionId) {
   if (!confirm("Liberar a sessão da quarentena? IQs e rotas do ezapweb voltam a ser permitidos.")) return;
   waFetch("/api/sessions/" + sessionId + "/quarantine/release", "POST")
@@ -753,11 +767,18 @@ function renderSessionsCard() {
       ? '<span style="color:var(--danger); font-size:11px">em quarentena · motivo: ' + esc(s.quarantine.reason || "manual") + '</span>'
       : '<span style="color:var(--muted); font-size:11px">pronta</span>';
 
-    var btnHtml = s.quarantine
+    var quarBtnHtml = s.quarantine
       ? '<button class="btn-icon btn-secondary" style="font-size:11px; padding:4px 10px; color:var(--ok); border-color:var(--ok)" onclick="releaseQuarantine(\'' + esc(s.id) + '\')">▶️ Liberar</button>'
       : '<button class="btn-icon btn-secondary" style="font-size:11px; padding:4px 10px; color:var(--danger); border-color:var(--danger)" onclick="enterQuarantine(\'' + esc(s.id) + '\')">🚨 Quarentena</button>';
 
-    rowsHtml += '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; margin-bottom:8px; background:var(--surface-2); border-radius:8px; border-left:3px solid ' + borderColor + '; flex-wrap:wrap">'
+    var syncBtnColor = s.skipGroupSync ? "var(--warn)" : "var(--ok)";
+    var syncBtnLabel = s.skipGroupSync ? "Sync ✗" : "Sync ✓";
+    var syncBtnTitle = s.skipGroupSync
+      ? "Sync de grupos DESLIGADO — clique pra ligar"
+      : "Sync de grupos LIGADO — clique pra desligar (reduz IQs)";
+    var syncBtnHtml = '<button class="btn-icon btn-secondary" style="font-size:11px; padding:4px 10px; color:' + syncBtnColor + '; border-color:' + syncBtnColor + '" title="' + syncBtnTitle + '" onclick="toggleGroupSync(\'' + esc(s.id) + '\',' + (s.skipGroupSync ? 'false' : 'true') + ')">' + syncBtnLabel + '</button>';
+
+    rowsHtml += '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; margin-bottom:8px; background:var(--surface-2); border-radius:8px; border-left:3px solid ' + borderColor + '; flex-wrap:wrap">'
       + '<div style="display:flex; align-items:center; gap:10px; flex:1; min-width:220px">'
       +   '<span style="font-size:14px">' + dot + '</span>'
       +   '<div>'
@@ -765,7 +786,10 @@ function renderSessionsCard() {
       +     '<div style="margin-top:2px">' + statusText + '</div>'
       +   '</div>'
       + '</div>'
-      + btnHtml
+      + '<div style="display:flex; gap:6px; align-items:center">'
+      +   syncBtnHtml
+      +   quarBtnHtml
+      + '</div>'
       + '</div>';
   });
   body.innerHTML = rowsHtml;
