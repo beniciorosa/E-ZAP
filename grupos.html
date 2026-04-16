@@ -181,11 +181,12 @@
 
     <!-- Sessões conectadas — controle de quarentena por sessão -->
     <div id="sessionsCard" class="card" style="display:none">
-      <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px">
+      <div style="display:flex; align-items:center; gap:12px; cursor:pointer" onclick="toggleSessionsCard()">
         <div style="font-weight:600; font-size:14px">📱 Sessões conectadas</div>
         <div id="sessionsSummary" style="font-size:12px; color:var(--muted); flex:1"></div>
+        <div id="sessionsChevron" style="font-size:12px; color:var(--muted)">▶</div>
       </div>
-      <div id="sessionsBody"></div>
+      <div id="sessionsBody" style="display:none; margin-top:12px"></div>
     </div>
 
     <!-- Container de jobs -->
@@ -358,6 +359,14 @@
         <label>Membros "helper" (sessões que entram em TODOS os grupos do lote)</label>
         <div id="helperSessionsChecklist" style="display:flex; flex-wrap:wrap; gap:8px; padding:10px; background:var(--bg); border:1px solid var(--border); border-radius:8px; max-height:140px; overflow-y:auto"></div>
         <div style="font-size:11px; color:var(--muted); margin-top:4px">Ex: CX2 ou o assistente que deve estar em cada grupo. O mentor do ticket já entra automaticamente — não precisa marcar.</div>
+      </div>
+
+      <div id="hubspotAdminBox" style="margin-bottom:16px">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px">
+          <input type="checkbox" id="hubspotAddEscaladaAdmin" checked onchange="onHelperChecklistChange()" style="width:16px; height:16px; accent-color:var(--primary)">
+          <span style="font-size:13px">Adicionar <strong>Escalada Ltda (5519993473149)</strong> como administrador de todos os grupos</span>
+        </label>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">O mentor cria o grupo e depois adiciona + promove a Escalada como admin (2 IQs extras por grupo, saem do budget do mentor). Desmarque se não quiser.</div>
       </div>
 
       <div id="hubspotCustomFields" style="margin-bottom:16px">
@@ -656,6 +665,15 @@ function releaseQuarantine(sessionId) {
 
 var SESSIONS_POLL_INTERVAL_MS = 30000;
 var _sessionsPollTimer = null;
+var _sessionsCardExpanded = false;
+
+function toggleSessionsCard() {
+  _sessionsCardExpanded = !_sessionsCardExpanded;
+  var body = document.getElementById("sessionsBody");
+  var chev = document.getElementById("sessionsChevron");
+  if (body) body.style.display = _sessionsCardExpanded ? "block" : "none";
+  if (chev) chev.textContent = _sessionsCardExpanded ? "▼" : "▶";
+}
 
 function _sessionsPollTick() {
   if (document.hidden) return;
@@ -1123,6 +1141,7 @@ function renderJobCard(job) {
   var adminCount = job.progress.adminCount || 0;
   var doneTotal = job.progress.doneTotal || 0;
   var withLink = job.progress.withLink || 0;
+  var newInRun = job.progress.newInThisRun || 0;
   var progressCount = (job.type === "extract") ? withLink : doneTotal;
   // For create-groups, the progress bar tracks "grupos criados" vs total specs
   var specCount = (job.config && job.config.specCount) || 0;
@@ -1136,11 +1155,11 @@ function renderJobCard(job) {
   var loopDone = job.progress.done || 0;
   var mainCount, mainTotal, pct;
   if (job.type === "create-groups") {
-    // create-groups uses specCount as the fixed denominator (doneTotal counts
-    // only rows that reached "created" status — which is what we want in the UI).
-    mainCount = doneTotal;
+    // Show ONLY the groups created in THIS batch — not the cache from prior
+    // runs. This fixes the "3 de 1 (300%)" when 3 were cached and 1 is new.
+    mainCount = newInRun;
     mainTotal = specCount || loopTotal || 0;
-    pct = mainTotal > 0 ? (mainCount / mainTotal) * 100 : 0;
+    pct = mainTotal > 0 ? Math.min(100, (mainCount / mainTotal) * 100) : 0;
   } else if (loopTotal > 0) {
     mainCount = loopDone;
     mainTotal = loopTotal;
@@ -1209,7 +1228,7 @@ function renderJobCard(job) {
   // (operações de rodadas anteriores preservadas no Supabase), pra deixar
   // claro por que o total pode ser maior que o filtro atual.
   var adminStat = "";
-  var newInRun = job.progress.newInThisRun || 0;
+  // newInRun was computed earlier (above mainCount block)
   if (job.type === "extract" && adminCount > 0) {
     var fromCacheExtract = Math.max(0, withLink - newInRun);
     adminStat = ' — ' + withLink + ' / ' + adminCount + ' admins com link';
@@ -1230,13 +1249,13 @@ function renderJobCard(job) {
     }
   } else if (job.type === "create-groups") {
     var fromCacheCreate = Math.max(0, doneTotal - newInRun);
-    adminStat = ' — ' + doneTotal + ' / ' + (specCount || 0) + ' grupos criados';
-    if (newInRun > 0 && fromCacheCreate > 0) {
-      adminStat += ' (' + newInRun + ' nesta rodada + ' + fromCacheCreate + ' do cache)';
-    } else if (newInRun > 0) {
+    // Show only the current batch progress — cache goes in a separate hint
+    adminStat = ' — ' + newInRun + ' / ' + (specCount || 0) + ' grupos criados';
+    if (newInRun > 0) {
       adminStat += ' (' + newInRun + ' novos nesta rodada)';
-    } else if (fromCacheCreate > 0) {
-      adminStat += ' (todos do cache)';
+    }
+    if (fromCacheCreate > 0) {
+      adminStat += ' · <span style="color:var(--muted)">' + fromCacheCreate + ' no histórico anterior</span>';
     }
   }
 
@@ -1721,6 +1740,7 @@ function openCreateGroupsModal() {
 function toggleCreateSourceMode() {
   var mode = (document.querySelector('input[name=createSourceMode]:checked') || {}).value || "hubspot";
   var hubspotBox = document.getElementById("createHubspotBox");
+  var hubspotAdminBox = document.getElementById("hubspotAdminBox");
   var hubspotCustomBox = document.getElementById("hubspotCustomFields");
   var helperBox = document.getElementById("helperSessionsBox");
   var fileBox = document.getElementById("createFileBox");
@@ -1731,13 +1751,16 @@ function toggleCreateSourceMode() {
   hubspotBox.classList.add("hidden");
   fileBox.classList.add("hidden");
   gsheetsBox.classList.add("hidden");
-  // The HubSpot custom fields and helper checklist only make sense in HubSpot mode.
-  // For xlsx/csv/sheets each row carries its own description + welcome + members.
+  // The HubSpot custom fields, admin checkbox, and helper checklist only
+  // make sense in HubSpot mode. For xlsx/csv/sheets each row carries its
+  // own description + welcome + members.
+  hubspotAdminBox.classList.add("hidden");
   hubspotCustomBox.classList.add("hidden");
   helperBox.classList.add("hidden");
 
   if (mode === "hubspot") {
     hubspotBox.classList.remove("hidden");
+    hubspotAdminBox.classList.remove("hidden");
     hubspotCustomBox.classList.remove("hidden");
     helperBox.classList.remove("hidden");
   } else if (mode === "gsheets") {
@@ -2053,6 +2076,10 @@ async function buildSpecsFromHubspotResolved() {
     }
   });
 
+  // Escalada Ltda admin checkbox — add + promote after group creation
+  var addEscaladaAdmin = document.getElementById("hubspotAddEscaladaAdmin") && document.getElementById("hubspotAddEscaladaAdmin").checked;
+  var adminJids = addEscaladaAdmin ? ["5519993473149@s.whatsapp.net"] : [];
+
   // Lê os campos custom — aplicam a TODOS os grupos do lote
   var customDescription = (document.getElementById("hubspotCustomDescription").value || "").trim();
   var customWelcomeRaw = (document.getElementById("hubspotCustomWelcome").value || "").trim();
@@ -2130,6 +2157,7 @@ async function buildSpecsFromHubspotResolved() {
         members: members,
         lockInfo: true,
         welcomeMessage: specWelcome, // {primeiro_nome} já interpolado; {nome_grupo} fica pro backend
+        adminJids: adminJids.slice(), // JIDs a adicionar + promover a admin
         specHash: null,
       };
     }

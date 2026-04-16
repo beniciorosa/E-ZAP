@@ -2105,7 +2105,27 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
       }
 
-      // 6. Invite link (best-effort, useful for audit trail + privacy-block fallback)
+      // 6. Add + promote extra admin JIDs (e.g. Escalada Ltda as group admin).
+      // The frontend populates spec.adminJids when the user checks the
+      // "Adicionar Escalada Ltda como administrador" checkbox. Each JID
+      // is added as member then promoted — 2 IQs per JID, all on the
+      // CREATOR session's budget (not Escalada's, since Escalada isn't
+      // connected to this sock instance).
+      if (!rateLimited && Array.isArray(spec.adminJids) && spec.adminJids.length > 0) {
+        for (const adminJid of spec.adminJids) {
+          try {
+            await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "add");
+            await new Promise(r => setTimeout(r, 2000));
+            await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "promote");
+            await new Promise(r => setTimeout(r, 1000));
+          } catch (e) {
+            if (isRateLimitError(e)) { rateLimited = true; break; }
+            row.statusMessage = appendNote(row.statusMessage, "admin_fail " + adminJid.split("@")[0] + ": " + (e?.message || e));
+          }
+        }
+      }
+
+      // 7. Invite link (best-effort, useful for audit trail + privacy-block fallback)
       if (!rateLimited) {
         try {
           const code = await sock.groupInviteCode(row.groupJid);
@@ -2113,7 +2133,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         } catch (e) { /* non-fatal */ }
       }
 
-      // 7. DM the invite link to members that were rejected by privacy settings.
+      // 8. DM the invite link to members that were rejected by privacy settings.
       // This way they still get a way to join even though they block being added directly.
       if (!rateLimited && row.inviteLink && rejectedJids.length > 0) {
         let notified = 0;
