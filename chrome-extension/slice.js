@@ -792,8 +792,8 @@ function _ensureCustomListCSS(force) {
     // Pill unread badge
     '.ezap-pill-unread { background: #ef4444; color: #fff; font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; margin-left: 2px; }',
     // Overlay resize handle (borda direita da lista de chats)
-    '.ezap-overlay-resize-handle { position: absolute; right: -2px; top: 0; width: 4px; height: 100%; cursor: col-resize; z-index: 200; background: transparent; transition: background 0.15s; }',
-    '.ezap-overlay-resize-handle:hover, .ezap-overlay-resize-handle--active { background: rgba(0,168,132,0.4); }'
+    '.ezap-overlay-resize-handle { position: absolute; right: -3px; top: 0; width: 6px; height: 100%; cursor: col-resize; z-index: 200; background: transparent; transition: background 0.15s; }',
+    '.ezap-overlay-resize-handle:hover, .ezap-overlay-resize-handle--active { background: rgba(0,168,132,0.5); }'
   ].join('\n');
   document.head.appendChild(s);
 }
