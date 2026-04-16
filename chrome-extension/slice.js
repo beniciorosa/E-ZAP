@@ -1564,7 +1564,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     searchInput.style.cssText = 'width:100%;padding:6px 10px 6px 30px;border-radius:8px;border:1px solid ' + _st.border + ';background:' + _st.bgHover + ';color:' + _st.text + ';font-size:13px;outline:none;font-family:inherit;';
     searchInput.addEventListener('focus', function() { searchInput.style.borderColor = _sa; });
     searchInput.addEventListener('blur', function() { searchInput.style.borderColor = _st.border; });
-    searchInput.addEventListener('input', function() {
+    function _filterOverlayRows() {
       var raw = searchInput.value.toLowerCase().trim();
       var q = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(raw) : raw;
       var qDigits = raw.replace(/\D/g, '');
@@ -1578,26 +1578,23 @@ function _showCustomAbaList(abaTab, chatIndex) {
         var rowDisplay = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(items[si].getAttribute('data-display') || '') : (items[si].getAttribute('data-display') || '').toLowerCase();
         var match = !q || rowName.indexOf(q) >= 0 || rowDisplay.indexOf(q) >= 0;
         if (!match && isDigitSearch) {
-          var rowJid = (items[si].getAttribute('data-ezap-jid') || '');
-          var jidDigits = rowJid.replace(/\D/g, '');
-          if (jidDigits && jidDigits.indexOf(qDigits) >= 0) { match = true; }
+          var rowPhone = items[si].getAttribute('data-phone') || '';
+          if (rowPhone && rowPhone.indexOf(qDigits) >= 0) { match = true; }
           if (!match) {
             var nameDigits = (items[si].getAttribute('data-name') || '').replace(/\D/g, '');
             var displayDigits = (items[si].getAttribute('data-display') || '').replace(/\D/g, '');
             if ((nameDigits.length >= 5 && nameDigits.indexOf(qDigits) >= 0) || (displayDigits.length >= 5 && displayDigits.indexOf(qDigits) >= 0)) { match = true; }
           }
-          if (!match) {
-            var rowText = (items[si].textContent || '').replace(/\D/g, '');
-            if (rowText.length >= 5 && rowText.indexOf(qDigits) >= 0) { match = true; }
-          }
         }
         items[si].style.display = match ? '' : 'none';
         if (match) visibleCount++;
       }
-      // Update count
       var countEl = document.getElementById('ezap-overlay-count');
       if (countEl) countEl.textContent = visibleCount + ' conversa' + (visibleCount !== 1 ? 's' : '');
-    });
+    }
+    searchInput.addEventListener('input', _filterOverlayRows);
+    // Auto-filter if input already has a value (e.g., restored after overlay rebuild)
+    if (searchInput.value.trim()) setTimeout(_filterOverlayRows, 50);
     searchWrap.appendChild(searchInput);
     header.appendChild(searchWrap);
 
@@ -1643,7 +1640,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
     searchInputAba.style.cssText = 'width:100%;padding:6px 10px 6px 30px;border-radius:8px;border:1px solid ' + _tAba.border + ';background:' + _tAba.bgHover + ';color:' + _tAba.text + ';font-size:13px;outline:none;font-family:inherit;';
     searchInputAba.addEventListener('focus', function() { searchInputAba.style.borderColor = _tAba.accent; });
     searchInputAba.addEventListener('blur', function() { searchInputAba.style.borderColor = _tAba.border; });
-    searchInputAba.addEventListener('input', function() {
+    function _filterAbaRows() {
       var raw = searchInputAba.value.toLowerCase().trim();
       var q = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(raw) : raw;
       var qDigits = raw.replace(/\D/g, '');
@@ -1657,17 +1654,12 @@ function _showCustomAbaList(abaTab, chatIndex) {
         var rowDisplay = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(items[si].getAttribute('data-display') || '') : (items[si].getAttribute('data-display') || '').toLowerCase();
         var match = !q || rowName.indexOf(q) >= 0 || rowDisplay.indexOf(q) >= 0;
         if (!match && isDigitSearch) {
-          var rowJid = (items[si].getAttribute('data-ezap-jid') || '');
-          var jidDigits = rowJid.replace(/\D/g, '');
-          if (jidDigits && jidDigits.indexOf(qDigits) >= 0) { match = true; }
+          var rowPhone = items[si].getAttribute('data-phone') || '';
+          if (rowPhone && rowPhone.indexOf(qDigits) >= 0) { match = true; }
           if (!match) {
             var nameDigits = (items[si].getAttribute('data-name') || '').replace(/\D/g, '');
             var displayDigits = (items[si].getAttribute('data-display') || '').replace(/\D/g, '');
             if ((nameDigits.length >= 5 && nameDigits.indexOf(qDigits) >= 0) || (displayDigits.length >= 5 && displayDigits.indexOf(qDigits) >= 0)) { match = true; }
-          }
-          if (!match) {
-            var rowText = (items[si].textContent || '').replace(/\D/g, '');
-            if (rowText.length >= 5 && rowText.indexOf(qDigits) >= 0) { match = true; }
           }
         }
         items[si].style.display = match ? '' : 'none';
@@ -1675,7 +1667,9 @@ function _showCustomAbaList(abaTab, chatIndex) {
       }
       var countEl = document.getElementById('ezap-overlay-count');
       if (countEl) countEl.textContent = visibleCount + ' contato' + (visibleCount !== 1 ? 's' : '');
-    });
+    }
+    searchInputAba.addEventListener('input', _filterAbaRows);
+    if (searchInputAba.value.trim()) setTimeout(_filterAbaRows, 50);
     searchWrapAba.appendChild(searchInputAba);
     header.appendChild(searchWrapAba);
 
@@ -2095,6 +2089,9 @@ function _createCustomRow(data) {
   var row = document.createElement('div');
   row.className = 'wcrm-custom-row';
   row.setAttribute('data-ezap-jid', data.jid || '');
+  // Extract phone digits from JID for search (e.g., "5511989473088@c.us" -> "5511989473088")
+  var _phoneFromJid = (data.jid || '').replace(/@.*$/, '').replace(/\D/g, '');
+  if (_phoneFromJid) row.setAttribute('data-phone', _phoneFromJid);
   row.setAttribute('data-ezap-name', data.name || '');
   row.setAttribute('data-name', data.name || '');
   row.setAttribute('data-display', data.displayName || data.name || '');
