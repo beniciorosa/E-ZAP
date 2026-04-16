@@ -2651,8 +2651,16 @@ function getAbaContacts(abaId) {
 // Retorna a tab completa (com contacts + contactJids), pra filtros fazerem JID-match
 function _getAbaTabEntry(abaId) {
   var data = window._wcrmAbasCache;
-  if (!data || !data.tabs) return null;
-  return data.tabs.find(function(t) { return t.id === abaId; }) || null;
+  if (data && data.tabs) {
+    var found = data.tabs.find(function(t) { return t.id === abaId; });
+    if (found) return found;
+  }
+  // Fallback: check admin abas
+  if (window._adminAbas) {
+    var admin = window._adminAbas.find(function(a) { return a.id === abaId; });
+    if (admin) return admin;
+  }
+  return null;
 }
 
 // ===== Real-time aba pills update =====

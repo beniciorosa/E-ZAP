@@ -3,6 +3,7 @@ console.log("[WCRM ABAS] Loaded");
 
 var abasSidebarOpen = false;
 var selectedAbaId = null;
+var _adminAbas = [];
 
 var ABAS_COLORS = [
   "#ff6b6b", "#ff922b", "#ffd93d", "#25d366", "#4d96ff",
@@ -23,6 +24,46 @@ function supaRest(path, method, body, prefer) {
 
 function getUserId() {
   return window.ezapUserId();
+}
+
+// ===== Admin ABAS (read-only, criadas pelo admin) =====
+function loadAdminAbas() {
+  // Cache first
+  chrome.storage.local.get("ezap_admin_abas", function(data) {
+    _adminAbas = (data && data.ezap_admin_abas) || [];
+    window._adminAbas = _adminAbas;
+    if (abasSidebarOpen) renderAbasSidebar();
+  });
+  // Supabase sync
+  supaRest("/rest/v1/admin_abas?active=eq.true&order=position.asc&select=*").then(function(abas) {
+    if (!abas || !Array.isArray(abas)) return;
+    var abaIds = abas.map(function(a) { return a.id; });
+    if (abaIds.length === 0) {
+      _adminAbas = [];
+      chrome.storage.local.set({ ezap_admin_abas: [] });
+      if (abasSidebarOpen) renderAbasSidebar();
+      return;
+    }
+    supaRest("/rest/v1/admin_aba_contacts?aba_id=in.(" + abaIds.join(",") + ")&select=*").then(function(contacts) {
+      contacts = contacts || [];
+      abas.forEach(function(aba) {
+        aba.contacts = contacts.filter(function(c) { return c.aba_id === aba.id; }).map(function(c) { return c.contact_name; });
+        aba.contactJids = {};
+        contacts.filter(function(c) { return c.aba_id === aba.id && c.contact_jid; }).forEach(function(c) {
+          aba.contactJids[c.contact_name] = c.contact_jid;
+        });
+        aba.isAdmin = true;
+      });
+      _adminAbas = abas;
+      window._adminAbas = _adminAbas;
+      chrome.storage.local.set({ ezap_admin_abas: abas });
+      if (abasSidebarOpen) renderAbasSidebar();
+    });
+  });
+}
+
+function isAdminAba(abaId) {
+  return _adminAbas.some(function(a) { return a.id === abaId; });
 }
 
 // ===== Load / Save ABAS (Supabase + chrome.storage cache) =====
@@ -811,13 +852,23 @@ function renderAbasList(data) {
   var list = document.getElementById("wcrm-abas-list");
   if (!list) return;
 
-  if (!data.tabs || data.tabs.length === 0) {
+  var allTabs = [];
+  // Admin abas first (read-only)
+  _adminAbas.forEach(function(a) {
+    allTabs.push({ id: a.id, name: a.name, color: a.color || '#4d96ff', contacts: a.contacts || [], contactJids: a.contactJids || {}, isAdmin: true });
+  });
+  // User abas after
+  (data.tabs || []).forEach(function(t) {
+    allTabs.push(Object.assign({}, t, { isAdmin: false }));
+  });
+
+  if (allTabs.length === 0) {
     list.innerHTML = '<div class="ezap-empty">Nenhuma aba criada</div>';
     return;
   }
 
   var html = '';
-  data.tabs.forEach(function(tab) {
+  allTabs.forEach(function(tab) {
     var isSelected = selectedAbaId === tab.id;
     var bgColor = isSelected ? tab.color + '30' : '#1a2730';
     var borderColor = isSelected ? tab.color : '#3b4a54';
@@ -828,6 +879,7 @@ function renderAbasList(data) {
     html += '<div class="ezap-aba-header">';
     html += '<div class="ezap-aba-name">';
     html += '<span class="ezap-aba-color" style="background:' + tab.color + '"></span>';
+    if (tab.isAdmin) html += '<span style="font-size:11px;opacity:0.5;margin-right:2px" title="Aba do admin">\uD83D\uDD12</span>';
     html += '<span>' + tab.name + '</span>';
     if (isSelected) html += '<span style="color:' + tab.color + ';font-size:var(--ezap-text-sm)">&#10003;</span>';
     html += '</div>';
@@ -838,8 +890,10 @@ function renderAbasList(data) {
       html += '<button class="wcrm-aba-expand ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Ver contatos">&#9660;</button>';
     }
     html += '<button class="wcrm-aba-add-contacts ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Adicionar/Remover contatos" style="color:var(--ezap-success)">&#128101;</button>';
-    html += '<button class="wcrm-aba-edit ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Editar" style="color:var(--ezap-secondary)">&#9998;</button>';
-    html += '<button class="wcrm-aba-delete ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Excluir" style="color:var(--ezap-danger)">&#128465;</button>';
+    if (!tab.isAdmin) {
+      html += '<button class="wcrm-aba-edit ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Editar" style="color:var(--ezap-secondary)">&#9998;</button>';
+      html += '<button class="wcrm-aba-delete ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Excluir" style="color:var(--ezap-danger)">&#128465;</button>';
+    }
     html += '</div>';
     html += '</div>';
     // Expandable contacts list (hidden by default)
@@ -1159,6 +1213,7 @@ function updateAbasIndicator() {
     if (selectedAbaId) {
       var data = window._wcrmAbasCache || { tabs: [] };
       var tab = data.tabs.find(function(t) { return t.id === selectedAbaId; });
+      if (!tab) tab = _adminAbas.find(function(a) { return a.id === selectedAbaId; });
       indicator.style.display = "flex";
       if (nameEl) nameEl.textContent = tab ? tab.name : selectedAbaId;
     } else {
@@ -1692,6 +1747,10 @@ function showAbaModal(editId) {
 }
 
 function deleteAba(abaId) {
+  if (isAdminAba(abaId)) {
+    alert('Esta aba foi criada pelo administrador e não pode ser excluída.');
+    return;
+  }
   var cached = window._wcrmAbasCache || { tabs: [] };
   var tab = cached.tabs.find(function(t) { return t.id === abaId; });
   var tabName = tab ? tab.name : "esta aba";
@@ -1929,6 +1988,7 @@ function initAbas() {
       // Inject quick selector after data is loaded
       injectQuickAbaSelector();
     });
+    loadAdminAbas();
     loadKnownContacts();
   }
 

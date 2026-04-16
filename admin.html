@@ -1341,6 +1341,14 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Mensagens Globais
       </button>
+      <button class="sidebar-nav-item" data-tab="templates" onclick="switchTab('templates')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Templates
+      </button>
+      <button class="sidebar-nav-item" data-tab="admin-abas" onclick="switchTab('admin-abas')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        ABAS Admin
+      </button>
       <button class="sidebar-nav-item" data-tab="permissions" onclick="switchTab('permissions')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/></svg>
         Permissões
@@ -1530,6 +1538,39 @@
             <p>Selecione uma data para ver os registros</p>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ===== TEMPLATES PANEL ===== -->
+    <div class="panel" id="panel-templates">
+      <div class="page-header">
+        <div class="page-title">Templates Compartilhados</div>
+        <div class="page-header-actions">
+          <button class="btn-primary" onclick="openTemplateModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo Template
+          </button>
+        </div>
+      </div>
+      <div id="templatesContainer">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
+    <!-- ===== ADMIN ABAS PANEL ===== -->
+    <div class="panel" id="panel-admin-abas">
+      <div class="page-header">
+        <div class="page-title">ABAS do Admin</div>
+        <div class="page-header-actions">
+          <button class="btn-primary" onclick="openAdminAbaModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nova Aba
+          </button>
+        </div>
+      </div>
+      <p style="color:var(--on-surface-variant);font-size:13px;margin-bottom:16px">Abas criadas aqui aparecem para todos os usuários e não podem ser excluídas por eles.</p>
+      <div id="adminAbasContainer">
+        <div class="empty-state">Carregando...</div>
       </div>
     </div>
 
@@ -2279,6 +2320,8 @@ function switchTab(tab) {
   if (tab === "api") loadApiKeys();
   if (tab === "dashboard") loadDashboard();
   if (tab === "whatsapp") { if (WA_SERVER_URL) { testWaServer(); } }
+  if (tab === "templates") loadTemplates();
+  if (tab === "admin-abas") loadAdminAbasAdmin();
 }
 
 // ===== USERS =====
@@ -6908,6 +6951,245 @@ function deleteDhiegoAiIdea(id) {
   waFetch("/api/dhiego-ai/ideas/" + id, { method: "DELETE" })
     .then(function() { loadDhiegoAiIdeas(_dhiegoAiIdeasFilter); })
     .catch(function(e) { alert("Erro: " + e.message); });
+}
+
+// ===== SHARED TEMPLATES =====
+var _templates = [];
+
+function loadTemplates() {
+  supa("/rest/v1/shared_templates?select=*&order=category,name.asc").then(function(rows) {
+    if (!Array.isArray(rows)) return;
+    _templates = rows;
+    renderTemplatesList();
+  });
+}
+
+function renderTemplatesList() {
+  var c = document.getElementById("templatesContainer");
+  if (!c) return;
+  if (_templates.length === 0) { c.innerHTML = '<div class="empty-state">Nenhum template criado</div>'; return; }
+  var html = '<table class="data-table"><thead><tr><th>Nome</th><th>Categoria</th><th>Mensagens</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
+  _templates.forEach(function(t) {
+    var msgs = (t.messages || []);
+    var status = t.active ? '<span class="badge badge-success">Ativo</span>' : '<span class="badge badge-danger">Inativo</span>';
+    html += '<tr>';
+    html += '<td><strong>' + (t.name || '') + '</strong></td>';
+    html += '<td>' + (t.category || '-') + '</td>';
+    html += '<td>' + msgs.length + ' msg' + (msgs.length !== 1 ? 's' : '') + '</td>';
+    html += '<td>' + status + '</td>';
+    html += '<td style="text-align:right">';
+    html += '<button class="btn-icon" onclick="toggleTemplate(\'' + t.id + '\')" title="' + (t.active ? 'Desativar' : 'Ativar') + '">' + (t.active ? '⏸' : '▶') + '</button> ';
+    html += '<button class="btn-icon" onclick="editTemplate(\'' + t.id + '\')" title="Editar">✏️</button> ';
+    html += '<button class="btn-icon" onclick="deleteTemplate(\'' + t.id + '\')" title="Excluir" style="color:var(--error)">🗑️</button>';
+    html += '</td></tr>';
+  });
+  html += '</tbody></table>';
+  c.innerHTML = html;
+}
+
+function openTemplateModal(tpl) {
+  var isEdit = !!tpl;
+  var title = isEdit ? 'Editar Template' : 'Novo Template';
+  var name = isEdit ? tpl.name : '';
+  var category = isEdit ? (tpl.category || '') : '';
+  var msgs = isEdit ? (tpl.messages || []) : [];
+  var firstMsg = msgs.length > 0 && msgs[0].type === 'text' ? msgs[0].content : '';
+
+  var modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'templateModal';
+  modal.innerHTML = '<div class="modal" style="width:480px">' +
+    '<div class="modal-header"><h3>' + title + '</h3><button class="btn-icon" onclick="closeTemplateModal()">&times;</button></div>' +
+    '<div class="modal-body">' +
+    '<div class="form-group"><label>Nome</label><input type="text" id="tplName" class="form-input" value="' + name.replace(/"/g, '&quot;') + '" placeholder="Ex: Boas Vindas Mentoria"></div>' +
+    '<div class="form-group"><label>Categoria</label><input type="text" id="tplCategory" class="form-input" value="' + category.replace(/"/g, '&quot;') + '" placeholder="Ex: Boas vindas, Follow-up"></div>' +
+    '<div class="form-group"><label>Mensagem</label><textarea id="tplMessage" class="form-input" rows="6" placeholder="Use @nome, @email, @telefone como variáveis...">' + firstMsg.replace(/</g, '&lt;') + '</textarea></div>' +
+    '<p style="font-size:11px;color:var(--on-surface-variant)">Variáveis: @nome, @email, @telefone, @nomeCompleto, @consultor, @saudacao, @assinatura</p>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+    '<button class="btn-secondary" onclick="closeTemplateModal()">Cancelar</button>' +
+    '<button class="btn-primary" onclick="saveTemplate(' + (isEdit ? "'" + tpl.id + "'" : 'null') + ')">Salvar</button>' +
+    '</div></div>';
+  document.body.appendChild(modal);
+}
+
+function closeTemplateModal() {
+  var m = document.getElementById('templateModal');
+  if (m) m.remove();
+}
+
+function saveTemplate(editId) {
+  var name = document.getElementById('tplName').value.trim();
+  var category = document.getElementById('tplCategory').value.trim();
+  var message = document.getElementById('tplMessage').value.trim();
+  if (!name) { alert('Nome é obrigatório'); return; }
+  if (!message) { alert('Mensagem é obrigatória'); return; }
+
+  var body = {
+    name: name,
+    category: category || null,
+    messages: [{ type: 'text', content: message, interval: 0 }],
+    active: true,
+    updated_at: new Date().toISOString()
+  };
+  if (!editId) body.created_by = adminUserId;
+
+  var method = editId ? 'PATCH' : 'POST';
+  var path = editId ? '/rest/v1/shared_templates?id=eq.' + editId : '/rest/v1/shared_templates';
+  supa(path, method, body, 'return=minimal').then(function() {
+    closeTemplateModal();
+    loadTemplates();
+  });
+}
+
+function editTemplate(id) {
+  var tpl = _templates.find(function(t) { return t.id === id; });
+  if (tpl) openTemplateModal(tpl);
+}
+
+function toggleTemplate(id) {
+  var tpl = _templates.find(function(t) { return t.id === id; });
+  if (!tpl) return;
+  supa('/rest/v1/shared_templates?id=eq.' + id, 'PATCH', { active: !tpl.active, updated_at: new Date().toISOString() }, 'return=minimal').then(function() { loadTemplates(); });
+}
+
+function deleteTemplate(id) {
+  if (!confirm('Excluir este template?')) return;
+  supa('/rest/v1/shared_templates?id=eq.' + id, 'DELETE').then(function() { loadTemplates(); });
+}
+
+// ===== ADMIN ABAS =====
+var _adminAbasList = [];
+var ADMIN_ABA_COLORS = ["#ff6b6b", "#ff922b", "#ffd93d", "#25d366", "#4d96ff", "#cc5de8", "#20c997", "#748ffc", "#f06595", "#868e96"];
+
+function loadAdminAbasAdmin() {
+  supa("/rest/v1/admin_abas?select=*&order=position.asc").then(function(abas) {
+    if (!Array.isArray(abas)) return;
+    var abaIds = abas.map(function(a) { return a.id; });
+    if (abaIds.length === 0) { _adminAbasList = []; renderAdminAbasList(); return; }
+    supa("/rest/v1/admin_aba_contacts?aba_id=in.(" + abaIds.join(",") + ")&select=*").then(function(contacts) {
+      contacts = contacts || [];
+      abas.forEach(function(aba) {
+        aba._contacts = contacts.filter(function(c) { return c.aba_id === aba.id; });
+      });
+      _adminAbasList = abas;
+      renderAdminAbasList();
+    });
+  });
+}
+
+function renderAdminAbasList() {
+  var c = document.getElementById("adminAbasContainer");
+  if (!c) return;
+  if (_adminAbasList.length === 0) { c.innerHTML = '<div class="empty-state">Nenhuma aba criada</div>'; return; }
+  var html = '<table class="data-table"><thead><tr><th>Cor</th><th>Nome</th><th>Contatos</th><th>Posição</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
+  _adminAbasList.forEach(function(a) {
+    var contactCount = (a._contacts || []).length;
+    var status = a.active ? '<span class="badge badge-success">Ativa</span>' : '<span class="badge badge-danger">Inativa</span>';
+    html += '<tr>';
+    html += '<td><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:' + (a.color || '#4d96ff') + '"></span></td>';
+    html += '<td><strong>' + (a.name || '') + '</strong></td>';
+    html += '<td>' + contactCount + ' contato' + (contactCount !== 1 ? 's' : '') + '</td>';
+    html += '<td>' + (a.position || 0) + '</td>';
+    html += '<td>' + status + '</td>';
+    html += '<td style="text-align:right">';
+    html += '<button class="btn-icon" onclick="editAdminAba(\'' + a.id + '\')" title="Editar">✏️</button> ';
+    html += '<button class="btn-icon" onclick="toggleAdminAba(\'' + a.id + '\')" title="' + (a.active ? 'Desativar' : 'Ativar') + '">' + (a.active ? '⏸' : '▶') + '</button> ';
+    html += '<button class="btn-icon" onclick="deleteAdminAba(\'' + a.id + '\')" title="Excluir" style="color:var(--error)">🗑️</button>';
+    html += '</td></tr>';
+  });
+  html += '</tbody></table>';
+  c.innerHTML = html;
+}
+
+function openAdminAbaModal(aba) {
+  var isEdit = !!aba;
+  var title = isEdit ? 'Editar Aba' : 'Nova Aba Admin';
+  var name = isEdit ? aba.name : '';
+  var color = isEdit ? (aba.color || '#4d96ff') : '#4d96ff';
+  var position = isEdit ? (aba.position || 0) : _adminAbasList.length;
+  var contacts = isEdit ? (aba._contacts || []).map(function(c) { return c.contact_name; }).join('\n') : '';
+
+  var colorPicker = ADMIN_ABA_COLORS.map(function(c) {
+    var sel = c === color ? 'border:2px solid #fff;' : 'border:2px solid transparent;';
+    return '<span class="admin-aba-color-opt" onclick="selectAdminAbaColor(this,\'' + c + '\')" style="display:inline-block;width:24px;height:24px;border-radius:50%;background:' + c + ';cursor:pointer;' + sel + '" data-color="' + c + '"></span>';
+  }).join(' ');
+
+  var modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'adminAbaModal';
+  modal.innerHTML = '<div class="modal" style="width:480px">' +
+    '<div class="modal-header"><h3>' + title + '</h3><button class="btn-icon" onclick="closeAdminAbaModal()">&times;</button></div>' +
+    '<div class="modal-body">' +
+    '<div class="form-group"><label>Nome</label><input type="text" id="adminAbaName" class="form-input" value="' + name.replace(/"/g, '&quot;') + '" placeholder="Ex: Clientes VIP"></div>' +
+    '<div class="form-group"><label>Cor</label><div id="adminAbaColorPicker" style="display:flex;gap:6px;flex-wrap:wrap">' + colorPicker + '</div><input type="hidden" id="adminAbaColor" value="' + color + '"></div>' +
+    '<div class="form-group"><label>Posição</label><input type="number" id="adminAbaPosition" class="form-input" value="' + position + '" min="0"></div>' +
+    '<div class="form-group"><label>Contatos (um por linha)</label><textarea id="adminAbaContacts" class="form-input" rows="6" placeholder="Nome do contato 1&#10;Nome do contato 2&#10;...">' + contacts + '</textarea></div>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+    '<button class="btn-secondary" onclick="closeAdminAbaModal()">Cancelar</button>' +
+    '<button class="btn-primary" onclick="saveAdminAba(' + (isEdit ? "'" + aba.id + "'" : 'null') + ')">Salvar</button>' +
+    '</div></div>';
+  document.body.appendChild(modal);
+}
+
+function selectAdminAbaColor(el, color) {
+  document.querySelectorAll('.admin-aba-color-opt').forEach(function(o) { o.style.border = '2px solid transparent'; });
+  el.style.border = '2px solid #fff';
+  document.getElementById('adminAbaColor').value = color;
+}
+
+function closeAdminAbaModal() {
+  var m = document.getElementById('adminAbaModal');
+  if (m) m.remove();
+}
+
+function saveAdminAba(editId) {
+  var name = document.getElementById('adminAbaName').value.trim();
+  var color = document.getElementById('adminAbaColor').value;
+  var position = parseInt(document.getElementById('adminAbaPosition').value) || 0;
+  var contactsRaw = document.getElementById('adminAbaContacts').value.trim();
+  var contactNames = contactsRaw ? contactsRaw.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; }) : [];
+
+  if (!name) { alert('Nome é obrigatório'); return; }
+
+  var body = { name: name, color: color, position: position, active: true };
+  if (!editId) body.created_by = adminUserId;
+
+  var method = editId ? 'PATCH' : 'POST';
+  var path = editId ? '/rest/v1/admin_abas?id=eq.' + editId : '/rest/v1/admin_abas';
+  var prefer = editId ? 'return=minimal' : 'return=representation';
+
+  supa(path, method, body, prefer).then(function(result) {
+    var abaId = editId || (Array.isArray(result) && result[0] ? result[0].id : null);
+    if (!abaId) { closeAdminAbaModal(); loadAdminAbasAdmin(); return; }
+
+    // Delete old contacts, insert new ones
+    supa('/rest/v1/admin_aba_contacts?aba_id=eq.' + abaId, 'DELETE').then(function() {
+      if (contactNames.length === 0) { closeAdminAbaModal(); loadAdminAbasAdmin(); return; }
+      var rows = contactNames.map(function(cn) { return { aba_id: abaId, contact_name: cn }; });
+      supa('/rest/v1/admin_aba_contacts', 'POST', rows, 'return=minimal').then(function() {
+        closeAdminAbaModal();
+        loadAdminAbasAdmin();
+      });
+    });
+  });
+}
+
+function editAdminAba(id) {
+  var aba = _adminAbasList.find(function(a) { return a.id === id; });
+  if (aba) openAdminAbaModal(aba);
+}
+
+function toggleAdminAba(id) {
+  var aba = _adminAbasList.find(function(a) { return a.id === id; });
+  if (!aba) return;
+  supa('/rest/v1/admin_abas?id=eq.' + id, 'PATCH', { active: !aba.active }, 'return=minimal').then(function() { loadAdminAbasAdmin(); });
+}
+
+function deleteAdminAba(id) {
+  if (!confirm('Excluir esta aba admin? Todos os contatos serão removidos.')) return;
+  supa('/rest/v1/admin_abas?id=eq.' + id, 'DELETE').then(function() { loadAdminAbasAdmin(); });
 }
 </script>
 </body>

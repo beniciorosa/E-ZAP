@@ -6,6 +6,7 @@ let msgSequences = {};
 let msgSidebarOpen = false;
 let msgEditing = null;
 let msgTempItems = [];
+let _sharedTemplates = [];
 
 // ===== Supabase Helper (thin wrapper over api.js) =====
 function getMsgUserId() {
@@ -106,6 +107,88 @@ function saveMsgData() {
   chrome.storage.local.set({ wcrm_msg_sequences: msgSequences });
 }
 
+// ===== Shared Templates (read-only, criados pelo admin) =====
+function loadSharedTemplates() {
+  // Fast: cache first
+  chrome.storage.local.get("ezap_shared_templates", function(data) {
+    _sharedTemplates = (data && data.ezap_shared_templates) || [];
+    if (msgSidebarOpen) renderSharedTemplates();
+  });
+  // Background: sync from Supabase
+  msgSupaRest("/rest/v1/shared_templates?active=eq.true&order=category,name.asc&select=*").then(function(rows) {
+    if (!rows || !Array.isArray(rows)) return;
+    _sharedTemplates = rows;
+    chrome.storage.local.set({ ezap_shared_templates: rows });
+    if (msgSidebarOpen) renderSharedTemplates();
+  });
+}
+
+function renderSharedTemplates() {
+  var container = document.getElementById("wcrm-msg-shared-list");
+  if (!container) return;
+  if (_sharedTemplates.length === 0) {
+    container.innerHTML = '<div class="ezap-empty" style="font-size:11px;padding:8px 0">Nenhum template compartilhado</div>';
+    return;
+  }
+  var html = '';
+  var currentCat = null;
+  _sharedTemplates.forEach(function(tpl) {
+    if (tpl.category && tpl.category !== currentCat) {
+      currentCat = tpl.category;
+      html += '<div style="font-size:10px;color:var(--ezap-text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin:8px 0 4px;font-weight:600">' + escapeHtml(currentCat) + '</div>';
+    }
+    var msgs = tpl.messages || [];
+    var textCount = msgs.filter(function(m) { return m.type === 'text'; }).length;
+    var fileCount = msgs.filter(function(m) { return m.type === 'file'; }).length;
+    var desc = '';
+    if (textCount > 0) desc += textCount + ' msg' + (textCount > 1 ? 's' : '');
+    if (fileCount > 0) desc += (desc ? ', ' : '') + fileCount + ' arquivo' + (fileCount > 1 ? 's' : '');
+
+    // Preview
+    var firstText = msgs.find(function(m) { return m.type === 'text' && m.content; });
+    var preview = '';
+    if (firstText) {
+      var tmp = document.createElement("div");
+      tmp.innerHTML = firstText.content;
+      preview = (tmp.textContent || '').substring(0, 60);
+      if (preview.length >= 60) preview += '...';
+    }
+
+    html += '<div class="ezap-card" style="padding:8px 10px;margin-bottom:6px">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">';
+    html += '<span style="font-size:12px;font-weight:600;color:var(--ezap-text-primary)">' + escapeHtml(tpl.name) + '</span>';
+    html += '<span style="font-size:9px;color:var(--ezap-text-secondary)">' + desc + '</span>';
+    html += '</div>';
+    if (preview) html += '<div style="font-size:11px;color:var(--ezap-text-secondary);margin-bottom:6px;line-height:1.3">' + escapeHtml(preview) + '</div>';
+    html += '<button class="wcrm-shared-send" data-tpl-id="' + tpl.id + '" style="width:100%;background:#00a884;color:#111b21;border:none;border-radius:6px;padding:5px;font-size:11px;font-weight:600;cursor:pointer">\u25B6 Enviar</button>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+
+  container.querySelectorAll(".wcrm-shared-send").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      var tplId = btn.dataset.tplId;
+      var tpl = _sharedTemplates.find(function(t) { return t.id === tplId; });
+      if (tpl) executeSharedTemplate(tpl);
+    });
+  });
+}
+
+function executeSharedTemplate(tpl) {
+  // Cria sequência temporária e executa com o mesmo fluxo
+  var tempId = '__shared_' + tpl.id;
+  msgSequences[tempId] = {
+    id: tempId,
+    name: tpl.name,
+    messages: tpl.messages || [],
+    schedule: null,
+    sent: false
+  };
+  executeMsgSequence(tempId);
+  // Remove da lista após execução (não salva)
+  delete msgSequences[tempId];
+}
+
 // ===== MSG Button =====
 function createMsgButton() {
   if (document.getElementById("wcrm-msg-toggle")) return;
@@ -140,6 +223,16 @@ function createMsgSidebar() {
     <div style="padding:12px 16px">
       <button id="wcrm-msg-create-btn" class="ezap-btn ezap-btn--secondary ezap-btn--full">+ Criar Sequência</button>
     </div>
+    <div class="ezap-content">
+      <div class="ezap-section ezap-section--collapsible" data-section="shared-templates" style="padding:0 16px">
+        <div class="ezap-section-title">Templates Compartilhados <svg class="ezap-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></div>
+        <div class="ezap-section-body" id="wcrm-msg-shared-list">
+          <div class="ezap-empty" style="font-size:11px;padding:8px 0">Carregando...</div>
+        </div>
+      </div>
+      <hr class="ezap-separator" style="margin:4px 16px 8px">
+      <div style="padding:0 16px 4px"><span style="font-size:var(--ezap-text-sm);text-transform:uppercase;letter-spacing:0.08em;color:var(--ezap-text-secondary);font-weight:var(--ezap-font-semibold)">Minhas Sequências</span></div>
+    </div>
     <div id="wcrm-msg-sidebar-list" class="ezap-content">
       <div class="ezap-empty">Nenhuma sequência salva</div>
     </div>
@@ -153,12 +246,36 @@ function createMsgSidebar() {
     openMsgModal();
   });
 
+  // Collapsible shared templates section
+  var sharedSection = sidebar.querySelector('[data-section="shared-templates"]');
+  if (sharedSection) {
+    var STORAGE_KEY = "ezap_collapsed_sections";
+    chrome.storage.local.get(STORAGE_KEY, function(result) {
+      var collapsed = (result && result[STORAGE_KEY]) || {};
+      if (collapsed["shared-templates"]) sharedSection.classList.add("ezap-section--collapsed");
+    });
+    var sharedTitle = sharedSection.querySelector(".ezap-section-title");
+    if (sharedTitle) {
+      sharedTitle.addEventListener("click", function(e) {
+        e.stopPropagation();
+        sharedSection.classList.toggle("ezap-section--collapsed");
+        chrome.storage.local.get(STORAGE_KEY, function(r) {
+          var state = (r && r[STORAGE_KEY]) || {};
+          state["shared-templates"] = sharedSection.classList.contains("ezap-section--collapsed");
+          var obj = {};
+          obj[STORAGE_KEY] = state;
+          chrome.storage.local.set(obj);
+        });
+      });
+    }
+  }
+
   // Register with sidebar manager
   if (window.ezapSidebar) {
     window.ezapSidebar.register('msg', {
       show: function() { msgSidebarOpen = true; document.getElementById("wcrm-msg-sidebar").classList.add("open"); },
       hide: function() { msgSidebarOpen = false; var sb = document.getElementById("wcrm-msg-sidebar"); if (sb) sb.classList.remove("open"); },
-      onOpen: function() { renderSavedSequences(); }
+      onOpen: function() { renderSavedSequences(); loadSharedTemplates(); }
     });
   }
 }
