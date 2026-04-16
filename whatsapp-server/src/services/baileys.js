@@ -2119,21 +2119,9 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, 2000));
       }
 
-      // 5. Welcome message — single fail-fast attempt. The old 3× retry loop
-      // with groupMetadata refresh in between was burning 3 extra IQs per
-      // group on "No sessions" errors, and Signal keys usually settle on
-      // the first attempt anyway. If welcome fails, note it and move on —
-      // user can resend manually from the ezapweb later.
-      if (!rateLimited && spec.welcomeMessage) {
-        const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
-        try {
-          await sock.sendMessage(row.groupJid, { text });
-          row.welcomeSent = true;
-        } catch (e) {
-          if (isRateLimitError(e)) { rateLimited = true; }
-          row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (e?.message || e));
-        }
-      }
+      // 5. Welcome message — DEFERRED to Step 10 (after client verification).
+      // We need to know whether the client was actually added before deciding
+      // which message to send in the group.
 
       // 6. Add + promote extra admin JIDs (e.g. Escalada Ltda as group admin).
       // The frontend populates spec.adminJids when the user checks the
@@ -2233,6 +2221,37 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
             // Other errors (e.g. "item-not-found" = number not on WhatsApp)
             row.clientAdded = false;
             row.statusMessage = appendNote(row.statusMessage, "cliente_add_error: " + (e?.message || e));
+          }
+        }
+      }
+
+      // 10. Welcome or fallback message in the group.
+      // Now that we know whether the client was added (Step 9), we pick
+      // the right message: normal welcome if client is in, or an alert
+      // message with the client's phone if they couldn't be added.
+      if (!rateLimited && spec.welcomeMessage) {
+        const clientName = (spec.name || "").split("|")[0].trim().split(" ")[0] || "cliente";
+        if (row.clientAdded === false && spec.clientPhone) {
+          // Client was rejected — send alternative message in the group
+          const altText = "⚠️ O cliente " + clientName + " (" + spec.clientPhone + ") "
+            + "ainda não ingressou no grupo. O link de convite já foi enviado no particular dele.";
+          try {
+            await sock.sendMessage(row.groupJid, { text: altText });
+            row.welcomeSent = false;
+            row.statusMessage = appendNote(row.statusMessage, "welcome_substituído: alerta de cliente pendente enviado no grupo");
+          } catch (e) {
+            if (isRateLimitError(e)) { rateLimited = true; }
+            row.statusMessage = appendNote(row.statusMessage, "alt_welcome_fail: " + (e?.message || e));
+          }
+        } else {
+          // Client added or no clientPhone (xlsx flow) — send normal welcome
+          const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
+          try {
+            await sock.sendMessage(row.groupJid, { text });
+            row.welcomeSent = true;
+          } catch (e) {
+            if (isRateLimitError(e)) { rateLimited = true; }
+            row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (e?.message || e));
           }
         }
       }
