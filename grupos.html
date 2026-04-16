@@ -360,6 +360,15 @@
         <div style="font-size:11px; color:var(--muted); margin-top:4px">Ex: CX2 ou o assistente que deve estar em cada grupo. O mentor do ticket já entra automaticamente — não precisa marcar.</div>
       </div>
 
+      <div id="hubspotCustomFields" style="margin-bottom:16px">
+        <label>Descrição do grupo (aplicada a TODOS os grupos do lote, abaixo do <code>[ticket_id]</code>)</label>
+        <textarea id="hubspotCustomDescription" rows="2" placeholder="Ex: Grupo da Mentoria Escalada — suporte e avisos da sua jornada." oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical; margin-bottom:12px"></textarea>
+
+        <label>Mensagem de boas-vindas (usa <code>{nome_grupo}</code> como placeholder)</label>
+        <textarea id="hubspotCustomWelcome" rows="4" oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical"></textarea>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Em branco = usa o template padrão. O preview abaixo atualiza conforme você digita.</div>
+      </div>
+
       <div id="createPreviewBox" class="hidden" style="margin-bottom:16px">
         <label>Pré-visualização <span id="createPreviewCount" style="color:var(--muted)"></span></label>
         <div class="table-wrap" style="max-height:260px; overflow:auto; border:1px solid var(--border); border-radius:8px">
@@ -1592,6 +1601,8 @@ function exportJobCSV(jobId) {
 var _createSpecs = [];       // specs normalizadas prontas pro POST
 var _createRawRows = [];     // linhas cruas do parser, pra re-render do preview
 var _hubspotResolved = [];   // cache dos tickets resolvidos via /api/hubspot/resolve-tickets
+var _expandedPreviewRows = {}; // ticket_id -> bool — linhas expandidas no preview
+var _hubspotCustomFieldTimer = null; // debounce pra recalcular quando user digita
 
 function onCreateSessionChange() {
   var sel = document.getElementById("createSession");
@@ -1686,6 +1697,8 @@ function openCreateGroupsModal() {
   document.getElementById("createGsheetsUrl").value = "";
   document.getElementById("hubspotTicketUrls").value = "";
   document.getElementById("hubspotResolveStatus").textContent = "";
+  document.getElementById("hubspotCustomDescription").value = "";
+  document.getElementById("hubspotCustomWelcome").value = HUBSPOT_WELCOME_TEMPLATE;
   document.getElementById("createPreviewBox").classList.add("hidden");
   document.getElementById("createPreviewTable").innerHTML = "";
   document.getElementById("createPreviewCount").textContent = "";
@@ -1694,6 +1707,7 @@ function openCreateGroupsModal() {
   _createSpecs = [];
   _createRawRows = [];
   _hubspotResolved = [];
+  _expandedPreviewRows = {};
   // Populate helper sessions checklist from connected sessions
   renderHelperSessionsChecklist();
   // Default to HubSpot mode (Tickets é o fluxo principal agora)
@@ -1706,6 +1720,8 @@ function openCreateGroupsModal() {
 function toggleCreateSourceMode() {
   var mode = (document.querySelector('input[name=createSourceMode]:checked') || {}).value || "hubspot";
   var hubspotBox = document.getElementById("createHubspotBox");
+  var hubspotCustomBox = document.getElementById("hubspotCustomFields");
+  var helperBox = document.getElementById("helperSessionsBox");
   var fileBox = document.getElementById("createFileBox");
   var gsheetsBox = document.getElementById("createGsheetsBox");
   var fileInput = document.getElementById("createFileInput");
@@ -1714,9 +1730,15 @@ function toggleCreateSourceMode() {
   hubspotBox.classList.add("hidden");
   fileBox.classList.add("hidden");
   gsheetsBox.classList.add("hidden");
+  // The HubSpot custom fields and helper checklist only make sense in HubSpot mode.
+  // For xlsx/csv/sheets each row carries its own description + welcome + members.
+  hubspotCustomBox.classList.add("hidden");
+  helperBox.classList.add("hidden");
 
   if (mode === "hubspot") {
     hubspotBox.classList.remove("hidden");
+    hubspotCustomBox.classList.remove("hidden");
+    helperBox.classList.remove("hidden");
   } else if (mode === "gsheets") {
     gsheetsBox.classList.remove("hidden");
   } else {
@@ -1729,6 +1751,7 @@ function toggleCreateSourceMode() {
   _createSpecs = [];
   _createRawRows = [];
   _hubspotResolved = [];
+  _expandedPreviewRows = {};
   document.getElementById("createPreviewBox").classList.add("hidden");
   document.getElementById("createPreviewTable").innerHTML = "";
   document.getElementById("createPreviewCount").textContent = "";
@@ -2001,6 +2024,14 @@ async function resolveHubspotTickets() {
   }
 }
 
+// Debounced recalc when user edits the custom description/welcome fields.
+function onHubspotCustomFieldChange() {
+  if (_hubspotCustomFieldTimer) clearTimeout(_hubspotCustomFieldTimer);
+  _hubspotCustomFieldTimer = setTimeout(function() {
+    if (_hubspotResolved.length > 0) buildSpecsFromHubspotResolved();
+  }, 300);
+}
+
 async function buildSpecsFromHubspotResolved() {
   if (!_hubspotResolved.length) {
     _createSpecs = [];
@@ -2011,10 +2042,20 @@ async function buildSpecsFromHubspotResolved() {
 
   // Lê sessões helper marcadas no checklist
   var helperPhones = [];
+  var helperLabels = [];
   document.querySelectorAll("#helperSessionsChecklist input[type=checkbox]:checked").forEach(function(cb) {
     var p = cb.getAttribute("data-phone") || "";
-    if (p) helperPhones.push(p.replace(/\D/g, ""));
+    if (p) {
+      helperPhones.push(p.replace(/\D/g, ""));
+      var lbl = cb.parentElement ? (cb.parentElement.querySelector("span") || {}).textContent : "";
+      helperLabels.push(lbl || p);
+    }
   });
+
+  // Lê os campos custom — aplicam a TODOS os grupos do lote
+  var customDescription = (document.getElementById("hubspotCustomDescription").value || "").trim();
+  var customWelcomeRaw = (document.getElementById("hubspotCustomWelcome").value || "").trim();
+  var customWelcome = customWelcomeRaw || HUBSPOT_WELCOME_TEMPLATE;
 
   // Converte cada ticket resolvido em um objeto de preview + spec (quando válido)
   var previewRows = _hubspotResolved.map(function(r) {
@@ -2030,18 +2071,21 @@ async function buildSpecsFromHubspotResolved() {
     var clientPhone = normalizePhoneBr(r.whatsapp);
     var mentorPhone = r.mentorSessionPhone ? String(r.mentorSessionPhone).replace(/\D/g, "") : null;
 
-    // Dedup membros (cliente + mentor + helpers)
+    // Dedup membros (cliente + mentor + helpers). Mantém os labels em ordem
+    // paralela pra exibir no preview expandido.
     var members = [];
+    var memberLabels = [];
     var seen = {};
-    function addMember(p) {
+    function addMember(p, label) {
       if (!p) return;
       if (seen[p]) return;
       seen[p] = true;
       members.push(p);
+      memberLabels.push(label || p);
     }
-    addMember(clientPhone);
-    addMember(mentorPhone);
-    helperPhones.forEach(addMember);
+    addMember(clientPhone, (r.ticket_name || "Cliente") + " (cliente)");
+    addMember(mentorPhone, (r.mentor || "Mentor") + " (mentor)");
+    helperPhones.forEach(function(p, i) { addMember(p, (helperLabels[i] || "Helper") + " (helper)"); });
 
     // Determina disabled + reason
     var disabled = false;
@@ -2057,15 +2101,20 @@ async function buildSpecsFromHubspotResolved() {
       reason = "Menos de 2 membros válidos";
     }
 
+    var groupName = (r.ticket_name || "(sem nome)") + " | " + (r.mentor || "");
+    var finalDescription = "[" + r.ticket_id + "]" + (customDescription ? "\n" + customDescription : "");
+    // Interpolate {nome_grupo} no welcome, igual o backend faz
+    var finalWelcome = customWelcome.replace(/\{nome_grupo\}/g, r.ticket_name || "");
+
     var spec = null;
     if (!disabled) {
       spec = {
-        name: (r.ticket_name || "(sem nome)") + " | " + (r.mentor || ""),
-        description: "[" + r.ticket_id + "]",
+        name: groupName,
+        description: finalDescription,
         photoUrl: photoUrl,
         members: members,
         lockInfo: true,
-        welcomeMessage: HUBSPOT_WELCOME_TEMPLATE,
+        welcomeMessage: customWelcome, // guardado SEM interpolação — backend interpola
         specHash: null,
       };
     }
@@ -2078,9 +2127,15 @@ async function buildSpecsFromHubspotResolved() {
       tierLabel: tierLabel,
       photoUrl: photoUrl,
       memberCount: members.length,
+      members: members,
+      memberLabels: memberLabels,
       disabled: disabled,
       reason: reason,
       warning: r.warning,
+      // Preview fields (o que vai aparecer de fato no WhatsApp)
+      finalGroupName: groupName,
+      finalDescription: finalDescription,
+      finalWelcome: finalWelcome,
       spec: spec,
     };
   });
@@ -2101,12 +2156,27 @@ async function buildSpecsFromHubspotResolved() {
   document.getElementById("createSubmitBtn").disabled = _createSpecs.length === 0;
 }
 
+// Toggle expand/collapse de uma linha do preview (mostra detalhes completos
+// do grupo que vai ser criado).
+function toggleHubspotPreviewRow(ticketId) {
+  _expandedPreviewRows[ticketId] = !_expandedPreviewRows[ticketId];
+  // Só re-renderiza o preview, sem recalcular specs
+  if (_hubspotResolved.length > 0) {
+    buildSpecsFromHubspotResolved();
+  }
+}
+
 function renderHubspotPreview(rows) {
   var box = document.getElementById("createPreviewBox");
   var tbl = document.getElementById("createPreviewTable");
   var count = document.getElementById("createPreviewCount");
   var invalid = document.getElementById("createPreviewInvalid");
   if (!box || !tbl) return;
+
+  // Bump the max-height of the preview wrapper so users can scroll the
+  // expanded rows comfortably.
+  var wrap = tbl.parentElement;
+  if (wrap && wrap.classList.contains("table-wrap")) wrap.style.maxHeight = "420px";
 
   box.classList.remove("hidden");
   var valid = rows.filter(function(r) { return !r.disabled; }).length;
@@ -2123,10 +2193,10 @@ function renderHubspotPreview(rows) {
   }
 
   var html = '<thead><tr>'
-    + '<th>#</th><th>Cliente</th><th>Mentor</th><th>Tier</th><th>Foto</th><th>Membros</th><th>Status</th>'
+    + '<th style="width:18px"></th><th>#</th><th>Cliente</th><th>Mentor</th><th>Tier</th><th>Foto</th><th>Membros</th><th>Status</th>'
     + '</tr></thead><tbody>';
   rows.slice(0, 30).forEach(function(r) {
-    var rowStyle = r.disabled ? ' style="opacity:0.55"' : '';
+    var rowStyle = r.disabled ? ' style="opacity:0.55; cursor:pointer"' : ' style="cursor:pointer"';
     var tierBadge = r.tierLabel
       ? '<span style="padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:rgba(99,102,241,0.15); color:var(--primary)">' + esc(r.tierLabel) + '</span>'
       : '<span style="color:var(--muted)">—</span>';
@@ -2142,7 +2212,12 @@ function renderHubspotPreview(rows) {
       statusCell = '<span style="color:var(--ok)">🟢 OK</span>';
     }
 
-    html += '<tr' + rowStyle + '>'
+    var isExpanded = !!_expandedPreviewRows[r.ticket_id];
+    var chevron = isExpanded ? "▼" : "▶";
+    var onclick = 'toggleHubspotPreviewRow(\'' + esc(String(r.ticket_id)) + '\')';
+
+    html += '<tr onclick="' + onclick + '"' + rowStyle + '>'
+      + '<td style="color:var(--muted); text-align:center; font-size:10px">' + chevron + '</td>'
       + '<td style="color:var(--muted); font-size:11px">' + esc(String(r.ticket_id)) + '</td>'
       + '<td>' + esc(r.ticket_name || "—") + '</td>'
       + '<td>' + esc(r.mentor || "—") + '</td>'
@@ -2151,9 +2226,40 @@ function renderHubspotPreview(rows) {
       + '<td>' + r.memberCount + '</td>'
       + '<td style="font-size:11px">' + statusCell + '</td>'
       + '</tr>';
+
+    if (isExpanded) {
+      var membersHtml = "";
+      if (r.memberLabels && r.memberLabels.length) {
+        membersHtml = '<ul style="margin:4px 0 0 16px; padding:0; font-size:11px; color:var(--text)">'
+          + r.memberLabels.map(function(lbl, i) {
+            var ph = r.members[i] || "";
+            return '<li>' + esc(lbl) + ' <span style="color:var(--muted)">— ' + esc(ph) + '</span></li>';
+          }).join("")
+          + '</ul>';
+      }
+      var photoPreview = r.photoUrl
+        ? '<img src="' + esc(r.photoUrl) + '" style="width:64px; height:64px; border-radius:8px; object-fit:cover; display:block" onerror="this.style.display=\'none\'">'
+        : '<div style="width:64px; height:64px; border-radius:8px; background:var(--surface-2); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:10px">sem foto</div>';
+
+      html += '<tr><td colspan="8" style="background:var(--surface-2); padding:14px 18px; border-left:3px solid var(--primary)">'
+        + '<div style="display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap">'
+        +   '<div style="flex:0 0 auto">' + photoPreview + '</div>'
+        +   '<div style="flex:1; min-width:240px">'
+        +     '<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px">Nome do grupo</div>'
+        +     '<div style="font-size:13px; font-weight:600; margin-bottom:10px">' + esc(r.finalGroupName || "") + '</div>'
+        +     '<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px">Descrição</div>'
+        +     '<pre style="font-size:12px; white-space:pre-wrap; margin:0 0 10px 0; font-family:inherit; background:var(--bg); padding:8px 10px; border-radius:6px; border:1px solid var(--border)">' + esc(r.finalDescription || "(vazia)") + '</pre>'
+        +     '<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px">Mensagem de boas-vindas</div>'
+        +     '<pre style="font-size:12px; white-space:pre-wrap; margin:0 0 10px 0; font-family:inherit; background:var(--bg); padding:8px 10px; border-radius:6px; border:1px solid var(--border)">' + esc(r.finalWelcome || "(vazia)") + '</pre>'
+        +     '<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px">Membros (' + r.memberCount + ')</div>'
+        +     membersHtml
+        +   '</div>'
+        + '</div>'
+        + '</td></tr>';
+    }
   });
   if (rows.length > 30) {
-    html += '<tr><td colspan="7" style="color:var(--muted); text-align:center">… +' + (rows.length - 30) + ' linhas</td></tr>';
+    html += '<tr><td colspan="8" style="color:var(--muted); text-align:center">… +' + (rows.length - 30) + ' linhas</td></tr>';
   }
   html += '</tbody>';
   tbl.innerHTML = html;
