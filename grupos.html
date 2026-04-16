@@ -370,16 +370,40 @@
       </div>
 
       <div id="hubspotCustomFields" style="margin-bottom:16px">
-        <label>Descrição do grupo (aplicada a TODOS os grupos do lote, abaixo do <code>[ticket_id]</code>)</label>
-        <textarea id="hubspotCustomDescription" rows="2" placeholder="Ex: Grupo da Mentoria Escalada — suporte e avisos da sua jornada." oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical; margin-bottom:12px"></textarea>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px">
+          <label style="margin:0; font-weight:600">Mensagens e descrição</label>
+          <div style="display:flex; gap:6px">
+            <button class="btn-secondary btn-icon" style="font-size:11px; padding:4px 10px" onclick="saveHubspotTemplates()">💾 Salvar padrão</button>
+            <button class="btn-secondary btn-icon" style="font-size:11px; padding:4px 10px" onclick="loadHubspotTemplates()">📂 Carregar padrão</button>
+          </div>
+        </div>
 
-        <label>Mensagem de boas-vindas (placeholders: <code>{primeiro_nome}</code>, <code>{nome_grupo}</code>)</label>
+        <label>Descrição do grupo (abaixo do <code>[ticket_id]</code>)</label>
+        <div class="placeholder-btns" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:4px">
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotCustomDescription','{primeiro_nome}')">{primeiro_nome}</button>
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotCustomDescription','{nome_grupo}')">{nome_grupo}</button>
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotCustomDescription','{mentor}')">{mentor}</button>
+        </div>
+        <textarea id="hubspotCustomDescription" rows="2" placeholder="Ex: Grupo da Mentoria Escalada — suporte e avisos da sua jornada." oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical; margin-bottom:14px"></textarea>
+
+        <label>Mensagem de boas-vindas</label>
+        <div class="placeholder-btns" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:4px">
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotCustomWelcome','{primeiro_nome}')">{primeiro_nome}</button>
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotCustomWelcome','{nome_grupo}')">{nome_grupo}</button>
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotCustomWelcome','{mentor}')">{mentor}</button>
+        </div>
         <textarea id="hubspotCustomWelcome" rows="4" oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical"></textarea>
-        <div style="font-size:11px; color:var(--muted); margin-top:4px"><code>{primeiro_nome}</code> = primeiro nome do cliente (ex: "Marcio"). <code>{nome_grupo}</code> = nome completo do grupo. Em branco = template padrão. O preview abaixo atualiza conforme você digita.</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Em branco = template padrão. Preview atualiza conforme você digita.</div>
 
-        <label style="margin-top:14px">Mensagem de convite (enviada por DM se o cliente não puder ser adicionado ao grupo)</label>
+        <label style="margin-top:14px">Mensagem de convite (DM se o cliente não puder ser adicionado)</label>
+        <div class="placeholder-btns" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:4px">
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotRejectDmMessage','{primeiro_nome}')">{primeiro_nome}</button>
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotRejectDmMessage','{nome_grupo}')">{nome_grupo}</button>
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotRejectDmMessage','{mentor}')">{mentor}</button>
+          <button type="button" class="btn-secondary btn-icon" style="font-size:10px; padding:2px 8px" onclick="insertPlaceholder('hubspotRejectDmMessage','{link}')">{link}</button>
+        </div>
         <textarea id="hubspotRejectDmMessage" rows="3" oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical"></textarea>
-        <div style="font-size:11px; color:var(--muted); margin-top:4px">Placeholders: <code>{primeiro_nome}</code>, <code>{nome_grupo}</code>, <code>{link}</code> (link de convite do grupo). Enviada automaticamente quando o WhatsApp bloqueia a adição direta do cliente.</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Enviada por DM quando o WhatsApp bloqueia a adição direta do cliente.</div>
       </div>
 
       <div id="createPreviewBox" class="hidden" style="margin-bottom:16px">
@@ -1996,6 +2020,66 @@ var HUBSPOT_PHOTO_BASE = "https://ezap-server.geia.dev.br/static/fotos/";
 var HUBSPOT_WELCOME_TEMPLATE = "Opa, tudo bem? seja muito bem-vindo a nossa Mentoria Escalada. Em breve o mentor de vocês fará uma apresentação e iniciaremos a nossa jornada juntos! #aMETAéoTOPO";
 var HUBSPOT_REJECT_DM_TEMPLATE = "Olá {primeiro_nome}! Seu grupo de mentoria \"{nome_grupo}\" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}";
 
+// Insert a placeholder tag at the cursor position in a textarea.
+function insertPlaceholder(textareaId, placeholder) {
+  var ta = document.getElementById(textareaId);
+  if (!ta) return;
+  ta.focus();
+  var start = ta.selectionStart;
+  var end = ta.selectionEnd;
+  var before = ta.value.substring(0, start);
+  var after = ta.value.substring(end);
+  ta.value = before + placeholder + after;
+  ta.selectionStart = ta.selectionEnd = start + placeholder.length;
+  // Trigger the live recalc
+  onHubspotCustomFieldChange();
+}
+
+// Save the 3 message templates to the selected session in app_settings.
+// Key: hubspot_templates_{sessionId} → JSON with description, welcome, rejectDm.
+function saveHubspotTemplates() {
+  var sessionId = document.getElementById("createSession").value;
+  if (!sessionId) { showToast("Selecione uma sessão primeiro", "error"); return; }
+  var sessLabel = (_sessions.find(function(s) { return s.id === sessionId; }) || {}).label || sessionId;
+  var data = {
+    description: (document.getElementById("hubspotCustomDescription").value || "").trim(),
+    welcome: (document.getElementById("hubspotCustomWelcome").value || "").trim(),
+    rejectDm: (document.getElementById("hubspotRejectDmMessage").value || "").trim(),
+  };
+  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
+  var tok = (document.getElementById("adminToken").value || "").trim();
+  fetch(url + "/api/hubspot/templates/" + sessionId, {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  }).then(function(r) { return r.json(); }).then(function() {
+    showToast("Templates salvos para " + sessLabel, "ok");
+  }).catch(function(e) { showToast("Erro: " + e.message, "error"); });
+}
+
+// Load saved templates for the selected session.
+function loadHubspotTemplates() {
+  var sessionId = document.getElementById("createSession").value;
+  if (!sessionId) { showToast("Selecione uma sessão primeiro", "error"); return; }
+  var sessLabel = (_sessions.find(function(s) { return s.id === sessionId; }) || {}).label || sessionId;
+  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
+  var tok = (document.getElementById("adminToken").value || "").trim();
+  fetch(url + "/api/hubspot/templates/" + sessionId, {
+    method: "GET",
+    headers: { "Authorization": "Bearer " + tok },
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data && data.templates) {
+      if (data.templates.description != null) document.getElementById("hubspotCustomDescription").value = data.templates.description;
+      if (data.templates.welcome != null) document.getElementById("hubspotCustomWelcome").value = data.templates.welcome;
+      if (data.templates.rejectDm != null) document.getElementById("hubspotRejectDmMessage").value = data.templates.rejectDm;
+      onHubspotCustomFieldChange();
+      showToast("Templates carregados de " + sessLabel, "ok");
+    } else {
+      showToast("Nenhum template salvo para " + sessLabel, "warn");
+    }
+  }).catch(function(e) { showToast("Erro: " + e.message, "error"); });
+}
+
 // Extrai ticket_ids de uma lista de URLs/IDs brutos.
 // Aceita:
 //   - https://app.hubspot.com/contacts/{portal}/record/0-5/{ticketId}
@@ -2144,20 +2228,28 @@ async function buildSpecsFromHubspotResolved() {
     // Ex: "Marcio Ferraz Lima" -> "Marcio".
     var firstName = String(r.ticket_name || "").trim().split(/\s+/)[0] || "";
 
-    // We pre-interpolate {primeiro_nome} on the frontend before sending the
-    // spec to the backend (the backend doesn't know about this placeholder).
-    // {nome_grupo} stays in the string — the backend already interpolates
-    // that one with spec.name on send, same pattern as the xlsx flow.
-    var specWelcome = customWelcome.replace(/\{primeiro_nome\}/g, firstName);
+    // Mentor name for the {mentor} placeholder — first + last name.
+    var mentorName = String(r.mentor || "").trim();
 
-    // For the preview display, fully interpolate BOTH placeholders so the
+    // We pre-interpolate {primeiro_nome} and {mentor} on the frontend before
+    // sending the spec to the backend (the backend doesn't know about these
+    // placeholders). {nome_grupo} stays in the string — the backend already
+    // interpolates that one with spec.name on send, same pattern as the xlsx flow.
+    var specWelcome = customWelcome
+      .replace(/\{primeiro_nome\}/g, firstName)
+      .replace(/\{mentor\}/g, mentorName);
+
+    // For the preview display, fully interpolate ALL placeholders so the
     // user sees exactly what WhatsApp will render.
     var finalWelcome = customWelcome
       .replace(/\{primeiro_nome\}/g, firstName)
+      .replace(/\{mentor\}/g, mentorName)
       .replace(/\{nome_grupo\}/g, groupName);
 
-    // Pre-interpolate {primeiro_nome} na mensagem de rejeição também
-    var specRejectDm = customRejectDm.replace(/\{primeiro_nome\}/g, firstName);
+    // Pre-interpolate {primeiro_nome} and {mentor} na mensagem de rejeição também
+    var specRejectDm = customRejectDm
+      .replace(/\{primeiro_nome\}/g, firstName)
+      .replace(/\{mentor\}/g, mentorName);
 
     var spec = null;
     if (!disabled) {

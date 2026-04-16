@@ -160,4 +160,51 @@ router.post("/resolve-tickets", async (req, res) => {
   }
 });
 
+// ===== Per-session message templates =====
+// Saves/loads the 3 editable message templates (description, welcome,
+// rejectDm) to app_settings keyed by "hubspot_templates_{sessionId}".
+// This lets the user save their preferred copy per session and reload
+// it next time without retyping.
+
+// POST /api/hubspot/templates/:sessionId
+router.post("/templates/:sessionId", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { description, welcome, rejectDm } = req.body || {};
+    const key = "hubspot_templates_" + sessionId;
+    const value = JSON.stringify({ description: description || "", welcome: welcome || "", rejectDm: rejectDm || "" });
+    await supaRest(
+      "/rest/v1/app_settings?on_conflict=key",
+      "POST",
+      [{ key, value }],
+      "resolution=merge-duplicates,return=minimal"
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[HUBSPOT] save templates error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/hubspot/templates/:sessionId
+router.get("/templates/:sessionId", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const key = "hubspot_templates_" + sessionId;
+    const rows = await supaRest(
+      "/rest/v1/app_settings?key=eq." + encodeURIComponent(key) + "&select=value"
+    ).catch(() => []);
+    if (rows && rows[0] && rows[0].value) {
+      try {
+        const templates = JSON.parse(rows[0].value);
+        return res.json({ ok: true, templates });
+      } catch (_) {}
+    }
+    res.json({ ok: true, templates: null });
+  } catch (e) {
+    console.error("[HUBSPOT] load templates error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
