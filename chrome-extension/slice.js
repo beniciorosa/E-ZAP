@@ -661,6 +661,20 @@ function _buildAbaPillsRow(theme) {
   abaScroll.className = 'ezap-aba-scroll';
   abaScroll.style.cssText = 'display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;flex:1;min-width:0;scroll-behavior:smooth;';
 
+  // Pill "Todas" (limpa filtro de aba)
+  var noAbaActive = !selectedAbaId;
+  var allPill = document.createElement('button');
+  allPill.className = 'wcrm-quick-aba-pill' + (noAbaActive ? ' active' : '');
+  if (noAbaActive) {
+    allPill.style.cssText = 'background:' + (t.accent || '#00a884') + ';border-color:' + (t.accent || '#00a884') + ';color:#111b21;box-shadow:0 1px 4px rgba(0,0,0,0.2);';
+  }
+  allPill.innerHTML = '<span>Todas</span>';
+  allPill.addEventListener('click', function(ev) {
+    ev.stopPropagation();
+    if (typeof clearAbasFilter === 'function') clearAbasFilter();
+  });
+  abaScroll.appendChild(allPill);
+
   _abasData.tabs.forEach(function(tab) {
     var isActive = (typeof selectedAbaId !== 'undefined') && selectedAbaId === tab.id;
     var count = (tab.contacts || []).length;
@@ -679,7 +693,9 @@ function _buildAbaPillsRow(theme) {
       pill.style.cssText = 'background:' + tabColor + ';border-color:' + tabColor + ';color:' + textOnColor + ';box-shadow:0 1px 4px rgba(0,0,0,0.2);';
     }
     var dotColor = isActive ? textOnColor : tabColor;
+    var isAdminTab = (window._adminAbas || []).some(function(a) { return a.id === tab.id; });
     var pillHTML = '<span class="ezap-pill-dot" style="background:' + dotColor + '"></span>' +
+      (isAdminTab ? '<span style="font-size:8px;opacity:0.6">\uD83D\uDD12</span>' : '') +
       '<span>' + (tab.name.length > 15 ? tab.name.substring(0, 15) + '..' : tab.name) + '</span>' +
       '<span class="ezap-pill-count">' + count + '</span>';
     if (unreadInAba > 0) {
@@ -1677,29 +1693,45 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var pinnedCount = rows.filter(function(r) { return r.isPinned; }).length;
 
   if (isOverlayMode) {
-    // --- OVERLAY MODE HEADER: search bar + count ---
-    header.style.flexDirection = 'column';
-    header.style.alignItems = 'stretch';
-    header.style.gap = '6px';
-    header.style.padding = '8px 12px';
+    // --- OVERLAY MODE HEADER (redesigned v2.0.14) ---
+    var _st = (typeof getTheme === 'function') ? getTheme() : { bg: '#111b21', bgSecondary: '#202c33', bgHover: '#2a3942', bgElevated: '#1a2730', border: '#3b4a54', text: '#e9edef', textSecondary: '#8696a0', accent: '#00a884', headerBg: '#202c33' };
+    var _sa = _st.accent || '#00a884';
 
-    // Search bar
+    header.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px 16px 8px;background:' + (_st.headerBg || '#202c33') + ';border-bottom:1px solid ' + _st.border + ';box-shadow:0 2px 8px rgba(0,0,0,0.15);position:relative;z-index:2;';
+
+    // --- SEARCH BAR (pill shape with clear button) ---
     var searchWrap = document.createElement('div');
     searchWrap.style.cssText = 'position:relative;display:flex;align-items:center;';
     var searchIcon = document.createElement('span');
-    searchIcon.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
-    searchIcon.style.cssText = 'position:absolute;left:8px;color:#8696a0;pointer-events:none;display:flex;';
+    searchIcon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+    searchIcon.style.cssText = 'position:absolute;left:10px;color:#8696a0;pointer-events:none;display:flex;';
     searchWrap.appendChild(searchIcon);
 
     var searchInput = document.createElement('input');
     searchInput.type = 'text';
-    searchInput.placeholder = 'Buscar conversa...';
+    searchInput.placeholder = 'Buscar por nome ou número...';
     searchInput.id = 'ezap-overlay-search';
-    var _st = (typeof getTheme === 'function') ? getTheme() : { bgHover: '#2a3942', border: '#3b4a54', text: '#e9edef', textSecondary: '#8696a0', accent: '#00a884' };
-    var _sa = _st.accent || '#00a884';
-    searchInput.style.cssText = 'width:100%;padding:6px 10px 6px 30px;border-radius:8px;border:1px solid ' + _st.border + ';background:' + _st.bgHover + ';color:' + _st.text + ';font-size:13px;outline:none;font-family:inherit;';
-    searchInput.addEventListener('focus', function() { searchInput.style.borderColor = _sa; });
-    searchInput.addEventListener('blur', function() { searchInput.style.borderColor = _st.border; });
+    searchInput.style.cssText = 'width:100%;padding:8px 36px 8px 36px;border-radius:20px;border:1px solid ' + _st.border + ';background:' + (_st.bgElevated || '#1a2730') + ';color:' + _st.text + ';font-size:14px;outline:none;font-family:inherit;transition:border-color 0.2s,box-shadow 0.2s;';
+    searchInput.addEventListener('focus', function() { searchInput.style.borderColor = _sa; searchInput.style.boxShadow = '0 0 0 2px rgba(0,168,132,0.15)'; });
+    searchInput.addEventListener('blur', function() { searchInput.style.borderColor = _st.border; searchInput.style.boxShadow = 'none'; });
+
+    // Clear button (X)
+    var clearBtn = document.createElement('button');
+    clearBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    clearBtn.style.cssText = 'position:absolute;right:10px;background:none;border:none;color:#8696a0;cursor:pointer;display:none;padding:2px;line-height:0;transition:color 0.15s;';
+    clearBtn.addEventListener('mouseenter', function() { clearBtn.style.color = _st.text; });
+    clearBtn.addEventListener('mouseleave', function() { clearBtn.style.color = '#8696a0'; });
+    clearBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      searchInput.value = '';
+      clearBtn.style.display = 'none';
+      _filterOverlayRows();
+      searchInput.focus();
+    });
+    searchInput.addEventListener('input', function() {
+      clearBtn.style.display = searchInput.value.trim() ? 'block' : 'none';
+    });
+    searchWrap.appendChild(clearBtn);
     function _filterOverlayRows() {
       var raw = searchInput.value.toLowerCase().trim();
       var q = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(raw) : raw;
@@ -1751,27 +1783,30 @@ function _showCustomAbaList(abaTab, chatIndex) {
       if (countEl) countEl.textContent = visibleCount + ' conversa' + (visibleCount !== 1 ? 's' : '');
     }
     searchInput.addEventListener('input', _filterOverlayRows);
-    if (searchInput.value.trim()) setTimeout(_filterOverlayRows, 50);
+    if (searchInput.value.trim()) { clearBtn.style.display = 'block'; setTimeout(_filterOverlayRows, 50); }
     searchWrap.appendChild(searchInput);
     header.appendChild(searchWrap);
 
-    // --- ABA PILLS ROW (inside overlay header) ---
+    // --- ABA PILLS ROW (redesigned) ---
     var abaPillsRow = _buildAbaPillsRow(_st);
-    if (abaPillsRow) header.appendChild(abaPillsRow);
+    if (abaPillsRow) {
+      abaPillsRow.style.cssText = 'display:flex;align-items:center;gap:4px;padding:4px 6px;background:rgba(134,150,160,0.06);border-radius:8px;';
+      header.appendChild(abaPillsRow);
+    }
 
-    // Count row
+    // --- COUNT ROW + BRANDING ---
     var countRow = document.createElement('div');
-    countRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+    countRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding-top:2px;';
     var countLabel = document.createElement('span');
     countLabel.id = 'ezap-overlay-count';
-    countLabel.style.cssText = 'font-size:11px;color:#8696a0;';
+    countLabel.style.cssText = 'font-size:12px;color:' + _st.textSecondary + ';font-weight:500;';
     countLabel.textContent = rows.length + ' conversa' + (rows.length !== 1 ? 's' : '') +
       (pinnedCount > 0 ? ' \u00b7 ' + pinnedCount + ' fixado' + (pinnedCount !== 1 ? 's' : '') : '');
     countRow.appendChild(countLabel);
 
     var overlayBadge = document.createElement('span');
-    overlayBadge.style.cssText = 'font-size:10px;font-weight:600;color:#00a884;letter-spacing:0.5px;';
-    overlayBadge.textContent = 'E-ZAP';
+    overlayBadge.style.cssText = 'font-size:10px;font-weight:700;color:' + _sa + ';letter-spacing:0.5px;background:rgba(0,168,132,0.1);padding:2px 8px;border-radius:4px;display:flex;align-items:center;gap:3px;';
+    overlayBadge.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> E-ZAP';
     countRow.appendChild(overlayBadge);
 
     header.appendChild(countRow);
