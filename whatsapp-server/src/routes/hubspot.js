@@ -160,6 +160,49 @@ router.post("/resolve-tickets", async (req, res) => {
   }
 });
 
+// ===== Group creation history per session =====
+// Returns the wa_group_creations rows for a session + member list per group.
+router.get("/group-history/:sessionId", async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    // 1. Fetch group creation records
+    const creations = await supaRest(
+      "/rest/v1/wa_group_creations?source_session_id=eq." + encodeURIComponent(sessionId) +
+      "&select=id,spec_hash,group_name,group_jid,status,status_message,members_total,members_added,has_description,has_photo,locked,welcome_sent,invite_link,created_at" +
+      "&order=created_at.desc&limit=100"
+    ).catch(() => []);
+
+    // 2. For groups that have a group_jid, batch-fetch their members
+    const jids = (creations || []).map(c => c.group_jid).filter(Boolean);
+    let membersByJid = {};
+    if (jids.length > 0) {
+      const memberRows = await supaRest(
+        "/rest/v1/group_members?group_jid=in.(" + jids.map(encodeURIComponent).join(",") +
+        ")&left_at=is.null&select=group_jid,member_phone,member_name,role&order=role.desc,first_seen.asc&limit=1000"
+      ).catch(() => []);
+      for (const m of (memberRows || [])) {
+        if (!membersByJid[m.group_jid]) membersByJid[m.group_jid] = [];
+        membersByJid[m.group_jid].push({
+          phone: m.member_phone,
+          name: m.member_name || null,
+          role: m.role || "member",
+        });
+      }
+    }
+
+    // 3. Enrich each creation row with its member list
+    const result = (creations || []).map(c => ({
+      ...c,
+      members: c.group_jid ? (membersByJid[c.group_jid] || []) : [],
+    }));
+
+    res.json({ ok: true, history: result });
+  } catch (e) {
+    console.error("[HUBSPOT] group-history error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ===== Per-session message templates =====
 // Saves/loads the 3 editable message templates (description, welcome,
 // rejectDm) to app_settings keyed by "hubspot_templates_{sessionId}".

@@ -674,6 +674,106 @@ function enterQuarantine(sessionId) {
     })
     .catch(function(e) { showToast("Erro: " + e.message, "error"); });
 }
+// ===== Group history per session =====
+var _expandedHistorySession = null;  // sessionId currently showing history
+var _expandedHistoryRow = {};        // groupId -> bool
+
+function toggleGroupHistory(sessionId) {
+  if (_expandedHistorySession === sessionId) {
+    _expandedHistorySession = null;
+    _expandedHistoryRow = {};
+    renderSessionsCard();
+    return;
+  }
+  _expandedHistorySession = sessionId;
+  _expandedHistoryRow = {};
+  renderSessionsCard(); // re-render with placeholder
+  // Fetch history from backend
+  waFetch("/api/hubspot/group-history/" + sessionId).then(function(data) {
+    var history = (data && data.history) || [];
+    renderGroupHistoryPanel(sessionId, history);
+  }).catch(function(e) {
+    var panel = document.getElementById("groupHistoryPanel");
+    if (panel) panel.innerHTML = '<div style="color:var(--danger); font-size:12px; padding:8px">Erro: ' + esc(e.message) + '</div>';
+  });
+}
+
+function toggleGroupHistoryRow(groupId) {
+  _expandedHistoryRow[groupId] = !_expandedHistoryRow[groupId];
+  // Re-render just the panel (it's still in the DOM from the last fetch)
+  var panel = document.getElementById("groupHistoryPanel");
+  if (panel && panel._lastHistory) renderGroupHistoryPanel(_expandedHistorySession, panel._lastHistory);
+}
+
+function renderGroupHistoryPanel(sessionId, history) {
+  var panel = document.getElementById("groupHistoryPanel");
+  if (!panel) return;
+  panel._lastHistory = history;
+
+  if (!history.length) {
+    panel.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:8px">Nenhum grupo criado por esta sessão</div>';
+    return;
+  }
+
+  var html = '<div style="font-size:11px; color:var(--muted); margin-bottom:8px">' + history.length + ' grupo(s) no histórico</div>';
+  history.forEach(function(g) {
+    var isExpanded = !!_expandedHistoryRow[g.id];
+    var chevron = isExpanded ? "▼" : "▶";
+    var statusBadge = g.status === "created"
+      ? '<span style="color:var(--ok)">✅ Criado</span>'
+      : g.status === "rate_limited"
+      ? '<span style="color:var(--danger)">🔴 Rate-limit</span>'
+      : '<span style="color:var(--warn)">⚠️ ' + esc(g.status) + '</span>';
+    var dateStr = g.created_at ? new Date(g.created_at).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
+
+    html += '<div style="background:var(--bg); border:1px solid var(--border); border-radius:6px; margin-bottom:6px; overflow:hidden">';
+    html += '<div onclick="toggleGroupHistoryRow(\'' + esc(g.id) + '\')" style="display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; font-size:12px">';
+    html += '<span style="color:var(--muted); font-size:10px">' + chevron + '</span>';
+    html += '<span style="font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">' + esc(g.group_name || "—") + '</span>';
+    html += '<span>' + statusBadge + '</span>';
+    html += '<span style="color:var(--muted); font-size:10px; min-width:80px; text-align:right">' + dateStr + '</span>';
+    html += '</div>';
+
+    if (isExpanded) {
+      html += '<div style="padding:10px 14px; border-top:1px solid var(--border); font-size:12px">';
+      // Info grid
+      html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 16px; margin-bottom:10px">';
+      html += '<div><span style="color:var(--muted)">Membros:</span> ' + (g.members_added || 0) + '/' + (g.members_total || 0) + '</div>';
+      html += '<div><span style="color:var(--muted)">Descrição:</span> ' + (g.has_description ? '✅' : '—') + '</div>';
+      html += '<div><span style="color:var(--muted)">Foto:</span> ' + (g.has_photo ? '✅' : '—') + '</div>';
+      html += '<div><span style="color:var(--muted)">Lock:</span> ' + (g.locked ? '✅' : '—') + '</div>';
+      html += '<div><span style="color:var(--muted)">Welcome:</span> ' + (g.welcome_sent ? '✅' : '—') + '</div>';
+      html += '<div><span style="color:var(--muted)">Link:</span> ' + (g.invite_link ? '<a href="' + esc(g.invite_link) + '" target="_blank" style="color:var(--primary)">' + esc(g.invite_link.split("/").pop()) + '</a>' : '—') + '</div>';
+      html += '</div>';
+
+      if (g.status_message) {
+        html += '<div style="margin-bottom:8px; padding:6px 10px; background:var(--surface-2); border-radius:4px; font-size:11px; color:var(--warn)">' + esc(g.status_message) + '</div>';
+      }
+
+      // Member list
+      if (g.members && g.members.length > 0) {
+        html += '<div style="color:var(--muted); font-size:11px; margin-bottom:4px">Membros do grupo:</div>';
+        html += '<div style="display:flex; flex-wrap:wrap; gap:4px">';
+        g.members.forEach(function(m) {
+          var roleIcon = m.role === "admin" ? '👑' : '';
+          var nameText = (m.name || m.phone || "—");
+          html += '<span style="font-size:11px; padding:2px 8px; background:var(--surface); border:1px solid var(--border); border-radius:10px">'
+            + roleIcon + ' ' + esc(nameText) + (m.phone ? ' <span style="color:var(--muted)">' + esc(m.phone) + '</span>' : '')
+            + '</span>';
+        });
+        html += '</div>';
+      } else {
+        html += '<div style="color:var(--muted); font-size:11px">Membros não disponíveis (sync desligado ou grupo recente)</div>';
+      }
+
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+
+  panel.innerHTML = html;
+}
+
 function toggleGroupSync(sessionId, newSkipValue) {
   var action = newSkipValue ? "desligar" : "ligar";
   waFetch("/api/sessions/" + sessionId, "PATCH", { skipGroupSync: newSkipValue })
@@ -778,7 +878,11 @@ function renderSessionsCard() {
       : "Sync de grupos LIGADO — clique pra desligar (reduz IQs)";
     var syncBtnHtml = '<button class="btn-icon btn-secondary" style="font-size:11px; padding:4px 10px; color:' + syncBtnColor + '; border-color:' + syncBtnColor + '" title="' + syncBtnTitle + '" onclick="toggleGroupSync(\'' + esc(s.id) + '\',' + (s.skipGroupSync ? 'false' : 'true') + ')">' + syncBtnLabel + '</button>';
 
-    rowsHtml += '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; margin-bottom:8px; background:var(--surface-2); border-radius:8px; border-left:3px solid ' + borderColor + '; flex-wrap:wrap">'
+    var histBtnActive = _expandedHistorySession === s.id;
+    var histBtnHtml = '<button class="btn-icon btn-secondary" style="font-size:11px; padding:4px 10px; color:' + (histBtnActive ? 'var(--primary)' : 'var(--muted)') + '; border-color:' + (histBtnActive ? 'var(--primary)' : 'var(--border)') + '" title="Histórico de grupos criados" onclick="toggleGroupHistory(\'' + esc(s.id) + '\')">📋 Grupos</button>';
+
+    rowsHtml += '<div style="margin-bottom:8px">';
+    rowsHtml += '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background:var(--surface-2); border-radius:8px; border-left:3px solid ' + borderColor + '; flex-wrap:wrap">'
       + '<div style="display:flex; align-items:center; gap:10px; flex:1; min-width:220px">'
       +   '<span style="font-size:14px">' + dot + '</span>'
       +   '<div>'
@@ -787,10 +891,19 @@ function renderSessionsCard() {
       +   '</div>'
       + '</div>'
       + '<div style="display:flex; gap:6px; align-items:center">'
+      +   histBtnHtml
       +   syncBtnHtml
       +   quarBtnHtml
       + '</div>'
       + '</div>';
+
+    // Group history panel — only rendered for the expanded session
+    if (histBtnActive) {
+      rowsHtml += '<div id="groupHistoryPanel" style="padding:10px 14px; background:var(--bg); border:1px solid var(--border); border-top:none; border-radius:0 0 8px 8px; max-height:400px; overflow-y:auto">'
+        + '<div style="color:var(--muted); font-size:12px">Carregando histórico…</div>'
+        + '</div>';
+    }
+    rowsHtml += '</div>';
   });
   body.innerHTML = rowsHtml;
 }
