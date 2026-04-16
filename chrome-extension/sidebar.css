@@ -82,7 +82,7 @@
 /* ===== 3. SIDEBAR CONTAINER ===== */
 .escalada-crm.ezap-sidebar {
   position: fixed; top: 0; right: 0;
-  width: 340px; height: 100vh;
+  width: var(--ezap-sidebar-w, 340px); height: 100vh;
   background: var(--ezap-bg-primary);
   border-left: 1px solid var(--ezap-border);
   box-shadow: var(--ezap-shadow-lg);
@@ -337,6 +337,47 @@
 }
 .escalada-crm.ezap-float-btn:hover::after { opacity: 1; }
 .escalada-crm.ezap-float-btn.active { outline: 2.5px solid #00a884; outline-offset: 3px; }
+
+/* ===== TAB BAR (sidebar navigation) ===== */
+.ezap-tab-bar {
+  display: flex; align-items: center; gap: 0;
+  background: var(--ezap-bg-elevated, #1a2730);
+  border-bottom: 1px solid var(--ezap-border, #3b4a54);
+  padding: 0 4px; flex-shrink: 0;
+}
+.ezap-tab-item {
+  display: flex; align-items: center; gap: 5px;
+  padding: 8px 10px; border: none; background: none;
+  color: var(--ezap-text-secondary, #8696a0);
+  font-size: 11px; font-weight: 600; cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap; font-family: inherit;
+}
+.ezap-tab-item:hover { color: var(--ezap-text-primary, #e9edef); }
+.ezap-tab-item--active {
+  color: var(--ezap-primary, #00a884);
+  border-bottom-color: var(--ezap-primary, #00a884);
+}
+
+/* ===== RESIZE HANDLE ===== */
+.ezap-resize-handle {
+  position: absolute; left: 0; top: 0;
+  width: 4px; height: 100%;
+  cursor: col-resize; z-index: 100000;
+  background: transparent;
+  transition: background 0.15s;
+}
+.ezap-resize-handle:hover,
+.ezap-resize-handle--active {
+  background: rgba(0,168,132,0.4);
+}
+
+/* ===== BUTTON DRAG-AND-DROP ===== */
+.escalada-crm.ezap-float-btn[draggable="true"] { cursor: grab; }
+.escalada-crm.ezap-float-btn[draggable="true"]:active { cursor: grabbing; }
+.escalada-crm.ezap-float-btn.ezap-btn-dragging { opacity: 0.4; transform: scale(0.85); }
+.escalada-crm.ezap-float-btn.ezap-btn-dragover { outline: 2px dashed #4d96ff; outline-offset: 4px; }
 
 /* Collapse toggle — half-moon attached to rail edge */
 #ezap-collapse-btn {

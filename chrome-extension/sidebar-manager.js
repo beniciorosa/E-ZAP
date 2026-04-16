@@ -1,11 +1,44 @@
 // ===== E-ZAP Sidebar Manager =====
-// Centralized sidebar lifecycle: mutual exclusion, app width, floating buttons
+// Centralized sidebar lifecycle: mutual exclusion, app width, floating buttons,
+// tab bar navigation, resizable width, drag-and-drop button reordering
 // Usage: ezapSidebar.register("crm", { show, hide, onOpen }), ezapSidebar.toggle("crm")
 (function() {
   "use strict";
   var _sidebars = {};
-  var SIDEBAR_W = 340;
+  var SIDEBAR_W = 340; // Loaded from storage on init
   var RAIL_W = 62;
+  var MIN_W = 280;
+  var MAX_W = 500;
+  var STORAGE_KEY_WIDTH = "ezap_sidebar_width";
+  var STORAGE_KEY_ORDER = "ezap_button_order";
+
+  // Load saved sidebar width
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    chrome.storage.local.get(STORAGE_KEY_WIDTH, function(data) {
+      if (data && data[STORAGE_KEY_WIDTH]) {
+        SIDEBAR_W = Math.max(MIN_W, Math.min(MAX_W, data[STORAGE_KEY_WIDTH]));
+        _applySidebarWidth();
+      }
+    });
+  }
+
+  function _applySidebarWidth() {
+    document.documentElement.style.setProperty('--ezap-sidebar-w', SIDEBAR_W + 'px');
+    // Update any open sidebar
+    var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
+      return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
+    });
+    if (anyShrinkOpen) _setAppWidth(true);
+    // Update shifted rail
+    var container = document.getElementById("ezap-float-container");
+    if (container && container.classList.contains("ezap-rail--shifted")) {
+      container.style.right = SIDEBAR_W + "px";
+    }
+    // Update all open sidebars width
+    document.querySelectorAll(".ezap-sidebar.open").forEach(function(sb) {
+      sb.style.width = SIDEBAR_W + "px";
+    });
+  }
 
   /**
    * Adjust WhatsApp app width when sidebar opens/closes
@@ -18,7 +51,6 @@
       appEl.style.maxWidth = "calc(100% - " + (SIDEBAR_W + RAIL_W) + "px)";
       appEl.style.marginRight = "0";
     } else {
-      // Restore to just rail width
       appEl.style.width = "calc(100% - " + RAIL_W + "px)";
       appEl.style.maxWidth = "calc(100% - " + RAIL_W + "px)";
       appEl.style.marginRight = "";
@@ -36,11 +68,12 @@
     });
     if (anyShrinkOpen) {
       container.classList.add("ezap-rail--shifted");
+      container.style.right = SIDEBAR_W + "px";
     } else {
       container.classList.remove("ezap-rail--shifted");
+      container.style.right = "";
     }
     container.style.display = "flex";
-    // Show/hide collapse button based on whether a sidebar is open
     _ensureCollapseButton();
     var btn = document.getElementById("ezap-collapse-btn");
     if (btn) {
@@ -54,12 +87,11 @@
     if (document.getElementById("ezap-collapse-btn")) return;
     var btn = document.createElement("button");
     btn.id = "ezap-collapse-btn";
-    btn.style.display = "none"; // Hidden by default, shown when sidebar opens
+    btn.style.display = "none";
     btn.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M1 1l6 6-6 6"/></svg>';
     btn.title = "Fechar sidebar";
     btn.addEventListener("click", function(e) {
       e.stopPropagation();
-      // Close all open sidebars
       window.ezapSidebar.closeAll();
     });
     document.body.appendChild(btn);
@@ -68,14 +100,208 @@
   function _positionCollapseBtn() {
     var btn = document.getElementById("ezap-collapse-btn");
     if (!btn) return;
-    var container = document.getElementById("ezap-float-container");
-    if (!container) return;
     var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
       return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
     });
-    // Position above the first button
     btn.style.top = "82px";
     btn.style.right = anyShrinkOpen ? (SIDEBAR_W + RAIL_W) + "px" : RAIL_W + "px";
+  }
+
+  // ===== Tab Bar =====
+  var _tabIcons = {
+    crm: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    msg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    abas: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
+    geia: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1v3h-1.07A7 7 0 0 1 14 20h-4a7 7 0 0 1-6.93-2H2v-3h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/></svg>',
+    admin_overlay: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+  };
+
+  var _tabLabels = {
+    crm: "CRM", msg: "MSG", abas: "ABAS", geia: "GEIA", admin_overlay: "SPV"
+  };
+
+  var _tabFeatures = {
+    crm: "crm", msg: "msg", abas: "abas", geia: "geia", admin_overlay: "admin_overlay"
+  };
+
+  function _buildTabBar(activeName) {
+    var bar = document.createElement("div");
+    bar.className = "ezap-tab-bar";
+    bar.id = "ezap-tab-bar";
+
+    var tabOrder = ["crm", "msg", "abas", "geia", "admin_overlay"];
+    tabOrder.forEach(function(name) {
+      if (!_sidebars[name]) return;
+      // Check feature flag
+      if (window.__ezapHasFeature && !window.__ezapHasFeature(_tabFeatures[name])) return;
+
+      var tab = document.createElement("button");
+      tab.className = "ezap-tab-item" + (name === activeName ? " ezap-tab-item--active" : "");
+      tab.dataset.tab = name;
+      tab.title = _tabLabels[name] || name;
+      tab.innerHTML = (_tabIcons[name] || '') + '<span>' + (_tabLabels[name] || name) + '</span>';
+      tab.addEventListener("click", function(e) {
+        e.stopPropagation();
+        if (name === activeName) return; // Already active
+        window.ezapSidebar.open(name);
+      });
+      bar.appendChild(tab);
+    });
+    return bar;
+  }
+
+  function _injectTabBar(sidebarName) {
+    // Remove old tab bar from any sidebar
+    var old = document.getElementById("ezap-tab-bar");
+    if (old) old.remove();
+
+    // Find the open sidebar element
+    var sidebarEl = null;
+    var sidebarIds = {
+      crm: "wcrm-sidebar", msg: "wcrm-msg-sidebar", abas: "wcrm-abas-sidebar",
+      geia: "geia-sidebar", admin_overlay: "admin-overlay-sidebar"
+    };
+    var elId = sidebarIds[sidebarName];
+    if (elId) sidebarEl = document.getElementById(elId);
+    if (!sidebarEl) return;
+
+    var bar = _buildTabBar(sidebarName);
+    // Insert after the header (first child)
+    var header = sidebarEl.querySelector(".ezap-header");
+    if (header && header.nextSibling) {
+      sidebarEl.insertBefore(bar, header.nextSibling);
+    } else if (header) {
+      sidebarEl.appendChild(bar);
+    } else {
+      sidebarEl.insertBefore(bar, sidebarEl.firstChild);
+    }
+  }
+
+  // ===== Resize Handle =====
+  function _ensureResizeHandle() {
+    document.querySelectorAll(".ezap-sidebar").forEach(function(sb) {
+      if (sb.querySelector(".ezap-resize-handle")) return;
+      var handle = document.createElement("div");
+      handle.className = "ezap-resize-handle";
+      sb.appendChild(handle);
+
+      var startX, startW;
+      handle.addEventListener("mousedown", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        startX = e.clientX;
+        startW = SIDEBAR_W;
+        handle.classList.add("ezap-resize-handle--active");
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+
+        function onMove(ev) {
+          var diff = startX - ev.clientX; // Moving left = wider
+          var newW = Math.max(MIN_W, Math.min(MAX_W, startW + diff));
+          SIDEBAR_W = newW;
+          _applySidebarWidth();
+        }
+        function onUp() {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          handle.classList.remove("ezap-resize-handle--active");
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          // Save
+          var obj = {};
+          obj[STORAGE_KEY_WIDTH] = SIDEBAR_W;
+          if (chrome.storage) chrome.storage.local.set(obj);
+        }
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    });
+  }
+
+  // ===== Drag-and-Drop Button Reorder =====
+  var _dragSrc = null;
+
+  function _enableButtonReorder() {
+    var container = document.getElementById("ezap-float-container");
+    if (!container) return;
+    var btns = container.querySelectorAll(".ezap-float-btn");
+    btns.forEach(function(btn) {
+      if (btn.getAttribute("draggable") === "true") return; // Already set up
+      btn.setAttribute("draggable", "true");
+
+      btn.addEventListener("dragstart", function(e) {
+        _dragSrc = btn;
+        btn.classList.add("ezap-btn-dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", btn.id);
+      });
+
+      btn.addEventListener("dragend", function() {
+        btn.classList.remove("ezap-btn-dragging");
+        container.querySelectorAll(".ezap-float-btn").forEach(function(b) {
+          b.classList.remove("ezap-btn-dragover");
+        });
+        _dragSrc = null;
+      });
+
+      btn.addEventListener("dragover", function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (_dragSrc && _dragSrc !== btn) {
+          btn.classList.add("ezap-btn-dragover");
+        }
+      });
+
+      btn.addEventListener("dragleave", function() {
+        btn.classList.remove("ezap-btn-dragover");
+      });
+
+      btn.addEventListener("drop", function(e) {
+        e.preventDefault();
+        btn.classList.remove("ezap-btn-dragover");
+        if (!_dragSrc || _dragSrc === btn) return;
+        // Reorder in DOM
+        var allBtns = Array.from(container.querySelectorAll(".ezap-float-btn"));
+        var srcIdx = allBtns.indexOf(_dragSrc);
+        var dstIdx = allBtns.indexOf(btn);
+        if (srcIdx < dstIdx) {
+          container.insertBefore(_dragSrc, btn.nextSibling);
+        } else {
+          container.insertBefore(_dragSrc, btn);
+        }
+        _saveButtonOrder();
+      });
+    });
+  }
+
+  function _saveButtonOrder() {
+    var container = document.getElementById("ezap-float-container");
+    if (!container) return;
+    var order = [];
+    container.querySelectorAll(".ezap-float-btn").forEach(function(btn) {
+      if (btn.id) order.push(btn.id);
+    });
+    var obj = {};
+    obj[STORAGE_KEY_ORDER] = order;
+    if (chrome.storage) chrome.storage.local.set(obj);
+  }
+
+  function _restoreButtonOrder() {
+    if (!chrome.storage) return;
+    chrome.storage.local.get(STORAGE_KEY_ORDER, function(data) {
+      var order = data && data[STORAGE_KEY_ORDER];
+      if (!order || !Array.isArray(order) || order.length === 0) return;
+      var container = document.getElementById("ezap-float-container");
+      if (!container) return;
+      // Reorder buttons based on saved order
+      order.forEach(function(btnId) {
+        var btn = document.getElementById(btnId);
+        if (btn && btn.parentElement === container) {
+          container.appendChild(btn); // Move to end (builds order)
+        }
+      });
+      _enableButtonReorder();
+    });
   }
 
   /**
@@ -128,6 +354,9 @@
       sb.show();
       if (sb.shrinkApp) _setAppWidth(true);
       _updateFloats();
+      _injectTabBar(name);
+      _ensureResizeHandle();
+      _enableButtonReorder();
       if (sb.onOpen) sb.onOpen();
       if (window.ezapBus) window.ezapBus.emit("sidebar:opened", { name: name });
     },
@@ -137,6 +366,9 @@
       if (!sb || !sb.isOpen) return;
       sb.isOpen = false;
       sb.hide();
+      // Remove tab bar when closing
+      var tabBar = document.getElementById("ezap-tab-bar");
+      if (tabBar) tabBar.remove();
       var anyShrink = Object.keys(_sidebars).some(function(k) {
         return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
       });
@@ -167,5 +399,8 @@
     }
   };
 
-  console.log("[EZAP] Sidebar manager loaded");
+  // Restore button order after buttons are created (delay to let modules init)
+  setTimeout(_restoreButtonOrder, 4000);
+
+  console.log("[EZAP] Sidebar manager loaded (tabs + resize + reorder)");
 })();
