@@ -380,12 +380,13 @@
       <div style="margin-bottom:16px">
         <label>Velocidade de criação (delay entre grupos)</label>
         <div class="delay-presets">
-          <label><input type="radio" name="createDelay" value="180" checked> 3 min — padrão</label>
-          <label><input type="radio" name="createDelay" value="300"> 5 min — seguro</label>
-          <label><input type="radio" name="createDelay" value="480"> 8 min — paranoico</label>
+          <label><input type="radio" name="createDelay" value="180"> 3 min — rápido</label>
+          <label><input type="radio" name="createDelay" value="300"> 5 min — padrão</label>
+          <label><input type="radio" name="createDelay" value="480"> 8 min — seguro</label>
+          <label><input type="radio" name="createDelay" value="600" checked> 10 min — extra seguro (recomendado)</label>
           <label><input type="radio" name="createDelay" value="custom"> custom <input type="number" id="createDelayCustom" min="60" max="1800" placeholder="segundos" style="width:90px; margin-left:4px"></label>
         </div>
-        <div style="font-size:11px; color:var(--muted); margin-top:4px">Mínimo 60s. Jitter de ±30s é aplicado automaticamente. groupCreate é a operação mais vigiada — conservador é melhor.</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Mínimo 60s. Jitter de ±30s é aplicado automaticamente. <b>Sessões críticas (ex: Escalada Ltda) são forçadas pra 10 min no backend mesmo se você escolher menos.</b> groupCreate é a operação mais vigiada pelo WhatsApp — conservador é melhor.</div>
       </div>
 
       <div class="modal-actions">
