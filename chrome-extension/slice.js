@@ -792,8 +792,10 @@ function _ensureCustomListCSS(force) {
     // Pill unread badge
     '.ezap-pill-unread { background: #ef4444; color: #fff; font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; margin-left: 2px; }',
     // Overlay resize handle (borda direita da lista de chats)
-    '.ezap-overlay-resize-handle { position: absolute; right: -3px; top: 0; width: 6px; height: 100%; cursor: col-resize; z-index: 200; background: transparent; transition: background 0.15s; }',
-    '.ezap-overlay-resize-handle:hover, .ezap-overlay-resize-handle--active { background: rgba(0,168,132,0.5); }'
+    // Resize bar (barrinha visível na borda direita do overlay)
+    '.ezap-overlay-resize-bar { position: absolute; right: 0; top: 0; width: 5px; height: 100%; cursor: col-resize; z-index: 200; background: ' + t.border + '; transition: background 0.15s; border-left: 1px solid rgba(134,150,160,0.1); }',
+    '.ezap-overlay-resize-bar:hover { background: rgba(0,168,132,0.35); }',
+    '.ezap-overlay-resize-bar.ezap-overlay-resize-bar--active { background: rgba(0,168,132,0.5); }'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -1341,11 +1343,8 @@ function _ensureOverlayResizeHandle(overlayParent) {
   if (_overlayResizeCreated) return;
   _overlayResizeCreated = true;
 
-  // Find pane-side (the WhatsApp left panel that contains the chat list)
   var paneEl = document.getElementById('pane-side');
   if (!paneEl) return;
-  var paneSideParent = paneEl.closest('[style*="flex"]') || paneEl.parentElement;
-  if (!paneSideParent) return;
 
   // Restore saved width
   if (typeof chrome !== 'undefined' && chrome.storage) {
@@ -1359,11 +1358,14 @@ function _ensureOverlayResizeHandle(overlayParent) {
     });
   }
 
+  // Handle fica DENTRO do #wcrm-custom-list (barrinha visível na borda direita)
+  var custom = document.getElementById('wcrm-custom-list');
+  if (!custom) return;
+
   var handle = document.createElement('div');
-  handle.className = 'ezap-overlay-resize-handle';
+  handle.className = 'ezap-overlay-resize-bar';
   handle.title = 'Arrastar para ajustar largura';
-  paneEl.style.position = 'relative';
-  paneEl.appendChild(handle);
+  custom.appendChild(handle);
 
   var startX, startW;
   handle.addEventListener('mousedown', function(e) {
@@ -1371,7 +1373,7 @@ function _ensureOverlayResizeHandle(overlayParent) {
     e.stopPropagation();
     startX = e.clientX;
     startW = paneEl.getBoundingClientRect().width;
-    handle.classList.add('ezap-overlay-resize-handle--active');
+    handle.classList.add('ezap-overlay-resize-bar--active');
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
@@ -1389,10 +1391,9 @@ function _ensureOverlayResizeHandle(overlayParent) {
     function onUp() {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      handle.classList.remove('ezap-overlay-resize-handle--active');
+      handle.classList.remove('ezap-overlay-resize-bar--active');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      // Save
       var finalW = paneEl.getBoundingClientRect().width;
       var obj = {};
       obj[OVERLAY_WIDTH_KEY] = Math.round(finalW);
