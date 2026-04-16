@@ -790,7 +790,10 @@ function _ensureCustomListCSS(force) {
     // Search highlight
     '#wcrm-custom-list mark { background: rgba(' + accentRgb.join(',') + ',0.3); color: inherit; border-radius: 2px; padding: 0 1px; }',
     // Pill unread badge
-    '.ezap-pill-unread { background: #ef4444; color: #fff; font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; margin-left: 2px; }'
+    '.ezap-pill-unread { background: #ef4444; color: #fff; font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; margin-left: 2px; }',
+    // Overlay resize handle (borda direita da lista de chats)
+    '.ezap-overlay-resize-handle { position: absolute; right: -2px; top: 0; width: 4px; height: 100%; cursor: col-resize; z-index: 200; background: transparent; transition: background 0.15s; }',
+    '.ezap-overlay-resize-handle:hover, .ezap-overlay-resize-handle--active { background: rgba(0,168,132,0.4); }'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -1330,6 +1333,76 @@ function _buildNativePreviewMap() {
   return map;
 }
 
+// ===== Overlay Resize Handle (borda direita da lista de chats) =====
+var OVERLAY_WIDTH_KEY = 'ezap_overlay_width';
+var _overlayResizeCreated = false;
+
+function _ensureOverlayResizeHandle(overlayParent) {
+  if (_overlayResizeCreated) return;
+  _overlayResizeCreated = true;
+
+  // Find pane-side (the WhatsApp left panel that contains the chat list)
+  var paneEl = document.getElementById('pane-side');
+  if (!paneEl) return;
+  var paneSideParent = paneEl.closest('[style*="flex"]') || paneEl.parentElement;
+  if (!paneSideParent) return;
+
+  // Restore saved width
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    chrome.storage.local.get(OVERLAY_WIDTH_KEY, function(data) {
+      if (data && data[OVERLAY_WIDTH_KEY]) {
+        var savedW = data[OVERLAY_WIDTH_KEY];
+        paneEl.style.minWidth = savedW + 'px';
+        paneEl.style.maxWidth = savedW + 'px';
+        paneEl.style.flex = '0 0 ' + savedW + 'px';
+      }
+    });
+  }
+
+  var handle = document.createElement('div');
+  handle.className = 'ezap-overlay-resize-handle';
+  handle.title = 'Arrastar para ajustar largura';
+  paneEl.style.position = 'relative';
+  paneEl.appendChild(handle);
+
+  var startX, startW;
+  handle.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    startX = e.clientX;
+    startW = paneEl.getBoundingClientRect().width;
+    handle.classList.add('ezap-overlay-resize-handle--active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    var screenW = window.innerWidth;
+    var minW = 280;
+    var maxW = Math.min(screenW * 0.5, 600);
+
+    function onMove(ev) {
+      var diff = ev.clientX - startX;
+      var newW = Math.max(minW, Math.min(maxW, startW + diff));
+      paneEl.style.minWidth = newW + 'px';
+      paneEl.style.maxWidth = newW + 'px';
+      paneEl.style.flex = '0 0 ' + newW + 'px';
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      handle.classList.remove('ezap-overlay-resize-handle--active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      // Save
+      var finalW = paneEl.getBoundingClientRect().width;
+      var obj = {};
+      obj[OVERLAY_WIDTH_KEY] = Math.round(finalW);
+      if (chrome.storage) chrome.storage.local.set(obj);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 function _showCustomAbaList(abaTab, chatIndex) {
   _ezapHiddenViewActive = false; // Reset ao reconstruir overlay
   _ensureCustomListCSS();
@@ -1377,6 +1450,9 @@ function _showCustomAbaList(abaTab, chatIndex) {
   // Posiciona overlay cobrindo o scrollParent
   custom.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:100;display:block;';
   custom.innerHTML = '';
+
+  // Resize handle na borda direita da lista de chats
+  _ensureOverlayResizeHandle(overlayParent);
 
   // Resolve contatos da aba (nome + JID + pin status + nome de display)
   var isOverlayMode = !abaTab;

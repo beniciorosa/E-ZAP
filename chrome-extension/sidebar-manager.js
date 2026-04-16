@@ -74,37 +74,10 @@
       container.style.right = "";
     }
     container.style.display = "flex";
-    _ensureCollapseButton();
-    var btn = document.getElementById("ezap-collapse-btn");
-    if (btn) {
-      btn.style.display = anyShrinkOpen ? "flex" : "none";
-      _positionCollapseBtn();
-    }
+    // Collapse button removed — tab bar has close functionality via Escape key
+    var oldCollapseBtn = document.getElementById("ezap-collapse-btn");
+    if (oldCollapseBtn) oldCollapseBtn.remove();
     _highlightActiveButton();
-  }
-
-  function _ensureCollapseButton() {
-    if (document.getElementById("ezap-collapse-btn")) return;
-    var btn = document.createElement("button");
-    btn.id = "ezap-collapse-btn";
-    btn.style.display = "none";
-    btn.innerHTML = '<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><path d="M1 1l6 6-6 6"/></svg>';
-    btn.title = "Fechar sidebar";
-    btn.addEventListener("click", function(e) {
-      e.stopPropagation();
-      window.ezapSidebar.closeAll();
-    });
-    document.body.appendChild(btn);
-  }
-
-  function _positionCollapseBtn() {
-    var btn = document.getElementById("ezap-collapse-btn");
-    if (!btn) return;
-    var anyShrinkOpen = Object.keys(_sidebars).some(function(k) {
-      return _sidebars[k].isOpen && _sidebars[k].shrinkApp;
-    });
-    btn.style.top = "82px";
-    btn.style.right = anyShrinkOpen ? (SIDEBAR_W + RAIL_W) + "px" : RAIL_W + "px";
   }
 
   // ===== Tab Bar =====

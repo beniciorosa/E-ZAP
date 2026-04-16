@@ -379,30 +379,7 @@
 .escalada-crm.ezap-float-btn.ezap-btn-dragging { opacity: 0.4; transform: scale(0.85); }
 .escalada-crm.ezap-float-btn.ezap-btn-dragover { outline: 2px dashed #4d96ff; outline-offset: 4px; }
 
-/* Collapse toggle — half-moon attached to rail edge */
-#ezap-collapse-btn {
-  position: fixed;
-  right: 0;
-  width: 22px;
-  height: 48px;
-  border: none;
-  border-radius: 10px 0 0 10px;
-  background: #00a884;
-  color: #fff;
-  font-size: 11px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100000;
-  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
-  box-shadow: -2px 0 8px rgba(0,0,0,0.3);
-}
-#ezap-collapse-btn:hover {
-  background: #008f6f;
-  width: 26px;
-  box-shadow: -3px 0 12px rgba(0,168,132,0.4);
-}
+/* Collapse toggle removed in v2.0.9 — tab bar replaces it */
 
 /* ===== 20. DROPDOWN ===== */
 .escalada-crm.ezap-dropdown {
