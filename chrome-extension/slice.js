@@ -581,6 +581,42 @@ try {
 } catch(e) {}
 
 // Retorna labels de um contato pelo JID
+function _escapeHtmlSlice(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Returns array of {name, color} for abas that contain this contact
+function _getAbasForContact(contactName, contactJid) {
+  var result = [];
+  if (!contactName) return result;
+  var matchFn = window.ezapMatchContact || function(a, b) { return a && b && a.toLowerCase() === b.toLowerCase(); };
+  // User abas
+  var userAbas = (window._wcrmAbasCache && window._wcrmAbasCache.tabs) || [];
+  for (var i = 0; i < userAbas.length; i++) {
+    var tab = userAbas[i];
+    var contacts = tab.contacts || [];
+    for (var j = 0; j < contacts.length; j++) {
+      if (matchFn(contacts[j], contactName)) {
+        result.push({ name: tab.name, color: tab.color || '#4d96ff' });
+        break;
+      }
+    }
+  }
+  // Admin abas
+  var adminAbas = window._adminAbas || [];
+  for (var k = 0; k < adminAbas.length; k++) {
+    var adminTab = adminAbas[k];
+    var adminContacts = adminTab.contacts || [];
+    for (var m = 0; m < adminContacts.length; m++) {
+      if (matchFn(adminContacts[m], contactName)) {
+        result.push({ name: adminTab.name, color: adminTab.color || '#4d96ff' });
+        break;
+      }
+    }
+  }
+  return result;
+}
+
 function _getLabelsForJid(jid) {
   if (!jid || !_wcrmLabelsCache) return [];
   // Extrai digitos do JID (ex: 5511999887766@c.us -> 5511999887766)
@@ -623,15 +659,19 @@ function _buildAbaPillsRow(theme) {
   // Container scroll
   var abaScroll = document.createElement('div');
   abaScroll.className = 'ezap-aba-scroll';
-  abaScroll.style.cssText = 'display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;flex:1;min-width:0;';
+  abaScroll.style.cssText = 'display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;flex:1;min-width:0;scroll-behavior:smooth;';
 
   _abasData.tabs.forEach(function(tab) {
     var isActive = (typeof selectedAbaId !== 'undefined') && selectedAbaId === tab.id;
     var count = (tab.contacts || []).length;
     var tabColor = tab.color || '#4d96ff';
     var textOnColor = _pillTextColor(tabColor);
-    // Pill inativa: bolinha colorida + texto neutro, fundo sutil
-    // Pill ativa: fundo da cor da aba, texto com contraste, sombra
+    // Count unread contacts in this tab
+    var unreadInAba = 0;
+    (tab.contacts || []).forEach(function(cn) {
+      var jid = (tab.contactJids && tab.contactJids[cn]) || '';
+      if (jid && _ezapUnreadMarks[jid]) unreadInAba++;
+    });
     var pill = document.createElement('button');
     pill.className = 'wcrm-quick-aba-pill' + (isActive ? ' active' : '');
     pill.setAttribute('data-aba-id', tab.id);
@@ -639,9 +679,13 @@ function _buildAbaPillsRow(theme) {
       pill.style.cssText = 'background:' + tabColor + ';border-color:' + tabColor + ';color:' + textOnColor + ';box-shadow:0 1px 4px rgba(0,0,0,0.2);';
     }
     var dotColor = isActive ? textOnColor : tabColor;
-    pill.innerHTML = '<span class="ezap-pill-dot" style="background:' + dotColor + '"></span>' +
+    var pillHTML = '<span class="ezap-pill-dot" style="background:' + dotColor + '"></span>' +
       '<span>' + (tab.name.length > 15 ? tab.name.substring(0, 15) + '..' : tab.name) + '</span>' +
       '<span class="ezap-pill-count">' + count + '</span>';
+    if (unreadInAba > 0) {
+      pillHTML += '<span class="ezap-pill-unread">' + unreadInAba + '</span>';
+    }
+    pill.innerHTML = pillHTML;
     pill.addEventListener('click', function(ev) {
       ev.stopPropagation();
       if (typeof selectedAbaId !== 'undefined' && selectedAbaId === tab.id) {
@@ -703,35 +747,50 @@ function _ensureCustomListCSS(force) {
   var accentRgb = (typeof _hexToRgb === 'function') ? _hexToRgb(accent) : [0,168,132];
   s.textContent = [
     '#wcrm-custom-list { overflow-y: auto; background: ' + t.bg + '; color: ' + t.text + '; font-family: "Segoe UI", Helvetica, "Helvetica Neue", Arial, sans-serif; }',
-    '.wcrm-custom-row { display: flex; align-items: stretch; padding: 0 15px; min-height: 72px; box-sizing: border-box; cursor: pointer; background: transparent; position: relative; }',
+    // Row — redesigned
+    '.wcrm-custom-row { display: flex; align-items: stretch; padding: 0 12px 0 16px; min-height: 76px; box-sizing: border-box; cursor: pointer; background: transparent; position: relative; border-bottom: 1px solid rgba(134,150,160,0.08); transition: background 0.15s ease; }',
     '.wcrm-custom-row:hover { background: ' + t.bgSecondary + '; }',
     '.wcrm-custom-row:active { background: ' + t.bgHover + '; }',
     '.wcrm-custom-row.wcrm-row-loading { opacity: 0.6; pointer-events: none; }',
-    '.wcrm-custom-row.wcrm-row-active { background: ' + t.bgHover + ' !important; }',
+    '.wcrm-custom-row.wcrm-row-active { background: ' + t.bgHover + ' !important; border-left: 3px solid ' + accent + '; padding-left: 13px; }',
     '.wcrm-custom-row.wcrm-row-new-msg { animation: wcrmFlash 1.2s ease-out; }',
     '@keyframes wcrmFlash { 0% { background: rgba(' + accentRgb.join(',') + ',0.35); } 100% { background: transparent; } }',
-    '.wcrm-custom-avatar { width: 49px; height: 49px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 500; flex-shrink: 0; margin: 11px 15px 11px 0; overflow: hidden; align-self: center; }',
-    '.wcrm-custom-avatar-has-img { background: transparent !important; }',
+    // Avatar — refined
+    '.wcrm-custom-avatar { width: 48px; height: 48px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 19px; font-weight: 500; flex-shrink: 0; margin: 14px 13px 14px 0; overflow: hidden; align-self: center; }',
+    '.wcrm-custom-avatar-has-img { background: transparent !important; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }',
     '.wcrm-custom-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }',
-    '.wcrm-custom-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-right: 6px; border-top: 1px solid ' + t.border + '; }',
-    '.wcrm-custom-row:first-child .wcrm-custom-meta { border-top: none; }',
-    '.wcrm-custom-line1 { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }',
-    '.wcrm-custom-name { color: ' + t.text + '; font-size: 17px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; padding-bottom: 2px; }',
+    // Meta
+    '.wcrm-custom-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-right: 6px; }',
+    '.wcrm-custom-line1 { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }',
+    // Name — refined
+    '.wcrm-custom-name { color: ' + t.text + '; font-size: 16px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 1.4; }',
     '.wcrm-custom-time { color: ' + t.textSecondary + '; font-size: 12px; flex-shrink: 0; }',
-    '.wcrm-custom-time.wcrm-time-unread { color: ' + accent + '; }',
+    '.wcrm-custom-time.wcrm-time-unread { color: ' + accent + '; font-weight: 600; }',
     '.wcrm-custom-line2 { display: flex; align-items: center; gap: 6px; }',
-    '.wcrm-custom-preview { color: ' + t.textSecondary + '; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 20px; }',
+    // Preview — refined
+    '.wcrm-custom-preview { color: ' + t.textSecondary + '; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; line-height: 20px; }',
     '.wcrm-custom-preview svg { display: inline !important; vertical-align: -2px; flex-shrink: 0; }',
     '.wcrm-custom-pin { color: ' + t.textSecondary + '; font-size: 12px; flex-shrink: 0; opacity: 0.7; display: inline-flex; align-items: center; }',
-    '.wcrm-custom-badge { background: ' + accent + '; color: ' + (isDark ? '#111b21' : '#ffffff') + '; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
+    // Badge — refined
+    '.wcrm-custom-badge { background: ' + accent + '; color: ' + (isDark ? '#111b21' : '#ffffff') + '; font-size: 11px; font-weight: 700; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }',
     '.wcrm-custom-empty { padding: 40px 20px; text-align: center; color: ' + t.textSecondary + '; font-size: 14px; }',
     '.wcrm-custom-header { padding: 10px 15px; color: ' + t.textSecondary + '; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; background: ' + t.headerBg + '; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid ' + t.border + '; }',
     '#ezap-overlay-aba-row::-webkit-scrollbar { display: none; }',
     '#ezap-overlay-aba-row button:hover { filter: brightness(1.2); }',
     '.ezap-aba-scroll::-webkit-scrollbar { display: none; }',
+    '.ezap-aba-scroll { scroll-behavior: smooth; }',
     '.ezap-aba-arrow:hover { color: #e9edef !important; background: rgba(134,150,160,0.15) !important; border-radius:4px; }',
+    // Labels — refined
     '.wcrm-custom-labels { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }',
-    '.wcrm-custom-label-tag { font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 3px; white-space: nowrap; line-height: 1.4; }'
+    '.wcrm-custom-label-tag { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; white-space: nowrap; line-height: 1.4; }',
+    // Aba dots (bolinha colorida estilo WA Business Lists)
+    '.ezap-aba-dots { display: inline-flex; gap: 3px; align-items: center; margin-right: 5px; flex-shrink: 0; }',
+    '.ezap-aba-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }',
+    '.ezap-aba-dot-more { font-size: 8px; color: ' + t.textSecondary + '; font-weight: 600; flex-shrink: 0; }',
+    // Search highlight
+    '#wcrm-custom-list mark { background: rgba(' + accentRgb.join(',') + ',0.3); color: inherit; border-radius: 2px; padding: 0 1px; }',
+    // Pill unread badge
+    '.ezap-pill-unread { background: #ef4444; color: #fff; font-size: 9px; font-weight: 700; min-width: 14px; height: 14px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; margin-left: 2px; }'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -1587,13 +1646,34 @@ function _showCustomAbaList(abaTab, chatIndex) {
           }
         }
         items[si].style.display = match ? '' : 'none';
+        // Highlight match in name
+        var nameEl = items[si].querySelector('.wcrm-custom-name');
+        if (nameEl) {
+          var origName = items[si].getAttribute('data-display') || items[si].getAttribute('data-name') || '';
+          if (match && q && !isDigitSearch && origName) {
+            var idx = origName.toLowerCase().indexOf(raw);
+            if (idx < 0 && typeof ezapNormalizeName === 'function') {
+              var normOrig = ezapNormalizeName(origName);
+              idx = normOrig.indexOf(q);
+            }
+            if (idx >= 0) {
+              var before = origName.substring(0, idx);
+              var matched = origName.substring(idx, idx + raw.length);
+              var after = origName.substring(idx + raw.length);
+              nameEl.innerHTML = _escapeHtmlSlice(before) + '<mark>' + _escapeHtmlSlice(matched) + '</mark>' + _escapeHtmlSlice(after);
+            } else {
+              nameEl.textContent = origName;
+            }
+          } else {
+            nameEl.textContent = origName;
+          }
+        }
         if (match) visibleCount++;
       }
       var countEl = document.getElementById('ezap-overlay-count');
       if (countEl) countEl.textContent = visibleCount + ' conversa' + (visibleCount !== 1 ? 's' : '');
     }
     searchInput.addEventListener('input', _filterOverlayRows);
-    // Auto-filter if input already has a value (e.g., restored after overlay rebuild)
     if (searchInput.value.trim()) setTimeout(_filterOverlayRows, 50);
     searchWrap.appendChild(searchInput);
     header.appendChild(searchWrap);
@@ -2137,6 +2217,29 @@ function _createCustomRow(data) {
 
   var line1 = document.createElement('div');
   line1.className = 'wcrm-custom-line1';
+
+  // Aba dots (bolinha colorida estilo WA Business Lists)
+  var contactAbas = _getAbasForContact(data.name, data.jid);
+  if (contactAbas.length > 0) {
+    var dotsWrap = document.createElement('span');
+    dotsWrap.className = 'ezap-aba-dots';
+    var maxDots = 3;
+    for (var di = 0; di < contactAbas.length && di < maxDots; di++) {
+      var dot = document.createElement('span');
+      dot.className = 'ezap-aba-dot';
+      dot.style.background = contactAbas[di].color || '#4d96ff';
+      dot.title = contactAbas[di].name || '';
+      dotsWrap.appendChild(dot);
+    }
+    if (contactAbas.length > maxDots) {
+      var moreDot = document.createElement('span');
+      moreDot.className = 'ezap-aba-dot-more';
+      moreDot.textContent = '+' + (contactAbas.length - maxDots);
+      dotsWrap.appendChild(moreDot);
+    }
+    line1.appendChild(dotsWrap);
+  }
+
   var name = document.createElement('span');
   name.className = 'wcrm-custom-name';
   name.setAttribute('title', data.displayName || data.name || '');
