@@ -77,8 +77,11 @@
   // mas podem ter sido salvos (em abas/pin) sem o sufixo. Este helper
   // compara os dois de forma tolerante: antes do pipe, depois do pipe
   // e a string inteira, tudo lowercase + trim.
+  function _stripAccents(s) {
+    return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
   function ezapNormalizeName(s) {
-    return (s || "").toLowerCase().trim();
+    return _stripAccents((s || "").toLowerCase().trim());
   }
   function ezapNameBeforePipe(s) {
     return ezapNormalizeName((s || "").split(/\s*\|\s*/)[0]);
@@ -787,4 +790,62 @@
     });
   }
   window.ezapGetGroupMembers = ezapGetGroupMembers;
+
+  // ===== Error Tracking =====
+  // Captura erros globais e envia para Supabase em lote
+  (function() {
+    var _errorBuffer = [];
+    var _FLUSH_INTERVAL = 30000; // 30s
+    var _MAX_BUFFER = 20;
+    var _flushing = false;
+
+    function _collectError(message, source, line, col, stack) {
+      if (_errorBuffer.length >= _MAX_BUFFER) return;
+      // Ignorar erros de outras extensoes/scripts
+      if (source && source.indexOf("chrome-extension://") === 0 && source.indexOf(chrome.runtime.id) < 0) return;
+      _errorBuffer.push({
+        user_id: ezapUserId() || null,
+        message: String(message || "").substring(0, 500),
+        source: String(source || "").substring(0, 200),
+        line_number: line || null,
+        col_number: col || null,
+        stack: String(stack || "").substring(0, 1000),
+        ext_version: (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || "",
+        url: location.href.substring(0, 100),
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    window.addEventListener("error", function(e) {
+      _collectError(e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack);
+    });
+
+    window.addEventListener("unhandledrejection", function(e) {
+      var reason = e.reason || {};
+      _collectError(
+        reason.message || String(reason).substring(0, 500),
+        reason.fileName || "",
+        reason.lineNumber || null,
+        reason.columnNumber || null,
+        reason.stack || ""
+      );
+    });
+
+    function _flushErrors() {
+      if (_flushing || _errorBuffer.length === 0 || !ezapIsExtValid()) return;
+      _flushing = true;
+      var batch = _errorBuffer.splice(0, _MAX_BUFFER);
+      ezapSupaRest("/rest/v1/error_logs", "POST", batch, "return=minimal")
+        .then(function() { _flushing = false; })
+        .catch(function() {
+          // Re-enqueue on failure (max buffer)
+          _errorBuffer = batch.concat(_errorBuffer).slice(0, _MAX_BUFFER);
+          _flushing = false;
+        });
+    }
+
+    setInterval(_flushErrors, _FLUSH_INTERVAL);
+    // Flush on page unload
+    window.addEventListener("beforeunload", _flushErrors);
+  })();
 })();

@@ -71,39 +71,48 @@ function createSidebar() {
         <div id="wcrm-name" class="ezap-contact-name"></div>
         <div id="wcrm-phone" style="display:none"></div>
 
-        <div class="ezap-section">
-          <div id="wcrm-hubspot-container">
-            <div class="ezap-loading">Buscando no HubSpot...</div>
-          </div>
-        </div>
-
-        <div class="ezap-section">
-          <div class="ezap-section-title">Etiquetas</div>
-          <div id="wcrm-labels-container" class="ezap-labels"></div>
-        </div>
-
-        <div class="ezap-section">
-          <div class="ezap-section-title">Observações</div>
-          <div class="ezap-editor-wrapper">
-            <div id="wcrm-editor-toolbar" class="ezap-editor-toolbar">
-              <button data-cmd="bold" title="Negrito"><b>B</b></button>
-              <button data-cmd="italic" title="Itálico"><i>I</i></button>
-              <button data-cmd="underline" title="Sublinhado"><u>U</u></button>
-              <button data-cmd="insertUnorderedList" title="Lista">&bull; &equiv;</button>
+        <div class="ezap-section ezap-section--collapsible" data-section="hubspot">
+          <div class="ezap-section-title">HubSpot <svg class="ezap-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="ezap-section-body">
+            <div id="wcrm-hubspot-container">
+              <div class="ezap-loading">Buscando no HubSpot...</div>
             </div>
-            <div id="wcrm-notes-editor" class="ezap-editor-body" contenteditable="true" data-placeholder="Escreva uma observação..."></div>
           </div>
-          <button id="wcrm-save-note-btn" class="ezap-btn ezap-btn--secondary ezap-btn--full" style="margin-top:6px">Salvar Observação</button>
-          <div id="wcrm-save-status" style="font-size:10px;text-align:center;margin-top:4px;min-height:14px"></div>
-          <div id="wcrm-notes-history" style="margin-top:8px"></div>
+        </div>
+
+        <div class="ezap-section ezap-section--collapsible" data-section="labels">
+          <div class="ezap-section-title">Etiquetas <svg class="ezap-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="ezap-section-body">
+            <div id="wcrm-labels-container" class="ezap-labels"></div>
+          </div>
+        </div>
+
+        <div class="ezap-section ezap-section--collapsible" data-section="notes">
+          <div class="ezap-section-title">Observações <svg class="ezap-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="ezap-section-body">
+            <div class="ezap-editor-wrapper">
+              <div id="wcrm-editor-toolbar" class="ezap-editor-toolbar">
+                <button data-cmd="bold" title="Negrito"><b>B</b></button>
+                <button data-cmd="italic" title="Itálico"><i>I</i></button>
+                <button data-cmd="underline" title="Sublinhado"><u>U</u></button>
+                <button data-cmd="insertUnorderedList" title="Lista">&bull; &equiv;</button>
+              </div>
+              <div id="wcrm-notes-editor" class="ezap-editor-body" contenteditable="true" data-placeholder="Escreva uma observação..."></div>
+            </div>
+            <button id="wcrm-save-note-btn" class="ezap-btn ezap-btn--secondary ezap-btn--full" style="margin-top:6px">Salvar Observação</button>
+            <div id="wcrm-save-status" style="font-size:10px;text-align:center;margin-top:4px;min-height:14px"></div>
+            <div id="wcrm-notes-history" style="margin-top:8px"></div>
+          </div>
         </div>
 
         <hr class="ezap-separator">
 
-        <div class="ezap-section">
-          <div class="ezap-section-title">Reuniões</div>
-          <div id="wcrm-meetings-container">
-            <div class="ezap-empty">Aguardando dados do HubSpot...</div>
+        <div class="ezap-section ezap-section--collapsible" data-section="meetings">
+          <div class="ezap-section-title">Reuniões <svg class="ezap-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="ezap-section-body">
+            <div id="wcrm-meetings-container">
+              <div class="ezap-empty">Aguardando dados do HubSpot...</div>
+            </div>
           </div>
         </div>
       </div>
@@ -172,6 +181,36 @@ function createSidebar() {
 
   // Save note button
   document.getElementById("wcrm-save-note-btn").addEventListener("click", saveNote);
+
+  // Collapsible sections — click handler + restore state
+  (function() {
+    var STORAGE_KEY = "ezap_collapsed_sections";
+    chrome.storage.local.get(STORAGE_KEY, function(result) {
+      var collapsed = (result && result[STORAGE_KEY]) || {};
+      var sections = sidebar.querySelectorAll(".ezap-section--collapsible");
+      for (var i = 0; i < sections.length; i++) {
+        var sec = sections[i];
+        var key = sec.getAttribute("data-section");
+        if (key && collapsed[key]) sec.classList.add("ezap-section--collapsed");
+        (function(section, sectionKey) {
+          var title = section.querySelector(".ezap-section-title");
+          if (!title) return;
+          title.addEventListener("click", function(e) {
+            e.stopPropagation();
+            section.classList.toggle("ezap-section--collapsed");
+            // Persist
+            chrome.storage.local.get(STORAGE_KEY, function(r) {
+              var state = (r && r[STORAGE_KEY]) || {};
+              state[sectionKey] = section.classList.contains("ezap-section--collapsed");
+              var obj = {};
+              obj[STORAGE_KEY] = state;
+              chrome.storage.local.set(obj);
+            });
+          });
+        })(sec, key);
+      }
+    });
+  })();
 
   console.log("[WCRM] Sidebar created");
 

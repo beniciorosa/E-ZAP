@@ -127,6 +127,27 @@
   letter-spacing: 0.08em; color: var(--ezap-text-secondary);
   font-weight: var(--ezap-font-semibold); margin-bottom: var(--ezap-space-2);
 }
+/* Collapsible sections */
+.escalada-crm .ezap-section--collapsible > .ezap-section-title {
+  cursor: pointer; user-select: none; justify-content: space-between;
+}
+.escalada-crm .ezap-section--collapsible > .ezap-section-title:hover {
+  color: var(--ezap-text-primary);
+}
+.escalada-crm .ezap-section-chevron {
+  width: 14px; height: 14px; transition: transform 0.2s ease;
+  flex-shrink: 0; opacity: 0.6;
+}
+.escalada-crm .ezap-section--collapsed > .ezap-section-title .ezap-section-chevron {
+  transform: rotate(-90deg);
+}
+.escalada-crm .ezap-section-body {
+  overflow: hidden; transition: max-height 0.25s ease, opacity 0.2s ease;
+  max-height: 2000px; opacity: 1;
+}
+.escalada-crm .ezap-section--collapsed > .ezap-section-body {
+  max-height: 0; opacity: 0;
+}
 
 /* ===== 7. CONTACT ===== */
 .escalada-crm .ezap-contact-name { font-size: var(--ezap-text-xl); font-weight: var(--ezap-font-bold); color: var(--ezap-text-primary); margin-bottom: var(--ezap-space-4); line-height: 1.3; cursor: pointer; }

@@ -1048,9 +1048,11 @@ function openContactPickerModal(abaId) {
     function renderContactList(filter) {
       var listEl = document.getElementById("wcrm-picker-list");
       if (!listEl) return;
-      var filterLower = (filter || "").toLowerCase();
+      var filterNorm = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(filter || "") : (filter || "").toLowerCase();
       var filtered = allContacts.filter(function(c) {
-        return !filterLower || c.toLowerCase().includes(filterLower);
+        if (!filterNorm) return true;
+        var cNorm = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(c) : c.toLowerCase();
+        return cNorm.includes(filterNorm);
       });
 
       var html = '';
@@ -1093,9 +1095,11 @@ function openContactPickerModal(abaId) {
     });
 
     document.getElementById("wcrm-picker-select-all").addEventListener("click", function() {
-      var filterVal = document.getElementById("wcrm-picker-search").value.toLowerCase();
+      var filterVal = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(document.getElementById("wcrm-picker-search").value) : document.getElementById("wcrm-picker-search").value.toLowerCase();
       var filtered = allContacts.filter(function(c) {
-        return !filterVal || c.toLowerCase().includes(filterVal);
+        if (!filterVal) return true;
+        var cNorm = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(c) : c.toLowerCase();
+        return cNorm.includes(filterVal);
       });
       var allSelected = filtered.every(function(c) { return !!selectedSet[c.toLowerCase().trim()]; });
       filtered.forEach(function(c) {

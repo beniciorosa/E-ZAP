@@ -25,8 +25,7 @@
 
   // ===== STATE =====
   var _buffer = [];                // Pending events to sync
-  var _knownWids = {};             // message_wid -> true (dedup)
-  var _knownWidsCount = 0;
+  var _knownWids = new Map();      // message_wid -> true (Map preserves insertion order for LRU)
   var _scanTimer = null;
   var _syncTimer = null;
   var _initialized = false;
@@ -131,9 +130,8 @@
       if (!e.wid) continue;
 
       // Dedup by WID (handles warmup duplicates)
-      if (_knownWids[e.wid]) continue;
-      _knownWids[e.wid] = true;
-      _knownWidsCount++;
+      if (_knownWids.has(e.wid)) continue;
+      _knownWids.set(e.wid, true);
 
       // Track newest timestamp per chat (only after warmup to avoid partial-load issue)
       if (_warmupScans >= 4 && (!_chatLastTs[e.chatJid] || e.timestamp > _chatLastTs[e.chatJid])) {
@@ -169,9 +167,9 @@
     }
 
     if (newCount > 0) {
-      console.log("[EZAP-CAPTURE] Captured", newCount, "new messages (buffer:", _buffer.length, ", known:", _knownWidsCount, ")");
+      console.log("[EZAP-CAPTURE] Captured", newCount, "new messages (buffer:", _buffer.length, ", known:", _knownWids.size, ")");
     } else {
-      console.log("[EZAP-CAPTURE] 0 new (all", events.length, "deduplicated, known:", _knownWidsCount, ")");
+      console.log("[EZAP-CAPTURE] 0 new (all", events.length, "deduplicated, known:", _knownWids.size, ")");
     }
 
     // Sync LID->phone mappings if any were discovered
@@ -179,10 +177,15 @@
       syncLidMappings(d.lidMappings);
     }
 
-    // Prevent memory bloat on dedup cache
-    if (_knownWidsCount > DEDUP_CACHE_MAX) {
-      _knownWids = {};
-      _knownWidsCount = 0;
+    // LRU eviction: remove oldest 5000 entries instead of clearing all
+    if (_knownWids.size > DEDUP_CACHE_MAX) {
+      var toRemove = 5000;
+      var iter = _knownWids.keys();
+      for (var r = 0; r < toRemove; r++) {
+        var key = iter.next().value;
+        if (key) _knownWids.delete(key);
+      }
+      console.log("[EZAP-CAPTURE] LRU eviction: removed", toRemove, "oldest entries, remaining:", _knownWids.size);
     }
 
     // Force sync if buffer is large
@@ -507,7 +510,7 @@
     return {
       initialized: _initialized,
       buffer: _buffer.length,
-      knownWids: _knownWidsCount,
+      knownWids: _knownWids.size,
       trackedChats: Object.keys(_chatLastTs).length,
       totalCaptured: _totalCaptured,
       totalSynced: _totalSynced,
