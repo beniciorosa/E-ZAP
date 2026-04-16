@@ -2064,10 +2064,10 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       }
 
       // Signal key establishment with the new participants happens inside
-      // baileys automatically after groupCreate returns — the old force
-      // sync via sock.groupMetadata was a redundant IQ competing with our
-      // own rate budget. A plain 4s wait is enough for libsignal to settle.
-      await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+      // baileys automatically after groupCreate returns. We need a longer
+      // wait (8s) for the key exchange to settle — 4s was too short and
+      // caused welcome messages to fail with PreKeyError / "No session".
+      await new Promise(r => setTimeout(r, 8000));
 
       // 2. Description
       if (spec.description) {
@@ -2094,7 +2094,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
       }
 
-      // 4. Lock info (only admins edit group info)
+      // 4. Lock info (only admins edit group info) + set permissions
       if (!rateLimited && spec.lockInfo) {
         try {
           await sock.groupSettingUpdate(row.groupJid, "locked");
@@ -2104,6 +2104,19 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           if (isRateLimitError(e)) { rateLimited = true; }
         }
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+      }
+
+      // 4b. Explicitly set "Adicionar membros" = all members (not admin-only).
+      // Baileys creates groups with admin-only add mode by default. Without
+      // this call, the "Adicionar membros" permission stays OFF and the
+      // invite link sharing via QR/link is also restricted.
+      if (!rateLimited) {
+        try {
+          await sock.groupMemberAddMode(row.groupJid, "all_member_add");
+        } catch (e) {
+          row.statusMessage = appendNote(row.statusMessage, "member_add_mode_fail: " + (e?.message || e));
+        }
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       // 5. Welcome message — single fail-fast attempt. The old 3× retry loop

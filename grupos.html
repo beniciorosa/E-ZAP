@@ -1378,11 +1378,14 @@ function renderJobCard(job) {
   var exportBtn = (job.results && job.results.length > 0)
     ? '<button class="btn-secondary btn-icon" onclick="exportJobCSV(\'' + job.id + '\')">Exportar CSV</button>'
     : '';
-  // Retry button: only on error-state jobs that have enough info to recreate.
-  // Creates a new job with the same config and hides the failed card.
-  var retryBtn = (job.status === "error" && job.type && job.sessionId && job.config)
-    ? '<button class="btn-secondary btn-icon" onclick="retryFailedJob(\'' + job.id + '\')">🔄 Tentar novamente</button>'
-    : '';
+  // Retry/resume button: on error, rate_limited, or cancelled jobs.
+  // The dedup cache (getCachedGroupCreations with specHash) automatically
+  // skips already-created groups, so resuming just processes the remaining.
+  var retryBtn = "";
+  if ((job.status === "error" || job.status === "cancelled" || job.status === "rate_limited") && job.type && job.sessionId && job.config) {
+    var retryLabel = job.status === "cancelled" ? "▶️ Restaurar" : "🔄 Tentar novamente";
+    retryBtn = '<button class="btn-secondary btn-icon" onclick="retryFailedJob(\'' + job.id + '\')">' + retryLabel + '</button>';
+  }
   var removeBtn = (job.status !== "running" && job.status !== "pending")
     ? '<button class="btn-secondary btn-icon" onclick="removeJobCard(\'' + job.id + '\')" title="Remover card da tela (não apaga do servidor)">✕ Fechar</button>'
     : '';
@@ -1666,8 +1669,19 @@ function retryFailedJob(jobId) {
     };
     if (job.config && job.config.onlyJids) body.onlyJids = job.config.onlyJids;
   } else if (job.type === "create-groups") {
-    showToast("Re-envie a planilha em '+ Criar grupos' — o cache preserva grupos já criados", "warn");
-    return;
+    // Reuse the _createSpecs still in memory (same page load). The backend
+    // dedup cache (getCachedGroupCreations by spec_hash) automatically skips
+    // groups that were already created — so only the pending ones run.
+    if (!_createSpecs || !_createSpecs.length) {
+      showToast("Clique em '+ Criar grupos' e re-resolva os tickets — o cache preserva grupos já criados", "warn");
+      return;
+    }
+    endpoint = "/api/jobs/create-groups/start";
+    body = {
+      sessionId: job.sessionId,
+      specs: _createSpecs,
+      delaySec: (job.config && job.config.delaySec) || 600,
+    };
   } else {
     showToast("Tipo de job desconhecido: " + job.type, "error");
     return;
