@@ -1,5 +1,158 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/15
 
+> **Update 2026-04-15 madrugada-2 — Criar grupos via links de ticket HubSpot — DEPLOYED**
+>
+> Commit: `4af06c5` — `feat(hubspot): create groups from ticket links resolving against mentorados table` (3 files, +416/−9). PID 119201 no Hetzner, health ok, endpoint `/api/hubspot/resolve-tickets` validado em produção com 4 tickets reais (Lucas/Daniel/Paulo resolvidos + fake caiu em notFound).
+>
+> **Contexto**: o fluxo de criação em massa dependia de uma planilha XLSX preenchida manualmente com dados que já vivem na HubSpot. O Dhiego cansou disso e pediu pra colar só os URLs dos tickets e deixar o sistema montar os grupos automaticamente.
+>
+> **Descoberta que desbloqueou tudo**: já existe uma Edge Function `supabase/functions/hubspot-tickets/index.ts` que recebe webhooks HubSpot e popula a tabela `mentorados` com `ticket_id`, `ticket_name`, `mentor_responsavel`, `whatsapp_do_mentorado`, e 3 booleans (`mentoria_starter/pro/business`) derivados do line item "Mentoria Meli PRO/Business/Starter" associado ao ticket. Ou seja, **zero chamadas à HubSpot API** — é só ler do Supabase local. Confirmei em produção: a tabela está populada, ticket 44167704933 do Lucas tá lá com mentor Rodrigo Zangirolimo.
+>
+> **Descoberta que simplificou a bridge**: os labels de `wa_sessions` batem **exatamente** com `mentor_responsavel` ("Rodrigo Zangirolimo", "Eduardo Gossi", "Nicollas Portela", etc). Match por label lowercased direto, sem nova coluna, sem nova tabela de mapping.
+>
+> **Entregue**:
+>
+> Backend — [whatsapp-server/src/routes/hubspot.js](whatsapp-server/src/routes/hubspot.js) **(NOVO)**:
+> - `POST /api/hubspot/resolve-tickets { ticketIds: number[] }` → retorna `{ resolved: [...], notFound: [...] }`. Cada resolved tem: `ticket_id`, `ticket_name`, `mentor`, `whatsapp`, `tier: "pro"|"business"|"starter"|null`, `mentorSessionId`, `mentorSessionPhone`, `warning: null|"mentor_sem_sessao_conectada"|"sem_tier_definido"`.
+> - Lê `mentorados` com `ticket_id=in.(...)` + `wa_sessions?status=eq.connected` em paralelo. Label → session map em memória. Zero IQ no socket Baileys.
+> - Cap de 200 tickets por chamada; dedup automático dos inputs.
+> - Mounted em [index.js linha 51](whatsapp-server/src/index.js:51) junto com os outros routes protegidos.
+>
+> Frontend — [grupos.html](grupos.html):
+> - Novo radio **"🎫 Tickets HubSpot"** na seção "Fonte dos dados" do modal Criar Grupos, **default** (XLSX/CSV/Sheets ficaram como tabs alternativas).
+> - `#createHubspotBox`: textarea pra colar URLs ou IDs misturados + botão "🔍 Resolver tickets" + span `#hubspotResolveStatus` que mostra "X OK · Y com aviso · Z não encontrados".
+> - `#helperSessionsBox`: checklist de sessões conectadas que entram como membros em TODOS os grupos do lote (ex: CX2). Toggle de checkbox recalcula o preview live via `onHelperChecklistChange`.
+> - Novo preview `renderHubspotPreview` com colunas: `#` (ticket_id) | Cliente | Mentor | Tier (badge Pro/Business/Starter) | Foto (thumbnail dos PNGs do `/static/fotos/`) | Membros | Status (🟢 OK / 🟡 warning / 🔴 bloqueado). Linhas bloqueadas ficam `opacity:0.55` e não entram no `_createSpecs`.
+> - Normalização de telefones BR em `normalizePhoneBr`: aceita `"+5519991947021"`, `"(11) 99740-2370"`, `"5519 99002-4413"`. Prefixa DDI 55 quando ausente, rejeita qualquer coisa fora de 12-13 dígitos finais.
+> - `parseHubspotTicketInput` extrai `ticket_id` via regex `/\/record\/0-5\/(\d+)/` ou aceita número puro.
+> - `buildSpecsFromHubspotResolved` monta cada spec: `name: "{ticket_name} | {mentor}"`, `description: "[{ticket_id}]"`, `photoUrl: "/static/fotos/{Pro|business|starter}.png"`, `members: [client, mentor, ...helpers]` deduplicados, `lockInfo: true`, `welcomeMessage:` template fixo da Escalada. Usa o mesmo `sha1Hex` do fluxo xlsx pro `specHash`, o mesmo pipeline `_createSpecs` e `submitCreateGroupsJob` sem modificação.
+> - `toggleCreateSourceMode` agora limpa `_createSpecs`, `_hubspotResolved`, preview, e status ao trocar de tab — evita preview stale do fluxo anterior.
+>
+> **Zero mudanças** em: `createGroupsFromList`, `applyCriticalSessionOverrides`, quarentena, `waitForGroupCreateBudget`, `runCreateGroupsWorker`. O spec gerado pelo fluxo HubSpot tem o mesmo shape do gerado pelo xlsx, então toda a proteção de rate-limit continua valendo (overrides da Escalada, quarentena, hourly cap, etc).
+>
+> **Smoke test em produção** (curl real, não mock):
+> ```
+> POST /api/hubspot/resolve-tickets { "ticketIds":[44167704933,44391166513,44384218675,99999999999] }
+> → resolved:
+>   · Lucas Gabriel da Silva Pacheco | Rodrigo Zangirolimo → session 4b856129... phone 5519990024413, tier=pro ✓
+>   · Daniel Antunes Correia | Eduardo Gossi → session 5eab18d2... phone 5519992642608, tier=pro ✓
+>   · Paulo | Rodrigo Zangirolimo → session 4b856129... phone 5519990024413, tier=starter ✓
+> → notFound: [99999999999] ✓
+> ```
+>
+> **Fluxo que o Dhiego usa agora**:
+> 1. Abre "+ Criar grupos" → modal já abre na tab HubSpot (default)
+> 2. Cola N URLs de ticket (1 por linha), clica "🔍 Resolver tickets"
+> 3. Preview popula com cliente/mentor/tier/foto/status pra conferência
+> 4. Marca no checklist quais sessões "helper" entram em todos (ex: CX2)
+> 5. Escolhe a sessão criadora no dropdown (qualquer conectada)
+> 6. Clica "Iniciar criação" → job roda o fluxo normal, protegido por quarentena + overrides críticos
+>
+> **Pontos deixados pra depois (fora do escopo deste round)**:
+> - Distribuição automática entre mentores (1 job por mentor em paralelo) — Dhiego preferiu manter 1 sessão criadora por lote no modelo atual
+> - Template editável de welcome message — hardcoded por enquanto
+> - Edição inline das linhas do preview — view-only, pra editar ajusta no HubSpot e re-resolve
+> - Fallback direto pra HubSpot API quando um ticket não está em `mentorados` — warning só, user dispara manualmente
+>
+> **Deploy cuidadoso** (preservou overlays do DHIEGO.AI Round 1 Agentic que estavam pendentes no Hetzner de outra sessão):
+> - Backup manual dos 9 arquivos DHIEGO.AI em `/tmp/hetzner-backup-<ts>/` antes do pull
+> - `git checkout --` nos arquivos dirty, `git pull`, restore dos backups por cima
+> - Re-aplicação do `sed CORS` (o pull resetou pra `app.use(cors())` sem argumento)
+> - Syntax check em `src/routes/hubspot.js` e `src/index.js` antes do `pm2 restart`
+> - Os arquivos untracked do Round 1 (`agent.js`, `prompt-builder.js`, `tool-schemas.js`) não foram tocados, `data/` e `public/` preservados
+>
+> **Rollback**: o commit `4af06c5` toca só 3 arquivos (2 modificados, 1 novo). `git revert 4af06c5` desfaz tudo sem afetar o Round 1 Agentic. Ou no runtime: desmount `/api/hubspot` no `src/index.js` + remover a tab do `grupos.html` — o XLSX fallback continua funcional.
+>
+> **Arquivos críticos** (para próxima sessão retomar):
+> - [whatsapp-server/src/routes/hubspot.js](whatsapp-server/src/routes/hubspot.js) — rota de resolve
+> - [grupos.html](grupos.html) — modal (306-380), `buildSpecsFromHubspotResolved` (~1880-2000), `renderHubspotPreview` (~2010-2070), `renderHelperSessionsChecklist` (~1710), `toggleCreateSourceMode` (~1720), `openCreateGroupsModal` (~1690)
+> - [supabase/migration_035_mentorados.sql](supabase/migration_035_mentorados.sql) — schema da tabela bridge
+> - [supabase/functions/hubspot-tickets/index.ts](supabase/functions/hubspot-tickets/index.ts) — Edge Function que popula `mentorados` via webhook
+>
+> **Roadmap natural de evolução** (quando for relevante):
+> 1. Tentar direto HubSpot API quando um ticket não está em `mentorados` (usando `hubspot_api_key` já salva em `app_settings`)
+> 2. 1 job por mentor em paralelo (distribuição automática — reduziria ainda mais risco de rate-limit na Escalada)
+> 3. Configuração de welcome message no admin.html
+> 4. Dedupe automático na UI: pre-avisar "este ticket já foi usado em um lote anterior" lendo `wa_group_creations` pelo `spec_hash`
+
+---
+
+> **Update 2026-04-15 noite — DHIEGO.AI LLM-first Agentic (Round 1 MVP) — DEPLOYED**
+>
+> O handoff [DHIEGO_AI_HANDOFF.md](DHIEGO_AI_HANDOFF.md) do fim da manhã documentou que o bot ainda "parecia bot" porque o `router.js` decidia intent via regex antes do LLM. O usuário pediu um plano LLM-first completo e o aprovou — escopo Round 1 = Fases 0+1+2+5 (sem rules/facts/trace ainda, que ficam pro Round 2). Plano em [C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md](C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md).
+>
+> **Arquitetura nova em produção**:
+> ```
+> mensagem WA → baileys → dhiego-ai.maybeHandle
+>   ├─ extractTextOrTranscribe (áudio/Whisper já funcionava)
+>   ├─ loadRecentEntries(12) + loadState
+>   ├─ if cfg.mode === "agent":
+>   │    router.routeIntent só como pre-hint (não gatekeeper)
+>   │    runAgent(...) — loop Claude tool_use até 6 iterações
+>   │      Claude decide: end_turn (texto) ou tool_use (ferramenta)
+>   │      tool executa → tool_result volta pro Claude → repete
+>   │    synthesizeIntentForState (compat com state.syncStateAfterTurn)
+>   └─ else: dispatch legado (router+switch — rollback path)
+> ```
+>
+> **Arquivos criados**:
+> - [whatsapp-server/src/services/dhiego-ai/tool-schemas.js](whatsapp-server/src/services/dhiego-ai/tool-schemas.js) — 9 tools no formato Anthropic (create_idea, list_ideas, latest_idea, show_idea, update_idea com preserve_literal, complete_idea, cancel_idea, delete_idea, generate_ideas_pdf) + `TOOL_DISPATCH` + `mapToolNameToLegacyIntent` + `toolInputToLegacyArgs` pra state sync
+> - [whatsapp-server/src/services/dhiego-ai/prompt-builder.js](whatsapp-server/src/services/dhiego-ai/prompt-builder.js) — `buildSystemPrompt({basePrompt, state, rules, facts, suggestedHint})` monta o prompt por turno; seções: base, tools policy, contexto ativo, regras ativas (P3 — vazio no MVP), fatos lembrados (P4 — vazio no MVP), **modo literal** (instruções fortes pra preservar blocos 1:1), dica do roteador
+> - [whatsapp-server/src/services/dhiego-ai/agent.js](whatsapp-server/src/services/dhiego-ai/agent.js) — `runAgent({ctx, userText, history, state, ...})` com loop agentic (MAX_ITERATIONS=6, maxTokens=2048 por call), serialize dos tool_results capado em 4KB, `applyLiteralSafeguard` que restaura o texto original do usuário quando o modelo trunca um update_idea com preserve_literal=true, `synthesizeIntentForState` que devolve um `{tool, args}` no formato legado pro state.syncStateAfterTurn continuar funcionando sem mudanças
+>
+> **Arquivos modificados**:
+> - [whatsapp-server/src/services/dhiego-ai/llm.js](whatsapp-server/src/services/dhiego-ai/llm.js) — `complete()` agora aceita `tools` e `toolChoice`, retorna `content` bruto e `stopReason` além de `text` (backwards-compat: chamadas antigas que só leem `.text` continuam funcionando)
+> - [whatsapp-server/src/services/dhiego-ai.js](whatsapp-server/src/services/dhiego-ai.js:246) — L246+ ramifica por `cfg.mode`: `agent` chama `runAgent`, `router` mantém o dispatch legado. `ctx.lastUserText` é novo (usado pelo literal safeguard). Pre-hint via routeIntent é opcional e tolerante a erro
+> - [whatsapp-server/src/services/dhiego-ai/config.js](whatsapp-server/src/services/dhiego-ai/config.js) — nova key `dhiego_ai_mode` lida do `app_settings`, default `agent`, valor `router` força o caminho legado
+> - [whatsapp-server/src/services/dhiego-ai/tools/ideas.js:212](whatsapp-server/src/services/dhiego-ai/tools/ideas.js:212) — `updateIdea` aceita `preserveLiteral: boolean`; quando true, grava `text` sem `.trim()` (byte-a-byte)
+> - [whatsapp-server/src/services/dhiego-ai/tools/ideas-pdf.js](whatsapp-server/src/services/dhiego-ai/tools/ideas-pdf.js) — `pdfkit` agora é lazy-required (permite que smoke tests estruturais carreguem tool-schemas sem ter pdfkit instalado)
+> - [whatsapp-server/scripts/dhiego-ai-smoke.js](whatsapp-server/scripts/dhiego-ai-smoke.js) — +11 novos cenários estruturais (schema/dispatch sanity, prompt-builder, synthesizeIntentForState) + mantém os 10 casos de regressão do router legado
+>
+> **Seed de config** (via Management API):
+> ```sql
+> INSERT INTO app_settings (key, value) VALUES ('dhiego_ai_mode', 'agent')
+>   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+> ```
+>
+> **Evidência de produção (live tests pós-deploy)**:
+>
+> Teste 1 — conversa sem tool:
+> ```
+> userText: "oi, tudo bem? me diz em uma frase curta o que voce consegue fazer pra mim."
+> → stopReason=end_turn, tools=[], usage={input:2289, output:60}, 2.5s
+> → reply: "Oi! Tudo bem sim 😊\n\nSou seu assistente pessoal de ideias: anoto, organizo, atualizo e arquivo tudo que você quiser lembrar ou desenvolver depois — é só mandar."
+> ```
+>
+> Teste 2 — tool_use natural:
+> ```
+> userText: "Anota aqui pra mim: preciso revisar o fluxo de onboarding do EscaladaHub antes de sexta"
+> → stopReason=end_turn, tools=[create_idea], usage={input:4940, output:115}, 3.2s
+> → toolCall: create_idea({text: "preciso revisar o fluxo de onboarding do EscaladaHub antes de sexta"})
+> → result: ideia #3 salva em dhiego_ideas
+> → reply: "Anotado! ✅ Ideia #3 salva — revisar o onboarding do EscaladaHub antes de sexta."
+> ```
+>
+> Smoke test local + VPS: 11 estruturais + 10 router legado, **todos verdes**.
+>
+> **Modelo em uso**: `claude-sonnet-4-6` (lido de `app_settings.dhiego_ai_llm_model`, já estava assim antes do round). Sonnet é overkill pros casos triviais mas fala português nativamente e lida bem com tool_use — manter por enquanto, considerar Haiku 4.5 depois se o custo apertar.
+>
+> **Rollback**:
+> - **Runtime (sem redeploy)**: flipar `app_settings.dhiego_ai_mode` pra `router` via admin ou SQL — o caminho legado (`routeIntent → dispatch`) continua intacto no código. Config cache é 30s, então a mudança propaga na próxima leitura.
+> - **Código**: os arquivos `.bak.20260415_204146` estão preservados em `/opt/ezap/whatsapp-server/src/services/dhiego-ai/`.
+>
+> **Arquivos críticos** (para próxima sessão do Claude retomar):
+> 1. [whatsapp-server/src/services/dhiego-ai/agent.js](whatsapp-server/src/services/dhiego-ai/agent.js) — coração do Round 1
+> 2. [whatsapp-server/src/services/dhiego-ai/tool-schemas.js](whatsapp-server/src/services/dhiego-ai/tool-schemas.js) — ponto de extensão para adicionar tools novas
+> 3. [whatsapp-server/src/services/dhiego-ai/prompt-builder.js](whatsapp-server/src/services/dhiego-ai/prompt-builder.js) — onde Round 2 (rules/facts) vai plugar
+> 4. [whatsapp-server/src/services/dhiego-ai.js:246](whatsapp-server/src/services/dhiego-ai.js:246) — ramificação `agent` vs `router`
+> 5. [C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md](C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md) — plano completo com P3/P4/P6/P7 documentados como roadmap
+>
+> **Roadmap Round 2** (pendente): P3 = regras editáveis por tópico no admin (`dhiego_ai_rules`), P4 = memória persistente de fatos (`dhiego_ai_facts`, LLM escreve + admin edita), P7 = observabilidade de trace no conversation viewer (`dhiego_conversations.trace` JSONB). P6 (sumário rolante) só quando context ficar problemático.
+>
+> **Pendência de commit**: os arquivos estão deployados no VPS mas ainda não comitados no git local. Próximo passo natural = `git add` dos 9 arquivos + commit com mensagem descritiva + `git push origin main`. O Dhiego não pediu o commit ainda — posso fazer quando ele confirmar.
+
+---
+
 > **Update 2026-04-15 final — Session Quarantine Mode + fix definitivo do rate-limit de grupos (Escalada Ltda) — DEPLOYED**
 >
 > Commit: `4320fe8` — `feat(baileys): session quarantine mode — airplane mode against rate-limit leaks` (17 files, +1520/−196). PID 116023 no Hetzner, health ok, 6+ sessões conectadas e reconectando.
