@@ -2158,6 +2158,7 @@ async function buildSpecsFromHubspotResolved() {
         lockInfo: true,
         welcomeMessage: specWelcome, // {primeiro_nome} já interpolado; {nome_grupo} fica pro backend
         adminJids: adminJids.slice(), // JIDs a adicionar + promover a admin
+        clientPhone: clientPhone || null, // phone do mentorado pra verificação de add + DM fallback
         specHash: null,
       };
     }

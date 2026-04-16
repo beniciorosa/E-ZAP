@@ -2155,6 +2155,56 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
       }
 
+      // 9. Explicit client add verification + invite DM.
+      // groupCreate sometimes returns the client as "added" even when their
+      // privacy settings silently block the add. We do a second explicit add
+      // attempt: if the client IS in the group already it's a no-op; if they
+      // can't be added, WhatsApp returns 403 and we DM the invite link.
+      // spec.clientPhone is set by the HubSpot flow (normalizePhoneBr of
+      // whatsapp_do_mentorado). For xlsx specs without this field, this step
+      // is skipped.
+      row.clientAdded = null;   // null=skipped, true=confirmed, false=rejected
+      row.clientDmSent = null;  // null=skipped, true=sent, false=failed
+      if (!rateLimited && spec.clientPhone) {
+        const clientJid = spec.clientPhone + "@s.whatsapp.net";
+        try {
+          await sock.groupParticipantsUpdate(row.groupJid, [clientJid], "add");
+          row.clientAdded = true;
+          await new Promise(r => setTimeout(r, 1500));
+        } catch (e) {
+          const errMsg = (e?.message || "").toLowerCase();
+          // 403 = privacy block, 408/409 = other rejection
+          if (errMsg.includes("403") || errMsg.includes("not-authorized") || errMsg.includes("privacy")) {
+            row.clientAdded = false;
+            console.log("[BAILEYS] Client rejected from group:", spec.clientPhone, "in", row.groupJid);
+            // Send invite link via DM
+            if (row.inviteLink) {
+              try {
+                const dmText = 'Olá! Seu grupo de mentoria "' + (spec.name || "") + '" '
+                  + 'foi criado, mas suas configurações de privacidade não '
+                  + 'permitem que a gente te adicione diretamente. '
+                  + 'Entra por este link: ' + row.inviteLink;
+                await sock.sendMessage(clientJid, { text: dmText });
+                row.clientDmSent = true;
+                row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: link enviado por DM");
+              } catch (dmErr) {
+                row.clientDmSent = false;
+                row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: falha ao enviar DM (" + (dmErr?.message || dmErr) + ")");
+                if (isRateLimitError(dmErr)) { rateLimited = true; }
+              }
+            } else {
+              row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: sem invite link disponível");
+            }
+          } else if (isRateLimitError(e)) {
+            rateLimited = true;
+          } else {
+            // Other errors (e.g. "item-not-found" = number not on WhatsApp)
+            row.clientAdded = false;
+            row.statusMessage = appendNote(row.statusMessage, "cliente_add_error: " + (e?.message || e));
+          }
+        }
+      }
+
       row.status = rateLimited ? "rate_limited" : "created";
       if (rateLimited && !row.statusMessage) {
         row.statusMessage = "Rate limit detectado durante polimento do grupo";
