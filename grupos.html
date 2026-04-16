@@ -376,6 +376,10 @@
         <label>Mensagem de boas-vindas (placeholders: <code>{primeiro_nome}</code>, <code>{nome_grupo}</code>)</label>
         <textarea id="hubspotCustomWelcome" rows="4" oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical"></textarea>
         <div style="font-size:11px; color:var(--muted); margin-top:4px"><code>{primeiro_nome}</code> = primeiro nome do cliente (ex: "Marcio"). <code>{nome_grupo}</code> = nome completo do grupo. Em branco = template padrão. O preview abaixo atualiza conforme você digita.</div>
+
+        <label style="margin-top:14px">Mensagem de convite (enviada por DM se o cliente não puder ser adicionado ao grupo)</label>
+        <textarea id="hubspotRejectDmMessage" rows="3" oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical"></textarea>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Placeholders: <code>{primeiro_nome}</code>, <code>{nome_grupo}</code>, <code>{link}</code> (link de convite do grupo). Enviada automaticamente quando o WhatsApp bloqueia a adição direta do cliente.</div>
       </div>
 
       <div id="createPreviewBox" class="hidden" style="margin-bottom:16px">
@@ -1719,6 +1723,7 @@ function openCreateGroupsModal() {
   document.getElementById("hubspotResolveStatus").textContent = "";
   document.getElementById("hubspotCustomDescription").value = "";
   document.getElementById("hubspotCustomWelcome").value = HUBSPOT_WELCOME_TEMPLATE;
+  document.getElementById("hubspotRejectDmMessage").value = HUBSPOT_REJECT_DM_TEMPLATE;
   document.getElementById("createPreviewBox").classList.add("hidden");
   document.getElementById("createPreviewTable").innerHTML = "";
   document.getElementById("createPreviewCount").textContent = "";
@@ -1989,6 +1994,7 @@ function renderCreatePreviewTable() {
 
 var HUBSPOT_PHOTO_BASE = "https://ezap-server.geia.dev.br/static/fotos/";
 var HUBSPOT_WELCOME_TEMPLATE = "Opa, tudo bem? seja muito bem-vindo a nossa Mentoria Escalada. Em breve o mentor de vocês fará uma apresentação e iniciaremos a nossa jornada juntos! #aMETAéoTOPO";
+var HUBSPOT_REJECT_DM_TEMPLATE = "Olá {primeiro_nome}! Seu grupo de mentoria \"{nome_grupo}\" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}";
 
 // Extrai ticket_ids de uma lista de URLs/IDs brutos.
 // Aceita:
@@ -2084,6 +2090,8 @@ async function buildSpecsFromHubspotResolved() {
   var customDescription = (document.getElementById("hubspotCustomDescription").value || "").trim();
   var customWelcomeRaw = (document.getElementById("hubspotCustomWelcome").value || "").trim();
   var customWelcome = customWelcomeRaw || HUBSPOT_WELCOME_TEMPLATE;
+  var customRejectDmRaw = (document.getElementById("hubspotRejectDmMessage").value || "").trim();
+  var customRejectDm = customRejectDmRaw || HUBSPOT_REJECT_DM_TEMPLATE;
 
   // Converte cada ticket resolvido em um objeto de preview + spec (quando válido)
   var previewRows = _hubspotResolved.map(function(r) {
@@ -2148,6 +2156,9 @@ async function buildSpecsFromHubspotResolved() {
       .replace(/\{primeiro_nome\}/g, firstName)
       .replace(/\{nome_grupo\}/g, groupName);
 
+    // Pre-interpolate {primeiro_nome} na mensagem de rejeição também
+    var specRejectDm = customRejectDm.replace(/\{primeiro_nome\}/g, firstName);
+
     var spec = null;
     if (!disabled) {
       spec = {
@@ -2156,9 +2167,10 @@ async function buildSpecsFromHubspotResolved() {
         photoUrl: photoUrl,
         members: members,
         lockInfo: true,
-        welcomeMessage: specWelcome, // {primeiro_nome} já interpolado; {nome_grupo} fica pro backend
-        adminJids: adminJids.slice(), // JIDs a adicionar + promover a admin
-        clientPhone: clientPhone || null, // phone do mentorado pra verificação de add + DM fallback
+        welcomeMessage: specWelcome, // {primeiro_nome} interpolado; {nome_grupo} fica pro backend
+        rejectDmTemplate: specRejectDm, // {primeiro_nome} interpolado; {nome_grupo} e {link} ficam pro backend
+        adminJids: adminJids.slice(),
+        clientPhone: clientPhone || null,
         specHash: null,
       };
     }

@@ -2177,13 +2177,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           if (errMsg.includes("403") || errMsg.includes("not-authorized") || errMsg.includes("privacy")) {
             row.clientAdded = false;
             console.log("[BAILEYS] Client rejected from group:", spec.clientPhone, "in", row.groupJid);
-            // Send invite link via DM
+            // Send invite link via DM — use the user-editable template if provided,
+            // falling back to a sensible default. Interpolates {nome_grupo} and {link}.
             if (row.inviteLink) {
               try {
-                const dmText = 'Olá! Seu grupo de mentoria "' + (spec.name || "") + '" '
-                  + 'foi criado, mas suas configurações de privacidade não '
-                  + 'permitem que a gente te adicione diretamente. '
-                  + 'Entra por este link: ' + row.inviteLink;
+                const rejectTemplate = spec.rejectDmTemplate
+                  || 'Olá! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
+                const dmText = rejectTemplate
+                  .replace(/\{nome_grupo\}/g, spec.name || "")
+                  .replace(/\{link\}/g, row.inviteLink);
                 await sock.sendMessage(clientJid, { text: dmText });
                 row.clientDmSent = true;
                 row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: link enviado por DM");
