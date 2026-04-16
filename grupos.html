@@ -364,9 +364,9 @@
         <label>Descrição do grupo (aplicada a TODOS os grupos do lote, abaixo do <code>[ticket_id]</code>)</label>
         <textarea id="hubspotCustomDescription" rows="2" placeholder="Ex: Grupo da Mentoria Escalada — suporte e avisos da sua jornada." oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical; margin-bottom:12px"></textarea>
 
-        <label>Mensagem de boas-vindas (usa <code>{nome_grupo}</code> como placeholder)</label>
+        <label>Mensagem de boas-vindas (placeholders: <code>{primeiro_nome}</code>, <code>{nome_grupo}</code>)</label>
         <textarea id="hubspotCustomWelcome" rows="4" oninput="onHubspotCustomFieldChange()" style="width:100%; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; resize:vertical"></textarea>
-        <div style="font-size:11px; color:var(--muted); margin-top:4px">Em branco = usa o template padrão. O preview abaixo atualiza conforme você digita.</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px"><code>{primeiro_nome}</code> = primeiro nome do cliente (ex: "Marcio"). <code>{nome_grupo}</code> = nome completo do grupo. Em branco = template padrão. O preview abaixo atualiza conforme você digita.</div>
       </div>
 
       <div id="createPreviewBox" class="hidden" style="margin-bottom:16px">
@@ -2104,8 +2104,22 @@ async function buildSpecsFromHubspotResolved() {
 
     var groupName = (r.ticket_name || "(sem nome)") + " | " + (r.mentor || "");
     var finalDescription = "[" + r.ticket_id + "]" + (customDescription ? "\n" + customDescription : "");
-    // Interpolate {nome_grupo} no welcome, igual o backend faz
-    var finalWelcome = customWelcome.replace(/\{nome_grupo\}/g, r.ticket_name || "");
+
+    // First name = first whitespace-separated token of the client name.
+    // Ex: "Marcio Ferraz Lima" -> "Marcio".
+    var firstName = String(r.ticket_name || "").trim().split(/\s+/)[0] || "";
+
+    // We pre-interpolate {primeiro_nome} on the frontend before sending the
+    // spec to the backend (the backend doesn't know about this placeholder).
+    // {nome_grupo} stays in the string — the backend already interpolates
+    // that one with spec.name on send, same pattern as the xlsx flow.
+    var specWelcome = customWelcome.replace(/\{primeiro_nome\}/g, firstName);
+
+    // For the preview display, fully interpolate BOTH placeholders so the
+    // user sees exactly what WhatsApp will render.
+    var finalWelcome = customWelcome
+      .replace(/\{primeiro_nome\}/g, firstName)
+      .replace(/\{nome_grupo\}/g, groupName);
 
     var spec = null;
     if (!disabled) {
@@ -2115,7 +2129,7 @@ async function buildSpecsFromHubspotResolved() {
         photoUrl: photoUrl,
         members: members,
         lockInfo: true,
-        welcomeMessage: customWelcome, // guardado SEM interpolação — backend interpola
+        welcomeMessage: specWelcome, // {primeiro_nome} já interpolado; {nome_grupo} fica pro backend
         specHash: null,
       };
     }
