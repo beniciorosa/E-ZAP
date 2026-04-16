@@ -180,10 +180,36 @@ router.get("/group-history/:sessionId", async (req, res) => {
         "/rest/v1/group_members?group_jid=in.(" + jids.map(encodeURIComponent).join(",") +
         ")&left_at=is.null&select=group_jid,member_phone,member_name,role&order=role.desc,first_seen.asc&limit=1000"
       ).catch(() => []);
+
+      // Resolve LID-based member_phones to real phone numbers via lid_phone_map.
+      // WhatsApp's LID mode stores internal IDs (e.g. "129936316698644") instead
+      // of real phones (e.g. "5521983336299") in the event handler. The mapping
+      // table bridges them.
+      const lidPhones = (memberRows || [])
+        .map(m => m.member_phone)
+        .filter(p => p && /^\d{10,18}$/.test(p) && !p.startsWith("55"));
+      let lidToPhone = {};
+      if (lidPhones.length > 0) {
+        const uniqueLids = [...new Set(lidPhones)];
+        const lidRows = await supaRest(
+          "/rest/v1/lid_phone_map?lid=in.(" +
+          uniqueLids.map(l => encodeURIComponent(l + "@lid")).join(",") +
+          ")&select=lid,phone"
+        ).catch(() => []);
+        for (const r of (lidRows || [])) {
+          if (r.lid && r.phone) {
+            const lidNum = r.lid.replace("@lid", "");
+            lidToPhone[lidNum] = r.phone;
+          }
+        }
+      }
+
       for (const m of (memberRows || [])) {
         if (!membersByJid[m.group_jid]) membersByJid[m.group_jid] = [];
+        const resolvedPhone = lidToPhone[m.member_phone] || m.member_phone;
         membersByJid[m.group_jid].push({
-          phone: m.member_phone,
+          phone: resolvedPhone,
+          lid: lidToPhone[m.member_phone] ? m.member_phone : null,
           name: m.member_name || null,
           role: m.role || "member",
         });
