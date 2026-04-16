@@ -27,10 +27,21 @@ function getUserId() {
 }
 
 // ===== Admin ABAS (read-only, criadas pelo admin) =====
+function _filterAdminAbasForUser(abas) {
+  var uid = getUserId();
+  if (!uid) return [];
+  return (abas || []).filter(function(a) {
+    // visible_to null/vazio = visível para todos
+    if (!a.visible_to || a.visible_to.length === 0) return true;
+    return a.visible_to.indexOf(uid) >= 0;
+  });
+}
+
 function loadAdminAbas() {
   // Cache first
   chrome.storage.local.get("ezap_admin_abas", function(data) {
-    _adminAbas = (data && data.ezap_admin_abas) || [];
+    var cached = (data && data.ezap_admin_abas) || [];
+    _adminAbas = _filterAdminAbasForUser(cached);
     window._adminAbas = _adminAbas;
     if (abasSidebarOpen) renderAbasSidebar();
   });
@@ -54,9 +65,10 @@ function loadAdminAbas() {
         });
         aba.isAdmin = true;
       });
-      _adminAbas = abas;
-      window._adminAbas = _adminAbas;
+      // Cache TODAS as abas; o filtro acontece no momento de uso
       chrome.storage.local.set({ ezap_admin_abas: abas });
+      _adminAbas = _filterAdminAbasForUser(abas);
+      window._adminAbas = _adminAbas;
       if (abasSidebarOpen) renderAbasSidebar();
     });
   });
@@ -852,68 +864,92 @@ function renderAbasList(data) {
   var list = document.getElementById("wcrm-abas-list");
   if (!list) return;
 
-  var allTabs = [];
-  // Admin abas first (read-only)
-  _adminAbas.forEach(function(a) {
-    allTabs.push({ id: a.id, name: a.name, color: a.color || '#4d96ff', contacts: a.contacts || [], contactJids: a.contactJids || {}, isAdmin: true });
+  var adminTabs = _adminAbas.map(function(a) {
+    return { id: a.id, name: a.name, color: a.color || '#4d96ff', contacts: a.contacts || [], contactJids: a.contactJids || {}, isAdmin: true };
   });
-  // User abas after
-  (data.tabs || []).forEach(function(t) {
-    allTabs.push(Object.assign({}, t, { isAdmin: false }));
+  var userTabs = (data.tabs || []).map(function(t) {
+    return Object.assign({}, t, { isAdmin: false });
   });
 
-  if (allTabs.length === 0) {
+  if (adminTabs.length === 0 && userTabs.length === 0) {
     list.innerHTML = '<div class="ezap-empty">Nenhuma aba criada</div>';
     return;
   }
 
   var html = '';
-  allTabs.forEach(function(tab) {
-    var isSelected = selectedAbaId === tab.id;
-    var bgColor = isSelected ? tab.color + '30' : '#1a2730';
-    var borderColor = isSelected ? tab.color : '#3b4a54';
-    var count = (tab.contacts || []).length;
-    var expandedKey = '_wcrmAbaExpanded_' + tab.id;
 
-    html += '<div class="wcrm-aba-item ezap-aba-item" data-aba-id="' + tab.id + '" style="background:' + bgColor + ';border-color:' + borderColor + '">';
-    html += '<div class="ezap-aba-header">';
-    html += '<div class="ezap-aba-name">';
-    html += '<span class="ezap-aba-color" style="background:' + tab.color + '"></span>';
-    if (tab.isAdmin) html += '<span style="font-size:11px;opacity:0.5;margin-right:2px" title="Aba do admin">\uD83D\uDD12</span>';
-    html += '<span>' + tab.name + '</span>';
-    if (isSelected) html += '<span style="color:' + tab.color + ';font-size:var(--ezap-text-sm)">&#10003;</span>';
+  // === SEÇÃO: ABAS COMPARTILHADAS (admin) ===
+  if (adminTabs.length > 0) {
+    html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ezap-text-secondary);font-weight:600;padding:0 4px;margin:4px 0 8px;display:flex;align-items:center;gap:6px">';
+    html += '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+    html += 'ABAS Compartilhadas';
     html += '</div>';
-    html += '<div class="ezap-aba-actions">';
-    html += '<span class="ezap-badge ezap-badge--muted">' + count + '</span>';
-    // Expand/collapse contacts button
-    if (count > 0) {
-      html += '<button class="wcrm-aba-expand ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Ver contatos">&#9660;</button>';
+    adminTabs.forEach(function(tab) {
+      html += _renderSingleAbaItem(tab);
+    });
+  }
+
+  // === SEÇÃO: MINHAS ABAS ===
+  if (userTabs.length > 0) {
+    if (adminTabs.length > 0) {
+      html += '<hr style="border:none;border-top:1px solid var(--ezap-border);margin:12px 4px 8px">';
     }
-    html += '<button class="wcrm-aba-add-contacts ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Adicionar/Remover contatos" style="color:var(--ezap-success)">&#128101;</button>';
-    if (!tab.isAdmin) {
-      html += '<button class="wcrm-aba-edit ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Editar" style="color:var(--ezap-secondary)">&#9998;</button>';
-      html += '<button class="wcrm-aba-delete ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Excluir" style="color:var(--ezap-danger)">&#128465;</button>';
-    }
-    html += '</div>';
-    html += '</div>';
-    // Expandable contacts list (hidden by default)
-    if (count > 0) {
-      html += '<div class="wcrm-aba-contacts-list" data-aba-id="' + tab.id + '" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--ezap-border)">';
-      tab.contacts.forEach(function(contact, ci) {
-        var displayName = contact.split(/\s*\|\s*/)[0].trim();
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0">';
-        html += '<span style="color:var(--ezap-text-secondary);font-size:var(--ezap-text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">' + displayName + '</span>';
-        html += '<span class="wcrm-aba-remove-contact" data-aba-id="' + tab.id + '" data-contact-idx="' + ci + '" style="color:var(--ezap-danger);font-size:var(--ezap-text-xs);cursor:pointer;flex-shrink:0" title="Remover">&times;</span>';
-        html += '</div>';
-      });
-      html += '</div>';
-    }
-    html += '</div>';
-  });
+    html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ezap-text-secondary);font-weight:600;padding:0 4px;margin:4px 0 8px">Minhas Abas</div>';
+    userTabs.forEach(function(tab) {
+      html += _renderSingleAbaItem(tab);
+    });
+  }
 
   list.innerHTML = html;
+  _wireAbaItemEvents(list);
+}
 
-  // Click tab to filter (toggle)
+function _renderSingleAbaItem(tab) {
+  var isSelected = selectedAbaId === tab.id;
+  var bgColor = isSelected ? tab.color + '30' : '#1a2730';
+  var borderColor = isSelected ? tab.color : '#3b4a54';
+  var count = (tab.contacts || []).length;
+  var html = '';
+
+  html += '<div class="wcrm-aba-item ezap-aba-item" data-aba-id="' + tab.id + '" style="background:' + bgColor + ';border-color:' + borderColor + '">';
+  html += '<div class="ezap-aba-header">';
+  html += '<div class="ezap-aba-name">';
+  html += '<span class="ezap-aba-color" style="background:' + tab.color + '"></span>';
+  if (tab.isAdmin) html += '<span style="font-size:11px;opacity:0.5;margin-right:2px" title="Aba do admin">\uD83D\uDD12</span>';
+  html += '<span>' + tab.name + '</span>';
+  if (isSelected) html += '<span style="color:' + tab.color + ';font-size:var(--ezap-text-sm)">&#10003;</span>';
+  html += '</div>';
+  html += '<div class="ezap-aba-actions">';
+  html += '<span class="ezap-badge ezap-badge--muted">' + count + '</span>';
+  if (count > 0) {
+    html += '<button class="wcrm-aba-expand ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Ver contatos">&#9660;</button>';
+  }
+  html += '<button class="wcrm-aba-add-contacts ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Adicionar/Remover contatos" style="color:var(--ezap-success)">&#128101;</button>';
+  if (!tab.isAdmin) {
+    html += '<button class="wcrm-aba-edit ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Editar" style="color:var(--ezap-secondary)">&#9998;</button>';
+    html += '<button class="wcrm-aba-delete ezap-aba-action-icon" data-aba-id="' + tab.id + '" title="Excluir" style="color:var(--ezap-danger)">&#128465;</button>';
+  }
+  html += '</div>';
+  html += '</div>';
+
+  if (count > 0) {
+    html += '<div class="wcrm-aba-contacts-list" data-aba-id="' + tab.id + '" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--ezap-border)">';
+    tab.contacts.forEach(function(contact, ci) {
+      var displayName = contact.split(/\s*\|\s*/)[0].trim();
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0">';
+      html += '<span style="color:var(--ezap-text-secondary);font-size:var(--ezap-text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px">' + displayName + '</span>';
+      if (!tab.isAdmin) {
+        html += '<span class="wcrm-aba-remove-contact" data-aba-id="' + tab.id + '" data-contact-idx="' + ci + '" style="color:var(--ezap-danger);font-size:var(--ezap-text-xs);cursor:pointer;flex-shrink:0" title="Remover">&times;</span>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function _wireAbaItemEvents(list) {
   list.querySelectorAll('.wcrm-aba-item').forEach(function(el) {
     el.addEventListener('click', function(e) {
       if (e.target.closest('.wcrm-aba-edit') || e.target.closest('.wcrm-aba-delete') || e.target.closest('.wcrm-aba-remove-contact') || e.target.closest('.wcrm-aba-expand') || e.target.closest('.wcrm-aba-add-contacts')) return;
@@ -929,7 +965,6 @@ function renderAbasList(data) {
     });
   });
 
-  // Expand/collapse contacts
   list.querySelectorAll('.wcrm-aba-expand').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.stopPropagation();
@@ -943,7 +978,6 @@ function renderAbasList(data) {
     });
   });
 
-  // Add contacts button
   list.querySelectorAll('.wcrm-aba-add-contacts').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.stopPropagation();
@@ -951,7 +985,6 @@ function renderAbasList(data) {
     });
   });
 
-  // Edit button
   list.querySelectorAll('.wcrm-aba-edit').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.stopPropagation();
@@ -959,7 +992,6 @@ function renderAbasList(data) {
     });
   });
 
-  // Delete button
   list.querySelectorAll('.wcrm-aba-delete').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.stopPropagation();
@@ -967,7 +999,6 @@ function renderAbasList(data) {
     });
   });
 
-  // Remove contact from tab
   list.querySelectorAll('.wcrm-aba-remove-contact').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.stopPropagation();

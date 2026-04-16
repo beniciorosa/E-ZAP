@@ -7063,33 +7063,32 @@ var _adminAbasList = [];
 var ADMIN_ABA_COLORS = ["#ff6b6b", "#ff922b", "#ffd93d", "#25d366", "#4d96ff", "#cc5de8", "#20c997", "#748ffc", "#f06595", "#868e96"];
 
 function loadAdminAbasAdmin() {
-  supa("/rest/v1/admin_abas?select=*&order=position.asc").then(function(abas) {
-    if (!Array.isArray(abas)) return;
-    var abaIds = abas.map(function(a) { return a.id; });
-    if (abaIds.length === 0) { _adminAbasList = []; renderAdminAbasList(); return; }
-    supa("/rest/v1/admin_aba_contacts?aba_id=in.(" + abaIds.join(",") + ")&select=*").then(function(contacts) {
-      contacts = contacts || [];
-      abas.forEach(function(aba) {
-        aba._contacts = contacts.filter(function(c) { return c.aba_id === aba.id; });
-      });
-      _adminAbasList = abas;
-      renderAdminAbasList();
+  // Garante que allUsers está carregado antes de renderizar
+  var renderAfterUsers = function(abas) {
+    _adminAbasList = abas || [];
+    renderAdminAbasList();
+  };
+  if (!allUsers || allUsers.length === 0) {
+    supa("/rest/v1/users?select=*&order=name.asc").then(function(users) {
+      allUsers = users || [];
     });
-  });
+  }
+  supa("/rest/v1/admin_abas?select=*&order=position.asc").then(renderAfterUsers);
 }
 
 function renderAdminAbasList() {
   var c = document.getElementById("adminAbasContainer");
   if (!c) return;
   if (_adminAbasList.length === 0) { c.innerHTML = '<div class="empty-state">Nenhuma aba criada</div>'; return; }
-  var html = '<table class="data-table"><thead><tr><th>Cor</th><th>Nome</th><th>Contatos</th><th>Posição</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
+  var html = '<table class="data-table"><thead><tr><th>Cor</th><th>Nome</th><th>Visível para</th><th>Posição</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
   _adminAbasList.forEach(function(a) {
-    var contactCount = (a._contacts || []).length;
+    var visibleTo = a.visible_to || [];
+    var visibleLabel = visibleTo.length === 0 ? '<span style="color:var(--on-surface-variant)">Todos</span>' : _resolveUserNames(visibleTo);
     var status = a.active ? '<span class="badge badge-success">Ativa</span>' : '<span class="badge badge-danger">Inativa</span>';
     html += '<tr>';
     html += '<td><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:' + (a.color || '#4d96ff') + '"></span></td>';
     html += '<td><strong>' + (a.name || '') + '</strong></td>';
-    html += '<td>' + contactCount + ' contato' + (contactCount !== 1 ? 's' : '') + '</td>';
+    html += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + visibleLabel + '</td>';
     html += '<td>' + (a.position || 0) + '</td>';
     html += '<td>' + status + '</td>';
     html += '<td style="text-align:right">';
@@ -7102,35 +7101,68 @@ function renderAdminAbasList() {
   c.innerHTML = html;
 }
 
+function _resolveUserNames(userIds) {
+  if (!userIds || userIds.length === 0) return 'Todos';
+  return userIds.map(function(uid) {
+    var user = (allUsers || []).find(function(u) { return u.id === uid; });
+    return user ? user.name : uid.substring(0, 8) + '...';
+  }).join(', ');
+}
+
 function openAdminAbaModal(aba) {
   var isEdit = !!aba;
   var title = isEdit ? 'Editar Aba' : 'Nova Aba Admin';
   var name = isEdit ? aba.name : '';
   var color = isEdit ? (aba.color || '#4d96ff') : '#4d96ff';
   var position = isEdit ? (aba.position || 0) : _adminAbasList.length;
-  var contacts = isEdit ? (aba._contacts || []).map(function(c) { return c.contact_name; }).join('\n') : '';
+  var visibleTo = isEdit ? (aba.visible_to || []) : [];
 
   var colorPicker = ADMIN_ABA_COLORS.map(function(c) {
     var sel = c === color ? 'border:2px solid #fff;' : 'border:2px solid transparent;';
     return '<span class="admin-aba-color-opt" onclick="selectAdminAbaColor(this,\'' + c + '\')" style="display:inline-block;width:24px;height:24px;border-radius:50%;background:' + c + ';cursor:pointer;' + sel + '" data-color="' + c + '"></span>';
   }).join(' ');
 
+  // Build user checkboxes
+  var users = (allUsers || []).filter(function(u) { return u.active !== false; }).sort(function(a, b) {
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  var allSelected = visibleTo.length === 0;
+  var userCheckboxes = '<div style="margin-bottom:10px;padding:8px;background:rgba(0,168,132,0.1);border-radius:6px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="adminAbaAllUsers" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAdminAbaUsers(this)"><strong>Todos os usuários</strong></label></div>';
+  userCheckboxes += '<div id="adminAbaUserList" style="max-height:280px;overflow-y:auto;border:1px solid var(--surface-border);border-radius:6px;padding:8px;' + (allSelected ? 'opacity:0.4;pointer-events:none' : '') + '">';
+  users.forEach(function(u) {
+    var checked = visibleTo.indexOf(u.id) >= 0 ? 'checked' : '';
+    userCheckboxes += '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer"><input type="checkbox" class="admin-aba-user-cb" data-user-id="' + u.id + '" ' + checked + '><span>' + (u.name || u.email || u.id) + '</span><span style="color:var(--on-surface-variant);font-size:11px;margin-left:auto">' + (u.role || 'user') + '</span></label>';
+  });
+  userCheckboxes += '</div>';
+
   var modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'adminAbaModal';
-  modal.innerHTML = '<div class="modal" style="width:480px">' +
+  modal.innerHTML = '<div class="modal" style="width:520px;max-height:90vh;overflow-y:auto">' +
     '<div class="modal-header"><h3>' + title + '</h3><button class="btn-icon" onclick="closeAdminAbaModal()">&times;</button></div>' +
     '<div class="modal-body">' +
     '<div class="form-group"><label>Nome</label><input type="text" id="adminAbaName" class="form-input" value="' + name.replace(/"/g, '&quot;') + '" placeholder="Ex: Clientes VIP"></div>' +
     '<div class="form-group"><label>Cor</label><div id="adminAbaColorPicker" style="display:flex;gap:6px;flex-wrap:wrap">' + colorPicker + '</div><input type="hidden" id="adminAbaColor" value="' + color + '"></div>' +
     '<div class="form-group"><label>Posição</label><input type="number" id="adminAbaPosition" class="form-input" value="' + position + '" min="0"></div>' +
-    '<div class="form-group"><label>Contatos (um por linha)</label><textarea id="adminAbaContacts" class="form-input" rows="6" placeholder="Nome do contato 1&#10;Nome do contato 2&#10;...">' + contacts + '</textarea></div>' +
+    '<div class="form-group"><label>Visível para</label>' + userCheckboxes + '</div>' +
     '</div>' +
     '<div class="modal-footer">' +
     '<button class="btn-secondary" onclick="closeAdminAbaModal()">Cancelar</button>' +
     '<button class="btn-primary" onclick="saveAdminAba(' + (isEdit ? "'" + aba.id + "'" : 'null') + ')">Salvar</button>' +
     '</div></div>';
   document.body.appendChild(modal);
+}
+
+function toggleAllAdminAbaUsers(cb) {
+  var list = document.getElementById('adminAbaUserList');
+  if (!list) return;
+  if (cb.checked) {
+    list.style.opacity = '0.4';
+    list.style.pointerEvents = 'none';
+  } else {
+    list.style.opacity = '1';
+    list.style.pointerEvents = 'auto';
+  }
 }
 
 function selectAdminAbaColor(el, color) {
@@ -7148,31 +7180,32 @@ function saveAdminAba(editId) {
   var name = document.getElementById('adminAbaName').value.trim();
   var color = document.getElementById('adminAbaColor').value;
   var position = parseInt(document.getElementById('adminAbaPosition').value) || 0;
-  var contactsRaw = document.getElementById('adminAbaContacts').value.trim();
-  var contactNames = contactsRaw ? contactsRaw.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l; }) : [];
+  var allUsersChecked = document.getElementById('adminAbaAllUsers').checked;
+  var visibleTo = null;
+  if (!allUsersChecked) {
+    visibleTo = [];
+    document.querySelectorAll('.admin-aba-user-cb:checked').forEach(function(cb) {
+      visibleTo.push(cb.dataset.userId);
+    });
+    if (visibleTo.length === 0) {
+      alert('Selecione pelo menos um usuário ou marque "Todos os usuários"');
+      return;
+    }
+  }
 
   if (!name) { alert('Nome é obrigatório'); return; }
 
-  var body = { name: name, color: color, position: position, active: true };
+  var body = { name: name, color: color, position: position, active: true, visible_to: visibleTo };
   if (!editId) body.created_by = adminUserId;
 
   var method = editId ? 'PATCH' : 'POST';
   var path = editId ? '/rest/v1/admin_abas?id=eq.' + editId : '/rest/v1/admin_abas';
-  var prefer = editId ? 'return=minimal' : 'return=representation';
 
-  supa(path, method, body, prefer).then(function(result) {
-    var abaId = editId || (Array.isArray(result) && result[0] ? result[0].id : null);
-    if (!abaId) { closeAdminAbaModal(); loadAdminAbasAdmin(); return; }
-
-    // Delete old contacts, insert new ones
-    supa('/rest/v1/admin_aba_contacts?aba_id=eq.' + abaId, 'DELETE').then(function() {
-      if (contactNames.length === 0) { closeAdminAbaModal(); loadAdminAbasAdmin(); return; }
-      var rows = contactNames.map(function(cn) { return { aba_id: abaId, contact_name: cn }; });
-      supa('/rest/v1/admin_aba_contacts', 'POST', rows, 'return=minimal').then(function() {
-        closeAdminAbaModal();
-        loadAdminAbasAdmin();
-      });
-    });
+  supa(path, method, body, 'return=minimal').then(function() {
+    closeAdminAbaModal();
+    loadAdminAbasAdmin();
+  }).catch(function(err) {
+    alert('Erro ao salvar: ' + (err && err.message ? err.message : 'desconhecido'));
   });
 }
 
