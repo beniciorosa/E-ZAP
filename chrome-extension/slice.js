@@ -1568,6 +1568,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
       var raw = searchInput.value.toLowerCase().trim();
       var q = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(raw) : raw;
       var qDigits = raw.replace(/\D/g, '');
+      var isDigitSearch = qDigits.length >= 3 && qDigits.length === raw.replace(/[\s\-\+\(\)]/g, '').length;
       var listEl = document.getElementById('wcrm-custom-list');
       if (!listEl) return;
       var items = listEl.querySelectorAll('.wcrm-custom-row');
@@ -1575,11 +1576,20 @@ function _showCustomAbaList(abaTab, chatIndex) {
       for (var si = 0; si < items.length; si++) {
         var rowName = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(items[si].getAttribute('data-name') || '') : (items[si].getAttribute('data-name') || '').toLowerCase();
         var rowDisplay = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(items[si].getAttribute('data-display') || '') : (items[si].getAttribute('data-display') || '').toLowerCase();
-        var rowJid = (items[si].getAttribute('data-ezap-jid') || '');
         var match = !q || rowName.indexOf(q) >= 0 || rowDisplay.indexOf(q) >= 0;
-        if (!match && qDigits.length >= 3) {
+        if (!match && isDigitSearch) {
+          var rowJid = (items[si].getAttribute('data-ezap-jid') || '');
           var jidDigits = rowJid.replace(/\D/g, '');
-          match = jidDigits.indexOf(qDigits) >= 0;
+          if (jidDigits && jidDigits.indexOf(qDigits) >= 0) { match = true; }
+          if (!match) {
+            var nameDigits = (items[si].getAttribute('data-name') || '').replace(/\D/g, '');
+            var displayDigits = (items[si].getAttribute('data-display') || '').replace(/\D/g, '');
+            if ((nameDigits.length >= 5 && nameDigits.indexOf(qDigits) >= 0) || (displayDigits.length >= 5 && displayDigits.indexOf(qDigits) >= 0)) { match = true; }
+          }
+          if (!match) {
+            var rowText = (items[si].textContent || '').replace(/\D/g, '');
+            if (rowText.length >= 5 && rowText.indexOf(qDigits) >= 0) { match = true; }
+          }
         }
         items[si].style.display = match ? '' : 'none';
         if (match) visibleCount++;
@@ -1637,6 +1647,7 @@ function _showCustomAbaList(abaTab, chatIndex) {
       var raw = searchInputAba.value.toLowerCase().trim();
       var q = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(raw) : raw;
       var qDigits = raw.replace(/\D/g, '');
+      var isDigitSearch = qDigits.length >= 3 && qDigits.length === raw.replace(/[\s\-\+\(\)]/g, '').length;
       var listEl = document.getElementById('wcrm-custom-list');
       if (!listEl) return;
       var items = listEl.querySelectorAll('.wcrm-custom-row');
@@ -1644,11 +1655,20 @@ function _showCustomAbaList(abaTab, chatIndex) {
       for (var si = 0; si < items.length; si++) {
         var rowName = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(items[si].getAttribute('data-name') || '') : (items[si].getAttribute('data-name') || '').toLowerCase();
         var rowDisplay = (typeof ezapNormalizeName === 'function') ? ezapNormalizeName(items[si].getAttribute('data-display') || '') : (items[si].getAttribute('data-display') || '').toLowerCase();
-        var rowJid = (items[si].getAttribute('data-ezap-jid') || '');
         var match = !q || rowName.indexOf(q) >= 0 || rowDisplay.indexOf(q) >= 0;
-        if (!match && qDigits.length >= 3) {
+        if (!match && isDigitSearch) {
+          var rowJid = (items[si].getAttribute('data-ezap-jid') || '');
           var jidDigits = rowJid.replace(/\D/g, '');
-          match = jidDigits.indexOf(qDigits) >= 0;
+          if (jidDigits && jidDigits.indexOf(qDigits) >= 0) { match = true; }
+          if (!match) {
+            var nameDigits = (items[si].getAttribute('data-name') || '').replace(/\D/g, '');
+            var displayDigits = (items[si].getAttribute('data-display') || '').replace(/\D/g, '');
+            if ((nameDigits.length >= 5 && nameDigits.indexOf(qDigits) >= 0) || (displayDigits.length >= 5 && displayDigits.indexOf(qDigits) >= 0)) { match = true; }
+          }
+          if (!match) {
+            var rowText = (items[si].textContent || '').replace(/\D/g, '');
+            if (rowText.length >= 5 && rowText.indexOf(qDigits) >= 0) { match = true; }
+          }
         }
         items[si].style.display = match ? '' : 'none';
         if (match) visibleCount++;
