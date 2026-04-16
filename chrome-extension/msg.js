@@ -223,7 +223,7 @@ function createMsgSidebar() {
     <div style="padding:12px 16px">
       <button id="wcrm-msg-create-btn" class="ezap-btn ezap-btn--secondary ezap-btn--full">+ Criar Sequência</button>
     </div>
-    <div class="ezap-content">
+    <div id="wcrm-msg-sidebar-list" class="ezap-content">
       <div class="ezap-section ezap-section--collapsible" data-section="shared-templates" style="padding:0 16px">
         <div class="ezap-section-title">Templates Compartilhados <svg class="ezap-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg></div>
         <div class="ezap-section-body" id="wcrm-msg-shared-list">
@@ -232,9 +232,7 @@ function createMsgSidebar() {
       </div>
       <hr class="ezap-separator" style="margin:4px 16px 8px">
       <div style="padding:0 16px 4px"><span style="font-size:var(--ezap-text-sm);text-transform:uppercase;letter-spacing:0.08em;color:var(--ezap-text-secondary);font-weight:var(--ezap-font-semibold)">Minhas Sequências</span></div>
-    </div>
-    <div id="wcrm-msg-sidebar-list" class="ezap-content">
-      <div class="ezap-empty">Nenhuma sequência salva</div>
+      <div id="wcrm-msg-sequences-inner"></div>
     </div>
   `;
 
@@ -720,7 +718,8 @@ function saveMsgSequence() {
 
 // ===== Render Saved Sequences (Sidebar) =====
 function renderSavedSequences() {
-  var container = document.getElementById("wcrm-msg-sidebar-list");
+  var container = document.getElementById("wcrm-msg-sequences-inner");
+  if (!container) container = document.getElementById("wcrm-msg-sidebar-list");
   if (!container) return;
 
   var keys = Object.keys(msgSequences);
