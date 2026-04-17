@@ -1475,78 +1475,92 @@ function _showCustomAbaList(abaTab, chatIndex) {
   var isOverlayMode = !abaTab;
   var contacts, contactJids;
   if (isOverlayMode && chatIndex && chatIndex.byJid) {
-    // Overlay mode: build contacts from ALL chats in the store (exceto arquivados)
-    // Deduplica por nome em 2 passes:
-    //   1º) Contatos individuais (@c.us/@lid) — dedup por nome, mantém mais recente
-    //   2º) Grupos (@g.us) — só adiciona se não existe contato com mesmo nome
-    // Isso garante que contatos individuais sempre têm prioridade sobre grupos
-    // antigos com mesmo nome (ex: grupo que o usuário saiu).
+    // Overlay mode: build contacts from ALL chats in the store (exceto arquivados).
+    //
+    // Política (revisada 2026-04-17): mostrar TODAS as conversas. Dedup só
+    // dentro do MESMO tipo (contato x contato, grupo x grupo) quando nome
+    // idêntico. Grupo + contato individual com mesmo nome coexistem — cada
+    // um precisa ser acessível. Grupo sem nome resolvido (meta.name vazio)
+    // também entra, com fallback "Grupo @<jid>" pra poder ser encontrado.
     contacts = [];
     contactJids = {};
-    var _hiddenContacts = []; // nomes dos chats ocultos
-    var _hiddenContactJids = {}; // nome -> jid dos chats ocultos
-    var _nameDedup = {}; // normalizedName -> { name, jid, lastTs, isGroup }
+    var _hiddenContacts = [];
+    var _hiddenContactJids = {};
+    var _contactNameDedup = {};  // dedup só de contatos individuais por nome
+    var _groupJidSeen = {};       // dedup de grupos por JID (cada JID único)
 
-    // Normaliza nome para comparação (remove espaços extras, unicode invisível)
     function _dedupKey(name) {
-      return name.replace(/\s+/g, ' ').trim().toLowerCase();
+      return String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
     }
 
-    // Passo 1: contatos individuais primeiro
+    // Se dois chats têm o mesmo display name, precisamos diferenciar
+    // no array (já que usamos o nome como chave). Sufixo invisível.
+    function _uniquify(baseName, jid) {
+      var candidate = baseName;
+      var suffix = 0;
+      while (contactJids[candidate] && contactJids[candidate] !== jid) {
+        suffix++;
+        candidate = baseName + ' \u200b'.repeat(suffix); // zero-width space
+      }
+      return candidate;
+    }
+
+    // Passo 1: contatos individuais — dedup por nome (mantém mais recente)
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
-      if (!meta || !meta.name || meta.isArchived) return;
-      if (jid.indexOf('@g.us') >= 0) return; // Pula grupos neste passo
+      if (!meta || meta.isArchived) return;
+      if (jid.indexOf('@g.us') >= 0) return;
 
-      // Chats ocultos vão para lista separada
+      var displayName = meta.name || '';
+      if (!displayName) return; // contato sem nome é raro — skipa
+
       if (_ezapHiddenChats[jid]) {
-        if (!_hiddenContactJids[meta.name]) {
-          _hiddenContacts.push(meta.name);
-          _hiddenContactJids[meta.name] = jid;
+        if (!_hiddenContactJids[displayName]) {
+          _hiddenContacts.push(displayName);
+          _hiddenContactJids[displayName] = jid;
         }
         return;
       }
 
-      var key = _dedupKey(meta.name);
-      var existing = _nameDedup[key];
+      var key = _dedupKey(displayName);
+      var existing = _contactNameDedup[key];
       if (!existing) {
-        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
-        contacts.push(meta.name);
-        contactJids[meta.name] = jid;
+        _contactNameDedup[key] = { name: displayName, jid: jid, lastTs: meta.lastTs || 0 };
+        contacts.push(displayName);
+        contactJids[displayName] = jid;
       } else if ((meta.lastTs || 0) > (existing.lastTs || 0)) {
-        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: false };
-        contactJids[meta.name] = jid;
+        _contactNameDedup[key] = { name: displayName, jid: jid, lastTs: meta.lastTs || 0 };
+        contactJids[existing.name] = jid;
       }
     });
 
-    // Passo 2: grupos — só adiciona se nome não existe ainda
+    // Passo 2: grupos — todo grupo único por JID entra. Se o nome colide
+    // com um contato individual ou outro grupo, aplica sufixo invisível
+    // pra garantir que AMBOS apareçam na lista.
     Object.keys(chatIndex.byJid).forEach(function(jid) {
       var meta = chatIndex.byJid[jid];
-      if (!meta || !meta.name || meta.isArchived) return;
-      if (jid.indexOf('@g.us') < 0) return; // Só grupos neste passo
+      if (!meta || meta.isArchived) return;
+      if (jid.indexOf('@g.us') < 0) return;
+      if (_groupJidSeen[jid]) return;
+      _groupJidSeen[jid] = true;
 
-      // Grupos ocultos vão para lista separada
+      // Fallback para grupos sem nome resolvido: usa parte do JID
+      var displayName = meta.name || '';
+      if (!displayName) {
+        var jidShort = jid.split('@')[0];
+        displayName = 'Grupo ' + (jidShort ? jidShort.substring(0, 12) : '(sem nome)');
+      }
+
       if (_ezapHiddenChats[jid]) {
-        if (!_hiddenContactJids[meta.name]) {
-          _hiddenContacts.push(meta.name);
-          _hiddenContactJids[meta.name] = jid;
-        }
+        var hName = _uniquify(displayName, jid);
+        _hiddenContacts.push(hName);
+        _hiddenContactJids[hName] = jid;
         return;
       }
 
-      var key = _dedupKey(meta.name);
-      var existing = _nameDedup[key];
-      if (!existing) {
-        // Nenhum contato com esse nome — adiciona o grupo
-        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
-        contacts.push(meta.name);
-        contactJids[meta.name] = jid;
-      } else if (existing.isGroup && (meta.lastTs || 0) > (existing.lastTs || 0)) {
-        // Outro grupo com mesmo nome mas mais recente — atualiza
-        _nameDedup[key] = { name: meta.name, jid: jid, lastTs: meta.lastTs || 0, isGroup: true };
-        contactJids[meta.name] = jid;
-      }
-      // Se já existe um contato individual com esse nome → ignora o grupo
+      var finalName = _uniquify(displayName, jid);
+      contacts.push(finalName);
+      contactJids[finalName] = jid;
     });
 
     // Salva listas de ocultos para uso no toggle
