@@ -563,8 +563,12 @@ function showPhoneBlockOverlay(message) {
 }
 
 // ===== Silent re-validation =====
-var _silentFailCount = 0;
-var SILENT_FAIL_MAX = 3; // Only logout after 3 consecutive failures
+// POLICY: NEVER auto-logout for transient errors (network, service worker restart,
+// API hiccup, token revoked by admin, etc). The ONLY condition that triggers an
+// auto-logout is `response.blocked === true`, which means the same token was
+// redeemed in another browser (device_mismatch). In that case, the user gets
+// a dedicated overlay. Any other error is ignored — stale sessions are fine.
+// The user logs out manually via the popup if they want to.
 
 function silentRevalidate(token) {
   getDeviceId(function(deviceId) {
@@ -574,44 +578,26 @@ function silentRevalidate(token) {
       deviceId: deviceId,
       skipLog: true,
     }, function(response) {
-      if (chrome.runtime.lastError) return;
+      // Runtime error (service worker dead/zombie) — ignore, try again next cycle
+      if (chrome.runtime.lastError) {
+        console.log("[EZAP AUTH] silentRevalidate: runtime error (ignored):",
+          chrome.runtime.lastError.message);
+        return;
+      }
+
       if (!response || !response.ok) {
-        // Security blocks — always immediate, no retries
+        // ONLY condition that forces a logout: another browser took over this token.
         if (response && response.blocked) {
-          showPhoneBlockOverlay(response.error || "Token bloqueado em outro dispositivo.");
+          showPhoneBlockOverlay(response.error || "Token em uso em outro navegador.");
           chrome.storage.local.remove(AUTH_STORAGE_KEY);
           return;
         }
-
-        // Check if this is an API/network error (not a definitive token rejection)
-        // API errors come as { error: "Supabase error: ..." } without ok/blocked
-        // Token invalid/deactivated comes as { ok: false, error: "Token invalido..." }
-        var isApiError = response && response.error &&
-          (response.error.indexOf("Supabase error") !== -1 ||
-           response.error.indexOf("NetworkError") !== -1 ||
-           response.error.indexOf("Failed to fetch") !== -1 ||
-           response.error.indexOf("PGRST") !== -1);
-
-        if (isApiError) {
-          // Transient error — tolerate up to SILENT_FAIL_MAX consecutive failures
-          _silentFailCount++;
-          console.log("[EZAP AUTH] Silent revalidation transient error (" + _silentFailCount + "/" + SILENT_FAIL_MAX + "):", response.error);
-          if (_silentFailCount < SILENT_FAIL_MAX) return; // Wait for next cycle
-          console.log("[EZAP AUTH] Max transient failures reached, logging out");
-        }
-
-        // Token revoked/deactivated OR max retries exceeded
-        console.log("[EZAP AUTH] Token revoked or unreachable, logging out");
-        _silentFailCount = 0;
-        chrome.storage.local.remove(AUTH_STORAGE_KEY, function() {
-          window.__wcrmAuth = null;
-          location.reload();
-        });
+        // Any other error (network/API/revoked/etc) — keep the session alive.
+        console.log("[EZAP AUTH] silentRevalidate: non-blocked error (ignored):",
+          (response && response.error) || "empty");
+        return;
       } else if (response.data) {
-        // Success — reset fail counter
-        _silentFailCount = 0;
-
-        // Update features and allowed phones from server
+        // Success — update features and allowed phones from server
         var saved = {};
         saved[AUTH_STORAGE_KEY] = {
           token: token,
