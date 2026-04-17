@@ -15,7 +15,7 @@ Chrome Extension (Manifest V3) para gestao de WhatsApp Business. Inclui CRM, men
 1. **Sempre incrementar a versao** no `chrome-extension/manifest.json` a cada atualizacao
 2. Gerar ZIP da pasta `chrome-extension/` (usar pasta temporaria se arquivos estiverem travados)
 3. Subir ZIP no Supabase Storage bucket `releases/` (PUT com service key)
-4. Atualizar `releases/release.json` com nova versao, URL e notas
+4. Atualizar `releases/release.json` com nova versao, URL e notas. **SEMPRE `notify:false`** — o Dhiego anuncia manualmente no admin quando quiser. Nunca usar `notify:true` em deploys automaticos.
 5. Toda nova atualização no Admin ou na extensão, as palavras sempre devem conter acentos. Ex: "Usuário" ou invés de "Usuario". "Marcar como não lido" ou invés de "Marcar como nao lido"
 
 ### Admin e paginas web

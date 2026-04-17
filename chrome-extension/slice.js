@@ -1566,6 +1566,23 @@ function _showCustomAbaList(abaTab, chatIndex) {
     // Salva listas de ocultos para uso no toggle
     _lastHiddenContacts = _hiddenContacts;
     _lastHiddenContactJids = _hiddenContactJids;
+
+    // Diagnóstico: quebra da filtragem por categoria — ajuda a descobrir
+    // onde chats estão sumindo quando o usuário reporta contagem baixa.
+    try {
+      var _diag = { total: 0, archived: 0, hidden: 0, noname: 0, groups: 0, individuals: 0, shown: contacts.length, hiddenListSize: _hiddenContacts.length };
+      Object.keys(chatIndex.byJid).forEach(function(j) {
+        var m = chatIndex.byJid[j];
+        _diag.total++;
+        if (!m) return;
+        if (m.isArchived) _diag.archived++;
+        if (_ezapHiddenChats[j]) _diag.hidden++;
+        if (!m.name) _diag.noname++;
+        if (j.indexOf('@g.us') >= 0) _diag.groups++;
+        else _diag.individuals++;
+      });
+      console.log('[EZAP OVERLAY] chat-list diag:', _diag);
+    } catch (e) {}
   } else {
     contacts = (abaTab && abaTab.contacts) || [];
     contactJids = (abaTab && abaTab.contactJids) || {};

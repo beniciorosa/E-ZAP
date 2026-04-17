@@ -1210,21 +1210,70 @@
     if (!event.data || event.source !== window) return;
     var d = event.data;
     if (d.type === '_ezap_get_chats_req') {
-      // Estrategia primaria: React fiber (zero dep webpack)
-      var chats = getAllChatsFromFiber();
-      var via = 'fiber';
-      if (!chats || !chats.length) {
-        // Fallback: webpack store (so funciona se _ezapWebpackRequire capturado)
-        chats = getAllChats();
-        via = 'webpack';
+      // Estratégia: UNIR fiber + webpack store. Fiber é a fonte rica (tem
+      // lastTs, unread, lastMsg, etc) mas pode ficar limitada aos chats do
+      // virtual scroll em versões recentes do WA Web. Webpack store (via
+      // _ezapStore.Chat.getModelsArray) tem TODOS os modelos mas com menos
+      // metadata. Unimos por JID, preferindo os dados do fiber quando existe.
+      var fiberChats = null;
+      var webpackChats = null;
+      try { fiberChats = getAllChatsFromFiber(); } catch (e) {}
+      try { webpackChats = getAllChats(); } catch (e) {}
+
+      var fiberCount = (fiberChats || []).length;
+      var webpackCount = (webpackChats || []).length;
+
+      var merged = [];
+      var jidSet = {};
+      if (fiberChats && fiberChats.length) {
+        for (var fi = 0; fi < fiberChats.length; fi++) {
+          var fc = fiberChats[fi];
+          if (!fc || !fc.jid) continue;
+          jidSet[fc.jid] = true;
+          merged.push(fc);
+        }
       }
+      if (webpackChats && webpackChats.length) {
+        for (var wi = 0; wi < webpackChats.length; wi++) {
+          var wc = webpackChats[wi];
+          if (!wc || !wc.jid || jidSet[wc.jid]) continue; // já tem do fiber
+          // Webpack source traz {jid, name, isGroup, pushname, shortName}.
+          // Preenche os outros campos com defaults pra slice.js não quebrar.
+          merged.push({
+            jid: wc.jid,
+            name: wc.name || '',
+            isGroup: !!wc.isGroup,
+            pushname: wc.pushname || '',
+            shortName: wc.shortName || '',
+            profilePicUrl: '',
+            lastTs: 0,
+            unread: 0,
+            lastMsgText: '',
+            lastMsgFromMe: false,
+            lastMsgSender: '',
+            pinTs: 0,
+            isArchived: false,
+            isMuted: false
+          });
+          jidSet[wc.jid] = true;
+        }
+      }
+
+      var via = 'none';
+      if (fiberCount && webpackCount) via = 'fiber+webpack';
+      else if (fiberCount) via = 'fiber';
+      else if (webpackCount) via = 'webpack';
+
+      console.log('[EZAP STORE] get_chats: fiber=' + fiberCount + ' webpack=' + webpackCount + ' merged=' + merged.length + ' via=' + via);
+
       window.postMessage({
         type: '_ezap_get_chats_res',
         id: d.id,
-        ok: !!(chats && chats.length),
-        chats: chats || [],
-        ready: !!(chats && chats.length) || window._ezapStoreReady,
-        via: via
+        ok: merged.length > 0,
+        chats: merged,
+        ready: merged.length > 0 || window._ezapStoreReady,
+        via: via,
+        sources: { fiber: fiberCount, webpack: webpackCount }
       }, '*');
     } else if (d.type === '_ezap_open_chat_req') {
       var result;
