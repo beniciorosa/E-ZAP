@@ -182,7 +182,18 @@
         <span class="popup-info-value" id="version-label" style="color:#00a884;font-weight:600;font-family:monospace"></span>
       </div>
     </div>
+    <!-- Admin-only section -->
+    <div id="admin-section" style="display:none">
+      <div style="padding:8px 16px 0;border-top:1px solid #2a3942">
+        <label style="font-size:11px;color:#8696a0;display:block;margin-bottom:4px">Visualizar como</label>
+        <select id="impersonateSelect" style="width:100%;padding:6px 8px;background:#2a3942;border:1px solid #3b4a54;border-radius:6px;color:#e9edef;font-size:12px;outline:none;cursor:pointer">
+          <option value="">Meu perfil (admin)</option>
+        </select>
+        <div id="impersonateStatus" style="font-size:10px;color:#ff922b;margin-top:4px;min-height:14px"></div>
+      </div>
+    </div>
     <div class="popup-footer">
+      <button id="toggleOverlayBtn" style="display:none;width:100%;padding:8px;background:#2a3942;color:#4d96ff;border:1px solid #3b4a54;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">Esconder Overlay</button>
       <button class="popup-logout-btn" id="logoutBtn">Sair</button>
       <div class="popup-dev">Desenvolvido por Grupo Escalada Ltda.</div>
     </div>

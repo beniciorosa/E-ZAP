@@ -793,7 +793,155 @@ chrome.runtime.onMessage.addListener(function(request) {
     }
     showUpdateBanner(request.version, request.message, request.download_url);
   }
+
+  // ===== Toggle Overlay Visibility (admin only) =====
+  if (request.action === "ezap_toggle_overlay") {
+    _ezapApplyOverlayHidden(request.hidden);
+  }
+
+  // ===== Start Impersonation (admin only) =====
+  if (request.action === "ezap_start_impersonate") {
+    _ezapStartImpersonate(request.userId, request.userName, request.userPhone);
+  }
+
+  // ===== Stop Impersonation =====
+  if (request.action === "ezap_stop_impersonate") {
+    _ezapStopImpersonate();
+  }
 });
+
+// ===== Overlay Hide/Show =====
+function _ezapApplyOverlayHidden(hidden) {
+  var style = document.getElementById("ezap-overlay-hide-style");
+  if (hidden) {
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "ezap-overlay-hide-style";
+      style.textContent =
+        "#ezap-float-container,.escalada-crm,.ezap-sidebar,#ezap-top-widget," +
+        "#wcrm-quick-aba-bar,#ezap-tab-bar,.ezap-float-btn{display:none!important}" +
+        "#app{width:100%!important;max-width:100%!important;margin-right:0!important}";
+      document.head.appendChild(style);
+    }
+    var appEl = document.getElementById("app");
+    if (appEl) appEl.removeAttribute("data-ezapRail");
+  } else {
+    if (style) style.remove();
+    // Re-adjust app width via sidebar manager
+    if (window.ezapSidebar && window.ezapSidebar.adjustAppWidth) {
+      window.ezapSidebar.adjustAppWidth();
+    } else {
+      var appEl = document.getElementById("app");
+      if (appEl) {
+        appEl.style.width = "calc(100% - 62px)";
+        appEl.style.maxWidth = "calc(100% - 62px)";
+        appEl.setAttribute("data-ezapRail", "1");
+      }
+    }
+  }
+}
+
+// ===== Impersonation =====
+function _ezapStartImpersonate(userId, userName, userPhone) {
+  if (!window.__wcrmAuth) return;
+  // Save original auth if not already saved
+  if (!window.__wcrmOriginalAuth) {
+    window.__wcrmOriginalAuth = {
+      userId: window.__wcrmAuth.userId,
+      userName: window.__wcrmAuth.userName,
+      userRole: window.__wcrmAuth.userRole,
+      features: window.__wcrmAuth.features,
+    };
+  }
+  // Override auth with impersonated user
+  window.__wcrmAuth.userId = userId;
+  window.__wcrmAuth.userName = userName;
+  window.__wcrmAuth._impersonating = true;
+  window.__wcrmAuth._impersonatePhone = userPhone || "";
+
+  // Show impersonation banner
+  _ezapShowImpersonationBanner(userName);
+
+  // Reload CRM data for new userId
+  _ezapReloadCrmData();
+}
+
+function _ezapStopImpersonate() {
+  if (window.__wcrmOriginalAuth) {
+    window.__wcrmAuth.userId = window.__wcrmOriginalAuth.userId;
+    window.__wcrmAuth.userName = window.__wcrmOriginalAuth.userName;
+    window.__wcrmAuth.userRole = window.__wcrmOriginalAuth.userRole;
+    window.__wcrmAuth.features = window.__wcrmOriginalAuth.features;
+    delete window.__wcrmAuth._impersonating;
+    delete window.__wcrmAuth._impersonatePhone;
+    window.__wcrmOriginalAuth = null;
+  }
+
+  // Remove banner
+  var banner = document.getElementById("ezap-impersonate-banner");
+  if (banner) banner.remove();
+
+  // Reload CRM data back to admin
+  _ezapReloadCrmData();
+}
+
+function _ezapShowImpersonationBanner(userName) {
+  var existing = document.getElementById("ezap-impersonate-banner");
+  if (existing) existing.remove();
+
+  var banner = document.createElement("div");
+  banner.id = "ezap-impersonate-banner";
+  banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#ff922b;color:#fff;padding:6px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+  banner.innerHTML =
+    '<span>👁 Visualizando como: ' + (userName || "Usuário") + '</span>' +
+    '<button id="ezap-impersonate-stop" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">Voltar ao meu perfil ✕</button>';
+  document.body.appendChild(banner);
+
+  // Push WhatsApp content down
+  var appEl = document.getElementById("app");
+  if (appEl) appEl.style.marginTop = "32px";
+
+  document.getElementById("ezap-impersonate-stop").addEventListener("click", function() {
+    _ezapStopImpersonate();
+    // Also update storage
+    chrome.storage.local.remove("ezap_impersonate");
+  });
+}
+
+function _ezapReloadCrmData() {
+  // Trigger abas reload
+  if (typeof loadAbasData === "function") {
+    loadAbasData().then(function(data) {
+      if (typeof renderAbasList === "function") renderAbasList(data);
+      if (typeof updateAbasIndicator === "function") updateAbasIndicator();
+    }).catch(function() {});
+  }
+
+  // Trigger labels reload via event bus
+  if (window.ezapEventBus) {
+    window.ezapEventBus.emit("impersonate:changed");
+  }
+
+  // Force CRM sidebar refresh if open
+  if (typeof window.__wcrmRefreshSidebar === "function") {
+    window.__wcrmRefreshSidebar();
+  }
+}
+
+// ===== Auto-apply overlay/impersonation on page load =====
+(function() {
+  // Wait a bit for auth to be ready
+  setTimeout(function() {
+    chrome.storage.local.get(["ezap_overlay_hidden", "ezap_impersonate"], function(data) {
+      if (data.ezap_overlay_hidden) {
+        _ezapApplyOverlayHidden(true);
+      }
+      if (data.ezap_impersonate && data.ezap_impersonate.userId && window.__wcrmAuth && window.__wcrmAuth.userRole === "admin") {
+        _ezapStartImpersonate(data.ezap_impersonate.userId, data.ezap_impersonate.userName, data.ezap_impersonate.userPhone);
+      }
+    });
+  }, 2000);
+})();
 
 // ===== Version Update Notification Banner =====
 function showUpdateBanner(version, message, downloadUrl) {

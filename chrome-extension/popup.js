@@ -158,10 +158,110 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===== Logout =====
   logoutBtn.addEventListener("click", () => {
     if (!confirm("Deseja sair? Você precisará do token para reconectar.")) return;
-    chrome.storage.local.remove("wcrm_auth", () => {
+    chrome.storage.local.remove(["wcrm_auth", "ezap_overlay_hidden", "ezap_impersonate"], () => {
       chrome.runtime.sendMessage({ action: "wcrm_logout" });
       userSection.style.display = "none";
       noUserSection.style.display = "block";
     });
   });
+
+  // ===== Admin-only features =====
+  chrome.storage.local.get("wcrm_auth", (data) => {
+    const auth = data.wcrm_auth;
+    if (!auth || auth.userRole !== "admin") return;
+
+    // Show admin section
+    const adminSection = document.getElementById("admin-section");
+    const toggleOverlayBtn = document.getElementById("toggleOverlayBtn");
+    const impersonateSelect = document.getElementById("impersonateSelect");
+    const impersonateStatus = document.getElementById("impersonateStatus");
+    if (adminSection) adminSection.style.display = "block";
+    if (toggleOverlayBtn) toggleOverlayBtn.style.display = "block";
+
+    // --- Toggle Overlay ---
+    chrome.storage.local.get("ezap_overlay_hidden", (d) => {
+      if (d.ezap_overlay_hidden) {
+        toggleOverlayBtn.textContent = "Mostrar Overlay";
+        toggleOverlayBtn.style.color = "#00a884";
+      }
+    });
+
+    toggleOverlayBtn.addEventListener("click", () => {
+      chrome.storage.local.get("ezap_overlay_hidden", (d) => {
+        const newHidden = !d.ezap_overlay_hidden;
+        chrome.storage.local.set({ ezap_overlay_hidden: newHidden }, () => {
+          toggleOverlayBtn.textContent = newHidden ? "Mostrar Overlay" : "Esconder Overlay";
+          toggleOverlayBtn.style.color = newHidden ? "#00a884" : "#4d96ff";
+          // Send to all WhatsApp Web tabs
+          sendToWaTabs({ action: "ezap_toggle_overlay", hidden: newHidden });
+        });
+      });
+    });
+
+    // --- Impersonation ---
+    // Load current impersonation state
+    chrome.storage.local.get("ezap_impersonate", (d) => {
+      if (d.ezap_impersonate && d.ezap_impersonate.userId) {
+        impersonateStatus.textContent = "Visualizando como: " + d.ezap_impersonate.userName;
+      }
+    });
+
+    // Load users for dropdown
+    chrome.runtime.sendMessage({
+      action: "supabase_rest",
+      path: "/rest/v1/users?active=eq.true&select=id,name,email,phone&order=name.asc",
+    }, (response) => {
+      if (chrome.runtime.lastError || !response) return;
+      const users = Array.isArray(response) ? response : (response.data || []);
+      if (!Array.isArray(users)) return;
+
+      impersonateSelect.innerHTML = '<option value="">Meu perfil (admin)</option>';
+      users.forEach((u) => {
+        if (u.id === auth.userId) return; // Skip self
+        const opt = document.createElement("option");
+        opt.value = u.id;
+        opt.textContent = (u.name || "Sem nome") + (u.phone ? " — " + u.phone : "");
+        opt.dataset.name = u.name || "";
+        opt.dataset.phone = u.phone || "";
+        impersonateSelect.appendChild(opt);
+      });
+
+      // Set current selection if impersonating
+      chrome.storage.local.get("ezap_impersonate", (d) => {
+        if (d.ezap_impersonate && d.ezap_impersonate.userId) {
+          impersonateSelect.value = d.ezap_impersonate.userId;
+        }
+      });
+    });
+
+    impersonateSelect.addEventListener("change", () => {
+      const selectedId = impersonateSelect.value;
+      if (!selectedId) {
+        // Back to admin profile
+        chrome.storage.local.remove("ezap_impersonate", () => {
+          impersonateStatus.textContent = "";
+          sendToWaTabs({ action: "ezap_stop_impersonate" });
+        });
+      } else {
+        const opt = impersonateSelect.selectedOptions[0];
+        const userName = opt.dataset.name || opt.textContent;
+        const userPhone = opt.dataset.phone || "";
+        chrome.storage.local.set({
+          ezap_impersonate: { userId: selectedId, userName: userName, userPhone: userPhone }
+        }, () => {
+          impersonateStatus.textContent = "Visualizando como: " + userName;
+          sendToWaTabs({ action: "ezap_start_impersonate", userId: selectedId, userName: userName, userPhone: userPhone });
+        });
+      }
+    });
+  });
+
+  // Helper: send message to all WhatsApp Web tabs
+  function sendToWaTabs(msg) {
+    chrome.tabs.query({ url: "*://web.whatsapp.com/*" }, (tabs) => {
+      (tabs || []).forEach((tab) => {
+        chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
+      });
+    });
+  }
 });
