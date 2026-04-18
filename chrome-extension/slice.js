@@ -586,10 +586,76 @@ function _escapeHtmlSlice(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Returns array of {name, color} for abas that contain this contact
+// Verifica se um contato (com jid) bate com algum critério da admin aba
+// Critérios aceitos:
+//   - JID direto (contém @c.us ou @g.us): match exato com contactJid
+//   - Telefone puro / com formatação: extrai dígitos, compara com dígitos do JID
+//   - Link wa.me/NUMERO: extrai número, compara como telefone
+//   - Link chat.whatsapp.com/INVITE: TODO (precisa cache de invites por grupo)
+//   - hubspot:ID: TODO (precisa cache de cust_ids por contato)
+function _matchContactToCriteria(contactJid, contactName, criteria) {
+  if (!criteria || criteria.length === 0) return false;
+  if (!contactJid) return false;
+
+  var jidLower = contactJid.toLowerCase();
+  var jidDigits = contactJid.replace(/@.*$/, '').replace(/\D/g, '');
+
+  for (var i = 0; i < criteria.length; i++) {
+    var crit = (criteria[i] || '').trim();
+    if (!crit) continue;
+    var critLower = crit.toLowerCase();
+
+    // 1. JID direto (contém @c.us ou @g.us ou @lid)
+    if (critLower.indexOf('@c.us') >= 0 || critLower.indexOf('@g.us') >= 0 || critLower.indexOf('@lid') >= 0) {
+      if (jidLower === critLower) return true;
+      // Comparação por dígitos do JID (caso o admin coloque o mesmo número com formato diferente)
+      var critDigits = crit.replace(/@.*$/, '').replace(/\D/g, '');
+      if (critDigits.length >= 8 && jidDigits.length >= 8) {
+        if (jidDigits === critDigits) return true;
+        if (jidDigits.indexOf(critDigits) >= 0 || critDigits.indexOf(jidDigits) >= 0) return true;
+      }
+      continue;
+    }
+
+    // 2. Link wa.me/NUMERO
+    if (critLower.indexOf('wa.me/') >= 0) {
+      var waMatch = critLower.match(/wa\.me\/(\+?\d+)/);
+      if (waMatch && waMatch[1]) {
+        var waDigits = waMatch[1].replace(/\D/g, '');
+        if (waDigits.length >= 8 && jidDigits.length >= 8) {
+          if (jidDigits === waDigits) return true;
+          if (jidDigits.indexOf(waDigits) >= 0 || waDigits.indexOf(jidDigits) >= 0) return true;
+        }
+      }
+      continue;
+    }
+
+    // 3. Link chat.whatsapp.com (TODO: precisa cache de invite -> group_jid)
+    if (critLower.indexOf('chat.whatsapp.com/') >= 0) {
+      // Por enquanto não match — deixa para implementação futura
+      continue;
+    }
+
+    // 4. HubSpot cust_id (prefixo "hubspot:") TODO
+    if (critLower.indexOf('hubspot:') === 0) {
+      // Por enquanto não match — precisa cache de cust_id por contato
+      continue;
+    }
+
+    // 5. Telefone puro ou formatado
+    var critDigitsOnly = crit.replace(/\D/g, '');
+    if (critDigitsOnly.length >= 8 && jidDigits.length >= 8) {
+      if (jidDigits === critDigitsOnly) return true;
+      if (jidDigits.indexOf(critDigitsOnly) >= 0 || critDigitsOnly.indexOf(jidDigits) >= 0) return true;
+    }
+  }
+  return false;
+}
+
+// Returns array of {name, color, icon, isAdmin} for abas that contain this contact
 function _getAbasForContact(contactName, contactJid) {
   var result = [];
-  if (!contactName) return result;
+  if (!contactName && !contactJid) return result;
   var matchFn = window.ezapMatchContact || function(a, b) { return a && b && a.toLowerCase() === b.toLowerCase(); };
   // User abas
   var userAbas = (window._wcrmAbasCache && window._wcrmAbasCache.tabs) || [];
@@ -603,16 +669,30 @@ function _getAbasForContact(contactName, contactJid) {
       }
     }
   }
-  // Admin abas
+  // Admin abas — match por contato manual OU por critério automático
   var adminAbas = window._adminAbas || [];
   for (var k = 0; k < adminAbas.length; k++) {
     var adminTab = adminAbas[k];
+    var matched = false;
+
+    // Match por contato manual (lista admin_aba_contacts)
     var adminContacts = adminTab.contacts || [];
     for (var m = 0; m < adminContacts.length; m++) {
       if (matchFn(adminContacts[m], contactName)) {
-        result.push({ name: adminTab.name, color: adminTab.color || '#4d96ff', icon: adminTab.icon || '', isAdmin: true });
+        matched = true;
         break;
       }
+    }
+
+    // Match por critério automático (criteria array)
+    if (!matched && adminTab.criteria && adminTab.criteria.length > 0) {
+      if (_matchContactToCriteria(contactJid, contactName, adminTab.criteria)) {
+        matched = true;
+      }
+    }
+
+    if (matched) {
+      result.push({ name: adminTab.name, color: adminTab.color || '#4d96ff', icon: adminTab.icon || '', isAdmin: true });
     }
   }
   return result;

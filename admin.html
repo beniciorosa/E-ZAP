@@ -7293,16 +7293,19 @@ function renderAdminAbasList() {
   var c = document.getElementById("adminAbasContainer");
   if (!c) return;
   if (_adminAbasList.length === 0) { c.innerHTML = '<div class="empty-state">Nenhuma aba criada</div>'; return; }
-  var html = '<table class="data-table"><thead><tr><th>Visual</th><th>Nome</th><th>Visível para</th><th>Posição</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
+  var html = '<table class="data-table"><thead><tr><th>Visual</th><th>Nome</th><th>Vínculos</th><th>Visível para</th><th>Posição</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
   _adminAbasList.forEach(function(a) {
     var visibleTo = a.visible_to || [];
     var visibleLabel = visibleTo.length === 0 ? '<span style="color:var(--on-surface-variant)">Todos</span>' : _resolveUserNames(visibleTo);
     var status = a.active ? '<span class="badge badge-success">Ativa</span>' : '<span class="badge badge-danger">Inativa</span>';
     // Visual: mostra ícone se tiver, senão dot de cor
     var visual = a.icon ? '<span style="font-size:20px">' + a.icon + '</span>' : '<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:' + (a.color || '#4d96ff') + '"></span>';
+    var critCount = Array.isArray(a.criteria) ? a.criteria.length : 0;
+    var critLabel = critCount > 0 ? '<span class="badge">' + critCount + '</span>' : '<span style="color:var(--on-surface-variant)">—</span>';
     html += '<tr>';
     html += '<td>' + visual + '</td>';
     html += '<td><strong>' + (a.name || '') + '</strong></td>';
+    html += '<td>' + critLabel + '</td>';
     html += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + visibleLabel + '</td>';
     html += '<td>' + (a.position || 0) + '</td>';
     html += '<td>' + status + '</td>';
@@ -7346,6 +7349,9 @@ function openAdminAbaModal(aba) {
     return '<span class="admin-aba-icon-opt" onclick="selectAdminAbaIcon(this,\'' + ic + '\')" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:18px;' + sel + '" data-icon="' + ic + '">' + ic + '</span>';
   }).join(' ');
 
+  // Critérios de vínculo automático (criteria)
+  var criteria = isEdit && aba.criteria ? (Array.isArray(aba.criteria) ? aba.criteria.join('\n') : '') : '';
+
   // Build user checkboxes
   var users = (allUsers || []).filter(function(u) { return u.active !== false; }).sort(function(a, b) {
     return (a.name || '').localeCompare(b.name || '');
@@ -7369,6 +7375,11 @@ function openAdminAbaModal(aba) {
     '<div class="form-group"><label>Cor</label><div id="adminAbaColorPicker" style="display:flex;gap:6px;flex-wrap:wrap">' + colorPicker + '</div><input type="hidden" id="adminAbaColor" value="' + color + '"></div>' +
     '<div class="form-group"><label>Ícone <span style="font-weight:400;font-size:11px;color:var(--on-surface-variant)">(opcional — se escolhido, aparece no lugar do dot de cor)</span></label><div id="adminAbaIconPicker" style="display:flex;gap:6px;flex-wrap:wrap">' + iconPicker + '</div><input type="hidden" id="adminAbaIcon" value="' + icon + '"></div>' +
     '<div class="form-group"><label>Posição</label><input type="number" id="adminAbaPosition" class="form-input" value="' + position + '" min="0"></div>' +
+    '<div class="form-group"><label>Vínculos automáticos <span style="font-weight:400;font-size:11px;color:var(--on-surface-variant)">(um por linha)</span></label>' +
+      '<textarea id="adminAbaCriteria" class="form-input" rows="4" placeholder="Ex: 5511989473088&#10;5511989473088@c.us&#10;https://wa.me/5511989473088&#10;hubspot:12345&#10;https://chat.whatsapp.com/INVITE">' + criteria + '</textarea>' +
+      '<p style="font-size:11px;color:var(--on-surface-variant);margin-top:4px;line-height:1.5">Se um contato do usuário corresponder a qualquer um desses critérios, o ícone desta aba aparecerá automaticamente ao lado do nome.<br>' +
+      '<strong>Formatos aceitos:</strong> Telefone (com ou sem formatação), JID (<code>@c.us</code>/<code>@g.us</code>), link <code>wa.me/NUMERO</code>, link <code>chat.whatsapp.com/...</code>, HubSpot ID (prefixe com <code>hubspot:</code>)</p>' +
+    '</div>' +
     '<div class="form-group"><label>Visível para</label>' + userCheckboxes + '</div>' +
     '</div>' +
     '<div class="modal-footer">' +
@@ -7433,10 +7444,17 @@ function saveAdminAba(editId) {
   var iconEl = document.getElementById('adminAbaIcon');
   var iconVal = iconEl && iconEl.value ? iconEl.value : null;
 
+  // Ler critérios (um por linha, trim, filtrar vazios)
+  var criteriaEl = document.getElementById('adminAbaCriteria');
+  var criteriaRaw = criteriaEl ? criteriaEl.value : '';
+  var criteriaArr = criteriaRaw.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+  var criteriaVal = criteriaArr.length > 0 ? criteriaArr : null;
+
   var body = {
     name: name, color: color, position: position,
     active: true, visible_to: visibleTo,
-    icon: iconVal
+    icon: iconVal,
+    criteria: criteriaVal
   };
   if (!editId) body.created_by = (currentAdmin && currentAdmin.user_id) || null;
 
