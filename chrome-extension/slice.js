@@ -318,6 +318,7 @@ function applyConversationFilters() {
   };
   if (window.ezapBuildChatIndex) {
     window.ezapBuildChatIndex(hasAbasFilter || overlayEnabled ? { force: true } : null).then(function(idx) {
+      window._ezapChatIndex = idx; // Cache pro sidebar/pill count
       if (hasAbasFilter) runCustom(idx);
       else if (overlayEnabled) runOverlay(idx);
       else runLegacyCleanup(idx);
@@ -817,7 +818,11 @@ function _buildAbaPillsRow(theme) {
     var isActive = (typeof selectedAbaId !== 'undefined') && selectedAbaId === tab.id;
     var adminEntry = adminAbasMap[tab.id];
     var resolvedJidsForCount = adminEntry && adminEntry.resolved_jids ? adminEntry.resolved_jids : [];
-    var count = (tab.contacts || []).length + resolvedJidsForCount.length;
+    // Tab completa com resolved_jids e isAdmin para a função de contagem
+    var tabForCount = adminEntry ? adminEntry : tab;
+    var count = (typeof window._ezapCountAbaChats === 'function')
+      ? window._ezapCountAbaChats(tabForCount)
+      : ((tab.contacts || []).length + resolvedJidsForCount.length);
     var tabColor = tab.color || '#4d96ff';
     var textOnColor = _pillTextColor(tabColor);
     // Count unread contacts in this tab
@@ -826,9 +831,14 @@ function _buildAbaPillsRow(theme) {
       var jid = (tab.contactJids && tab.contactJids[cn]) || '';
       if (jid && _ezapUnreadMarks[jid]) unreadInAba++;
     });
-    // Also count unread for resolved_jids
+    // Also count unread for resolved_jids (dedup by jid)
+    var countedJids = {};
     resolvedJidsForCount.forEach(function(jid) {
-      if (jid && _ezapUnreadMarks[jid.toLowerCase()]) unreadInAba++;
+      if (!jid) return;
+      var j = jid.toLowerCase();
+      if (countedJids[j]) return;
+      countedJids[j] = true;
+      if (_ezapUnreadMarks[j]) unreadInAba++;
     });
     var pill = document.createElement('button');
     pill.className = 'wcrm-quick-aba-pill' + (isActive ? ' active' : '');
@@ -3076,6 +3086,45 @@ function getAbaContacts(abaId) {
 }
 
 // Retorna a tab completa (com contacts + contactJids), pra filtros fazerem JID-match
+// Conta chats DISTINTOS que uma aba (admin ou user) inclui.
+// Deduplica por nome do chat — ex: Luiz tem @c.us + @lid que apontam pro mesmo chat visual.
+// Para aba admin, considera resolved_jids (JIDs pré-resolvidos via HubSpot).
+window._ezapCountAbaChats = function(tab) {
+  if (!tab) return 0;
+  var idx = window._ezapChatIndex;
+  var manualContacts = (tab.contacts || []).slice();
+
+  // Se não temos chatIndex ainda, retorna count simples (com dedupe por set)
+  if (!idx || !idx.byJid) {
+    var simpleSet = {};
+    manualContacts.forEach(function(n) { if (n) simpleSet[String(n).toLowerCase()] = true; });
+    // Para admin, adiciona resolved_jids como keys (dedup parcial)
+    var adminRaw = tab.isAdmin ? (tab.resolved_jids || []) : [];
+    adminRaw.forEach(function(j) { if (j) simpleSet['jid:' + String(j).toLowerCase()] = true; });
+    return Object.keys(simpleSet).length;
+  }
+
+  // Set de nomes dos chats únicos que a aba engloba
+  var nameSet = {};
+  // 1. Manual contacts
+  manualContacts.forEach(function(n) {
+    if (n) nameSet[String(n).toLowerCase().trim()] = true;
+  });
+  // 2. Resolved JIDs (admin) → busca nome do chat via chatIndex
+  if (tab.isAdmin) {
+    var resolvedJids = tab.resolved_jids || [];
+    resolvedJids.forEach(function(jid) {
+      if (!jid) return;
+      // Tenta match exato no byJid
+      var chat = idx.byJid[jid] || idx.byJid[String(jid).toLowerCase()];
+      if (chat && chat.name) {
+        nameSet[String(chat.name).toLowerCase().trim()] = true;
+      }
+    });
+  }
+  return Object.keys(nameSet).length;
+};
+
 function _getAbaTabEntry(abaId) {
   var data = window._wcrmAbasCache;
   if (data && data.tabs) {

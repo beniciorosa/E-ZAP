@@ -975,10 +975,14 @@ function _renderSingleAbaItem(tab) {
   var isSelected = selectedAbaId === tab.id;
   var bgColor = isSelected ? tab.color + '30' : '#1a2730';
   var borderColor = isSelected ? tab.color : '#3b4a54';
-  // Para admin abas, conta também os JIDs resolvidos (vínculos automáticos via HubSpot)
-  var manualCount = (tab.contacts || []).length;
-  var resolvedCount = tab.isAdmin && tab.resolved_jids ? tab.resolved_jids.length : 0;
-  var count = manualCount + resolvedCount;
+  // Conta chats DISTINTOS (deduplica @lid/@c.us do mesmo contato, grupos pelo nome)
+  // Usa window._ezapCountAbaChats se disponível (calculado via chatIndex)
+  var count;
+  if (typeof window._ezapCountAbaChats === 'function') {
+    count = window._ezapCountAbaChats(tab);
+  } else {
+    count = (tab.contacts || []).length + (tab.isAdmin && tab.resolved_jids ? tab.resolved_jids.length : 0);
+  }
   var html = '';
 
   html += '<div class="wcrm-aba-item ezap-aba-item" data-aba-id="' + tab.id + '" style="background:' + bgColor + ';border-color:' + borderColor + '">';
