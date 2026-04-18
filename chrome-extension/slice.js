@@ -810,9 +810,14 @@ function _buildAbaPillsRow(theme) {
   // Combina admin abas + user abas (admin primeiro)
   var allTabsForPills = (window._adminAbas || []).concat(_abasData.tabs || []);
 
+  var adminAbasMap = {};
+  (window._adminAbas || []).forEach(function(a) { adminAbasMap[a.id] = a; });
+
   allTabsForPills.forEach(function(tab) {
     var isActive = (typeof selectedAbaId !== 'undefined') && selectedAbaId === tab.id;
-    var count = (tab.contacts || []).length;
+    var adminEntry = adminAbasMap[tab.id];
+    var resolvedJidsForCount = adminEntry && adminEntry.resolved_jids ? adminEntry.resolved_jids : [];
+    var count = (tab.contacts || []).length + resolvedJidsForCount.length;
     var tabColor = tab.color || '#4d96ff';
     var textOnColor = _pillTextColor(tabColor);
     // Count unread contacts in this tab
@@ -820,6 +825,10 @@ function _buildAbaPillsRow(theme) {
     (tab.contacts || []).forEach(function(cn) {
       var jid = (tab.contactJids && tab.contactJids[cn]) || '';
       if (jid && _ezapUnreadMarks[jid]) unreadInAba++;
+    });
+    // Also count unread for resolved_jids
+    resolvedJidsForCount.forEach(function(jid) {
+      if (jid && _ezapUnreadMarks[jid.toLowerCase()]) unreadInAba++;
     });
     var pill = document.createElement('button');
     pill.className = 'wcrm-quick-aba-pill' + (isActive ? ' active' : '');
@@ -1728,8 +1737,27 @@ function _showCustomAbaList(abaTab, chatIndex) {
       console.log('[EZAP OVERLAY] chat-list diag:', _diag);
     } catch (e) {}
   } else {
-    contacts = (abaTab && abaTab.contacts) || [];
-    contactJids = (abaTab && abaTab.contactJids) || {};
+    contacts = ((abaTab && abaTab.contacts) || []).slice();
+    contactJids = Object.assign({}, (abaTab && abaTab.contactJids) || {});
+
+    // Se é uma admin aba com resolved_jids, incluir os contatos correspondentes
+    // a esses JIDs (chat individual ou grupo) no filtro
+    var resolvedJids = (abaTab && abaTab.resolved_jids) || [];
+    if (resolvedJids.length > 0 && chatIndex && chatIndex.byJid) {
+      var jidLowerSet = {};
+      resolvedJids.forEach(function(j) {
+        if (j) jidLowerSet[String(j).toLowerCase()] = true;
+      });
+      Object.keys(chatIndex.byJid).forEach(function(jid) {
+        if (jidLowerSet[jid.toLowerCase()]) {
+          var meta = chatIndex.byJid[jid];
+          if (meta && meta.name && contacts.indexOf(meta.name) < 0) {
+            contacts.push(meta.name);
+            contactJids[meta.name] = jid;
+          }
+        }
+      });
+    }
   }
   var pinned = window._wcrmPinned || {};
   var pinJids = window._wcrmPinnedJids || {};

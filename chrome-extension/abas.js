@@ -975,7 +975,10 @@ function _renderSingleAbaItem(tab) {
   var isSelected = selectedAbaId === tab.id;
   var bgColor = isSelected ? tab.color + '30' : '#1a2730';
   var borderColor = isSelected ? tab.color : '#3b4a54';
-  var count = (tab.contacts || []).length;
+  // Para admin abas, conta também os JIDs resolvidos (vínculos automáticos via HubSpot)
+  var manualCount = (tab.contacts || []).length;
+  var resolvedCount = tab.isAdmin && tab.resolved_jids ? tab.resolved_jids.length : 0;
+  var count = manualCount + resolvedCount;
   var html = '';
 
   html += '<div class="wcrm-aba-item ezap-aba-item" data-aba-id="' + tab.id + '" style="background:' + bgColor + ';border-color:' + borderColor + '">';
