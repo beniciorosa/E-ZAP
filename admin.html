@@ -2214,8 +2214,16 @@ var currentPage = 1;
 var filteredUsers = [];
 
 // ===== SUPABASE FETCH =====
-function supa(path, opts) {
-  opts = opts || {};
+// Aceita 2 assinaturas:
+//   supa(path, { method, body, prefer })
+//   supa(path, method, body, prefer)
+function supa(path, optsOrMethod, body, prefer) {
+  var opts;
+  if (typeof optsOrMethod === 'string') {
+    opts = { method: optsOrMethod, body: body, prefer: prefer };
+  } else {
+    opts = optsOrMethod || {};
+  }
   var headers = {
     "apikey": SUPA_KEY,
     "Authorization": "Bearer " + SUPA_KEY,
@@ -2226,7 +2234,10 @@ function supa(path, opts) {
     method: opts.method || "GET",
     headers: headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
-  }).then(function(r) { return r.json(); });
+  }).then(function(r) {
+    if (r.status === 204) return null;
+    return r.json().catch(function() { return null; });
+  });
 }
 
 // ===== LOGIN =====
@@ -6971,11 +6982,15 @@ function renderTemplatesList() {
   var html = '<table class="data-table"><thead><tr><th>Nome</th><th>Categoria</th><th>Mensagens</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
   _templates.forEach(function(t) {
     var msgs = (t.messages || []);
+    var textCount = msgs.filter(function(m) { return m.type === 'text'; }).length;
+    var fileCount = msgs.filter(function(m) { return m.type === 'file'; }).length;
+    var desc = textCount + ' msg' + (textCount !== 1 ? 's' : '');
+    if (fileCount > 0) desc += ', ' + fileCount + ' arquivo' + (fileCount !== 1 ? 's' : '');
     var status = t.active ? '<span class="badge badge-success">Ativo</span>' : '<span class="badge badge-danger">Inativo</span>';
     html += '<tr>';
     html += '<td><strong>' + (t.name || '') + '</strong></td>';
     html += '<td>' + (t.category || '-') + '</td>';
-    html += '<td>' + msgs.length + ' msg' + (msgs.length !== 1 ? 's' : '') + '</td>';
+    html += '<td>' + desc + '</td>';
     html += '<td>' + status + '</td>';
     html += '<td style="text-align:right">';
     html += '<button class="btn-icon" onclick="toggleTemplate(\'' + t.id + '\')" title="' + (t.active ? 'Desativar' : 'Ativar') + '">' + (t.active ? '⏸' : '▶') + '</button> ';
@@ -6987,58 +7002,255 @@ function renderTemplatesList() {
   c.innerHTML = html;
 }
 
+// ==== TEMPLATE EDITOR (multi-mensagem + arquivo) — port do msg.js ====
+var _tplTempItems = [];
+var _tplEditingId = null;
+
 function openTemplateModal(tpl) {
-  var isEdit = !!tpl;
-  var title = isEdit ? 'Editar Template' : 'Novo Template';
-  var name = isEdit ? tpl.name : '';
-  var category = isEdit ? (tpl.category || '') : '';
-  var msgs = isEdit ? (tpl.messages || []) : [];
-  var firstMsg = msgs.length > 0 && msgs[0].type === 'text' ? msgs[0].content : '';
+  _tplEditingId = tpl ? tpl.id : null;
+  _tplTempItems = tpl && Array.isArray(tpl.messages) ? tpl.messages.map(function(m) { return Object.assign({}, m); }) : [];
+  var title = tpl ? 'Editar Template' : 'Novo Template';
+  var name = tpl ? (tpl.name || '') : '';
+  var category = tpl ? (tpl.category || '') : '';
+
+  // Inject editor styles once
+  if (!document.getElementById('tpl-editor-style')) {
+    var style = document.createElement('style');
+    style.id = 'tpl-editor-style';
+    style.textContent =
+      '.tpl-msg-editor { min-height: 60px; max-height: 200px; overflow-y: auto; padding: 8px 10px; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 6px; color: var(--on-surface); font-size: 13px; line-height: 1.45; outline: none; }' +
+      '.tpl-msg-editor:focus { border-color: var(--primary); }' +
+      '.tpl-msg-editor[data-empty="true"]:before { content: attr(data-placeholder); color: var(--on-surface-variant); font-style: italic; pointer-events: none; }' +
+      '.tpl-msg-editor b, .tpl-msg-editor strong { font-weight: bold !important; }' +
+      '.tpl-msg-editor i, .tpl-msg-editor em { font-style: italic !important; }' +
+      '.tpl-msg-editor u { text-decoration: underline !important; }' +
+      '.tpl-msg-editor ul { margin: 2px 0; padding-left: 20px; list-style: disc !important; }' +
+      '.tpl-msg-editor li { margin: 1px 0; display: list-item !important; }' +
+      '.tpl-toolbar { display: flex; gap: 4px; margin-bottom: 4px; }' +
+      '.tpl-toolbar button { background: var(--surface); border: 1px solid var(--surface-border); color: var(--on-surface); cursor: pointer; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-family: inherit; }' +
+      '.tpl-toolbar button:hover { background: var(--surface-hover); }' +
+      '.tpl-msg-item { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 8px; padding: 10px; margin-bottom: 8px; }' +
+      '.tpl-msg-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }' +
+      '.tpl-msg-item-title { font-size: 12px; font-weight: 600; color: var(--on-surface-variant); text-transform: uppercase; letter-spacing: 0.05em; }' +
+      '.tpl-msg-item-remove { background: none; border: none; color: var(--error); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }' +
+      '.tpl-msg-interval { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--on-surface-variant); }' +
+      '.tpl-msg-interval input { width: 60px; padding: 2px 6px; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-elevated); color: var(--on-surface); font-size: 12px; }' +
+      '.tpl-msg-file-info { padding: 8px; background: var(--surface-elevated); border-radius: 4px; font-size: 12px; display: flex; align-items: center; gap: 8px; }';
+    document.head.appendChild(style);
+  }
 
   var modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'templateModal';
-  modal.innerHTML = '<div class="modal" style="width:480px">' +
-    '<div class="modal-header"><h3>' + title + '</h3><button class="btn-icon" onclick="closeTemplateModal()">&times;</button></div>' +
-    '<div class="modal-body">' +
-    '<div class="form-group"><label>Nome</label><input type="text" id="tplName" class="form-input" value="' + name.replace(/"/g, '&quot;') + '" placeholder="Ex: Boas Vindas Mentoria"></div>' +
-    '<div class="form-group"><label>Categoria</label><input type="text" id="tplCategory" class="form-input" value="' + category.replace(/"/g, '&quot;') + '" placeholder="Ex: Boas vindas, Follow-up"></div>' +
-    '<div class="form-group"><label>Mensagem</label><textarea id="tplMessage" class="form-input" rows="6" placeholder="Use @nome, @email, @telefone como variáveis...">' + firstMsg.replace(/</g, '&lt;') + '</textarea></div>' +
-    '<p style="font-size:11px;color:var(--on-surface-variant)">Variáveis: @nome, @email, @telefone, @nomeCompleto, @consultor, @saudacao, @assinatura</p>' +
-    '</div>' +
-    '<div class="modal-footer">' +
-    '<button class="btn-secondary" onclick="closeTemplateModal()">Cancelar</button>' +
-    '<button class="btn-primary" onclick="saveTemplate(' + (isEdit ? "'" + tpl.id + "'" : 'null') + ')">Salvar</button>' +
-    '</div></div>';
+  modal.innerHTML =
+    '<div class="modal" style="width:560px;max-height:90vh;overflow-y:auto">' +
+      '<div class="modal-header"><h3>' + title + '</h3><button class="btn-icon" onclick="closeTemplateModal()">&times;</button></div>' +
+      '<div class="modal-body">' +
+        '<div class="form-group"><label>Nome</label><input type="text" id="tplName" class="form-input" value="' + name.replace(/"/g, '&quot;') + '" placeholder="Ex: Boas Vindas Mentoria"></div>' +
+        '<div class="form-group"><label>Categoria</label><input type="text" id="tplCategory" class="form-input" value="' + category.replace(/"/g, '&quot;') + '" placeholder="Ex: Boas vindas, Follow-up"></div>' +
+        '<div style="background:rgba(0,168,132,0.08);border:1px solid rgba(0,168,132,0.2);border-radius:6px;padding:10px;margin-bottom:14px">' +
+          '<div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:4px">Variáveis disponíveis:</div>' +
+          '<div style="font-size:12px;color:var(--on-surface-variant);line-height:1.6">' +
+            '<code>@nome</code> Primeiro nome &nbsp; <code>@nomeCompleto</code> Nome completo<br>' +
+            '<code>@email</code> E-mail &nbsp; <code>@telefone</code> Telefone<br>' +
+            '<code>@consultor</code> Consultor &nbsp; <code>@reunioes</code> Reuniões' +
+          '</div>' +
+        '</div>' +
+        '<div id="tplMsgItems" style="margin-bottom:12px"></div>' +
+        '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+          '<button class="btn-secondary" style="flex:1" onclick="addTplItem(\'text\')">+ Mensagem</button>' +
+          '<button class="btn-secondary" style="flex:1" onclick="document.getElementById(\'tplFileInput\').click()">+ Arquivo</button>' +
+        '</div>' +
+        '<input type="file" id="tplFileInput" style="display:none" accept=".pdf,.doc,.docx,.mp3,.ogg,.wav,.opus,.m4a,.mp4,.jpg,.jpeg,.png" onchange="handleTplFileSelect(event)">' +
+        '<div id="tplSaveStatus" style="font-size:11px;text-align:center;margin-top:6px;min-height:14px;color:var(--on-surface-variant)"></div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button class="btn-secondary" onclick="closeTemplateModal()">Cancelar</button>' +
+        '<button class="btn-primary" onclick="saveTemplate(' + (tpl ? "'" + tpl.id + "'" : 'null') + ')">Salvar</button>' +
+      '</div>' +
+    '</div>';
   document.body.appendChild(modal);
+  renderTplItems();
 }
 
 function closeTemplateModal() {
+  syncTplEditorValues();
   var m = document.getElementById('templateModal');
   if (m) m.remove();
+  _tplTempItems = [];
+  _tplEditingId = null;
+}
+
+function addTplItem(type, content, fileName, mimeType) {
+  syncTplEditorValues();
+  _tplTempItems.push({
+    type: type,
+    content: content || '',
+    interval: _tplTempItems.length === 0 ? 0 : 3,
+    fileName: fileName || '',
+    mimeType: mimeType || ''
+  });
+  renderTplItems();
+}
+
+function removeTplItem(idx) {
+  syncTplEditorValues();
+  _tplTempItems.splice(idx, 1);
+  renderTplItems();
+}
+
+function syncTplEditorValues() {
+  var editors = document.querySelectorAll('.tpl-msg-editor');
+  editors.forEach(function(ed) {
+    var idx = parseInt(ed.dataset.idx, 10);
+    if (!isNaN(idx) && _tplTempItems[idx] && _tplTempItems[idx].type === 'text') {
+      _tplTempItems[idx].content = ed.innerHTML.trim();
+    }
+  });
+  var intervals = document.querySelectorAll('.tpl-msg-interval input');
+  intervals.forEach(function(inp) {
+    var idx = parseInt(inp.dataset.idx, 10);
+    if (!isNaN(idx) && _tplTempItems[idx]) {
+      _tplTempItems[idx].interval = parseInt(inp.value, 10) || 0;
+    }
+  });
+}
+
+function renderTplItems() {
+  var c = document.getElementById('tplMsgItems');
+  if (!c) return;
+  if (_tplTempItems.length === 0) {
+    c.innerHTML = '<div style="text-align:center;padding:20px;border:1px dashed var(--surface-border);border-radius:6px;color:var(--on-surface-variant);font-size:13px">Clique em "+ Mensagem" ou "+ Arquivo" para adicionar</div>';
+    return;
+  }
+  var html = '';
+  _tplTempItems.forEach(function(item, idx) {
+    html += '<div class="tpl-msg-item">';
+    html += '<div class="tpl-msg-item-header">';
+    html += '<span class="tpl-msg-item-title">' + (idx + 1) + '. ' + (item.type === 'text' ? 'Mensagem' : 'Arquivo') + '</span>';
+    html += '<button class="tpl-msg-item-remove" onclick="removeTplItem(' + idx + ')" title="Remover">×</button>';
+    html += '</div>';
+    if (item.type === 'text') {
+      var isEmpty = !item.content || item.content === '<br>' || item.content.trim() === '';
+      html += '<div class="tpl-toolbar">';
+      html += '<button onclick="document.execCommand(\'bold\');return false"><b>B</b></button>';
+      html += '<button onclick="document.execCommand(\'italic\');return false"><i>I</i></button>';
+      html += '<button onclick="document.execCommand(\'underline\');return false"><u>U</u></button>';
+      html += '<button onclick="document.execCommand(\'insertUnorderedList\');return false">• ≡</button>';
+      html += '</div>';
+      html += '<div class="tpl-msg-editor" contenteditable="true" data-idx="' + idx + '" data-placeholder="Digite a mensagem... use @nome, @email, etc." data-empty="' + isEmpty + '">' + (item.content || '') + '</div>';
+    } else {
+      html += '<div class="tpl-msg-file-info">';
+      html += '<span style="font-size:18px">📎</span>';
+      html += '<div style="flex:1;overflow:hidden"><div style="font-weight:600;color:var(--on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.fileName || 'arquivo') + '</div>';
+      html += '<div style="font-size:10px;color:var(--on-surface-variant);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.mimeType || '') + '</div></div>';
+      html += '</div>';
+    }
+    if (idx > 0) {
+      html += '<div class="tpl-msg-interval"><span>Aguardar antes de enviar:</span><input type="number" min="0" max="300" value="' + (item.interval || 0) + '" data-idx="' + idx + '"><span>segundos</span></div>';
+    }
+    html += '</div>';
+  });
+  c.innerHTML = html;
+
+  // Wire editor events for placeholder + sync
+  document.querySelectorAll('.tpl-msg-editor').forEach(function(ed) {
+    function updateEmpty() {
+      var isEmpty = !ed.innerHTML || ed.innerHTML === '<br>' || ed.innerText.trim() === '';
+      ed.dataset.empty = isEmpty;
+    }
+    ed.addEventListener('input', updateEmpty);
+    ed.addEventListener('blur', function() {
+      syncTplEditorValues();
+      updateEmpty();
+    });
+    updateEmpty();
+  });
+}
+
+function handleTplFileSelect(e) {
+  var file = e.target.files && e.target.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('tplSaveStatus');
+  if (statusEl) statusEl.textContent = 'Enviando arquivo...';
+
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    var base64 = ev.target.result.split(',')[1];
+    uploadTplFile(base64, file.name, file.type).then(function(url) {
+      if (statusEl) statusEl.textContent = 'Arquivo enviado!';
+      addTplItem('file', url, file.name, file.type);
+      setTimeout(function() { if (statusEl) statusEl.textContent = ''; }, 2000);
+    }).catch(function(err) {
+      if (statusEl) statusEl.textContent = 'Erro: ' + (err.message || err);
+    });
+  };
+  reader.readAsDataURL(file);
+  // Clear input so same file can be selected again
+  e.target.value = '';
+}
+
+function uploadTplFile(base64Data, fileName, contentType) {
+  var safeName = fileName.replace(/[^a-zA-Z0-9_.\-]/g, '_');
+  var key = 'admin-templates/' + Date.now() + '_' + safeName;
+  var binary = atob(base64Data);
+  var bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  return fetch(SUPA_URL + '/storage/v1/object/msg-files/' + key, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + SUPA_KEY,
+      'Content-Type': contentType || 'application/octet-stream',
+      'x-upsert': 'true'
+    },
+    body: bytes
+  }).then(function(r) {
+    if (!r.ok) return r.json().then(function(j) { throw new Error(j.message || ('HTTP ' + r.status)); });
+    return SUPA_URL + '/storage/v1/object/public/msg-files/' + key;
+  });
 }
 
 function saveTemplate(editId) {
+  syncTplEditorValues();
   var name = document.getElementById('tplName').value.trim();
   var category = document.getElementById('tplCategory').value.trim();
-  var message = document.getElementById('tplMessage').value.trim();
   if (!name) { alert('Nome é obrigatório'); return; }
-  if (!message) { alert('Mensagem é obrigatória'); return; }
+  if (_tplTempItems.length === 0) { alert('Adicione pelo menos uma mensagem ou arquivo'); return; }
+
+  // Validate text items have content
+  var hasContent = _tplTempItems.some(function(it) {
+    if (it.type === 'text') {
+      var tmp = document.createElement('div'); tmp.innerHTML = it.content || '';
+      return (tmp.innerText || '').trim().length > 0;
+    }
+    return it.type === 'file' && it.content;
+  });
+  if (!hasContent) { alert('Pelo menos uma mensagem ou arquivo deve ter conteúdo'); return; }
 
   var body = {
     name: name,
     category: category || null,
-    messages: [{ type: 'text', content: message, interval: 0 }],
+    messages: _tplTempItems.map(function(it) {
+      var msg = { type: it.type, content: it.content || '', interval: parseInt(it.interval, 10) || 0 };
+      if (it.type === 'file') {
+        msg.fileName = it.fileName || '';
+        msg.mimeType = it.mimeType || '';
+      }
+      return msg;
+    }),
     active: true,
     updated_at: new Date().toISOString()
   };
-  if (!editId) body.created_by = adminUserId;
+  if (!editId) body.created_by = (currentAdmin && currentAdmin.user_id) || null;
 
   var method = editId ? 'PATCH' : 'POST';
   var path = editId ? '/rest/v1/shared_templates?id=eq.' + editId : '/rest/v1/shared_templates';
   supa(path, method, body, 'return=minimal').then(function() {
     closeTemplateModal();
     loadTemplates();
+  }).catch(function(err) {
+    alert('Erro ao salvar: ' + (err && err.message ? err.message : 'desconhecido'));
   });
 }
 
@@ -7061,6 +7273,7 @@ function deleteTemplate(id) {
 // ===== ADMIN ABAS =====
 var _adminAbasList = [];
 var ADMIN_ABA_COLORS = ["#ff6b6b", "#ff922b", "#ffd93d", "#25d366", "#4d96ff", "#cc5de8", "#20c997", "#748ffc", "#f06595", "#868e96"];
+var ADMIN_ABA_ICONS = ['⭐', '💼', '👥', '🎯', '📞', '💰', '✅', '🔥', '📧', '📱', '🌟', '🏆', '💎', '🚀', '🎨', '🛒', '🏢', '📊', '🔔', '🎓'];
 
 function loadAdminAbasAdmin() {
   // Garante que allUsers está carregado antes de renderizar
@@ -7080,13 +7293,15 @@ function renderAdminAbasList() {
   var c = document.getElementById("adminAbasContainer");
   if (!c) return;
   if (_adminAbasList.length === 0) { c.innerHTML = '<div class="empty-state">Nenhuma aba criada</div>'; return; }
-  var html = '<table class="data-table"><thead><tr><th>Cor</th><th>Nome</th><th>Visível para</th><th>Posição</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
+  var html = '<table class="data-table"><thead><tr><th>Visual</th><th>Nome</th><th>Visível para</th><th>Posição</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
   _adminAbasList.forEach(function(a) {
     var visibleTo = a.visible_to || [];
     var visibleLabel = visibleTo.length === 0 ? '<span style="color:var(--on-surface-variant)">Todos</span>' : _resolveUserNames(visibleTo);
     var status = a.active ? '<span class="badge badge-success">Ativa</span>' : '<span class="badge badge-danger">Inativa</span>';
+    // Visual: mostra ícone se tiver, senão dot de cor
+    var visual = a.icon ? '<span style="font-size:20px">' + a.icon + '</span>' : '<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:' + (a.color || '#4d96ff') + '"></span>';
     html += '<tr>';
-    html += '<td><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:' + (a.color || '#4d96ff') + '"></span></td>';
+    html += '<td>' + visual + '</td>';
     html += '<td><strong>' + (a.name || '') + '</strong></td>';
     html += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + visibleLabel + '</td>';
     html += '<td>' + (a.position || 0) + '</td>';
@@ -7114,12 +7329,21 @@ function openAdminAbaModal(aba) {
   var title = isEdit ? 'Editar Aba' : 'Nova Aba Admin';
   var name = isEdit ? aba.name : '';
   var color = isEdit ? (aba.color || '#4d96ff') : '#4d96ff';
+  var icon = isEdit ? (aba.icon || '') : '';
   var position = isEdit ? (aba.position || 0) : _adminAbasList.length;
   var visibleTo = isEdit ? (aba.visible_to || []) : [];
 
   var colorPicker = ADMIN_ABA_COLORS.map(function(c) {
     var sel = c === color ? 'border:2px solid #fff;' : 'border:2px solid transparent;';
     return '<span class="admin-aba-color-opt" onclick="selectAdminAbaColor(this,\'' + c + '\')" style="display:inline-block;width:24px;height:24px;border-radius:50%;background:' + c + ';cursor:pointer;' + sel + '" data-color="' + c + '"></span>';
+  }).join(' ');
+
+  // Icon picker (opcional — se nenhum ícone for escolhido, mostra o dot de cor)
+  var iconNone = icon === '' ? 'background:rgba(0,168,132,0.2);border:2px solid var(--primary);' : 'background:var(--surface);border:2px solid transparent;';
+  var iconPicker = '<span class="admin-aba-icon-opt" onclick="selectAdminAbaIcon(this,\'\')" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:11px;color:var(--on-surface-variant);' + iconNone + '" data-icon="" title="Sem ícone (mostra cor)">—</span>';
+  iconPicker += ADMIN_ABA_ICONS.map(function(ic) {
+    var sel = ic === icon ? 'background:rgba(0,168,132,0.2);border:2px solid var(--primary);' : 'background:var(--surface);border:2px solid transparent;';
+    return '<span class="admin-aba-icon-opt" onclick="selectAdminAbaIcon(this,\'' + ic + '\')" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:18px;' + sel + '" data-icon="' + ic + '">' + ic + '</span>';
   }).join(' ');
 
   // Build user checkboxes
@@ -7138,11 +7362,12 @@ function openAdminAbaModal(aba) {
   var modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'adminAbaModal';
-  modal.innerHTML = '<div class="modal" style="width:520px;max-height:90vh;overflow-y:auto">' +
+  modal.innerHTML = '<div class="modal" style="width:540px;max-height:90vh;overflow-y:auto">' +
     '<div class="modal-header"><h3>' + title + '</h3><button class="btn-icon" onclick="closeAdminAbaModal()">&times;</button></div>' +
     '<div class="modal-body">' +
     '<div class="form-group"><label>Nome</label><input type="text" id="adminAbaName" class="form-input" value="' + name.replace(/"/g, '&quot;') + '" placeholder="Ex: Clientes VIP"></div>' +
     '<div class="form-group"><label>Cor</label><div id="adminAbaColorPicker" style="display:flex;gap:6px;flex-wrap:wrap">' + colorPicker + '</div><input type="hidden" id="adminAbaColor" value="' + color + '"></div>' +
+    '<div class="form-group"><label>Ícone <span style="font-weight:400;font-size:11px;color:var(--on-surface-variant)">(opcional — se escolhido, aparece no lugar do dot de cor)</span></label><div id="adminAbaIconPicker" style="display:flex;gap:6px;flex-wrap:wrap">' + iconPicker + '</div><input type="hidden" id="adminAbaIcon" value="' + icon + '"></div>' +
     '<div class="form-group"><label>Posição</label><input type="number" id="adminAbaPosition" class="form-input" value="' + position + '" min="0"></div>' +
     '<div class="form-group"><label>Visível para</label>' + userCheckboxes + '</div>' +
     '</div>' +
@@ -7151,6 +7376,16 @@ function openAdminAbaModal(aba) {
     '<button class="btn-primary" onclick="saveAdminAba(' + (isEdit ? "'" + aba.id + "'" : 'null') + ')">Salvar</button>' +
     '</div></div>';
   document.body.appendChild(modal);
+}
+
+function selectAdminAbaIcon(el, iconVal) {
+  document.querySelectorAll('.admin-aba-icon-opt').forEach(function(o) {
+    o.style.background = 'var(--surface)';
+    o.style.border = '2px solid transparent';
+  });
+  el.style.background = 'rgba(0,168,132,0.2)';
+  el.style.border = '2px solid var(--primary)';
+  document.getElementById('adminAbaIcon').value = iconVal;
 }
 
 function toggleAllAdminAbaUsers(cb) {
@@ -7195,8 +7430,15 @@ function saveAdminAba(editId) {
 
   if (!name) { alert('Nome é obrigatório'); return; }
 
-  var body = { name: name, color: color, position: position, active: true, visible_to: visibleTo };
-  if (!editId) body.created_by = adminUserId;
+  var iconEl = document.getElementById('adminAbaIcon');
+  var iconVal = iconEl && iconEl.value ? iconEl.value : null;
+
+  var body = {
+    name: name, color: color, position: position,
+    active: true, visible_to: visibleTo,
+    icon: iconVal
+  };
+  if (!editId) body.created_by = (currentAdmin && currentAdmin.user_id) || null;
 
   var method = editId ? 'PATCH' : 'POST';
   var path = editId ? '/rest/v1/admin_abas?id=eq.' + editId : '/rest/v1/admin_abas';

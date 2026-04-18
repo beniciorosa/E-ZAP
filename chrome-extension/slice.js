@@ -609,7 +609,7 @@ function _getAbasForContact(contactName, contactJid) {
     var adminContacts = adminTab.contacts || [];
     for (var m = 0; m < adminContacts.length; m++) {
       if (matchFn(adminContacts[m], contactName)) {
-        result.push({ name: adminTab.name, color: adminTab.color || '#4d96ff' });
+        result.push({ name: adminTab.name, color: adminTab.color || '#4d96ff', icon: adminTab.icon || '', isAdmin: true });
         break;
       }
     }
@@ -643,7 +643,9 @@ function _getLabelsForJid(jid) {
 function _buildAbaPillsRow(theme) {
   var t = theme;
   var _abasData = window._wcrmAbasCache || { tabs: [] };
-  if (!_abasData.tabs || _abasData.tabs.length === 0) return null;
+  var hasUserAbas = (_abasData.tabs || []).length > 0;
+  var hasAdminAbas = (window._adminAbas || []).length > 0;
+  if (!hasUserAbas && !hasAdminAbas) return null;
 
   var abaRow = document.createElement('div');
   abaRow.id = 'ezap-overlay-aba-row';
@@ -675,7 +677,10 @@ function _buildAbaPillsRow(theme) {
   });
   abaScroll.appendChild(allPill);
 
-  _abasData.tabs.forEach(function(tab) {
+  // Combina admin abas + user abas (admin primeiro)
+  var allTabsForPills = (window._adminAbas || []).concat(_abasData.tabs || []);
+
+  allTabsForPills.forEach(function(tab) {
     var isActive = (typeof selectedAbaId !== 'undefined') && selectedAbaId === tab.id;
     var count = (tab.contacts || []).length;
     var tabColor = tab.color || '#4d96ff';
@@ -693,10 +698,18 @@ function _buildAbaPillsRow(theme) {
       pill.style.cssText = 'background:' + tabColor + ';border-color:' + tabColor + ';color:' + textOnColor + ';box-shadow:0 1px 4px rgba(0,0,0,0.2);';
     }
     var dotColor = isActive ? textOnColor : tabColor;
-    var isAdminTab = (window._adminAbas || []).some(function(a) { return a.id === tab.id; });
-    var pillHTML = '<span class="ezap-pill-dot" style="background:' + dotColor + '"></span>' +
-      (isAdminTab ? '<span style="font-size:8px;opacity:0.6">\uD83D\uDD12</span>' : '') +
-      '<span>' + (tab.name.length > 15 ? tab.name.substring(0, 15) + '..' : tab.name) + '</span>' +
+    var adminTabObj = (window._adminAbas || []).find(function(a) { return a.id === tab.id; });
+    var isAdminTab = !!adminTabObj;
+    var adminIcon = adminTabObj && adminTabObj.icon ? adminTabObj.icon : '';
+    var pillHTML = '';
+    if (isAdminTab && adminIcon) {
+      // Admin aba com ícone: mostra ícone em vez de dot colorido
+      pillHTML += '<span style="font-size:12px;line-height:1">' + adminIcon + '</span>';
+    } else {
+      pillHTML += '<span class="ezap-pill-dot" style="background:' + dotColor + '"></span>';
+      if (isAdminTab) pillHTML += '<span style="font-size:8px;opacity:0.6">\uD83D\uDD12</span>';
+    }
+    pillHTML += '<span>' + (tab.name.length > 15 ? tab.name.substring(0, 15) + '..' : tab.name) + '</span>' +
       '<span class="ezap-pill-count">' + count + '</span>';
     if (unreadInAba > 0) {
       pillHTML += '<span class="ezap-pill-unread">' + unreadInAba + '</span>';
@@ -803,6 +816,7 @@ function _ensureCustomListCSS(force) {
     '.ezap-aba-dots { display: inline-flex; gap: 3px; align-items: center; margin-right: 5px; flex-shrink: 0; }',
     '.ezap-aba-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }',
     '.ezap-aba-dot-more { font-size: 8px; color: ' + t.textSecondary + '; font-weight: 600; flex-shrink: 0; }',
+    '.ezap-aba-icon-inline { font-size: 13px; line-height: 1; flex-shrink: 0; }',
     // Search highlight
     '#wcrm-custom-list mark { background: rgba(' + accentRgb.join(',') + ',0.3); color: inherit; border-radius: 2px; padding: 0 1px; }',
     // Pill unread badge
@@ -2361,18 +2375,27 @@ function _createCustomRow(data) {
   var line1 = document.createElement('div');
   line1.className = 'wcrm-custom-line1';
 
-  // Aba dots (bolinha colorida estilo WA Business Lists)
+  // Aba indicators (ícone para admin abas com ícone, dot colorido caso contrário)
   var contactAbas = _getAbasForContact(data.name, data.jid);
   if (contactAbas.length > 0) {
     var dotsWrap = document.createElement('span');
     dotsWrap.className = 'ezap-aba-dots';
     var maxDots = 3;
     for (var di = 0; di < contactAbas.length && di < maxDots; di++) {
-      var dot = document.createElement('span');
-      dot.className = 'ezap-aba-dot';
-      dot.style.background = contactAbas[di].color || '#4d96ff';
-      dot.title = contactAbas[di].name || '';
-      dotsWrap.appendChild(dot);
+      var aba = contactAbas[di];
+      if (aba.isAdmin && aba.icon) {
+        var iconEl = document.createElement('span');
+        iconEl.className = 'ezap-aba-icon-inline';
+        iconEl.textContent = aba.icon;
+        iconEl.title = aba.name || '';
+        dotsWrap.appendChild(iconEl);
+      } else {
+        var dot = document.createElement('span');
+        dot.className = 'ezap-aba-dot';
+        dot.style.background = aba.color || '#4d96ff';
+        dot.title = aba.name || '';
+        dotsWrap.appendChild(dot);
+      }
     }
     if (contactAbas.length > maxDots) {
       var moreDot = document.createElement('span');

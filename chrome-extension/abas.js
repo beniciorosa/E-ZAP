@@ -865,7 +865,7 @@ function renderAbasList(data) {
   if (!list) return;
 
   var adminTabs = _adminAbas.map(function(a) {
-    return { id: a.id, name: a.name, color: a.color || '#4d96ff', contacts: a.contacts || [], contactJids: a.contactJids || {}, isAdmin: true };
+    return { id: a.id, name: a.name, color: a.color || '#4d96ff', icon: a.icon || '', contacts: a.contacts || [], contactJids: a.contactJids || {}, isAdmin: true };
   });
   var userTabs = (data.tabs || []).map(function(t) {
     return Object.assign({}, t, { isAdmin: false });
@@ -914,8 +914,13 @@ function _renderSingleAbaItem(tab) {
   html += '<div class="wcrm-aba-item ezap-aba-item" data-aba-id="' + tab.id + '" style="background:' + bgColor + ';border-color:' + borderColor + '">';
   html += '<div class="ezap-aba-header">';
   html += '<div class="ezap-aba-name">';
-  html += '<span class="ezap-aba-color" style="background:' + tab.color + '"></span>';
-  if (tab.isAdmin) html += '<span style="font-size:11px;opacity:0.5;margin-right:2px" title="Aba do admin">\uD83D\uDD12</span>';
+  // Se é admin aba e tem ícone, mostra ícone em vez do dot colorido
+  if (tab.isAdmin && tab.icon) {
+    html += '<span class="ezap-aba-icon" style="font-size:14px;line-height:1;margin-right:4px" title="ABA Compartilhada">' + tab.icon + '</span>';
+  } else {
+    html += '<span class="ezap-aba-color" style="background:' + tab.color + '"></span>';
+    if (tab.isAdmin) html += '<span style="font-size:11px;opacity:0.5;margin-right:2px" title="Aba do admin">\uD83D\uDD12</span>';
+  }
   html += '<span>' + tab.name + '</span>';
   if (isSelected) html += '<span style="color:' + tab.color + ';font-size:var(--ezap-text-sm)">&#10003;</span>';
   html += '</div>';
