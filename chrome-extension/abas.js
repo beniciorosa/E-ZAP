@@ -45,6 +45,9 @@ function loadAdminAbas() {
     window._adminAbas = _adminAbas;
     if (abasSidebarOpen) renderAbasSidebar();
   });
+  chrome.storage.local.get("ezap_hubspot_ticket_cache", function(data) {
+    window._ezapHubSpotTicketCache = (data && data.ezap_hubspot_ticket_cache) || {};
+  });
   // Supabase sync
   supaRest("/rest/v1/admin_abas?active=eq.true&order=position.asc&select=*").then(function(abas) {
     if (!abas || !Array.isArray(abas)) return;
@@ -70,8 +73,72 @@ function loadAdminAbas() {
       _adminAbas = _filterAdminAbasForUser(abas);
       window._adminAbas = _adminAbas;
       if (abasSidebarOpen) renderAbasSidebar();
+
+      // Resolve HubSpot ticket_ids dos critérios via tabela mentorados
+      _resolveHubSpotTickets(_adminAbas);
     });
   });
+}
+
+// Extrai todos os hubspot IDs dos critérios das admin abas e resolve
+// para whatsapp numbers via tabela mentorados (populada via webhook HubSpot)
+function _resolveHubSpotTickets(abas) {
+  var ids = {};
+  (abas || []).forEach(function(aba) {
+    var crits = aba.criteria || [];
+    crits.forEach(function(crit) {
+      var id = _extractHubSpotId(crit);
+      if (id) ids[id] = true;
+    });
+  });
+  var idList = Object.keys(ids);
+  if (idList.length === 0) return;
+
+  // Query mentorados table for these ticket_ids
+  var url = "/rest/v1/mentorados?ticket_id=in.(" + idList.join(",") + ")&select=ticket_id,whatsapp_do_mentorado";
+  supaRest(url).then(function(rows) {
+    if (!Array.isArray(rows)) return;
+    var cache = window._ezapHubSpotTicketCache || {};
+    rows.forEach(function(r) {
+      if (r.ticket_id && r.whatsapp_do_mentorado) {
+        // Extrai só os dígitos do telefone
+        var digits = String(r.whatsapp_do_mentorado).replace(/\D/g, '');
+        if (digits.length >= 8) {
+          cache[String(r.ticket_id)] = digits;
+        }
+      }
+    });
+    window._ezapHubSpotTicketCache = cache;
+    chrome.storage.local.set({ ezap_hubspot_ticket_cache: cache });
+    // Trigger re-render do overlay pra atualizar os ícones
+    if (typeof window._wcrmApplyOverlay === 'function') {
+      try { window._wcrmApplyOverlay(); } catch(e) {}
+    }
+  });
+}
+
+// Extrai o hubspot ID de uma string de critério
+// Formatos aceitos:
+//   "hubspot:12345"
+//   "https://app.hubspot.com/contacts/X/ticket/12345"
+//   "https://app.hubspot.com/contacts/X/record/0-5/12345"
+function _extractHubSpotId(crit) {
+  if (!crit) return null;
+  var s = String(crit).toLowerCase().trim();
+  if (s.indexOf('hubspot:') === 0) {
+    var id = s.substring(8).replace(/\D/g, '');
+    return id.length > 0 ? id : null;
+  }
+  if (s.indexOf('hubspot.com/') >= 0) {
+    // Pega último segmento numérico da URL
+    var match = s.match(/\/(\d{3,})(?:\?|$|\/)/g);
+    if (match && match.length > 0) {
+      var last = match[match.length - 1];
+      var num = last.replace(/\D/g, '');
+      return num.length > 0 ? num : null;
+    }
+  }
+  return null;
 }
 
 function isAdminAba(abaId) {

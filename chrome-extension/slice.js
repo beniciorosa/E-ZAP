@@ -636,15 +636,27 @@ function _matchContactToCriteria(contactJid, contactName, criteria) {
       continue;
     }
 
-    // 4. Link HubSpot completo (app.hubspot.com/...) ou prefixo "hubspot:" (TODO)
+    // 4. Link HubSpot completo (app.hubspot.com/...) ou prefixo "hubspot:"
     if (critLower.indexOf('hubspot.com/') >= 0 || critLower.indexOf('hubspot:') === 0) {
-      // Extrai último segmento numérico do link ou ID após "hubspot:"
-      // Exemplos de URLs:
-      //   https://app.hubspot.com/contacts/12345/ticket/678901234  → 678901234
-      //   https://app.hubspot.com/contacts/12345/record/0-5/987654321 → 987654321
-      //   https://app.hubspot.com/contacts/12345/contact/555 → 555
-      // Guardamos o ID extraído para match futuro (requer cache cust_id por contato)
-      // Por enquanto não match — cache ainda não existe
+      // Extrai ID do HubSpot (ticket_id / contact_id / deal_id)
+      var hubspotId = null;
+      if (critLower.indexOf('hubspot:') === 0) {
+        hubspotId = crit.substring(8).replace(/\D/g, '');
+      } else {
+        // Pega último segmento numérico da URL
+        var matches = critLower.match(/\/(\d{3,})(?:\?|$|\/)/g);
+        if (matches && matches.length > 0) {
+          hubspotId = matches[matches.length - 1].replace(/\D/g, '');
+        }
+      }
+      if (!hubspotId) continue;
+      // Consulta o cache resolvido via tabela mentorados
+      var cache = window._ezapHubSpotTicketCache || {};
+      var resolvedDigits = cache[hubspotId];
+      if (resolvedDigits && resolvedDigits.length >= 8 && jidDigits.length >= 8) {
+        if (jidDigits === resolvedDigits) return true;
+        if (jidDigits.indexOf(resolvedDigits) >= 0 || resolvedDigits.indexOf(jidDigits) >= 0) return true;
+      }
       continue;
     }
 
