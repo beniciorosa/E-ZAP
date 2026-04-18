@@ -7512,13 +7512,44 @@ function saveAdminAba(editId) {
   });
 }
 
+// Para números BR, expande variações com e sem o "9 extra" depois do DDD
+// (cadastrais antigos não têm o 9 que foi adicionado depois de 2012)
+// Ex: 5584994712772 → [5584994712772, 558494712772]
+//     558494712772  → [558494712772, 5584994712772]
+function _expandBrazilPhoneVariations(phone) {
+  var variations = [phone];
+  var s = String(phone).replace(/\D/g, '');
+  if (s.length < 10) return variations;
+  if (s.indexOf('55') === 0) {
+    // Com o 9 extra (13 dígitos): 55 + DDD(2) + 9 + 8dig = 5584994712772
+    if (s.length === 13 && s.charAt(4) === '9') {
+      var without9 = s.substring(0, 4) + s.substring(5);
+      if (variations.indexOf(without9) < 0) variations.push(without9);
+    }
+    // Sem o 9 (12 dígitos): 55 + DDD(2) + 8dig = 558494712772
+    if (s.length === 12) {
+      var with9 = s.substring(0, 4) + '9' + s.substring(4);
+      if (variations.indexOf(with9) < 0) variations.push(with9);
+    }
+  }
+  return variations;
+}
+
 // Expande lista de phones em todos os JIDs relacionados (pessoa + grupos onde é membro)
 function _expandPhonesToJids(phones) {
   if (!phones || phones.length === 0) return Promise.resolve([]);
 
-  // Step 1: busca wa_contacts WHERE phone IN phones → pega TODOS contact_jids
-  // (uma pessoa pode ter @s.whatsapp.net E @lid no banco)
-  var phonesQuery = phones.map(function(p) { return '"' + p + '"'; }).join(',');
+  // Gera variações com/sem o 9 extra para BR
+  var allPhoneVariations = [];
+  phones.forEach(function(p) {
+    _expandBrazilPhoneVariations(p).forEach(function(v) {
+      if (allPhoneVariations.indexOf(v) < 0) allPhoneVariations.push(v);
+    });
+  });
+
+  // Step 1: busca wa_contacts WHERE phone IN [variações] → pega TODOS contact_jids
+  // (uma pessoa pode ter @s.whatsapp.net E @lid no banco, com ou sem o 9 extra)
+  var phonesQuery = allPhoneVariations.map(function(p) { return '"' + p + '"'; }).join(',');
   return supa('/rest/v1/wa_contacts?phone=in.(' + phonesQuery + ')&select=contact_jid,linked_jid').then(function(rows) {
     if (!Array.isArray(rows)) rows = [];
     var contactJids = [];
@@ -7527,20 +7558,24 @@ function _expandPhonesToJids(phones) {
       if (r.linked_jid && contactJids.indexOf(r.linked_jid) < 0) contactJids.push(r.linked_jid);
     });
 
-    if (contactJids.length === 0) return [];
+    // Mesmo se não achou nada em wa_contacts, ainda monta JIDs sintéticos pra cada
+    // variação (ex: phone "5511972857748" → "5511972857748@s.whatsapp.net")
+    allPhoneVariations.forEach(function(p) {
+      var syntheticJid = p + '@s.whatsapp.net';
+      if (contactJids.indexOf(syntheticJid) < 0) contactJids.push(syntheticJid);
+    });
 
-    // Step 2: busca group_members WHERE member_phone IN contactJids (que pode ser @lid ou phone digits)
-    // Os member_phone na tabela são geralmente os @lid sem o sufixo (ex: "126508429516940")
-    // ou phone normal sem sufixo. Vamos extrair apenas a parte antes do @ para query.
+    // Step 2: busca group_members onde member_phone bate com qualquer chave dos JIDs ou phones
     var memberKeys = [];
     contactJids.forEach(function(jid) {
       var key = jid.replace(/@.*$/, '');
       if (key && memberKeys.indexOf(key) < 0) memberKeys.push(key);
     });
-    // Também adiciona o phone digits (caso member_phone seja o phone real sem @)
-    phones.forEach(function(p) {
+    allPhoneVariations.forEach(function(p) {
       if (memberKeys.indexOf(p) < 0) memberKeys.push(p);
     });
+
+    if (memberKeys.length === 0) return contactJids;
 
     var memberQuery = memberKeys.map(function(p) { return '"' + p + '"'; }).join(',');
     return supa('/rest/v1/group_members?member_phone=in.(' + memberQuery + ')&select=group_jid').then(function(memberRows) {
