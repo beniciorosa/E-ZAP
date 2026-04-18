@@ -295,7 +295,8 @@ function findChatListContainer() {
 // ABA inativa: restaura lista nativa + limpa filter-active/hidden/synth.
 function applyConversationFilters() {
   var hasAbasFilter = typeof selectedAbaId !== 'undefined' && selectedAbaId !== null;
-  var overlayEnabled = window.__ezapOverlayEnabled === true;
+  // If admin force-hid the overlay via popup, don't re-enable it
+  var overlayEnabled = window.__ezapOverlayEnabled === true && !window.__ezapOverlayForceHidden;
   var runLegacyCleanup = function(idx) { _hideCustomAbaList(); _stopCustomListPolling(); _runFiltersSync(idx); };
   var runCustom = function(idx) {
     var tab = _getAbaTabEntry(selectedAbaId);

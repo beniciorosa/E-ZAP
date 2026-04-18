@@ -811,32 +811,56 @@ chrome.runtime.onMessage.addListener(function(request) {
 });
 
 // ===== Overlay Hide/Show =====
+// "Overlay" = the left panel custom chat list (#wcrm-custom-list) + quick aba bar
+// that replaces the native WhatsApp chat list. Hiding it restores native WA.
 function _ezapApplyOverlayHidden(hidden) {
-  var style = document.getElementById("ezap-overlay-hide-style");
   if (hidden) {
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "ezap-overlay-hide-style";
-      style.textContent =
-        "#ezap-float-container,.escalada-crm,.ezap-sidebar,#ezap-top-widget," +
-        "#wcrm-quick-aba-bar,#ezap-tab-bar,.ezap-float-btn{display:none!important}" +
-        "#app{width:100%!important;max-width:100%!important;margin-right:0!important}";
-      document.head.appendChild(style);
-    }
-    var appEl = document.getElementById("app");
-    if (appEl) appEl.removeAttribute("data-ezapRail");
-  } else {
-    if (style) style.remove();
-    // Re-adjust app width via sidebar manager
-    if (window.ezapSidebar && window.ezapSidebar.adjustAppWidth) {
-      window.ezapSidebar.adjustAppWidth();
+    // Disable the overlay flag so slice.js stops re-rendering
+    window.__ezapOverlayEnabled = false;
+    window.__ezapOverlayForceHidden = true;
+
+    // Hide the custom list and restore native WA chat list
+    if (typeof _hideCustomAbaList === "function") {
+      _hideCustomAbaList();
     } else {
-      var appEl = document.getElementById("app");
-      if (appEl) {
-        appEl.style.width = "calc(100% - 62px)";
-        appEl.style.maxWidth = "calc(100% - 62px)";
-        appEl.setAttribute("data-ezapRail", "1");
+      // Fallback: hide directly
+      var custom = document.getElementById("wcrm-custom-list");
+      if (custom) { custom.style.display = "none"; custom.innerHTML = ""; }
+      // Restore native list
+      var hidden2 = document.querySelector('[data-ezap-hidden="1"]');
+      if (hidden2) {
+        hidden2.style.overflow = hidden2.getAttribute("data-ezap-orig-overflow") || "";
+        hidden2.style.pointerEvents = hidden2.getAttribute("data-ezap-orig-pointerevents") || "";
+        hidden2.removeAttribute("data-ezap-hidden");
       }
+    }
+
+    // Hide the quick aba bar (pills)
+    var abaBar = document.getElementById("wcrm-quick-aba-bar");
+    if (abaBar) abaBar.style.display = "none";
+
+    // Clear active aba filter
+    if (typeof selectedAbaId !== "undefined") {
+      selectedAbaId = null;
+    }
+
+    // Stop custom list polling
+    if (typeof _stopCustomListPolling === "function") _stopCustomListPolling();
+  } else {
+    // Re-enable overlay
+    window.__ezapOverlayEnabled = true;
+    delete window.__ezapOverlayForceHidden;
+
+    // Restore quick aba bar
+    var abaBar = document.getElementById("wcrm-quick-aba-bar");
+    if (abaBar) abaBar.style.display = "";
+
+    // Re-inject the aba bar if missing
+    if (typeof injectQuickAbaSelector === "function") injectQuickAbaSelector();
+
+    // Re-apply conversation filters (will show custom list if overlay enabled)
+    if (typeof applyConversationFilters === "function") {
+      applyConversationFilters();
     }
   }
 }
@@ -909,22 +933,36 @@ function _ezapShowImpersonationBanner(userName) {
 }
 
 function _ezapReloadCrmData() {
-  // Trigger abas reload
+  // 1. Reload abas for new userId
   if (typeof loadAbasData === "function") {
     loadAbasData().then(function(data) {
       if (typeof renderAbasList === "function") renderAbasList(data);
       if (typeof updateAbasIndicator === "function") updateAbasIndicator();
+      // Re-inject the quick aba bar with new user's abas
+      if (typeof injectQuickAbaSelector === "function") injectQuickAbaSelector();
+      // Re-apply conversation filters with new abas
+      if (typeof applyConversationFilters === "function") applyConversationFilters();
     }).catch(function() {});
   }
 
-  // Trigger labels reload via event bus
+  // 2. Trigger labels reload via event bus
   if (window.ezapEventBus) {
     window.ezapEventBus.emit("impersonate:changed");
   }
 
-  // Force CRM sidebar refresh if open
+  // 3. Force CRM sidebar refresh if open
   if (typeof window.__wcrmRefreshSidebar === "function") {
     window.__wcrmRefreshSidebar();
+  }
+
+  // 4. Reload message templates
+  if (typeof loadMsgSequences === "function") {
+    loadMsgSequences();
+  }
+
+  // 5. Reload pinned contacts
+  if (typeof loadPinnedContacts === "function") {
+    loadPinnedContacts();
   }
 }
 
