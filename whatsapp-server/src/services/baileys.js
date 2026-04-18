@@ -2030,6 +2030,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       locked: false,
       welcomeSent: false,
       inviteLink: null,
+      // Campos HubSpot denormalizados (vindos do spec via grupos.html)
+      hubspotTicketId: spec.hubspotTicketId || null,
+      hubspotTicketName: spec.hubspotTicketName || null,
+      hubspotMentor: spec.hubspotMentor || null,
+      hubspotTier: spec.hubspotTier || null,
+      clientPhone: spec.clientPhone || null,
+      mentorSessionId: spec.mentorSessionId || null,
+      mentorSessionPhone: spec.mentorSessionPhone || null,
     };
 
     try {
@@ -2374,6 +2382,17 @@ async function upsertGroupCreation(sessionId, row) {
         locked: !!row.locked,
         welcome_sent: !!row.welcomeSent,
         invite_link: row.inviteLink || null,
+        // Campos HubSpot denormalizados (snapshot no momento da criação).
+        // hubspot_pipeline_* ficam NULL aqui — são populados pelo trigger
+        // sync_ticket_to_group_creations quando o webhook HubSpot atualiza
+        // a tabela `mentorados`.
+        hubspot_ticket_id: row.hubspotTicketId || null,
+        hubspot_ticket_name: row.hubspotTicketName || null,
+        hubspot_mentor: row.hubspotMentor || null,
+        hubspot_tier: row.hubspotTier || null,
+        client_phone: row.clientPhone || null,
+        mentor_session_id: row.mentorSessionId || null,
+        mentor_session_phone: row.mentorSessionPhone || null,
         updated_at: new Date().toISOString(),
       },
       "resolution=merge-duplicates,return=minimal"

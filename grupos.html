@@ -2415,6 +2415,13 @@ async function buildSpecsFromHubspotResolved() {
         adminJids: adminJids.slice(),
         clientPhone: clientPhone || null,
         specHash: null,
+        // Campos HubSpot (denormalizados em wa_group_creations)
+        hubspotTicketId: r.ticket_id || null,
+        hubspotTicketName: r.ticket_name || null,
+        hubspotMentor: r.mentor || null,
+        hubspotTier: r.tier || null,
+        mentorSessionId: r.mentorSessionId || null,
+        mentorSessionPhone: r.mentorSessionPhone || null,
       };
     }
 

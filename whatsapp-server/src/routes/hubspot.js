@@ -229,6 +229,68 @@ router.get("/group-history/:sessionId", async (req, res) => {
   }
 });
 
+// ===== Ticket lookup (ancora por hubspot_ticket_id) =====
+// Retorna TUDO que sabemos sobre um ticket numa única chamada:
+//  - mentorado: row da tabela mentorados (fonte HubSpot via webhook)
+//  - groups: array de wa_group_creations com esse hubspot_ticket_id (1+ se recriou)
+//  - members: membros adicionados em cada grupo (group_members)
+//
+// Exemplo: GET /api/hubspot/ticket/44391166513
+router.get("/ticket/:ticketId", async (req, res) => {
+  const ticketId = req.params.ticketId;
+  if (!/^\d+$/.test(String(ticketId))) {
+    return res.status(400).json({ error: "ticketId inválido" });
+  }
+
+  try {
+    // 1. Rows de wa_group_creations (pode ter mais de uma se o grupo foi recriado)
+    const creations = await supaRest(
+      "/rest/v1/wa_group_creations?hubspot_ticket_id=eq." + encodeURIComponent(ticketId) +
+      "&select=*&order=created_at.desc"
+    );
+
+    // 2. Row do mentorados (dados frescos, incluindo pipeline/stage atualizados)
+    const mentoradoRows = await supaRest(
+      "/rest/v1/mentorados?ticket_id=eq." + encodeURIComponent(ticketId) + "&select=*&limit=1"
+    );
+    const mentorado = Array.isArray(mentoradoRows) && mentoradoRows.length > 0 ? mentoradoRows[0] : null;
+
+    // 3. Membros de todos os grupos listados (audit trail)
+    const jids = (creations || []).map(c => c.group_jid).filter(Boolean);
+    let membersByJid = {};
+    if (jids.length > 0) {
+      const inList = jids.map(j => '"' + j + '"').join(",");
+      const members = await supaRest(
+        "/rest/v1/group_members?group_jid=in.(" + encodeURIComponent(inList) +
+        ")&select=group_jid,member_phone,member_name,role"
+      );
+      (members || []).forEach(m => {
+        if (!membersByJid[m.group_jid]) membersByJid[m.group_jid] = [];
+        membersByJid[m.group_jid].push({
+          phone: m.member_phone,
+          name: m.member_name || null,
+          role: m.role || "member",
+        });
+      });
+    }
+
+    const groups = (creations || []).map(c => ({
+      ...c,
+      members: c.group_jid ? (membersByJid[c.group_jid] || []) : [],
+    }));
+
+    res.json({
+      ok: true,
+      ticketId: Number(ticketId),
+      mentorado: mentorado,
+      groups: groups,
+    });
+  } catch (e) {
+    console.error("[HUBSPOT] ticket lookup error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ===== Per-session message templates =====
 // Saves/loads the 3 editable message templates (description, welcome,
 // rejectDm) to app_settings keyed by "hubspot_templates_{sessionId}".
