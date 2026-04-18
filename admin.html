@@ -7481,29 +7481,77 @@ function saveAdminAba(editId) {
   var btn = document.querySelector('#adminAbaModal .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
 
-  // 1. Resolver critérios hubspot:ID via whatsapp-server (popula mentorados)
-  // 2. Buscar phones resolvidos da tabela mentorados
-  // 3. Salvar em resolved_phones para o matcher na extensão
+  // Pipeline:
+  // 1. Resolver critérios hubspot:ID via /api/hubspot/resolve-tickets (popula mentorados + retorna phones)
+  // 2. Para cada phone, buscar wa_contacts → pega TODOS contact_jids (@s.whatsapp.net + @lid)
+  // 3. Para cada contact_jid, buscar group_members onde é member → pega group_jids
+  // 4. Salvar tudo em resolved_jids para matcher na extensão fazer comparação direta
   _resolveHubspotCriteria(criteriaArr).then(function(resolvedPhones) {
-    var body = {
-      name: name, color: color, position: position,
-      active: true, visible_to: visibleTo,
-      icon: iconVal,
-      criteria: criteriaVal,
-      resolved_phones: resolvedPhones.length > 0 ? resolvedPhones : null
-    };
-    if (!editId) body.created_by = (currentAdmin && currentAdmin.user_id) || null;
+    return _expandPhonesToJids(resolvedPhones).then(function(allJids) {
+      var body = {
+        name: name, color: color, position: position,
+        active: true, visible_to: visibleTo,
+        icon: iconVal,
+        criteria: criteriaVal,
+        resolved_phones: resolvedPhones.length > 0 ? resolvedPhones : null,
+        resolved_jids: allJids.length > 0 ? allJids : null
+      };
+      if (!editId) body.created_by = (currentAdmin && currentAdmin.user_id) || null;
 
-    var method = editId ? 'PATCH' : 'POST';
-    var path = editId ? '/rest/v1/admin_abas?id=eq.' + editId : '/rest/v1/admin_abas';
+      var method = editId ? 'PATCH' : 'POST';
+      var path = editId ? '/rest/v1/admin_abas?id=eq.' + editId : '/rest/v1/admin_abas';
 
-    return supa(path, method, body, 'return=minimal').then(function() {
-      closeAdminAbaModal();
-      loadAdminAbasAdmin();
+      return supa(path, method, body, 'return=minimal').then(function() {
+        closeAdminAbaModal();
+        loadAdminAbasAdmin();
+      });
     });
   }).catch(function(err) {
     if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
     alert('Erro ao salvar: ' + (err && err.message ? err.message : 'desconhecido'));
+  });
+}
+
+// Expande lista de phones em todos os JIDs relacionados (pessoa + grupos onde é membro)
+function _expandPhonesToJids(phones) {
+  if (!phones || phones.length === 0) return Promise.resolve([]);
+
+  // Step 1: busca wa_contacts WHERE phone IN phones → pega TODOS contact_jids
+  // (uma pessoa pode ter @s.whatsapp.net E @lid no banco)
+  var phonesQuery = phones.map(function(p) { return '"' + p + '"'; }).join(',');
+  return supa('/rest/v1/wa_contacts?phone=in.(' + phonesQuery + ')&select=contact_jid,linked_jid').then(function(rows) {
+    if (!Array.isArray(rows)) rows = [];
+    var contactJids = [];
+    rows.forEach(function(r) {
+      if (r.contact_jid && contactJids.indexOf(r.contact_jid) < 0) contactJids.push(r.contact_jid);
+      if (r.linked_jid && contactJids.indexOf(r.linked_jid) < 0) contactJids.push(r.linked_jid);
+    });
+
+    if (contactJids.length === 0) return [];
+
+    // Step 2: busca group_members WHERE member_phone IN contactJids (que pode ser @lid ou phone digits)
+    // Os member_phone na tabela são geralmente os @lid sem o sufixo (ex: "126508429516940")
+    // ou phone normal sem sufixo. Vamos extrair apenas a parte antes do @ para query.
+    var memberKeys = [];
+    contactJids.forEach(function(jid) {
+      var key = jid.replace(/@.*$/, '');
+      if (key && memberKeys.indexOf(key) < 0) memberKeys.push(key);
+    });
+    // Também adiciona o phone digits (caso member_phone seja o phone real sem @)
+    phones.forEach(function(p) {
+      if (memberKeys.indexOf(p) < 0) memberKeys.push(p);
+    });
+
+    var memberQuery = memberKeys.map(function(p) { return '"' + p + '"'; }).join(',');
+    return supa('/rest/v1/group_members?member_phone=in.(' + memberQuery + ')&select=group_jid').then(function(memberRows) {
+      var allJids = contactJids.slice();
+      if (Array.isArray(memberRows)) {
+        memberRows.forEach(function(m) {
+          if (m.group_jid && allJids.indexOf(m.group_jid) < 0) allJids.push(m.group_jid);
+        });
+      }
+      return allJids;
+    });
   });
 }
 

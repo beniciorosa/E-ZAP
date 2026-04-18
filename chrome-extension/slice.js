@@ -687,8 +687,9 @@ function _getAbasForContact(contactName, contactJid) {
       }
     }
   }
-  // Admin abas — match por contato manual, resolved_phones (HubSpot já resolvido) ou critério automático
+  // Admin abas — match por contato manual, resolved_jids (preferido), resolved_phones, ou critério
   var adminAbas = window._adminAbas || [];
+  var jidLowerForMatch = contactJid ? contactJid.toLowerCase() : '';
   for (var k = 0; k < adminAbas.length; k++) {
     var adminTab = adminAbas[k];
     var matched = false;
@@ -702,7 +703,19 @@ function _getAbasForContact(contactName, contactJid) {
       }
     }
 
-    // Match por resolved_phones (HubSpot já resolvido em phones reais ao salvar no admin)
+    // Match por resolved_jids (preferido: JIDs completos pré-resolvidos no admin save,
+    // incluindo grupos onde o mentorado é membro). Match direto sem inferência.
+    if (!matched && adminTab.resolved_jids && adminTab.resolved_jids.length > 0 && jidLowerForMatch) {
+      for (var rj = 0; rj < adminTab.resolved_jids.length; rj++) {
+        var rjid = String(adminTab.resolved_jids[rj] || '').toLowerCase();
+        if (rjid && rjid === jidLowerForMatch) {
+          matched = true;
+          break;
+        }
+      }
+    }
+
+    // Match por resolved_phones (fallback se não tem resolved_jids — só funciona para pessoas)
     if (!matched && adminTab.resolved_phones && adminTab.resolved_phones.length > 0 && contactJid) {
       var jidDigitsForPhone = contactJid.replace(/@.*$/, '').replace(/\D/g, '');
       if (jidDigitsForPhone.length >= 8) {
