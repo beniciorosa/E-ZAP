@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "E-ZAP",
-  "version": "2.0.23",
+  "version": "2.0.25",
   "description": "E-ZAP — Gestão inteligente para WhatsApp Business",
   "permissions": ["storage", "activeTab", "alarms", "tabs", "identity"],
   "oauth2": {

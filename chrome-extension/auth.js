@@ -862,14 +862,43 @@ function _ezapApplyOverlayHidden(hidden) {
 
     // Stop custom list polling
     if (typeof _stopCustomListPolling === "function") _stopCustomListPolling();
+
+    // Hide floating buttons rail + restore full app width
+    var floatContainer = document.getElementById("ezap-float-container");
+    if (floatContainer) floatContainer.style.display = "none";
+
+    // Restore #app to full width (remove rail compression)
+    var appEl = document.getElementById("app");
+    if (appEl) {
+      appEl.style.width = "100%";
+      appEl.style.maxWidth = "100%";
+      appEl.removeAttribute("data-ezapRail");
+    }
+
+    // Hide resize handle if exists
+    var resizeHandle = document.querySelector(".ezap-resize-handle");
+    if (resizeHandle) resizeHandle.style.display = "none";
+
   } else {
     // Re-enable overlay
     window.__ezapOverlayEnabled = true;
     delete window.__ezapOverlayForceHidden;
 
+    // Show floating buttons rail
+    var floatContainer = document.getElementById("ezap-float-container");
+    if (floatContainer) floatContainer.style.display = "";
+
     // Restore quick aba bar
     var abaBar = document.getElementById("wcrm-quick-aba-bar");
     if (abaBar) abaBar.style.display = "";
+
+    // Restore #app width for rail
+    var appEl = document.getElementById("app");
+    if (appEl) {
+      appEl.style.width = "calc(100% - 62px)";
+      appEl.style.maxWidth = "calc(100% - 62px)";
+      appEl.setAttribute("data-ezapRail", "1");
+    }
 
     // Re-inject the aba bar if missing
     if (typeof injectQuickAbaSelector === "function") injectQuickAbaSelector();
@@ -878,6 +907,10 @@ function _ezapApplyOverlayHidden(hidden) {
     if (typeof window._wcrmApplyOverlay === "function") {
       window._wcrmApplyOverlay();
     }
+
+    // Show resize handle
+    var resizeHandle = document.querySelector(".ezap-resize-handle");
+    if (resizeHandle) resizeHandle.style.display = "";
   }
 }
 
@@ -920,6 +953,8 @@ function _ezapStopImpersonate() {
   // Remove banner
   var banner = document.getElementById("ezap-impersonate-banner");
   if (banner) banner.remove();
+  var appEl = document.getElementById("app");
+  if (appEl) appEl.style.marginTop = "";
 
   // Reload CRM data back to admin
   _ezapReloadCrmData();
@@ -931,19 +966,14 @@ function _ezapShowImpersonationBanner(userName) {
 
   var banner = document.createElement("div");
   banner.id = "ezap-impersonate-banner";
-  banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#ff922b;color:#fff;padding:6px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+  banner.style.cssText = "position:fixed;top:0;left:0;z-index:1000;background:#ff922b;color:#fff;padding:4px 16px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;border-radius:0 0 8px 0;box-shadow:0 2px 8px rgba(0,0,0,0.3)";
   banner.innerHTML =
-    '<span>👁 Visualizando como: ' + (userName || "Usuário") + '</span>' +
-    '<button id="ezap-impersonate-stop" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">Voltar ao meu perfil ✕</button>';
+    '<span>👁 ' + (userName || "Usuário") + '</span>' +
+    '<button id="ezap-impersonate-stop" style="background:rgba(255,255,255,0.25);border:none;color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">Voltar ✕</button>';
   document.body.appendChild(banner);
-
-  // Push WhatsApp content down
-  var appEl = document.getElementById("app");
-  if (appEl) appEl.style.marginTop = "32px";
 
   document.getElementById("ezap-impersonate-stop").addEventListener("click", function() {
     _ezapStopImpersonate();
-    // Also update storage
     chrome.storage.local.remove("ezap_impersonate");
   });
 }
