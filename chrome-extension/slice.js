@@ -687,7 +687,7 @@ function _getAbasForContact(contactName, contactJid) {
       }
     }
   }
-  // Admin abas — match por contato manual OU por critério automático
+  // Admin abas — match por contato manual, resolved_phones (HubSpot já resolvido) ou critério automático
   var adminAbas = window._adminAbas || [];
   for (var k = 0; k < adminAbas.length; k++) {
     var adminTab = adminAbas[k];
@@ -702,7 +702,25 @@ function _getAbasForContact(contactName, contactJid) {
       }
     }
 
-    // Match por critério automático (criteria array)
+    // Match por resolved_phones (HubSpot já resolvido em phones reais ao salvar no admin)
+    if (!matched && adminTab.resolved_phones && adminTab.resolved_phones.length > 0 && contactJid) {
+      var jidDigitsForPhone = contactJid.replace(/@.*$/, '').replace(/\D/g, '');
+      if (jidDigitsForPhone.length >= 8) {
+        for (var rp = 0; rp < adminTab.resolved_phones.length; rp++) {
+          var phoneDigits = String(adminTab.resolved_phones[rp]).replace(/\D/g, '');
+          if (phoneDigits.length >= 8) {
+            if (jidDigitsForPhone === phoneDigits ||
+                jidDigitsForPhone.indexOf(phoneDigits) >= 0 ||
+                phoneDigits.indexOf(jidDigitsForPhone) >= 0) {
+              matched = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Match por critério automático (criteria array — JID, telefone, wa.me)
     if (!matched && adminTab.criteria && adminTab.criteria.length > 0) {
       if (_matchContactToCriteria(contactJid, contactName, adminTab.criteria)) {
         matched = true;

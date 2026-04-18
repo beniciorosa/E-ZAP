@@ -7477,22 +7477,94 @@ function saveAdminAba(editId) {
   var criteriaArr = criteriaRaw.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
   var criteriaVal = criteriaArr.length > 0 ? criteriaArr : null;
 
-  var body = {
-    name: name, color: color, position: position,
-    active: true, visible_to: visibleTo,
-    icon: iconVal,
-    criteria: criteriaVal
-  };
-  if (!editId) body.created_by = (currentAdmin && currentAdmin.user_id) || null;
+  // Mostrar status enquanto resolve HubSpot
+  var btn = document.querySelector('#adminAbaModal .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
 
-  var method = editId ? 'PATCH' : 'POST';
-  var path = editId ? '/rest/v1/admin_abas?id=eq.' + editId : '/rest/v1/admin_abas';
+  // 1. Resolver critérios hubspot:ID via whatsapp-server (popula mentorados)
+  // 2. Buscar phones resolvidos da tabela mentorados
+  // 3. Salvar em resolved_phones para o matcher na extensão
+  _resolveHubspotCriteria(criteriaArr).then(function(resolvedPhones) {
+    var body = {
+      name: name, color: color, position: position,
+      active: true, visible_to: visibleTo,
+      icon: iconVal,
+      criteria: criteriaVal,
+      resolved_phones: resolvedPhones.length > 0 ? resolvedPhones : null
+    };
+    if (!editId) body.created_by = (currentAdmin && currentAdmin.user_id) || null;
 
-  supa(path, method, body, 'return=minimal').then(function() {
-    closeAdminAbaModal();
-    loadAdminAbasAdmin();
+    var method = editId ? 'PATCH' : 'POST';
+    var path = editId ? '/rest/v1/admin_abas?id=eq.' + editId : '/rest/v1/admin_abas';
+
+    return supa(path, method, body, 'return=minimal').then(function() {
+      closeAdminAbaModal();
+      loadAdminAbasAdmin();
+    });
   }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
     alert('Erro ao salvar: ' + (err && err.message ? err.message : 'desconhecido'));
+  });
+}
+
+// Extrai HubSpot IDs dos critérios e resolve para phones via whatsapp-server
+// (que faz fallback HubSpot API e popula tabela mentorados)
+function _resolveHubspotCriteria(criteriaArr) {
+  var hubspotIds = [];
+  (criteriaArr || []).forEach(function(crit) {
+    var s = String(crit).toLowerCase().trim();
+    var id = null;
+    if (s.indexOf('hubspot:') === 0) {
+      id = s.substring(8).replace(/\D/g, '');
+    } else if (s.indexOf('hubspot.com/') >= 0) {
+      var matches = s.match(/\/(\d{3,})(?:\?|$|\/)/g);
+      if (matches && matches.length > 0) {
+        id = matches[matches.length - 1].replace(/\D/g, '');
+      }
+    }
+    if (id && id.length > 0 && hubspotIds.indexOf(id) < 0) hubspotIds.push(id);
+  });
+
+  if (hubspotIds.length === 0) return Promise.resolve([]);
+
+  // Tenta usar whatsapp-server (rota /api/hubspot/resolve-tickets)
+  // que faz fallback pra HubSpot API e popula mentorados automaticamente
+  if (typeof WA_SERVER_URL === 'string' && WA_SERVER_URL) {
+    return waFetch('/api/hubspot/resolve-tickets', {
+      method: 'POST',
+      body: JSON.stringify({ ticketIds: hubspotIds.map(function(x) { return parseInt(x, 10); }) })
+    }).then(function(data) {
+      if (!data || !Array.isArray(data.resolved)) return [];
+      var phones = [];
+      data.resolved.forEach(function(r) {
+        if (r && r.whatsapp) {
+          var digits = String(r.whatsapp).replace(/\D/g, '');
+          if (digits.length >= 8 && phones.indexOf(digits) < 0) phones.push(digits);
+        }
+      });
+      return phones;
+    }).catch(function(err) {
+      console.warn('[ADMIN ABAS] resolve-tickets falhou:', err.message);
+      // Fallback: busca direto na tabela mentorados (sem chamar HubSpot)
+      return _resolveFromMentorados(hubspotIds);
+    });
+  }
+
+  // Sem WA_SERVER_URL configurado: tenta só na tabela mentorados (cache local)
+  return _resolveFromMentorados(hubspotIds);
+}
+
+function _resolveFromMentorados(hubspotIds) {
+  return supa('/rest/v1/mentorados?ticket_id=in.(' + hubspotIds.join(',') + ')&select=ticket_id,whatsapp_do_mentorado').then(function(rows) {
+    if (!Array.isArray(rows)) return [];
+    var phones = [];
+    rows.forEach(function(r) {
+      if (r && r.whatsapp_do_mentorado) {
+        var digits = String(r.whatsapp_do_mentorado).replace(/\D/g, '');
+        if (digits.length >= 8 && phones.indexOf(digits) < 0) phones.push(digits);
+      }
+    });
+    return phones;
   });
 }
 
