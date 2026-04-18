@@ -7357,11 +7357,38 @@ function openAdminAbaModal(aba) {
     return (a.name || '').localeCompare(b.name || '');
   });
   var allSelected = visibleTo.length === 0;
-  var userCheckboxes = '<div style="margin-bottom:10px;padding:8px;background:rgba(0,168,132,0.1);border-radius:6px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="adminAbaAllUsers" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAdminAbaUsers(this)"><strong>Todos os usuários</strong></label></div>';
-  userCheckboxes += '<div id="adminAbaUserList" style="max-height:280px;overflow-y:auto;border:1px solid var(--surface-border);border-radius:6px;padding:8px;' + (allSelected ? 'opacity:0.4;pointer-events:none' : '') + '">';
+
+  // Inject user-list styles once
+  if (!document.getElementById('admin-aba-userlist-style')) {
+    var userStyle = document.createElement('style');
+    userStyle.id = 'admin-aba-userlist-style';
+    userStyle.textContent =
+      '.aba-all-users-banner { display:flex; align-items:center; gap:10px; padding:10px 12px; background:rgba(0,168,132,0.12); border:1px solid rgba(0,168,132,0.25); border-radius:8px; margin-bottom:10px; cursor:pointer; transition:background 0.15s; }' +
+      '.aba-all-users-banner:hover { background:rgba(0,168,132,0.18); }' +
+      '.aba-all-users-banner input[type="checkbox"] { width:16px; height:16px; accent-color:var(--primary); cursor:pointer; margin:0; }' +
+      '.aba-all-users-banner strong { color:var(--primary); font-size:13px; }' +
+      '.aba-user-list { max-height:280px; overflow-y:auto; border:1px solid var(--surface-border); border-radius:8px; background:var(--surface); transition:opacity 0.2s; }' +
+      '.aba-user-list::-webkit-scrollbar { width:6px; }' +
+      '.aba-user-list::-webkit-scrollbar-thumb { background:var(--surface-border); border-radius:3px; }' +
+      '.aba-user-row { display:grid; grid-template-columns:18px 1fr auto; align-items:center; gap:10px; padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--surface-border); transition:background 0.12s; font-size:13px; }' +
+      '.aba-user-row:last-child { border-bottom:none; }' +
+      '.aba-user-row:hover { background:var(--surface-hover); }' +
+      '.aba-user-row input[type="checkbox"] { width:16px; height:16px; margin:0; accent-color:var(--primary); cursor:pointer; }' +
+      '.aba-user-row-name { color:var(--on-surface); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }' +
+      '.aba-user-row-role { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--on-surface-variant); background:var(--surface-hover); padding:2px 8px; border-radius:10px; }' +
+      '.aba-user-row-role.aba-role-admin { background:rgba(77,150,255,0.15); color:#4d96ff; }';
+    document.head.appendChild(userStyle);
+  }
+
+  var userCheckboxes = '<label class="aba-all-users-banner"><input type="checkbox" id="adminAbaAllUsers" ' + (allSelected ? 'checked' : '') + ' onchange="toggleAllAdminAbaUsers(this)"><strong>Todos os usuários</strong></label>';
+  userCheckboxes += '<div id="adminAbaUserList" class="aba-user-list" style="' + (allSelected ? 'opacity:0.4;pointer-events:none' : '') + '">';
   users.forEach(function(u) {
     var checked = visibleTo.indexOf(u.id) >= 0 ? 'checked' : '';
-    userCheckboxes += '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer"><input type="checkbox" class="admin-aba-user-cb" data-user-id="' + u.id + '" ' + checked + '><span>' + (u.name || u.email || u.id) + '</span><span style="color:var(--on-surface-variant);font-size:11px;margin-left:auto">' + (u.role || 'user') + '</span></label>';
+    var role = (u.role || 'user');
+    var roleClass = role === 'admin' ? 'aba-role-admin' : '';
+    userCheckboxes += '<label class="aba-user-row"><input type="checkbox" class="admin-aba-user-cb" data-user-id="' + u.id + '" ' + checked + '>';
+    userCheckboxes += '<span class="aba-user-row-name">' + (u.name || u.email || u.id) + '</span>';
+    userCheckboxes += '<span class="aba-user-row-role ' + roleClass + '">' + role + '</span></label>';
   });
   userCheckboxes += '</div>';
 
@@ -7376,9 +7403,9 @@ function openAdminAbaModal(aba) {
     '<div class="form-group"><label>Ícone <span style="font-weight:400;font-size:11px;color:var(--on-surface-variant)">(opcional — se escolhido, aparece no lugar do dot de cor)</span></label><div id="adminAbaIconPicker" style="display:flex;gap:6px;flex-wrap:wrap">' + iconPicker + '</div><input type="hidden" id="adminAbaIcon" value="' + icon + '"></div>' +
     '<div class="form-group"><label>Posição</label><input type="number" id="adminAbaPosition" class="form-input" value="' + position + '" min="0"></div>' +
     '<div class="form-group"><label>Vínculos automáticos <span style="font-weight:400;font-size:11px;color:var(--on-surface-variant)">(um por linha)</span></label>' +
-      '<textarea id="adminAbaCriteria" class="form-input" rows="4" placeholder="Ex: 5511989473088&#10;5511989473088@c.us&#10;https://wa.me/5511989473088&#10;hubspot:12345&#10;https://chat.whatsapp.com/INVITE">' + criteria + '</textarea>' +
+      '<textarea id="adminAbaCriteria" class="form-input" rows="5" placeholder="Ex: 5511989473088&#10;5511989473088@c.us&#10;https://wa.me/5511989473088&#10;https://app.hubspot.com/contacts/12345/ticket/678901234&#10;hubspot:678901234&#10;https://chat.whatsapp.com/INVITE">' + criteria + '</textarea>' +
       '<p style="font-size:11px;color:var(--on-surface-variant);margin-top:4px;line-height:1.5">Se um contato do usuário corresponder a qualquer um desses critérios, o ícone desta aba aparecerá automaticamente ao lado do nome.<br>' +
-      '<strong>Formatos aceitos:</strong> Telefone (com ou sem formatação), JID (<code>@c.us</code>/<code>@g.us</code>), link <code>wa.me/NUMERO</code>, link <code>chat.whatsapp.com/...</code>, HubSpot ID (prefixe com <code>hubspot:</code>)</p>' +
+      '<strong>Formatos aceitos:</strong> Telefone, JID (<code>@c.us</code>/<code>@g.us</code>), link <code>wa.me/NUMERO</code>, link <code>chat.whatsapp.com/...</code>, <strong>link completo do HubSpot</strong> (cola URL da página do ticket/deal/contato — ID extraído automaticamente), ou <code>hubspot:ID</code></p>' +
     '</div>' +
     '<div class="form-group"><label>Visível para</label>' + userCheckboxes + '</div>' +
     '</div>' +

@@ -636,9 +636,15 @@ function _matchContactToCriteria(contactJid, contactName, criteria) {
       continue;
     }
 
-    // 4. HubSpot cust_id (prefixo "hubspot:") TODO
-    if (critLower.indexOf('hubspot:') === 0) {
-      // Por enquanto não match — precisa cache de cust_id por contato
+    // 4. Link HubSpot completo (app.hubspot.com/...) ou prefixo "hubspot:" (TODO)
+    if (critLower.indexOf('hubspot.com/') >= 0 || critLower.indexOf('hubspot:') === 0) {
+      // Extrai último segmento numérico do link ou ID após "hubspot:"
+      // Exemplos de URLs:
+      //   https://app.hubspot.com/contacts/12345/ticket/678901234  → 678901234
+      //   https://app.hubspot.com/contacts/12345/record/0-5/987654321 → 987654321
+      //   https://app.hubspot.com/contacts/12345/contact/555 → 555
+      // Guardamos o ID extraído para match futuro (requer cache cust_id por contato)
+      // Por enquanto não match — cache ainda não existe
       continue;
     }
 
