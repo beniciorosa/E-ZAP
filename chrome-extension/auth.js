@@ -820,19 +820,35 @@ function _ezapApplyOverlayHidden(hidden) {
     window.__ezapOverlayForceHidden = true;
 
     // Hide the custom list and restore native WA chat list
-    if (typeof _hideCustomAbaList === "function") {
-      _hideCustomAbaList();
+    if (typeof window._wcrmHideCustomList === "function") {
+      window._wcrmHideCustomList();
     } else {
-      // Fallback: hide directly
+      // Fallback: hide directly + restore native scroll
       var custom = document.getElementById("wcrm-custom-list");
       if (custom) { custom.style.display = "none"; custom.innerHTML = ""; }
-      // Restore native list
-      var hidden2 = document.querySelector('[data-ezap-hidden="1"]');
-      if (hidden2) {
-        hidden2.style.overflow = hidden2.getAttribute("data-ezap-orig-overflow") || "";
-        hidden2.style.pointerEvents = hidden2.getAttribute("data-ezap-orig-pointerevents") || "";
-        hidden2.removeAttribute("data-ezap-hidden");
+    }
+
+    // Always ensure native scroll is restored
+    var hiddenEl = document.querySelector('[data-ezap-hidden="1"]');
+    if (hiddenEl) {
+      hiddenEl.style.overflow = hiddenEl.getAttribute("data-ezap-orig-overflow") || "";
+      hiddenEl.style.pointerEvents = hiddenEl.getAttribute("data-ezap-orig-pointerevents") || "";
+      hiddenEl.removeAttribute("data-ezap-hidden");
+      hiddenEl.removeAttribute("data-ezap-orig-display");
+      hiddenEl.removeAttribute("data-ezap-orig-overflow");
+      hiddenEl.removeAttribute("data-ezap-orig-pointerevents");
+      // Restore parent position
+      var parent = hiddenEl.parentNode;
+      if (parent && parent.hasAttribute("data-ezap-orig-pos")) {
+        parent.style.position = parent.getAttribute("data-ezap-orig-pos");
+        parent.removeAttribute("data-ezap-orig-pos");
       }
+      // Nudge scroll to force WA to re-render virtual list
+      try {
+        var pos = hiddenEl.scrollTop;
+        hiddenEl.scrollTop = pos + 1;
+        setTimeout(function() { hiddenEl.scrollTop = pos; }, 50);
+      } catch(e) {}
     }
 
     // Hide the quick aba bar (pills)
@@ -859,8 +875,8 @@ function _ezapApplyOverlayHidden(hidden) {
     if (typeof injectQuickAbaSelector === "function") injectQuickAbaSelector();
 
     // Re-apply conversation filters (will show custom list if overlay enabled)
-    if (typeof applyConversationFilters === "function") {
-      applyConversationFilters();
+    if (typeof window._wcrmApplyOverlay === "function") {
+      window._wcrmApplyOverlay();
     }
   }
 }
@@ -933,36 +949,47 @@ function _ezapShowImpersonationBanner(userName) {
 }
 
 function _ezapReloadCrmData() {
-  // 1. Reload abas for new userId
-  if (typeof loadAbasData === "function") {
-    loadAbasData().then(function(data) {
-      if (typeof renderAbasList === "function") renderAbasList(data);
-      if (typeof updateAbasIndicator === "function") updateAbasIndicator();
-      // Re-inject the quick aba bar with new user's abas
-      if (typeof injectQuickAbaSelector === "function") injectQuickAbaSelector();
-      // Re-apply conversation filters with new abas
-      if (typeof applyConversationFilters === "function") applyConversationFilters();
-    }).catch(function() {});
+  console.log("[EZAP] Reloading CRM data for userId:", window.__wcrmAuth ? window.__wcrmAuth.userId : "none");
+
+  // 1. Clear local abas cache so it reloads from Supabase for new userId
+  chrome.storage.local.remove("wcrm_abas", function() {
+    // Force-increment save gen to prevent stale data overwriting
+    if (typeof _wcrmAbasSaveGen !== "undefined") _wcrmAbasSaveGen++;
+
+    // 2. Reload abas from Supabase for new userId
+    if (typeof loadAbasData === "function") {
+      loadAbasData().then(function(data) {
+        console.log("[EZAP] Abas reloaded:", (data && data.tabs) ? data.tabs.length + " tabs" : "none");
+        if (typeof renderAbasList === "function") renderAbasList(data);
+        if (typeof updateAbasIndicator === "function") updateAbasIndicator();
+        // Re-inject the quick aba bar with new user's abas
+        if (typeof injectQuickAbaSelector === "function") injectQuickAbaSelector();
+        // Re-apply overlay with new abas
+        if (typeof window._wcrmApplyOverlay === "function") {
+          setTimeout(function() { window._wcrmApplyOverlay(); }, 300);
+        }
+      }).catch(function(e) { console.error("[EZAP] Abas reload error:", e); });
+    }
+  });
+
+  // 3. Reload pinned contacts for new userId
+  if (typeof loadPinnedContacts === "function") {
+    loadPinnedContacts();
   }
 
-  // 2. Trigger labels reload via event bus
-  if (window.ezapEventBus) {
-    window.ezapEventBus.emit("impersonate:changed");
-  }
-
-  // 3. Force CRM sidebar refresh if open
-  if (typeof window.__wcrmRefreshSidebar === "function") {
-    window.__wcrmRefreshSidebar();
-  }
-
-  // 4. Reload message templates
+  // 4. Reload message templates for new userId
   if (typeof loadMsgSequences === "function") {
     loadMsgSequences();
   }
 
-  // 5. Reload pinned contacts
-  if (typeof loadPinnedContacts === "function") {
-    loadPinnedContacts();
+  // 5. Force CRM sidebar refresh if open
+  if (typeof window.__wcrmRefreshSidebar === "function") {
+    window.__wcrmRefreshSidebar();
+  }
+
+  // 6. Trigger event bus so other modules can react
+  if (window.ezapEventBus) {
+    window.ezapEventBus.emit("impersonate:changed");
   }
 }
 
