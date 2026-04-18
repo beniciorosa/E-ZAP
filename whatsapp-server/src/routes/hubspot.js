@@ -338,4 +338,58 @@ router.get("/templates/:sessionId", async (req, res) => {
   }
 });
 
+// ===== Espelho hubspot_tickets (fonte: Supabase, não HubSpot direto) =====
+// Lê da tabela hubspot_tickets (populada pela Edge Function via webhook/backfill).
+// Consumir daqui em vez da API HubSpot evita rate limit e reduz latência.
+
+// GET /api/hubspot/tickets/:ticketId — retorna 1 row da v_ticket_full (merge pré+mentoria)
+router.get("/tickets/:ticketId", async (req, res) => {
+  const ticketId = req.params.ticketId;
+  if (!/^\d+$/.test(String(ticketId))) {
+    return res.status(400).json({ error: "ticketId inválido" });
+  }
+  try {
+    const rows = await supaRest(
+      "/rest/v1/v_ticket_full?ticket_id=eq." + encodeURIComponent(ticketId) + "&select=*&limit=1"
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(404).json({ error: "Ticket não encontrado em hubspot_tickets" });
+    }
+    res.json({ ok: true, ticket: rows[0] });
+  } catch (e) {
+    console.error("[HUBSPOT] tickets/:id error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/hubspot/tickets — lista paginada/filtrada
+// Query params:
+//   owner_id, pipeline_type, pipeline_stage_id, tier, status_ticket, seller_id_meli
+//   limit (default 50, max 200), offset (default 0)
+router.get("/tickets", async (req, res) => {
+  try {
+    const filters = [];
+    const allowedEq = ["owner_id", "pipeline_type", "pipeline_stage_id", "tier", "status_ticket", "seller_id_meli"];
+    for (const key of allowedEq) {
+      if (req.query[key]) filters.push(encodeURIComponent(key) + "=eq." + encodeURIComponent(String(req.query[key])));
+    }
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const offset = Number(req.query.offset) || 0;
+
+    const qs = filters.join("&") + (filters.length ? "&" : "")
+      + "select=ticket_id,ticket_name,pipeline_type,pipeline_name,pipeline_stage_name,"
+      + "owner_name,mentor_responsavel_name,tier,status_ticket,nome_do_mentorado,"
+      + "whatsapp_do_mentorado,seller_id_meli,seller_nickname_meli,pre_mentoria_ticket_id,"
+      + "ticket_created_at,ticket_updated_at"
+      + "&order=ticket_updated_at.desc"
+      + "&limit=" + limit + "&offset=" + offset;
+
+    const rows = await supaRest("/rest/v1/hubspot_tickets?" + qs);
+    res.json({ ok: true, count: rows.length, limit, offset, tickets: rows || [] });
+  } catch (e) {
+    console.error("[HUBSPOT] tickets list error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
