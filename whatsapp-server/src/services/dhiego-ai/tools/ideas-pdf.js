@@ -3,10 +3,13 @@
 // Returns a Buffer that dhiego-ai.js then sends via sock.sendMessage as
 // a document attachment.
 
-const PDFDocument = require("pdfkit");
+// pdfkit is lazy-required inside buildIdeasPdfBuffer so importing this module
+// (e.g. from tool-schemas.js) doesn't force the dependency to exist on
+// machines that only run offline unit tests.
 const { supaRest } = require("../../supabase");
 
 async function buildIdeasPdfBuffer({ userId, status = "all" }) {
+  const PDFDocument = require("pdfkit");
   const statusFilter = status && status !== "all" ? "&status=eq." + encodeURIComponent(status) : "";
   const rows = await supaRest(
     "/rest/v1/dhiego_ideas?user_id=eq." + encodeURIComponent(userId) +

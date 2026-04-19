@@ -1,4 +1,144 @@
-# E-ZAP — Sessão de trabalho 2026-04-14/15
+# E-ZAP — Sessão de trabalho 2026-04-14/16
+
+> **Update 2026-04-16 — DHIEGO.AI vira assistente LLM-first com tools externas (HubSpot + Google Calendar + Gmail + Supabase) — DEPLOYED**
+>
+> Duas rodadas de trabalho em cima do bot DHIEGO.AI, partindo do estado documentado em [DHIEGO_AI_HANDOFF.md](DHIEGO_AI_HANDOFF.md) — onde o bot era "intent-router-first" (regex classificava antes de qualquer coisa) e só sabia gerenciar ideias. Pedido do Dhiego: experiência de conversar com o Claude.ai, natural, com áudio e texto, podendo consultar qualquer sistema dele.
+>
+> ### Round 1 — Arquitetura LLM-first agentic (P0+P1+P2+P5 do plano)
+>
+> Plano completo em [C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md](C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md).
+>
+> **Novo fluxo em produção**:
+> ```
+> mensagem WA → baileys → dhiego-ai.maybeHandle
+>   ├─ extractTextOrTranscribe (áudio Whisper já funcionava)
+>   ├─ loadRecentEntries(12) + loadState
+>   ├─ if cfg.mode === "agent":
+>   │    router.routeIntent só como pre-hint (não gatekeeper)
+>   │    runAgent(...) — loop Claude tool_use até 6 iterações
+>   │      Claude decide: end_turn (texto) ou tool_use (ferramenta)
+>   │    synthesizeIntentForState (mantém compat com state.syncStateAfterTurn)
+>   └─ else: dispatch legado (rollback path)
+> ```
+>
+> Criados:
+> - [whatsapp-server/src/services/dhiego-ai/tool-schemas.js](whatsapp-server/src/services/dhiego-ai/tool-schemas.js) — 9 tools Anthropic (create/list/show/latest/update/complete/cancel/delete_idea + generate_ideas_pdf) + TOOL_DISPATCH + mapToolNameToLegacyIntent
+> - [whatsapp-server/src/services/dhiego-ai/prompt-builder.js](whatsapp-server/src/services/dhiego-ai/prompt-builder.js) — monta system prompt dinâmico por turno: base + contexto do sistema (data/hora, timezone, nome) + tools policy + contexto ativo + modo literal
+> - [whatsapp-server/src/services/dhiego-ai/agent.js](whatsapp-server/src/services/dhiego-ai/agent.js) — loop agentic (MAX_ITERATIONS=6, maxTokens=2048), serializer capado em 4KB/tool_result, salvaguarda de modo literal (restaura texto original se Claude truncou com `preserve_literal=true`)
+>
+> Modificados:
+> - [whatsapp-server/src/services/dhiego-ai/llm.js](whatsapp-server/src/services/dhiego-ai/llm.js) — `complete()` aceita `tools`/`toolChoice`, retorna `content`+`stopReason` (backwards compat: `text` preservado)
+> - [whatsapp-server/src/services/dhiego-ai.js:246](whatsapp-server/src/services/dhiego-ai.js:246) — ramifica por `cfg.mode`, ctx ganha `lastUserText`. **Fix do áudio**: `extractTextOrTranscribe` agora faz `unwrapMessage()` antes de checar `audioMessage`, e também checa `pttMessage`. Antes alguns voice notes wrappeds em `deviceSentMessage` eram ignorados.
+> - [whatsapp-server/src/services/dhiego-ai/config.js](whatsapp-server/src/services/dhiego-ai/config.js) — nova key `dhiego_ai_mode` em app_settings (default `agent`, `router` força legado)
+> - [whatsapp-server/src/services/dhiego-ai/tools/ideas.js:212](whatsapp-server/src/services/dhiego-ai/tools/ideas.js:212) — `updateIdea` aceita `preserveLiteral`, grava sem `.trim()` quando true
+>
+> Melhorias no system prompt (várias iterações durante testes reais):
+> - Bloco "Contexto do sistema (agora)" com data/hora atual em America/Sao_Paulo via `Intl.DateTimeFormat`, país, nome do Dhiego — Claude antes dizia "não sei qual mês você fala" em "esse mês tem feriado?"
+> - Instrução explícita de que áudios SÃO transcritos pelo Whisper — Claude antes dizia "não consigo ouvir áudios"
+> - Instrução de conhecimento geral: "Você sabe feriados, datas, cultura, etc. Não se esconda atrás de 'não tenho acesso' a menos que precise de dado em tempo real"
+>
+> ### Round 2 — Tools externas via `call_api`
+>
+> Mesma sessão. Quando testou "qual meu faturamento hoje no HubSpot?" o bot respondeu "só consigo gerenciar ideias". A LLM é capaz, o kit de tools é que era limitado.
+>
+> Arquitetura: uma tool genérica `call_api` com SERVICE_REGISTRY. Claude já conhece as APIs de treino — monta o path certo. Adicionar serviço = 1 entrada no registry.
+>
+> Criados:
+> - [whatsapp-server/src/services/dhiego-ai/tools/call-api.js](whatsapp-server/src/services/dhiego-ai/tools/call-api.js) — tool genérica com SERVICE_REGISTRY: **hubspot** (bearer token de app_settings.hubspot_api_key), **supabase** (service_key do env), **google_calendar** + **gmail** (ambos com `requiresImpersonation: true`). Timeout 15s, response truncado 6000 chars. Strip de `as_user` antes de forwardar pra Google (query param custom do bot).
+> - [whatsapp-server/src/services/dhiego-ai/tools/google-auth.js](whatsapp-server/src/services/dhiego-ai/tools/google-auth.js) — gerencia OAuth2: lê refresh_token de app_settings, troca por access_token no `oauth2.googleapis.com/token`, cacheia 50min in-process. `getAccessToken(email)`, `listAuthorizedEmails()`, `clearAccessCache()`.
+> - [whatsapp-server/src/routes/google-oauth.js](whatsapp-server/src/routes/google-oauth.js) — rotas PÚBLICAS (sem `requireAuth` — OAuth callback do Google precisa ser acessível): `GET /api/google/auth?email=...` → redirect pro consent; `GET /api/google/callback` → troca code por tokens, persiste `google_refresh_token_<email>`; `GET /api/google/status` → lista contas autorizadas.
+>
+> Modificados:
+> - [whatsapp-server/src/services/dhiego-ai/tool-schemas.js](whatsapp-server/src/services/dhiego-ai/tool-schemas.js) — +schema `call_api` (10 tools total) com exemplos em PT de HubSpot/Calendar/Gmail/Supabase
+> - [whatsapp-server/src/services/dhiego-ai/prompt-builder.js](whatsapp-server/src/services/dhiego-ai/prompt-builder.js) — TOOLS_POLICY expandida listando os 4 serviços, com seção dedicada ao Google Calendar incluindo CRUD completo (list/create/update/delete com bodies corretos), regra de pedir confirmação antes de criar/editar/deletar eventos
+> - [whatsapp-server/src/services/dhiego-ai/tools/ideas-pdf.js](whatsapp-server/src/services/dhiego-ai/tools/ideas-pdf.js) — `pdfkit` lazy-required (permite smoke offline)
+> - [whatsapp-server/src/index.js](whatsapp-server/src/index.js) — monta `/api/google` sem middleware auth
+> - `package.json` — `googleapis` adicionado
+>
+> **Setup Google Cloud Console + Workspace** (feito via Chrome MCP):
+> 1. Projeto `DHIEGO-AI` (id `dhiego-ai-493518`) na org `grupoescalada.com.br` — conta de faturamento "Minha conta de faturamento"
+> 2. APIs ativadas: Google Calendar API + Gmail API
+> 3. Service Account `dhiego-ai-bot@dhiego-ai-493518.iam.gserviceaccount.com` criada (unique ID `100607864051075425188`) — **descartada** porque a org policy `iam.disableServiceAccountKeyCreation` bloqueia criação de chaves JSON e o Dhiego não tem role `orgpolicy.policyAdmin` pra desbloquear
+> 4. Pivot pra **OAuth2 user-based**: criado OAuth Client "Aplicativo da Web" `DHIEGO-AI-Bot`:
+>    - Client ID: `529816900261-7a2itqdcguta6g60eblpf1c32i3iph2k.apps.googleusercontent.com`
+>    - Client Secret: em `app_settings.google_oauth_client_secret`
+>    - Tela de consentimento: tipo "Interno" (só contas @grupoescalada.com.br, sem verificação Google)
+>    - Redirect URI: `http://localhost:3100/api/google/callback` — Google rejeita HTTP em IP público; usamos SSH tunnel `ssh -L 3100:localhost:3100` pra conectar via localhost durante autorização
+>    - Escopos: `calendar`, `calendar.events`, `gmail.readonly`
+> 5. Dhiego autorizou `dhiego@grupoescalada.com.br` e `tools@grupoescalada.com.br` via fluxo OAuth
+> 6. refresh_tokens salvos em `app_settings.google_refresh_token_<email>`
+>
+> **Novas keys em `app_settings`**:
+> - `dhiego_ai_mode` = `agent` (feature flag do Round 1)
+> - `google_oauth_client_id`, `google_oauth_client_secret`
+> - `google_refresh_token_dhiego@grupoescalada.com.br`, `google_refresh_token_tools@grupoescalada.com.br`
+> - `google_access_token_*` (cache temporário, TTL 60min)
+>
+> **Evidência de produção — testes end-to-end**:
+>
+> ```
+> Teste 1: "oi, tudo bem? me diz em uma frase o que você faz"
+> → stopReason=end_turn, tools=[], 2.5s, 2289/60 tokens
+> → "Oi! Tudo bem 😊 Sou seu assistente pessoal de ideias..."
+>
+> Teste 2: "Anota aqui pra mim: revisar fluxo de onboarding EscaladaHub antes de sexta"
+> → tools=[create_idea], 3.2s, 4940/115 tokens
+> → Ideia #3 salva no banco + reply "Anotado! ✅ Ideia #3 salva..."
+>
+> Teste 3: "esse mês aqui tem feriado?" (após fix de contexto do sistema)
+> → tools=[], 2.1s, 2460/54 tokens
+> → "Em abril de 2026, tem sim: 21 de abril (terça) — Tiradentes 🇧🇷. Feriado nacional."
+>
+> Teste 4: "quais reuniões eu tenho hoje?"
+> → tools=[call_api(google_calendar)], 5.6s, 9134/313 tokens
+> → Google API 200 OK → "Hoje você tem 1 reunião: 📅 Mercado Livre & Escalada Mentoria 14-14:45..."
+>
+> Teste 5 (WhatsApp real, Dhiego): "quais reuniões eu tenho essa semana?"
+> → tools=[call_api, call_api], 18295/453 tokens
+> → Lista completa da semana entregue no celular dele
+> ```
+>
+> **Capacidades novas em produção**:
+> - Conversa natural via texto + áudio (Whisper PT)
+> - Backlog de ideias: criar, listar, atualizar, concluir, cancelar, deletar, PDF
+> - Modo literal (atualiza bloco de texto byte-a-byte quando pedido)
+> - HubSpot: faturamento, deals, contatos, pipelines
+> - Google Calendar: listar/criar/editar/deletar eventos (com Meet), em dhiego@ e tools@
+> - Gmail: ler emails, buscar por query em dhiego@ e tools@
+> - Supabase: qualquer tabela via REST
+> - Combinação de tools na mesma turn
+>
+> **Rollback**:
+> - Agent global: flipar `app_settings.dhiego_ai_mode` pra `router` (caminho legado intacto no código)
+> - Serviços externos: remover do SERVICE_REGISTRY em [call-api.js](whatsapp-server/src/services/dhiego-ai/tools/call-api.js) e redeploy
+> - OAuth Google: `DELETE FROM app_settings WHERE key LIKE 'google_%'`, e revogar em https://myaccount.google.com/permissions → "DHIEGO.AI" pra cada conta
+>
+> **Como autorizar NOVAS contas Google no futuro**:
+> 1. Abrir túnel SSH: `ssh -i ~/.ssh/ezap_hetzner -L 3100:localhost:3100 -fN root@87.99.141.235`
+> 2. Navegar em Chrome logado na conta: `http://localhost:3100/api/google/auth?email=<novo>@grupoescalada.com.br`
+> 3. Aceitar consent — refresh_token salvo automaticamente, bot já pode usar na próxima msg
+>
+> **Limitações / decisões**:
+> - Service Account descartada por org policy; OAuth2 user-based exige fluxo de consent por conta
+> - Google exige HTTPS ou localhost → SSH tunnel no momento da autorização
+> - Prompt com schemas + exemplos = 9k-18k input tokens/turn. Sonnet 4.6 lida bem mas poderia baixar pra Haiku 4.5 se apertar o custo (flip em `app_settings.dhiego_ai_llm_model`)
+> - Áudio precisou de 2 fixes: unwrap de `deviceSentMessage` + prompt explicando que Whisper transcreve (Claude antes dizia "não ouço áudios")
+>
+> **Arquivos críticos pra próxima sessão**:
+> 1. [whatsapp-server/src/services/dhiego-ai/agent.js](whatsapp-server/src/services/dhiego-ai/agent.js) — coração do LLM-first
+> 2. [whatsapp-server/src/services/dhiego-ai/tool-schemas.js](whatsapp-server/src/services/dhiego-ai/tool-schemas.js) — onde adicionar tools novas
+> 3. [whatsapp-server/src/services/dhiego-ai/tools/call-api.js](whatsapp-server/src/services/dhiego-ai/tools/call-api.js) — SERVICE_REGISTRY pra novos serviços externos
+> 4. [whatsapp-server/src/services/dhiego-ai/prompt-builder.js](whatsapp-server/src/services/dhiego-ai/prompt-builder.js) — onde Round 3 (rules/facts admin) vai plugar
+> 5. [C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md](C:\Users\dhiee\.claude\plans\scalable-orbiting-moler.md) — P3/P4/P7 documentados como roadmap
+>
+> **Pendente para Round 3** (não implementado):
+> - P3: tabela `dhiego_ai_rules` + admin UI pra editar regras por tópico (faturamento, relatórios, estilo)
+> - P4: tabela `dhiego_ai_facts` + tool `remember_fact`/`recall_fact` — memória persistente que o LLM escreve e o Dhiego edita
+> - P7: coluna `dhiego_conversations.trace` JSONB + viewer no admin.html pra ver quais tools foram chamadas por turno
+>
+> **Pendência de commit**: todos os arquivos estão deployados no VPS mas ainda não comitados no git local. Próximo passo = `git add` + commit + `git push origin main`. Dhiego não pediu o commit ainda.
+
+---
 
 > **Update 2026-04-15 madrugada-2 — Criar grupos via links de ticket HubSpot — DEPLOYED**
 >

@@ -209,19 +209,21 @@ async function deleteIdea({ userId, ideaId }) {
   return { ok: true, reply: "Ideia #" + id + " deletada:\n> " + row.text, data: row };
 }
 
-async function updateIdea({ userId, ideaId, text }) {
+async function updateIdea({ userId, ideaId, text, preserveLiteral = false }) {
   const id = parseInt(ideaId, 10);
   if (!id || id <= 0) {
     return { ok: false, reply: "ID invalido. Diz algo como: \"atualiza a ideia 3: novo texto\"" };
   }
-  if (!text || !text.trim()) {
+  if (!text || !String(text).trim()) {
     return { ok: false, reply: "Preciso do novo texto da ideia." };
   }
 
   const row = await fetchIdeaById({ userId, ideaId: id });
   if (!row) return { ok: false, reply: "Ideia #" + id + " nao encontrada." };
 
-  const newText = text.trim();
+  // preserveLiteral=true: grava byte-a-byte. Used by the agent when the user
+  // explicitly asked for a literal update ("igual eu mandei", etc).
+  const newText = preserveLiteral ? String(text) : String(text).trim();
   const updatedAt = new Date().toISOString();
   await supaRest(
     "/rest/v1/dhiego_ideas?id=eq." + id,

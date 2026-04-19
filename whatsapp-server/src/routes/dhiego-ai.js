@@ -7,6 +7,13 @@ const router = express.Router();
 const { supaRest } = require("../services/supabase");
 const { loadConfig, invalidateCache } = require("../services/dhiego-ai/config");
 const { clearStateForUser } = require("../services/dhiego-ai/state");
+const baileys = require("../services/baileys");
+const dhiegoAI = require("../services/dhiego-ai");
+
+// Phone hardcoded for the /inject endpoint — any caller with ADMIN_TOKEN
+// injects messages AS the Dhiego's own number.
+const INJECTED_SENDER_PHONE = "5511989473088";
+const INJECTED_SENDER_JID = INJECTED_SENDER_PHONE + "@s.whatsapp.net";
 
 // ===== Config =====
 
@@ -216,6 +223,79 @@ router.delete("/ideas/:id", async (req, res) => {
     await supaRest("/rest/v1/dhiego_ideas?id=eq." + id, "DELETE", null, "return=minimal");
     res.json({ ok: true });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== Inject =====
+// POST /api/dhiego-ai/inject { text }
+// Fabricates a synthetic WhatsApp message as if Dhiego's phone
+// (INJECTED_SENDER_PHONE) had sent `text` to the DHIEGO.BOT session, then
+// fires maybeHandle() in background. The reply flows through the normal
+// WhatsApp pipeline (sock.sendMessage → Dhiego's phone).
+//
+// Use case: external tools (dashboards, apps) that want to query DHIEGO.AI
+// without typing on the WhatsApp keyboard. Response arrives in WhatsApp.
+router.post("/inject", async (req, res) => {
+  try {
+    const { text } = req.body || {};
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return res.status(400).json({ error: "text (string não vazio) é obrigatório" });
+    }
+
+    const cfg = await loadConfig();
+    if (!cfg.enabled) {
+      return res.status(503).json({ error: "DHIEGO.AI está desabilitado no admin" });
+    }
+    if (!cfg.sessionId) {
+      return res.status(500).json({ error: "dhiego_ai_session_id não configurado" });
+    }
+    if (!cfg.authorizedPhones.includes(INJECTED_SENDER_PHONE)) {
+      return res.status(500).json({
+        error: "sender " + INJECTED_SENDER_PHONE + " não está na allowlist. Adicione no admin.",
+      });
+    }
+
+    const session = baileys.getSession(cfg.sessionId);
+    if (!session || !session.sock || session.status !== "connected") {
+      return res.status(503).json({
+        error: "DHIEGO.BOT não está conectado",
+        sessionStatus: session ? session.status : "not_found",
+      });
+    }
+
+    const messageId = "INJECT_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    const msg = {
+      key: {
+        remoteJid: INJECTED_SENDER_JID,
+        fromMe: false,
+        participant: INJECTED_SENDER_JID,
+        id: messageId,
+      },
+      participantPn: INJECTED_SENDER_JID,
+      pushName: "Dhiego (injected)",
+      message: {
+        conversation: text.trim(),
+      },
+    };
+
+    // Fire-and-forget — response goes back via sock.sendMessage on completion.
+    dhiegoAI.maybeHandle(cfg.sessionId, msg, session.sock).catch(function (e) {
+      console.error("[DHIEGO.AI /inject] background error:", e.message);
+    });
+
+    console.log(
+      "[DHIEGO.AI /inject] queued messageId=" + messageId +
+      " text=" + text.slice(0, 80)
+    );
+    res.json({
+      ok: true,
+      queued: true,
+      messageId,
+      sessionId: cfg.sessionId,
+    });
+  } catch (e) {
+    console.error("[DHIEGO.AI /inject] handler error:", e);
     res.status(500).json({ error: e.message });
   }
 });

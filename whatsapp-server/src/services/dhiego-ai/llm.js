@@ -25,9 +25,20 @@ function getClient(apiKey) {
   return _client;
 }
 
-// Single-turn completion. Returns { text, usage } or throws.
-// system + messages follow the Anthropic Messages API shape.
-async function complete({ system, messages, maxTokens = 1024, model: modelOverride }) {
+// Single-turn Claude call. Returns { text, content, stopReason, usage, model }.
+// When `tools` is passed, Claude can respond with tool_use blocks — the caller
+// must inspect `content` and `stopReason` to drive an agentic loop.
+// When `tools` is absent the return shape stays backwards compatible with the
+// legacy callers (router.classifyWithLlm, llm-freeform.answerFreeform) which
+// only read `.text`.
+async function complete({
+  system,
+  messages,
+  maxTokens = 1024,
+  model: modelOverride,
+  tools,
+  toolChoice,
+}) {
   const cfg = await loadConfig();
   if (!cfg.claudeApiKey) {
     throw new Error("claude_api_key não configurado em app_settings");
@@ -35,23 +46,36 @@ async function complete({ system, messages, maxTokens = 1024, model: modelOverri
   const client = getClient(cfg.claudeApiKey);
   const model = modelOverride || cfg.llmModel || "claude-haiku-4-5-20251001";
 
-  const resp = await client.messages.create({
+  const request = {
     model,
     max_tokens: maxTokens,
     system: system || undefined,
     messages: messages || [],
-  });
+  };
+  if (Array.isArray(tools) && tools.length) {
+    request.tools = tools;
+    if (toolChoice) request.tool_choice = toolChoice;
+  }
 
-  const text = (resp.content || [])
-    .filter(block => block.type === "text")
-    .map(block => block.text)
-    .join("\n");
+  const resp = await client.messages.create(request);
 
   return {
-    text,
+    text: extractText(resp.content),
+    content: resp.content || [],
+    stopReason: resp.stop_reason || null,
     usage: resp.usage || null,
     model,
   };
 }
 
-module.exports = { complete };
+// Concatenates every text block in a Claude content array, preserving newlines.
+// Helper exported so agent.js can pull the final assistant text after the
+// tool_use loop ends.
+function extractText(content) {
+  return (content || [])
+    .filter(block => block && block.type === "text")
+    .map(block => block.text)
+    .join("\n");
+}
+
+module.exports = { complete, extractText };

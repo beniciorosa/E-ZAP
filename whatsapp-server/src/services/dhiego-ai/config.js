@@ -17,6 +17,7 @@ const KEYS = [
   "dhiego_ai_authorized_phones",
   "dhiego_ai_llm_model",
   "dhiego_ai_system_prompt",
+  "dhiego_ai_mode",
   "claude_api_key",
   "openai_api_key",
 ];
@@ -42,12 +43,16 @@ async function loadConfig(force = false) {
     if (!Array.isArray(authorizedPhones)) authorizedPhones = [];
   } catch (_) { authorizedPhones = []; }
 
+  const rawMode = (bag.dhiego_ai_mode || "").trim().toLowerCase();
+  const mode = rawMode === "router" ? "router" : "agent";
+
   _cache = {
     enabled: bag.dhiego_ai_enabled === "true",
     sessionId: bag.dhiego_ai_session_id || "",
     authorizedPhones: authorizedPhones.map(p => String(p).replace(/\D/g, "")),
     llmModel: bag.dhiego_ai_llm_model || "claude-haiku-4-5-20251001",
     systemPrompt: bag.dhiego_ai_system_prompt || "",
+    mode,
     claudeApiKey: bag.claude_api_key || "",
     openaiApiKey: bag.openai_api_key || "",
   };

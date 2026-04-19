@@ -50,6 +50,7 @@ app.use("/api/jobs", requireAuth, require("./routes/jobs"));
 app.use("/api/fotos", requireAuth, require("./routes/fotos"));
 app.use("/api/hubspot", requireAuth, require("./routes/hubspot"));
 app.use("/api/dhiego-ai", requireAuth, require("./routes/dhiego-ai"));
+app.use("/api/google", require("./routes/google-oauth")); // no auth — OAuth callback must be public
 
 // ===== HTTP + Socket.io =====
 const server = http.createServer(app);

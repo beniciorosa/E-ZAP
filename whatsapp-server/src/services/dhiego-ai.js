@@ -22,6 +22,7 @@ const { transcribeAudio } = require("./dhiego-ai/transcribe");
 const ideasTool = require("./dhiego-ai/tools/ideas");
 const ideasPdfTool = require("./dhiego-ai/tools/ideas-pdf");
 const freeformTool = require("./dhiego-ai/tools/llm-freeform");
+const { runAgent, synthesizeIntentForState } = require("./dhiego-ai/agent");
 const { supaRest } = require("./supabase");
 
 // Unwrap common Baileys message envelopes. When a message is sent between
@@ -60,8 +61,10 @@ async function extractTextOrTranscribe(msg, sock) {
   const plain = extractText(msg);
   if (plain && plain.trim()) return { text: plain, wasTranscribed: false };
 
-  const m = msg.message || {};
-  const audio = m.audioMessage;
+  // Unwrap the message the same way extractText does — voice notes from
+  // linked devices often arrive inside deviceSentMessage / ephemeral wraps.
+  const m = unwrapMessage(msg.message) || {};
+  const audio = m.audioMessage || m.pttMessage;
   if (!audio) return { text: "", wasTranscribed: false };
 
   console.log("[DHIEGO.AI] Received audio message — downloading + transcribing");
@@ -240,34 +243,74 @@ async function maybeHandle(sessionId, msg, sock) {
       "text:", text.slice(0, 80)
     );
 
-    // Load recent history BEFORE saving the current user turn. This keeps
-    // the router focused on prior context and avoids duplicating the same
-    // message inside the freeform tool.
-    const recentHistory = await loadRecentEntries(ctx, 8);
+    // Load recent history BEFORE saving the current user turn. The agent
+    // uses this as conversational context.
+    const recentHistory = await loadRecentEntries(ctx, 12);
     const activeState = await loadState(ctx);
     ctx.activeState = activeState;
+    ctx.lastUserText = text;
 
-    // Route the intent
-    const intent = await routeIntent(text, { history: recentHistory, state: activeState }).catch(e => {
-      console.error("[DHIEGO.AI] routeIntent error:", e.message);
-      return { tool: "llm-freeform", args: {} };
-    });
-
-    // Save the user turn after routing so we can persist the detected intent.
-    ctx.prefetchedHistory = recentHistory;
-    await saveTurn(ctx, "user", text, intent.tool || (wasTranscribed ? "audio" : null));
-
-    // Dispatch
     let result;
-    try {
-      result = await dispatch(intent, ctx, text);
-    } catch (e) {
-      console.error("[DHIEGO.AI] tool execution error:", e);
-      result = { ok: false, reply: "⚠️ Erro ao executar: " + e.message };
+    let intentForState;
+
+    if (cfg.mode === "agent") {
+      // LLM-first path: Claude decides when to call tools via tool_use.
+      // Optional router pre-hint (not gatekeeper) — reduces latency on trivial
+      // cases but the agent can ignore it.
+      let suggestedHint = null;
+      try {
+        const hint = await routeIntent(text, { history: recentHistory, state: activeState });
+        if (hint && hint.tool && hint.tool !== "llm-freeform") {
+          suggestedHint = "Provável ferramenta: " + hint.tool;
+        }
+      } catch (_) { /* ignore pre-hint errors */ }
+
+      await saveTurn(ctx, "user", text, wasTranscribed ? "audio" : null);
+
+      try {
+        result = await runAgent({
+          ctx,
+          userText: text,
+          history: recentHistory.map(r => ({ role: r.role, content: r.content })),
+          state: activeState,
+          rules: [],
+          facts: [],
+          suggestedHint,
+          basePrompt: cfg.systemPrompt || "",
+        });
+      } catch (e) {
+        console.error("[DHIEGO.AI agent] runAgent fatal:", e);
+        result = { ok: false, reply: "⚠️ Erro no agente: " + e.message, toolCalls: [] };
+      }
+
+      intentForState = synthesizeIntentForState(result);
+
+      console.log(
+        "[DHIEGO.AI agent] turn done",
+        "mode=agent",
+        "tools=" + ((result.toolCalls || []).map(t => t.name).join(",") || "none"),
+        "usage=" + JSON.stringify(result.usage || {}),
+        "stop=" + (result.stopReason || "n/a")
+      );
+    } else {
+      // Legacy router-first path. Kept for rollback via admin toggle.
+      const intent = await routeIntent(text, { history: recentHistory, state: activeState }).catch(e => {
+        console.error("[DHIEGO.AI] routeIntent error:", e.message);
+        return { tool: "llm-freeform", args: {} };
+      });
+      ctx.prefetchedHistory = recentHistory;
+      await saveTurn(ctx, "user", text, intent.tool || (wasTranscribed ? "audio" : null));
+      try {
+        result = await dispatch(intent, ctx, text);
+      } catch (e) {
+        console.error("[DHIEGO.AI] tool execution error:", e);
+        result = { ok: false, reply: "⚠️ Erro ao executar: " + e.message };
+      }
+      intentForState = intent;
     }
 
-    // Send reply
-    let replyText = result && result.reply ? result.reply : "⚠️ Comando não produziu resposta.";
+    // Send reply (text or document).
+    const replyText = result && result.reply ? result.reply : "⚠️ Comando não produziu resposta.";
     if (result && result.document) {
       await sock.sendMessage(replyJid, {
         document: result.document.buffer,
@@ -280,8 +323,8 @@ async function maybeHandle(sessionId, msg, sock) {
     }
 
     // Save the assistant turn so the next message has full context.
-    await saveTurn(ctx, "assistant", replyText, intent.tool);
-    await syncStateAfterTurn({ ctx, intent, result, currentState: activeState });
+    await saveTurn(ctx, "assistant", replyText, intentForState && intentForState.tool);
+    await syncStateAfterTurn({ ctx, intent: intentForState, result, currentState: activeState });
     return true;
   } catch (e) {
     console.error("[DHIEGO.AI] maybeHandle fatal:", e);
