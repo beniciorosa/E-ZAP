@@ -1091,6 +1091,22 @@ function isRateLimitError(e) {
     || msg.includes("not-acceptable");
 }
 
+// Resolve session_id → JID canônico via sock.user.id. Retorna null se a
+// sessão não estiver conectada ou o sock ainda não tiver user. Usado quando
+// o frontend manda helpers/admins como session_id (ex: spec.helperSessionIds)
+// em vez de phone cru — elimina o problema de wa_sessions.phone ter LID salvo.
+function resolveSessionToJid(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s || !s.sock || !s.sock.user) return null;
+  const uid = String(s.sock.user.id || "");
+  if (!uid) return null;
+  // uid vem tipicamente como "5511xxx:28@s.whatsapp.net" ou "5511xxx@s.whatsapp.net".
+  // Extraímos os dígitos antes de ":" ou "@" e reconstruimos um JID limpo.
+  const digits = uid.split(":")[0].split("@")[0];
+  if (!digits || digits.length < 10 || digits.length > 13) return null;
+  return digits + "@s.whatsapp.net";
+}
+
 // Detecta LID (Linked ID) disfarçado de telefone. Telefones BR válidos têm
 // 10-13 dígitos (com ou sem DDI 55). LIDs típicos têm 14-19 dígitos e NÃO
 // funcionam como JID `{digits}@s.whatsapp.net` — passam pro
@@ -2089,12 +2105,16 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       status: "pending",
       statusMessage: null,
       groupJid: null,
-      // Inclui members + adminJids extras + 1 pro criador/owner (a própria sessão).
+      // Inclui members/helperSessionIds + adminJids/adminSessionIds + 1 pro criador.
       // membersAdded é contado em 3 lugares (groupCreate participants incluindo owner,
       // admin add loop, helpers batch), então o total precisa seguir o mesmo critério
-      // pra nunca ficar "4/3" na UI.
-      membersTotal: (Array.isArray(spec.members) ? spec.members.length : 0)
-        + (Array.isArray(spec.adminJids) ? spec.adminJids.length : 0)
+      // pra nunca ficar "4/3" na UI. Se spec usa session-based, prioriza esses counts.
+      membersTotal: (Array.isArray(spec.helperSessionIds) && spec.helperSessionIds.length > 0
+        ? spec.helperSessionIds.length + (spec.clientPhone ? 1 : 0)
+        : (Array.isArray(spec.members) ? spec.members.length : 0))
+        + (Array.isArray(spec.adminSessionIds) && spec.adminSessionIds.length > 0
+          ? spec.adminSessionIds.length
+          : (Array.isArray(spec.adminJids) ? spec.adminJids.length : 0))
         + 1,
       membersAdded: 0,
       hasDescription: false,
@@ -2118,6 +2138,32 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // Fluxo XLSX (sem clientPhone) mantém comportamento antigo: valida
       // todos os membros e passa todos de uma vez no groupCreate.
       const isHubspotFlow = !!spec.clientPhone;
+
+      // Session-based JID resolution: se o frontend mandou helpers/admins
+      // como session_id (preferido — elimina LID-kill porque sock.user.id
+      // é o JID canônico do device logado), resolve pra JIDs agora.
+      // Dedupe pra evitar add duplicado (ex: mentor marcado tbm no checklist).
+      const resolvedHelperJids = [];
+      const resolvedAdminJids = [];
+      const seenJids = new Set();
+      if (Array.isArray(spec.helperSessionIds)) {
+        for (const hsid of spec.helperSessionIds) {
+          const jid = resolveSessionToJid(hsid);
+          if (jid && !seenJids.has(jid)) {
+            resolvedHelperJids.push(jid);
+            seenJids.add(jid);
+          }
+        }
+      }
+      if (Array.isArray(spec.adminSessionIds)) {
+        for (const asid of spec.adminSessionIds) {
+          const jid = resolveSessionToJid(asid);
+          if (jid && !seenJids.has(jid)) {
+            resolvedAdminJids.push(jid);
+            seenJids.add(jid);
+          }
+        }
+      }
 
       let memberJids;
       if (isHubspotFlow) {
@@ -2260,8 +2306,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       }
 
       // 7. Add + promote extra admin JIDs (e.g. Escalada Ltda).
-      if (!rateLimited && Array.isArray(spec.adminJids) && spec.adminJids.length > 0) {
-        for (const adminJid of spec.adminJids) {
+      // Preferência: resolvedAdminJids (session-based — JIDs canônicos via
+      // sock.user.id, sem risco de LID). Fallback: spec.adminJids (legado,
+      // usado só por clients antigos que ainda não enviam adminSessionIds).
+      const adminJidsToProcess = resolvedAdminJids.length > 0
+        ? resolvedAdminJids
+        : (Array.isArray(spec.adminJids) ? spec.adminJids : []);
+      if (!rateLimited && adminJidsToProcess.length > 0) {
+        for (const adminJid of adminJidsToProcess) {
           try {
             const addRes = await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "add");
             if (Array.isArray(addRes) && addRes[0] && String(addRes[0].status) === "200") {
@@ -2277,11 +2329,40 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
       }
 
-      // 8. Helpers / demais membros (fluxo HubSpot) — batch add de uma vez.
-      // Exclui cliente (já adicionado no groupCreate) e adminJids (já processados
-      // no Step 7). Se algum falhar com 403, não mandamos DM — são sessões
-      // internas (CX2 etc) e 403 significa config errada, não privacidade real.
-      if (!rateLimited && isHubspotFlow && Array.isArray(spec.members) && spec.members.length > 1) {
+      // 8. Helpers / demais membros — batch add de uma vez.
+      // Session-based path (preferido): resolvedHelperJids já são JIDs
+      // canônicos via sock.user.id. Sem LID, sem onWhatsApp, sem surpresa.
+      // Phone-based fallback: fluxo XLSX (ou HubSpot client velho) manda
+      // spec.members com dígitos — aí passa pelo validateMembersForCreate.
+      if (!rateLimited && resolvedHelperJids.length > 0) {
+        // Exclui adminJids já processados no Step 7.
+        const adminSet = new Set(adminJidsToProcess.map(j => String(j).split("@")[0]));
+        const clientDigits = spec.clientPhone ? String(spec.clientPhone).replace(/\D/g, "") : "";
+        const extraJids = resolvedHelperJids
+          .filter(j => {
+            const d = String(j).split("@")[0];
+            return d !== clientDigits && !adminSet.has(d);
+          });
+        if (extraJids.length > 0) {
+          try {
+            const addRes = await sock.groupParticipantsUpdate(row.groupJid, extraJids, "add");
+            if (Array.isArray(addRes)) {
+              const okCount = addRes.filter(r => r && String(r.status) === "200").length;
+              row.membersAdded = (row.membersAdded || 0) + okCount;
+              const failCount = addRes.length - okCount;
+              if (failCount > 0) {
+                const failJids = addRes.filter(r => !r || String(r.status) !== "200").map(r => (r && r.jid || "?").split("@")[0]);
+                row.statusMessage = appendNote(row.statusMessage, "helpers_add_partial: " + failCount + " falha(s) — " + failJids.join(","));
+              }
+            }
+          } catch (e) {
+            if (isRateLimitError(e)) { rateLimited = true; }
+            else row.statusMessage = appendNote(row.statusMessage, "helpers_add_fail: " + (e?.message || e));
+          }
+          await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+        }
+      } else if (!rateLimited && isHubspotFlow && Array.isArray(spec.members) && spec.members.length > 1) {
+        // Fallback phone-based (spec.members sem helperSessionIds).
         const adminSet = new Set((spec.adminJids || []).map(j => String(j).split("@")[0]));
         const extraPhones = (spec.members || [])
           .filter(p => p && p !== spec.clientPhone && !adminSet.has(p));

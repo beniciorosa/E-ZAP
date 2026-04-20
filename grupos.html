@@ -2546,10 +2546,16 @@ async function buildSpecsFromHubspotResolved() {
   }
 
   // Lê sessões helper marcadas no checklist
-  var helperPhones = [];
+  // Coleta helpers como SESSION_IDs (não phones) — backend resolve via
+  // sock.user.id no momento do add, pegando o JID canônico da sessão
+  // conectada. Isso evita LID/phone corrompido em wa_sessions.phone.
+  var helperPhones = [];       // legado — ainda usado pro preview dos labels
   var helperLabels = [];
+  var helperSessionIds = [];   // novo — enviado ao backend como fonte de verdade
   document.querySelectorAll("#helperSessionsChecklist input[type=checkbox]:checked").forEach(function(cb) {
+    var sid = cb.getAttribute("data-session-id") || "";
     var p = cb.getAttribute("data-phone") || "";
+    if (sid) helperSessionIds.push(sid);
     if (p) {
       helperPhones.push(p.replace(/\D/g, ""));
       var lbl = cb.parentElement ? (cb.parentElement.querySelector("span") || {}).textContent : "";
@@ -2557,9 +2563,19 @@ async function buildSpecsFromHubspotResolved() {
     }
   });
 
-  // Escalada Ltda admin checkbox — add + promote after group creation
+  // Escalada Ltda admin checkbox — resolve como SESSION_ID quando a Escalada
+  // estiver conectada (preferido, JID canônico). Fallback pro JID hardcoded
+  // caso a Escalada não esteja em _sessions (mantém o comportamento legado).
   var addEscaladaAdmin = document.getElementById("hubspotAddEscaladaAdmin") && document.getElementById("hubspotAddEscaladaAdmin").checked;
-  var adminJids = addEscaladaAdmin ? ["5519993473149@s.whatsapp.net"] : [];
+  var adminJids = [];
+  var adminSessionIds = [];
+  if (addEscaladaAdmin) {
+    var escaladaSession = (_sessions || []).find(function(s) {
+      return String(s.phone || "").replace(/\D/g, "") === "5519993473149" && s.status === "connected";
+    });
+    if (escaladaSession) adminSessionIds.push(escaladaSession.id);
+    else adminJids.push("5519993473149@s.whatsapp.net");
+  }
 
   // Lê os campos custom — aplicam a TODOS os grupos do lote
   var customDescription = (document.getElementById("hubspotCustomDescription").value || "").trim();
@@ -2657,15 +2673,25 @@ async function buildSpecsFromHubspotResolved() {
 
     var spec = null;
     if (!disabled) {
+      // Inclui mentor como helper session_id — ele entra no grupo via Step 8
+      // quando a sessão criadora é OUTRA (ex: user escolheu "CX2" como criador
+      // mas o mentor responsável do ticket é "Rodrigo"). Se o criador JÁ É o
+      // mentor, o backend filtra o dup automaticamente via sock.user.id check.
+      var helperSessionIdsForSpec = helperSessionIds.slice();
+      if (r.mentorSessionId && helperSessionIdsForSpec.indexOf(r.mentorSessionId) === -1) {
+        helperSessionIdsForSpec.push(r.mentorSessionId);
+      }
       spec = {
         name: groupName,
         description: finalDescription,
         photoUrl: photoUrl,
-        members: members,
+        members: members,                   // legado — backend prefere helperSessionIds
         lockInfo: true,
-        welcomeMessage: specWelcome, // {primeiro_nome} interpolado; {nome_grupo} fica pro backend
-        rejectDmTemplate: specRejectDm, // {primeiro_nome} interpolado; {nome_grupo} e {link} ficam pro backend
-        adminJids: adminJids.slice(),
+        welcomeMessage: specWelcome,        // {primeiro_nome} interpolado; {nome_grupo} fica pro backend
+        rejectDmTemplate: specRejectDm,     // idem pra DM de rejeição
+        adminJids: adminJids.slice(),       // legado — fallback se Escalada não conectada
+        adminSessionIds: adminSessionIds.slice(),    // NOVO — preferido, JID via sock.user.id
+        helperSessionIds: helperSessionIdsForSpec,   // NOVO — preferido, JID via sock.user.id
         clientPhone: clientPhone || null,
         specHash: null,
         // Campos HubSpot (denormalizados em wa_group_creations)
@@ -3084,7 +3110,7 @@ function onAutoRejectEdit(ta) {
 
 // Constrói um spec pronto pro /api/jobs/create-groups/start a partir de um
 // ticket pendente. Segue o mesmo shape de buildSpecsFromHubspotResolved.
-function buildSpecForPendingTicket(t, owner, mentorPhone, welcomeRaw, rejectRaw) {
+function buildSpecForPendingTicket(t, owner, mentorPhone, welcomeRaw, rejectRaw, mentorSessionId) {
   var rawTicketName = String(t.ticket_name || "").trim();
   var clientName = rawTicketName.split("|")[0].trim() || "(sem nome)";
   var ownerName = String(owner || "").trim();
@@ -3120,9 +3146,17 @@ function buildSpecForPendingTicket(t, owner, mentorPhone, welcomeRaw, rejectRaw)
     .replace(/\{primeiro_nome\}/g, firstName)
     .replace(/\{mentor\}/g, mentorNameForTpl);
 
-  // Escalada Ltda como admin permanente
-  var adminJids = ["5519993473149@s.whatsapp.net"];
+  // Escalada Ltda como admin permanente — preferir session_id se a Escalada
+  // estiver conectada (JID canônico via sock.user.id, sem risco de LID).
+  var escaladaSession = (_sessions || []).find(function(s) {
+    return String(s.phone || "").replace(/\D/g, "") === "5519993473149" && s.status === "connected";
+  });
+  var adminSessionIds = escaladaSession ? [escaladaSession.id] : [];
+  var adminJids = escaladaSession ? [] : ["5519993473149@s.whatsapp.net"];
 
+  // Mentor é o proprietário do ticket — sua sessão criadora já é o owner
+  // do grupo. Não precisa adicionar como helper. Só marcamos mentorSessionId
+  // no spec pra audit (wa_group_creations).
   var spec = {
     name: groupName,
     description: finalDescription,
@@ -3132,13 +3166,15 @@ function buildSpecForPendingTicket(t, owner, mentorPhone, welcomeRaw, rejectRaw)
     welcomeMessage: welcome,
     rejectDmTemplate: rejectDm,
     adminJids: adminJids,
+    adminSessionIds: adminSessionIds,
+    helperSessionIds: [],          // Auto-criar não tem helpers extras
     clientPhone: clientPhone,
     specHash: null,
     hubspotTicketId: t.ticket_id,
     hubspotTicketName: t.ticket_name || null,
     hubspotMentor: ownerName,
     hubspotTier: tier,
-    mentorSessionId: null, // preenchido pelo caller
+    mentorSessionId: mentorSessionId || null,
     mentorSessionPhone: mentorPhone,
     _ticketId: t.ticket_id,
   };
@@ -3175,7 +3211,7 @@ async function startAutoCreateForMentor(owner) {
   var specs = [];
   var skipped = [];
   selectedTickets.forEach(function(t) {
-    var result = buildSpecForPendingTicket(t, owner, group.session_phone, welcomeRaw, rejectRaw);
+    var result = buildSpecForPendingTicket(t, owner, group.session_phone, welcomeRaw, rejectRaw, group.session_id);
     if (result.spec) {
       result.spec.mentorSessionId = group.session_id;
       specs.push(result.spec);
