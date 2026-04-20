@@ -220,9 +220,84 @@ async function upsertMentorado(row, supaRest) {
   }
 }
 
+// ============================================================================
+// HubSpot Meetings — used by CALLS DE HOJE feature
+// ============================================================================
+
+// Search meetings within a date range (ISO 8601 strings).
+// Pagina automaticamente até 1000 resultados (10 páginas de 100).
+// Retorna array de meetings com id + properties básicas.
+async function searchMeetingsByDateRange(startTimeISO, endTimeISO, hsKey) {
+  const meetings = [];
+  let after = null;
+  const maxPages = 10;
+
+  for (let page = 0; page < maxPages; page++) {
+    const body = {
+      filterGroups: [{
+        filters: [
+          { propertyName: "hs_meeting_start_time", operator: "GTE", value: new Date(startTimeISO).getTime() },
+          { propertyName: "hs_meeting_start_time", operator: "LT",  value: new Date(endTimeISO).getTime() },
+        ],
+      }],
+      properties: ["hs_meeting_title", "hs_meeting_start_time", "hubspot_owner_id"],
+      limit: 100,
+    };
+    if (after) body.after = after;
+
+    const resp = await hsFetch("/crm/v3/objects/meetings/search", hsKey, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`HubSpot meetings search failed (HTTP ${resp.status}): ${resp.errorMessage || "unknown"}`);
+    }
+
+    const results = (resp.data && resp.data.results) || [];
+    meetings.push(...results);
+
+    after = resp.data && resp.data.paging && resp.data.paging.next && resp.data.paging.next.after;
+    if (!after) break;
+  }
+
+  return meetings;
+}
+
+// GET /crm/v3/objects/meetings/{id}/associations/contacts
+// Retorna array de contact_ids associados ao meeting
+async function getMeetingContactIds(meetingId, hsKey) {
+  const resp = await hsFetch(`/crm/v3/objects/meetings/${meetingId}/associations/contacts`, hsKey);
+  if (!resp.ok) {
+    if (resp.status === 404) return []; // meeting não tem associations
+    throw new Error(`HubSpot meeting associations failed (HTTP ${resp.status}): ${resp.errorMessage || "unknown"}`);
+  }
+  const results = (resp.data && resp.data.results) || [];
+  return results.map(r => r.id || r.toObjectId).filter(Boolean);
+}
+
+// GET /crm/v3/objects/contacts/{id}?properties=phone,mobilephone
+// Retorna o telefone (mobilephone preferido sobre phone), só os dígitos
+async function getContactPhoneDigits(contactId, hsKey) {
+  const resp = await hsFetch(`/crm/v3/objects/contacts/${contactId}?properties=phone,mobilephone`, hsKey);
+  if (!resp.ok) {
+    if (resp.status === 404) return null;
+    return null; // não derruba o batch por causa de 1 contact
+  }
+  const props = resp.data && resp.data.properties;
+  if (!props) return null;
+  const raw = props.mobilephone || props.phone;
+  if (!raw) return null;
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length >= 8 ? digits : null;
+}
+
 module.exports = {
   fetchTicketFromApi,
   upsertMentorado,
+  searchMeetingsByDateRange,
+  getMeetingContactIds,
+  getContactPhoneDigits,
   // exported for unit-style smoke tests
   _internal: { tierFromLineItemName, normalizeTicketName, pickClientContact },
 };
