@@ -239,6 +239,21 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-20 noite-5 — commit `0d5214f` — ROLLBACK do refactor cliente-primeiro (root cause = device_removed)
+Root cause identificado nos logs: `node:{tag:"stream:error",attrs:{code:"401"},content:[{tag:"conflict",attrs:{type:"device_removed"}}]}`. O WhatsApp estava removendo linked devices porque o pattern "groupCreate([cliente]) + batch add helpers via groupParticipantsUpdate" — introduzido no `a4d8878` — parecia automação/spam. **Não era LID nem rate-limit**. O LID aparecia nos `status_message` apenas porque era o último helper sendo adicionado quando o socket já estava sendo morto pelo WhatsApp — red herring.
+
+**Fix**: volta ao pattern original pré-`a4d8878`:
+- `groupCreate(name, [cliente, mentor, helpers])` — TODOS de uma vez, 1 IQ orgânico.
+- Rejeitados por privacy (403) detectados individualmente em `created.participants` — Baileys reporta por JID sem matar o socket.
+- Cliente rejeitado no fluxo HubSpot → DM com invite link (Step 3, preservado).
+- Admin extra (Escalada) continua em add+promote separado — pattern sempre aceito.
+- **Step 8 (batch add helpers) REMOVIDO inteiro** — era o vilão.
+- Welcome no final com branch alt/normal (inalterado).
+
+**Preservados (fixes legítimos)**: `stopSession.removeAllListeners`, `callWithTransientRetry`, `resolveSessionToJid` (usado agora pra MONTAR a lista do `groupCreate`), `isLikelyLid` (filtro preventivo pre-create pra reduzir noise).
+
+**Também**: `jobs.js` pre-populate agora copia `r.created_at` → `createdAt` no `job.results`. Job card "Criado em" mostra data pra grupos em cache também (não só os da rodada atual).
+
 ### 2026-04-20 noite-4 — commit `105ea6b` — Helpers/admins como session_id (refactor definitivo)
 Depois do `ed051bd` (que filtrava LIDs via heurística), veio o refactor arquitetural: helpers e admins agora trafegam como `session_id` em vez de phone cru. Elimina a origem do bug, não só sintoma.
 
