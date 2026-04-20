@@ -414,14 +414,20 @@ router.get("/tickets", async (req, res) => {
 router.post("/calls-today/refresh", async (req, res) => {
   try {
     // 1. Range do dia em America/Sao_Paulo (UTC-3)
-    const now = new Date();
-    // Pega offset BRT (sem DST atualmente: UTC-3)
-    // Calcula meia-noite BRT como UTC: 00:00 BRT = 03:00 UTC
-    const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000); // hora atual em BRT
-    const todayBrtStr = brt.toISOString().substring(0, 10); // YYYY-MM-DD
-    const startUTC = new Date(`${todayBrtStr}T00:00:00-03:00`);
-    const endUTC = new Date(`${todayBrtStr}T23:59:59-03:00`);
-    const range = { start: startUTC.toISOString(), end: endUTC.toISOString() };
+    // Aceita ?date=YYYY-MM-DD (query ou body) pra testar dias específicos.
+    // Sem param, usa hoje BRT.
+    let dateStr = (req.query && req.query.date) || (req.body && req.body.date);
+    if (!dateStr) {
+      const now = new Date();
+      const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+      dateStr = brt.toISOString().substring(0, 10);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ error: "date deve ser no formato YYYY-MM-DD" });
+    }
+    const startUTC = new Date(`${dateStr}T00:00:00-03:00`);
+    const endUTC = new Date(`${dateStr}T23:59:59-03:00`);
+    const range = { date: dateStr, start: startUTC.toISOString(), end: endUTC.toISOString() };
 
     // 2. HubSpot API key
     const settingRows = await supaRest(
