@@ -239,6 +239,18 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-20 noite-4 — commit `105ea6b` — Helpers/admins como session_id (refactor definitivo)
+Depois do `ed051bd` (que filtrava LIDs via heurística), veio o refactor arquitetural: helpers e admins agora trafegam como `session_id` em vez de phone cru. Elimina a origem do bug, não só sintoma.
+
+- **Frontend**: o checklist de helpers já tinha `data-session-id` (grupos.html:2220); agora `buildSpecsFromHubspotResolved` coleta e envia `spec.helperSessionIds` + `spec.adminSessionIds` (via `escaladaSession.id` quando Escalada conectada). Fallback pra `spec.adminJids` legado se Escalada offline. Mentor do ticket entra automaticamente em `helperSessionIds` quando a sessão criadora é outra. `buildSpecForPendingTicket` (Auto-criar) idem.
+- **Backend** ([baileys.js](whatsapp-server/src/services/baileys.js)):
+  - Novo `resolveSessionToJid(sessionId)`: lê `sessions.get(sid).sock.user.id`, extrai dígitos BR (10-13), retorna `{digits}@s.whatsapp.net` ou null.
+  - `createGroupsFromList` resolve `spec.helperSessionIds` e `spec.adminSessionIds` no início do loop em `resolvedHelperJids` e `resolvedAdminJids` com dedupe.
+  - Step 7 (admins) prefere `resolvedAdminJids`; fallback `spec.adminJids`.
+  - Step 8 (helpers) prefere `resolvedHelperJids` — passa direto ao `groupParticipantsUpdate` sem `validateMembersForCreate` (JID já é canônico). Fallback phone-based preservado pro fluxo XLSX.
+  - `membersTotal` conta `helperSessionIds`+`adminSessionIds` quando presentes.
+- **Vantagens sobre phone-based**: fonte da verdade vira `sock.user.id` runtime, não `wa_sessions.phone` DB. Funciona mesmo se o phone do DB estiver com LID salvo. Sessão disconnected é silenciosamente pulada (null do resolve) em vez de matar socket. O `isLikelyLid` vira defense-in-depth no path phone-based só.
+
 ### 2026-04-20 noite-3 — commit `ed051bd` — Filtro LOCAL de LID + fallback seguro
 `6cf308d` não fechou o LID-kill porque `sock.onWhatsApp` retorna `exists: true` pra LIDs que estão no contact store da sessão (history sync trouxe). Resultado: LID passava pelo `validateMembersForCreate`, virava `{digits}@s.whatsapp.net`, WhatsApp derrubava socket com loggedOut, welcome caía em "Sessão não disponível". Caso em prod: Luis Antonio Lopes | Guilherme Donato (18:03).
 
