@@ -112,57 +112,57 @@ function expandBrazilPhoneVariations(phone) {
 //   - Chats individuais (@s.whatsapp.net + @lid via wa_contacts)
 //   - Grupos onde o phone/JID é membro (via group_members)
 // Retorna array deduplicado de JIDs.
-async function expandPhonesToJids(phones) {
-  if (!phones || phones.length === 0) return [];
-
-  // Gera variações com/sem o 9 extra para BR
-  const allPhoneVariations = [];
-  for (const p of phones) {
-    for (const v of expandBrazilPhoneVariations(p)) {
-      if (allPhoneVariations.indexOf(v) < 0) allPhoneVariations.push(v);
-    }
+async function expandPhonesToJids(phones, opts) {
+  opts = opts || {};
+  if (!phones || phones.length === 0) {
+    return opts.groupByPhone ? { jids: [], phoneMap: {} } : [];
   }
 
-  // Step 1: busca wa_contacts WHERE phone IN [variações] → coleta JIDs
-  const phoneListIn = allPhoneVariations.map(p => `"${p}"`).join(",");
-  const contactRows = await supaRest(
-    `/rest/v1/wa_contacts?phone=in.(${phoneListIn})&select=contact_jid,linked_jid`
-  ).catch(() => []);
+  // Resolve phone-by-phone pra montar mapa {phone: [jids]} sem perder a origem
+  const phoneMap = {};
+  const allJidsSet = new Set();
 
-  const contactJids = [];
-  for (const r of (contactRows || [])) {
-    if (r.contact_jid && contactJids.indexOf(r.contact_jid) < 0) contactJids.push(r.contact_jid);
-    if (r.linked_jid && contactJids.indexOf(r.linked_jid) < 0) contactJids.push(r.linked_jid);
-  }
+  for (const phone of phones) {
+    const variations = expandBrazilPhoneVariations(phone);
+    const jidsForThisPhone = new Set();
 
-  // Adiciona JIDs sintéticos (caso wa_contacts não tenha)
-  for (const p of allPhoneVariations) {
-    const synthetic = `${p}@s.whatsapp.net`;
-    if (contactJids.indexOf(synthetic) < 0) contactJids.push(synthetic);
-  }
-
-  // Step 2: busca group_members onde member_phone bate (prefixo dos JIDs ou phone)
-  const memberKeys = [];
-  for (const jid of contactJids) {
-    const key = jid.replace(/@.*$/, "");
-    if (key && memberKeys.indexOf(key) < 0) memberKeys.push(key);
-  }
-  for (const p of allPhoneVariations) {
-    if (memberKeys.indexOf(p) < 0) memberKeys.push(p);
-  }
-
-  const allJids = contactJids.slice();
-  if (memberKeys.length > 0) {
-    const memberListIn = memberKeys.map(p => `"${p}"`).join(",");
-    const memberRows = await supaRest(
-      `/rest/v1/group_members?member_phone=in.(${memberListIn})&select=group_jid`
+    // Step 1: wa_contacts WHERE phone IN [variations]
+    const phoneListIn = variations.map(p => `"${p}"`).join(",");
+    const contactRows = await supaRest(
+      `/rest/v1/wa_contacts?phone=in.(${phoneListIn})&select=contact_jid,linked_jid`
     ).catch(() => []);
-    for (const m of (memberRows || [])) {
-      if (m.group_jid && allJids.indexOf(m.group_jid) < 0) allJids.push(m.group_jid);
+
+    for (const r of (contactRows || [])) {
+      if (r.contact_jid) jidsForThisPhone.add(r.contact_jid);
+      if (r.linked_jid) jidsForThisPhone.add(r.linked_jid);
     }
+
+    // JIDs sintéticos como fallback
+    for (const v of variations) jidsForThisPhone.add(`${v}@s.whatsapp.net`);
+
+    // Step 2: group_members WHERE member_phone IN [keys]
+    const memberKeys = new Set(variations);
+    for (const jid of jidsForThisPhone) {
+      const key = jid.replace(/@.*$/, "");
+      if (key) memberKeys.add(key);
+    }
+    if (memberKeys.size > 0) {
+      const memberListIn = Array.from(memberKeys).map(p => `"${p}"`).join(",");
+      const memberRows = await supaRest(
+        `/rest/v1/group_members?member_phone=in.(${memberListIn})&select=group_jid`
+      ).catch(() => []);
+      for (const m of (memberRows || [])) {
+        if (m.group_jid) jidsForThisPhone.add(m.group_jid);
+      }
+    }
+
+    const jidsArr = Array.from(jidsForThisPhone);
+    phoneMap[phone] = jidsArr;
+    for (const j of jidsArr) allJidsSet.add(j);
   }
 
-  return allJids;
+  const allJids = Array.from(allJidsSet);
+  return opts.groupByPhone ? { jids: allJids, phoneMap } : allJids;
 }
 
 module.exports = { supaRest, supaRpc, supaCount, expandPhonesToJids, expandBrazilPhoneVariations };

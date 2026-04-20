@@ -3085,37 +3085,59 @@ function getAbaContacts(abaId) {
   return tab ? tab.contacts : null;
 }
 
-// Retorna a tab completa (com contacts + contactJids), pra filtros fazerem JID-match
-// Conta chats DISTINTOS que uma aba (admin ou user) inclui.
-// Deduplica por nome do chat — ex: Luiz tem @c.us + @lid que apontam pro mesmo chat visual.
-// Para aba admin, considera resolved_jids (JIDs pré-resolvidos via HubSpot).
+// Conta PESSOAS distintas que uma aba (admin ou user) inclui.
+// - Admin com resolved_phone_jids: 1 phone com pelo menos 1 chat visível = 1 pessoa
+//   (deduplica DM + LID + grupos como 1 pessoa)
+// - Admin sem mapa: cai pra dedup por nome de chat (lógica antiga)
+// - User abas: dedup por nome de contato manual
 window._ezapCountAbaChats = function(tab) {
   if (!tab) return 0;
   var idx = window._ezapChatIndex;
   var manualContacts = (tab.contacts || []).slice();
 
-  // Se não temos chatIndex ainda, retorna count simples (com dedupe por set)
+  // === ADMIN com resolved_phone_jids (preferido — dedup por pessoa) ===
+  if (tab.isAdmin && tab.resolved_phone_jids && typeof tab.resolved_phone_jids === 'object') {
+    var personCount = 0;
+    Object.keys(tab.resolved_phone_jids).forEach(function(phone) {
+      var jidsForPhone = tab.resolved_phone_jids[phone] || [];
+      // Conta a pessoa se TEM chatIndex e algum JID dessa pessoa está visível,
+      // OU se ainda não temos chatIndex (conta tudo até carregar)
+      if (!idx || !idx.byJid) {
+        personCount++;
+        return;
+      }
+      var hasVisible = jidsForPhone.some(function(jid) {
+        if (!jid) return false;
+        return !!(idx.byJid[jid] || idx.byJid[String(jid).toLowerCase()]);
+      });
+      if (hasVisible) personCount++;
+    });
+    // Soma manual contacts (admin que tem aba_contacts manual também)
+    var nameSetAdmin = {};
+    manualContacts.forEach(function(n) {
+      if (n) nameSetAdmin[String(n).toLowerCase().trim()] = true;
+    });
+    return personCount + Object.keys(nameSetAdmin).length;
+  }
+
+  // === Sem chatIndex ainda — count simples deduplicado ===
   if (!idx || !idx.byJid) {
     var simpleSet = {};
     manualContacts.forEach(function(n) { if (n) simpleSet[String(n).toLowerCase()] = true; });
-    // Para admin, adiciona resolved_jids como keys (dedup parcial)
     var adminRaw = tab.isAdmin ? (tab.resolved_jids || []) : [];
     adminRaw.forEach(function(j) { if (j) simpleSet['jid:' + String(j).toLowerCase()] = true; });
     return Object.keys(simpleSet).length;
   }
 
-  // Set de nomes dos chats únicos que a aba engloba
+  // === Fallback: dedup por nome de chat (admin sem mapa OU user aba) ===
   var nameSet = {};
-  // 1. Manual contacts
   manualContacts.forEach(function(n) {
     if (n) nameSet[String(n).toLowerCase().trim()] = true;
   });
-  // 2. Resolved JIDs (admin) → busca nome do chat via chatIndex
   if (tab.isAdmin) {
     var resolvedJids = tab.resolved_jids || [];
     resolvedJids.forEach(function(jid) {
       if (!jid) return;
-      // Tenta match exato no byJid
       var chat = idx.byJid[jid] || idx.byJid[String(jid).toLowerCase()];
       if (chat && chat.name) {
         nameSet[String(chat.name).toLowerCase().trim()] = true;

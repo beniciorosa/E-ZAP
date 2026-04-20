@@ -471,13 +471,18 @@ router.post("/calls-today/refresh", async (req, res) => {
     const phones = Array.from(phonesSet);
     console.log(`[CALLS-TODAY] ${phones.length} phones únicos resolvidos`);
 
-    // 6. Expandir phones em JIDs (contatos individuais + LIDs + grupos)
-    const allJids = await expandPhonesToJids(phones);
+    // 6. Expandir phones em JIDs com mapa por phone (pra dedup por pessoa)
+    const expanded = await expandPhonesToJids(phones, { groupByPhone: true });
+    const allJids = expanded.jids;
+    const phoneMap = expanded.phoneMap;
     console.log(`[CALLS-TODAY] ${allJids.length} JIDs totais (incluindo grupos)`);
 
-    // 7. UPDATE admin_abas SET resolved_jids = ... WHERE name = 'CALLS DE HOJE'
+    // 7. UPDATE admin_abas — popula resolved_jids (achatado) + resolved_phones
+    //    + resolved_phone_jids (mapa pra dedup por pessoa no contador da extensão)
     const updateBody = {
       resolved_jids: allJids.length > 0 ? allJids : null,
+      resolved_phones: phones.length > 0 ? phones : null,
+      resolved_phone_jids: phones.length > 0 ? phoneMap : null,
     };
     await supaRest(
       "/rest/v1/admin_abas?name=eq." + encodeURIComponent("CALLS DE HOJE"),

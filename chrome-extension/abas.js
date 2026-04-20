@@ -932,7 +932,7 @@ function renderAbasList(data) {
   if (!list) return;
 
   var adminTabs = _adminAbas.map(function(a) {
-    return { id: a.id, name: a.name, color: a.color || '#4d96ff', icon: a.icon || '', criteria: a.criteria || [], resolved_phones: a.resolved_phones || [], resolved_jids: a.resolved_jids || [], contacts: a.contacts || [], contactJids: a.contactJids || {}, isAdmin: true };
+    return { id: a.id, name: a.name, color: a.color || '#4d96ff', icon: a.icon || '', criteria: a.criteria || [], resolved_phones: a.resolved_phones || [], resolved_jids: a.resolved_jids || [], resolved_phone_jids: a.resolved_phone_jids || null, contacts: a.contacts || [], contactJids: a.contactJids || {}, isAdmin: true };
   });
   var userTabs = (data.tabs || []).map(function(t) {
     return Object.assign({}, t, { isAdmin: false });
