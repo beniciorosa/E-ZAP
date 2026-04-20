@@ -240,7 +240,7 @@ async function searchMeetingsByDateRange(startTimeISO, endTimeISO, hsKey) {
           { propertyName: "hs_meeting_start_time", operator: "LT",  value: new Date(endTimeISO).getTime() },
         ],
       }],
-      properties: ["hs_meeting_title", "hs_meeting_start_time", "hubspot_owner_id"],
+      properties: ["hs_meeting_title", "hs_meeting_start_time", "hs_meeting_end_time", "hubspot_owner_id"],
       limit: 100,
     };
     if (after) body.after = after;

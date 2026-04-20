@@ -165,4 +165,95 @@ async function expandPhonesToJids(phones, opts) {
   return opts.groupByPhone ? { jids: allJids, phoneMap } : allJids;
 }
 
-module.exports = { supaRest, supaRpc, supaCount, expandPhonesToJids, expandBrazilPhoneVariations };
+// ============================================================================
+// CALLS widget helpers — classify & name-fetch
+// ============================================================================
+
+// Classifica JID pelo sufixo
+function classifyJid(jid) {
+  if (!jid) return null;
+  if (jid.endsWith("@g.us")) return "group";
+  if (jid.endsWith("@lid")) return "lid";
+  return "dm";
+}
+
+// Escolhe o JID preferido de uma lista — prioridade group > dm > lid
+// Retorna { jid, type } ou null
+function pickPrimaryJid(jidsArr) {
+  if (!jidsArr || jidsArr.length === 0) return null;
+  const groups = jidsArr.filter(j => j && j.endsWith("@g.us"));
+  const dms = jidsArr.filter(j => j && j.endsWith("@s.whatsapp.net"));
+  const lids = jidsArr.filter(j => j && j.endsWith("@lid"));
+  const ordered = groups.concat(dms).concat(lids);
+  if (ordered.length === 0) return null;
+  const jid = ordered[0];
+  return { jid, type: classifyJid(jid) };
+}
+
+// Busca nomes dos chats em batch. Tenta wa_chats.chat_name primeiro;
+// fallback wa_contacts.name/push_name (DMs) ou group_members.group_name (grupos).
+// Retorna { jid: name }.
+async function fetchChatNamesBatch(jids) {
+  if (!jids || jids.length === 0) return {};
+  const unique = Array.from(new Set(jids.filter(Boolean)));
+  const result = {};
+  const CHUNK = 50;
+
+  // Step 1: wa_chats.chat_name (fonte principal)
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK);
+    const listIn = chunk.map(j => `"${j}"`).join(",");
+    const rows = await supaRest(
+      `/rest/v1/wa_chats?chat_jid=in.(${listIn})&select=chat_jid,chat_name`
+    ).catch(() => []);
+    for (const r of rows || []) {
+      if (r.chat_jid && r.chat_name && !result[r.chat_jid]) {
+        result[r.chat_jid] = r.chat_name;
+      }
+    }
+  }
+
+  // Step 2: pra quem ficou sem nome, separa por tipo
+  const missing = unique.filter(j => !result[j]);
+  if (missing.length === 0) return result;
+
+  const missingGroups = missing.filter(j => j.endsWith("@g.us"));
+  const missingDMs = missing.filter(j => !j.endsWith("@g.us"));
+
+  // Groups -> group_members.group_name
+  for (let i = 0; i < missingGroups.length; i += CHUNK) {
+    const chunk = missingGroups.slice(i, i + CHUNK);
+    const listIn = chunk.map(j => `"${j}"`).join(",");
+    const rows = await supaRest(
+      `/rest/v1/group_members?group_jid=in.(${listIn})&select=group_jid,group_name&limit=${chunk.length * 5}`
+    ).catch(() => []);
+    for (const r of rows || []) {
+      if (r.group_jid && r.group_name && !result[r.group_jid]) {
+        result[r.group_jid] = r.group_name;
+      }
+    }
+  }
+
+  // DMs -> wa_contacts.name / push_name
+  for (let i = 0; i < missingDMs.length; i += CHUNK) {
+    const chunk = missingDMs.slice(i, i + CHUNK);
+    const listIn = chunk.map(j => `"${j}"`).join(",");
+    const rows = await supaRest(
+      `/rest/v1/wa_contacts?contact_jid=in.(${listIn})&select=contact_jid,name,push_name`
+    ).catch(() => []);
+    for (const r of rows || []) {
+      if (r.contact_jid && !result[r.contact_jid]) {
+        const n = r.name || r.push_name;
+        if (n) result[r.contact_jid] = n;
+      }
+    }
+  }
+
+  return result;
+}
+
+module.exports = {
+  supaRest, supaRpc, supaCount,
+  expandPhonesToJids, expandBrazilPhoneVariations,
+  classifyJid, pickPrimaryJid, fetchChatNamesBatch,
+};

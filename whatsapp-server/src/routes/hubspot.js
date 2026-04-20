@@ -7,7 +7,9 @@
 
 const express = require("express");
 const router = express.Router();
-const { supaRest, expandPhonesToJids } = require("../services/supabase");
+const {
+  supaRest, expandPhonesToJids, pickPrimaryJid, fetchChatNamesBatch, classifyJid,
+} = require("../services/supabase");
 const {
   fetchTicketFromApi, upsertMentorado,
   searchMeetingsByDateRange, getMeetingContactIds, getContactPhoneDigits,
@@ -505,6 +507,241 @@ router.post("/calls-today/refresh", async (req, res) => {
     res.json(result);
   } catch (e) {
     console.error("[CALLS-TODAY] error:", e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================================
+// CALLS DA SEMANA — popula calls_events com meetings dos próximos N dias
+// ============================================================================
+//
+// POST /api/hubspot/calls-week/refresh?days=N
+//   Busca meetings do HubSpot entre hoje 00:00 BRT e hoje+N-1 23:59 BRT
+//   (default N=7), resolve contatos → phones → primary_jid, UPSERT em
+//   calls_events e remove stale (meetings canceladas/movidas pra fora do range).
+//
+//   Query params (opcionais):
+//     ?days=7 (default)  — quantos dias a partir de hoje
+//     ?date=YYYY-MM-DD   — data base alternativa (default: hoje BRT)
+//
+//   Response:
+//   {
+//     ok: true,
+//     meetings_count, events_count, deleted_count,
+//     refreshed_at, range: { start, end, days }
+//   }
+router.post("/calls-week/refresh", async (req, res) => {
+  try {
+    // 1. Range
+    const daysRaw = Number((req.query && req.query.days) || (req.body && req.body.days) || 7);
+    const days = Math.max(1, Math.min(31, Math.floor(daysRaw) || 7));
+    let dateStr = (req.query && req.query.date) || (req.body && req.body.date);
+    if (!dateStr) {
+      const now = new Date();
+      const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+      dateStr = brt.toISOString().substring(0, 10);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ error: "date deve ser no formato YYYY-MM-DD" });
+    }
+    const startUTC = new Date(`${dateStr}T00:00:00-03:00`);
+    const endDateObj = new Date(startUTC.getTime() + days * 24 * 60 * 60 * 1000 - 1000);
+    const endUTC = endDateObj;
+    const range = { start: startUTC.toISOString(), end: endUTC.toISOString(), days };
+
+    // 2. HubSpot API key
+    const settingRows = await supaRest(
+      "/rest/v1/app_settings?key=eq.hubspot_api_key&select=value"
+    ).catch(() => []);
+    const hsKey = settingRows && settingRows[0] && settingRows[0].value;
+    if (!hsKey) {
+      return res.status(400).json({ error: "hubspot_api_key não configurada em app_settings" });
+    }
+
+    // 3. Busca meetings do range
+    console.log(`[CALLS-WEEK] Buscando meetings entre ${range.start} e ${range.end} (${days}d)...`);
+    const meetings = await searchMeetingsByDateRange(range.start, range.end, hsKey);
+    console.log(`[CALLS-WEEK] ${meetings.length} meetings encontradas`);
+
+    // 4. Pra cada meeting: resolve contactIds -> phones. Monta (meeting, phone) pairs
+    //    preservando metadado (start/end/title/owner).
+    const CONCURRENCY = 8;
+    const pairs = []; // { meeting_id, start_time, end_time, title, owner_id, phone, contact_id }
+
+    for (let i = 0; i < meetings.length; i += CONCURRENCY) {
+      const chunk = meetings.slice(i, i + CONCURRENCY);
+      const lists = await Promise.all(chunk.map(m =>
+        getMeetingContactIds(m.id, hsKey).catch(e => {
+          console.warn(`[CALLS-WEEK] meeting ${m.id} associations falhou: ${e.message}`);
+          return [];
+        })
+      ));
+      chunk.forEach((m, idx) => {
+        const props = m.properties || {};
+        const contactIds = lists[idx] || [];
+        for (const cid of contactIds) {
+          pairs.push({
+            meeting_id: String(m.id),
+            start_time: props.hs_meeting_start_time || null,
+            end_time: props.hs_meeting_end_time || null,
+            title: props.hs_meeting_title || null,
+            owner_id: props.hubspot_owner_id || null,
+            contact_id: cid,
+          });
+        }
+      });
+    }
+    console.log(`[CALLS-WEEK] ${pairs.length} (meeting, contact) pares`);
+
+    // 5. Resolve phone de cada contact_id. Cacheia pra evitar lookup duplicado.
+    const phoneByContact = {};
+    const uniqueContactIds = Array.from(new Set(pairs.map(p => p.contact_id)));
+    for (let i = 0; i < uniqueContactIds.length; i += CONCURRENCY) {
+      const chunk = uniqueContactIds.slice(i, i + CONCURRENCY);
+      const phones = await Promise.all(chunk.map(id =>
+        getContactPhoneDigits(id, hsKey).catch(() => null)
+      ));
+      chunk.forEach((id, idx) => { if (phones[idx]) phoneByContact[id] = phones[idx]; });
+    }
+    // Atribui phone a cada pair (descarta pares sem phone)
+    const validPairs = [];
+    for (const p of pairs) {
+      const phone = phoneByContact[p.contact_id];
+      if (phone) validPairs.push({ ...p, phone });
+    }
+    console.log(`[CALLS-WEEK] ${validPairs.length} pares com phone válido`);
+
+    // 6. Expande phones únicos -> JIDs (reusa lógica com variações 9-extra)
+    const uniquePhones = Array.from(new Set(validPairs.map(p => p.phone)));
+    const expanded = await expandPhonesToJids(uniquePhones, { groupByPhone: true });
+    const phoneMap = expanded.phoneMap || {};
+
+    // 7. Pra cada pair, escolhe primary_jid e classifica
+    const eventsToUpsert = validPairs.map(p => {
+      const jidsForPhone = phoneMap[p.phone] || [];
+      const primary = pickPrimaryJid(jidsForPhone);
+      return {
+        meeting_id: p.meeting_id,
+        start_time: p.start_time,
+        end_time: p.end_time,
+        title: p.title,
+        phone: p.phone,
+        primary_jid: primary ? primary.jid : null,
+        jid_type: primary ? primary.type : null,
+        owner_id: p.owner_id,
+      };
+    });
+
+    // 8. Busca nomes dos chats em batch
+    const primaryJids = eventsToUpsert.map(e => e.primary_jid).filter(Boolean);
+    const namesByJid = await fetchChatNamesBatch(primaryJids);
+    for (const e of eventsToUpsert) {
+      if (e.primary_jid) e.contact_name = namesByJid[e.primary_jid] || null;
+    }
+
+    // 9. UPSERT em calls_events. Usa Prefer: resolution=merge-duplicates.
+    //    on_conflict precisa ser a nossa UNIQUE constraint (meeting_id, phone).
+    let upserted = 0;
+    if (eventsToUpsert.length > 0) {
+      const CHUNK_UP = 100;
+      for (let i = 0; i < eventsToUpsert.length; i += CHUNK_UP) {
+        const chunk = eventsToUpsert.slice(i, i + CHUNK_UP).map(e => ({
+          ...e,
+          last_seen_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }));
+        await supaRest(
+          "/rest/v1/calls_events?on_conflict=meeting_id,phone",
+          "POST",
+          chunk,
+          "resolution=merge-duplicates,return=minimal"
+        );
+        upserted += chunk.length;
+      }
+    }
+
+    // 10. Delete stale: remove rows no range cujo meeting_id não veio no refresh
+    const currentIds = Array.from(new Set(meetings.map(m => String(m.id))));
+    let deleted = 0;
+    if (currentIds.length > 0) {
+      const idListIn = currentIds.map(id => `"${id}"`).join(",");
+      const stale = await supaRest(
+        `/rest/v1/calls_events?start_time=gte.${encodeURIComponent(range.start)}&start_time=lte.${encodeURIComponent(range.end)}&meeting_id=not.in.(${idListIn})&select=id`
+      ).catch(() => []);
+      if (Array.isArray(stale) && stale.length > 0) {
+        const staleIds = stale.map(r => r.id).filter(Boolean);
+        if (staleIds.length > 0) {
+          const sidIn = staleIds.map(i => `"${i}"`).join(",");
+          await supaRest(
+            `/rest/v1/calls_events?id=in.(${sidIn})`,
+            "DELETE",
+            null,
+            "return=minimal"
+          );
+          deleted = staleIds.length;
+        }
+      }
+    } else {
+      // Sem meetings no range → apaga tudo dentro do range
+      await supaRest(
+        `/rest/v1/calls_events?start_time=gte.${encodeURIComponent(range.start)}&start_time=lte.${encodeURIComponent(range.end)}`,
+        "DELETE",
+        null,
+        "return=minimal"
+      );
+    }
+
+    const refreshed_at = new Date().toISOString();
+    const result = {
+      ok: true,
+      meetings_count: meetings.length,
+      events_count: upserted,
+      deleted_count: deleted,
+      refreshed_at,
+      range,
+    };
+    console.log("[CALLS-WEEK]", JSON.stringify(result));
+    res.json(result);
+  } catch (e) {
+    console.error("[CALLS-WEEK] error:", e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================================
+// GET /api/hubspot/calls?from=YYYY-MM-DD&to=YYYY-MM-DD
+//   Lê calls_events ordenado por start_time. Default: hoje 00:00 → hoje+7 23:59 BRT.
+//   Retorna array de calls (já agrupável por dia no client).
+// ============================================================================
+router.get("/calls", async (req, res) => {
+  try {
+    const fromStr = (req.query && req.query.from) || null;
+    const toStr = (req.query && req.query.to) || null;
+
+    const now = new Date();
+    const brtToday = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString().substring(0, 10);
+    const from = fromStr && /^\d{4}-\d{2}-\d{2}$/.test(fromStr) ? fromStr : brtToday;
+    const toBase = toStr && /^\d{4}-\d{2}-\d{2}$/.test(toStr) ? toStr : null;
+
+    const startUTC = new Date(`${from}T00:00:00-03:00`);
+    let endUTC;
+    if (toBase) {
+      endUTC = new Date(`${toBase}T23:59:59-03:00`);
+    } else {
+      endUTC = new Date(startUTC.getTime() + 7 * 24 * 60 * 60 * 1000 - 1000);
+    }
+
+    const rows = await supaRest(
+      `/rest/v1/calls_events?start_time=gte.${encodeURIComponent(startUTC.toISOString())}&start_time=lte.${encodeURIComponent(endUTC.toISOString())}&select=meeting_id,start_time,end_time,title,phone,primary_jid,jid_type,contact_name,owner_id&order=start_time.asc`
+    ).catch(() => []);
+
+    res.json({
+      ok: true,
+      range: { start: startUTC.toISOString(), end: endUTC.toISOString() },
+      events: rows || [],
+    });
+  } catch (e) {
+    console.error("[GET /calls] error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });

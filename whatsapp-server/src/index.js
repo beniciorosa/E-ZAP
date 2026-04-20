@@ -89,12 +89,12 @@ server.listen(PORT, async () => {
   // Reconnect saved sessions on boot
   await baileys.reconnectAllSessions();
 
-  // ===== Cron: refresh CALLS DE HOJE diariamente às 00:01 BRT =====
+  // ===== Cron: refresh CALLS DE HOJE + CALLS DA SEMANA diariamente às 00:01 BRT =====
   try {
     const cron = require("node-cron");
-    cron.schedule("1 0 * * *", async () => {
+    const callHubspot = async (path, label) => {
       try {
-        const resp = await fetch(`http://localhost:${PORT}/api/hubspot/calls-today/refresh`, {
+        const resp = await fetch(`http://localhost:${PORT}${path}`, {
           method: "POST",
           headers: {
             "Authorization": "Bearer " + (process.env.ADMIN_TOKEN || ""),
@@ -102,12 +102,16 @@ server.listen(PORT, async () => {
           },
         });
         const data = await resp.json().catch(() => ({}));
-        console.log("[CRON calls-today]", JSON.stringify(data));
+        console.log(`[CRON ${label}]`, JSON.stringify(data));
       } catch (e) {
-        console.error("[CRON calls-today] failed:", e.message);
+        console.error(`[CRON ${label}] failed:`, e.message);
       }
+    };
+    cron.schedule("1 0 * * *", async () => {
+      await callHubspot("/api/hubspot/calls-today/refresh", "calls-today");
+      await callHubspot("/api/hubspot/calls-week/refresh", "calls-week");
     }, { timezone: "America/Sao_Paulo" });
-    console.log("[CRON] CALLS DE HOJE refresh scheduled (00:01 America/Sao_Paulo)");
+    console.log("[CRON] CALLS DE HOJE + SEMANA refresh scheduled (00:01 America/Sao_Paulo)");
   } catch (e) {
     console.warn("[CRON] node-cron not available:", e.message);
   }
