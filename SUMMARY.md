@@ -1,4 +1,72 @@
-# E-ZAP — Sessão de trabalho 2026-04-14/16
+# E-ZAP — Sessão de trabalho 2026-04-14/20
+
+> **Update 2026-04-20 — ABA Admin "CALLS DE HOJE" auto-populada via cron HubSpot — DEPLOYED v2.0.37**
+>
+> Sessão grande (~17/04 a 20/04). Estado atual em produção:
+>
+> ### Estado da extensão
+> - **Versão**: `2.0.37` (deploy v2.0.36 → v2.0.37 hoje)
+> - **Distribuição**: `C:\ezap-ext` via `scripts/install-ezap.ps1` ou `scripts/E-ZAP-Instalar.bat` (duplo clique). Comando global `ezap-update` no PowerShell.
+>
+> ### Features grandes deployadas (cronológico)
+>
+> **17-18/04 — Admin ABAS + Templates Compartilhados** (v2.0.5 → v2.0.20)
+> - Migration 051: tabelas `shared_templates`, `admin_abas`, `admin_aba_contacts`
+> - Migration 052: `admin_abas.visible_to TEXT[]` (filtro por usuário)
+> - Migration 053: `admin_abas.icon TEXT` (emoji por aba — 20 opções)
+> - Templates compartilhados: admin cria multi-mensagem + arquivos no admin → todos veem em "Templates Compartilhados" no MSG sidebar
+> - ABAS Admin com seção dedicada "ABAS Compartilhadas" no sidebar, ícone no lugar do dot quando definido
+> - **Root-cause fix**: `supa()` em admin.html aceita 2 assinaturas (era chamado com 4 args mas definido com 2 → tudo falhava silenciosamente)
+>
+> **18-19/04 — Critérios de vínculo automático nas ABAS Admin** (v2.0.26 → v2.0.32)
+> - Migration 054: `admin_abas.criteria TEXT[]` (admin cola JID/telefone/wa.me/HubSpot link)
+> - Migration 055: `admin_abas.resolved_phones TEXT[]` (telefones resolvidos do HubSpot)
+> - Migration 056: `admin_abas.resolved_jids TEXT[]` (JIDs completos: pessoal + LID + grupos)
+> - Pipeline ao salvar aba: HubSpot ticket ID → telefone (via `/api/hubspot/resolve-tickets` que popula `mentorados`) → expande em todos JIDs (chats individuais + LIDs + grupos onde a pessoa é membro)
+> - Tratamento "9 extra" BR (5511XXXXXXXXX vs 551XXXXXXXX) em `expandPhonesToJids`
+> - Matcher na extensão usa `resolved_jids` (match direto JID-por-JID)
+> - Filtro do overlay e contador deduplicado por nome do chat
+>
+> **19-20/04 — Distribuição da extensão** (v2.0.32 → v2.0.36)
+> - `scripts/install-ezap.ps1` — baixa última release, extrai em `C:\ezap-ext`, abre Chrome direto no perfil correto (lê `Local State.profile.last_used`), usa `--new-window` pra forçar `chrome://extensions`
+> - `scripts/E-ZAP-Instalar.bat` — duplo clique pros usuários (chama PowerShell com `-ExecutionPolicy Bypass`)
+> - WebClient.DownloadFile() para download 3-5x mais rápido que Invoke-WebRequest
+> - Comando global `ezap-update` configurado via PowerShell `$PROFILE` (snippet no scripts/README.md)
+>
+> **20/04 — ABA "CALLS DE HOJE" via cron HubSpot** (v2.0.37 + whatsapp-server) ⭐ FEATURE NOVA
+> - Migration 057: `INSERT INTO admin_abas` da row "CALLS DE HOJE" (icon 🎥, color #ef4444, position 0)
+> - Migration 058: `admin_abas.resolved_phone_jids JSONB` (mapa `{phone: [jids]}` pra dedup por pessoa)
+> - **whatsapp-server (Hetzner)**:
+>   - Novo: `searchMeetingsByDateRange/getMeetingContactIds/getContactPhoneDigits` em `src/services/hubspot-api.js`
+>   - Novo: `expandPhonesToJids(phones, {groupByPhone:true})` em `src/services/supabase.js` (port do `_expandPhonesToJids` do admin.html, retorna mapa por phone)
+>   - Nova rota: `POST /api/hubspot/calls-today/refresh?date=YYYY-MM-DD` em `src/routes/hubspot.js` — busca meetings do dia, resolve contacts→phones→JIDs, popula `resolved_jids` + `resolved_phones` + `resolved_phone_jids`
+>   - Cron `node-cron` em `src/index.js`: `'1 0 * * *'` America/Sao_Paulo → chama o endpoint via `fetch http://localhost:PORT` com Bearer ADMIN_TOKEN
+>   - `package.json`: +`node-cron@^3.0.3`
+> - **admin.html**: botão "🎥 Atualizar CALLS DE HOJE" na tab ABAS Admin (chama waFetch POST e mostra contagens via alert)
+> - **chrome-extension/slice.js `_ezapCountAbaChats`**: dedup por PESSOA quando `resolved_phone_jids` existe — itera phones, conta 1 se algum JID dessa pessoa está visível em `chatIndex.byJid`. Fallback para dedup por nome quando sem mapa.
+> - **chrome-extension/abas.js**: passa `resolved_phone_jids` para `_renderSingleAbaItem`
+>
+> ### Bug encontrado e corrigido durante dev
+> - hsFetch já faz `JSON.stringify(opts.body)` internamente. O endpoint estava passando body já stringify-ado → HubSpot HTTP 400 "Cannot construct PublicObjectSearchRequest from String". Fix: passar body como objeto puro.
+>
+> ### Como testar a feature CALLS DE HOJE
+> 1. Estado atual no banco: aba populada com 10 pessoas (24 JIDs) das reuniões de 20/04
+> 2. Atualizar extensão: `ezap-update -OpenChrome` (vai pra v2.0.37)
+> 3. Recarregar WhatsApp Web (F5)
+> 4. Pill "🎥 CALLS DE HOJE" deve mostrar quantas pessoas únicas o mentor tem (ex: 2 = Isaac + Mateus, mesmo Mateus aparecendo em DM + grupo)
+> 5. Clicar na pill filtra os chats com call do dia
+> 6. Cron diário 00:01 BRT atualiza sozinho
+> 7. Botão "🎥 Atualizar CALLS DE HOJE" no admin pra forçar mid-day
+>
+> ### Pendência conhecida
+> - Aviso de segurança Windows SmartScreen ao baixar `.bat` (normal, requer "Mais informações" → "Executar mesmo assim"). Code-signing custaria ~$200/ano — não priorizado.
+>
+> ### Documentação criada
+> - `scripts/README.md` — guia de uso dos installers
+> - `EZAP_PLANO_MELHORIAS.md` (raiz) — plano completo das fases 1-8
+> - Vault Obsidian em `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos\E-ZAP EXT Update\` com 5 docs (sobre, instalação, credenciais, mudanças, deploy) + anexos (.bat, .ps1, plano)
+>
+> ---
 
 > **Update 2026-04-16 — DHIEGO.AI vira assistente LLM-first com tools externas (HubSpot + Google Calendar + Gmail + Supabase) — DEPLOYED**
 >
