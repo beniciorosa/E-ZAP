@@ -10,6 +10,7 @@ Toda sessão que for tocar na ferramenta de grupos (código, comportamento, UI, 
    - `03 - CUIDADOS.md` — 13 regras absolutas do "o que NÃO mexer" + diagnósticos.
    - `05 - TAREFAS PENDENTES.md` — backlog priorizado com o que ainda falta.
    - `06 - BANCO DE DADOS.md` — tabelas, triggers, crons, matriz leitura/escrita, SQL de diagnóstico.
+   - `_glossário.md` 📖 — consulta pontual quando aparecer termo técnico desconhecido.
 2. **ATUALIZAR** os 6 arquivos do Obsidian após qualquer mudança. Incluir data, commit hash, e lição aprendida se for bug fix. Se for concluir tarefa, mover pra seção "✅ Concluídas" em `05 - TAREFAS PENDENTES`.
 3. Se a mudança for grande (novo fluxo, refactor), atualizar também `01 - EXPLICAÇÃO LEIGO.md` e `02 - PASSO A PASSO.md`.
 
