@@ -421,6 +421,9 @@ async function runCreateGroupsWorker(job) {
     locked: !!r.locked,
     welcomeSent: !!r.welcome_sent,
     inviteLink: r.invite_link || null,
+    // Puxa o created_at do banco pra coluna "Criado em" funcionar em grupos
+    // que foram feitos em rodadas anteriores (fromCache) além dos da rodada atual.
+    createdAt: r.created_at || null,
     fromCache: true,
   }));
 

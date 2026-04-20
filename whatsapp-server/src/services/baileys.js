@@ -2133,16 +2133,19 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     };
 
     try {
-      // Fluxo HubSpot (`spec.clientPhone` presente) cria o grupo SÓ com o
-      // cliente, pra ter certeza antes de qualquer DM se ele entrou ou não.
-      // Fluxo XLSX (sem clientPhone) mantém comportamento antigo: valida
-      // todos os membros e passa todos de uma vez no groupCreate.
+      // ROOT CAUSE FIX (commit após 105ea6b): voltar ao pattern ORIGINAL —
+      // groupCreate com TODOS os members (cliente + mentor + helpers) de uma
+      // vez. O refactor "cliente primeiro + batch add helpers depois" (commit
+      // a4d8878) disparava um pattern de IQs que o WhatsApp interpretava como
+      // automação/bot e respondia com `stream:error code=401 conflict
+      // type=device_removed` — removia a linked device. Sintoma visto em 2026-04-20:
+      // 8 sessões caíram em sequência em grupos com o mesmo número suspeito.
+      // Admins (Escalada Ltda) continuam em step separado (add + promote) —
+      // esse pattern sempre funcionou.
       const isHubspotFlow = !!spec.clientPhone;
 
-      // Session-based JID resolution: se o frontend mandou helpers/admins
-      // como session_id (preferido — elimina LID-kill porque sock.user.id
-      // é o JID canônico do device logado), resolve pra JIDs agora.
-      // Dedupe pra evitar add duplicado (ex: mentor marcado tbm no checklist).
+      // Resolve session-based JIDs (preferido sobre phone cru — sock.user.id
+      // é canônico, sem risco de LID salvo em wa_sessions.phone). Dedupe.
       const resolvedHelperJids = [];
       const resolvedAdminJids = [];
       const seenJids = new Set();
@@ -2165,10 +2168,26 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
       }
 
+      // Monta a lista FINAL de members pro groupCreate — todos juntos.
+      // HubSpot: cliente + (helpers via session_id OU spec.members cru filtrado).
+      // XLSX: spec.members cru, validado via onWhatsApp.
       let memberJids;
       if (isHubspotFlow) {
         const clientJid = spec.clientPhone + "@s.whatsapp.net";
-        memberJids = [clientJid];
+        const finalList = [clientJid];
+        if (resolvedHelperJids.length > 0) {
+          // Session-based: JIDs já canônicos
+          for (const j of resolvedHelperJids) if (!finalList.includes(j)) finalList.push(j);
+        } else if (Array.isArray(spec.members)) {
+          // Phone-based fallback: filtra LIDs localmente + onWhatsApp batch
+          const extraPhones = spec.members
+            .filter(p => p && p !== spec.clientPhone && !isLikelyLid(p));
+          if (extraPhones.length > 0) {
+            const validated = await validateMembersForCreate(sock, extraPhones).catch(() => []);
+            for (const j of validated) if (!finalList.includes(j)) finalList.push(j);
+          }
+        }
+        memberJids = finalList;
       } else {
         memberJids = await validateMembersForCreate(sock, spec.members || []);
         if (memberJids.length === 0) {
@@ -2176,9 +2195,8 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
       }
 
-      // 1. groupCreate com retry automático em Connection Closed / Bad MAC.
-      // O wrapper espera reconectar (até 30s + delay entre tentativas de 15/20/25s)
-      // e só aborta se for rate-limit real ou se esgotar as 3 tentativas.
+      // 1. groupCreate com TODOS — retry em Connection Closed / Bad MAC.
+      // Este é o pattern orgânico que o WhatsApp aceita sem flagar como bot.
       const created = await callWithTransientRetry(
         sessionId,
         (s) => s.groupCreate(spec.name, memberJids),
@@ -2186,17 +2204,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       );
       row.groupJid = created?.id || null;
       if (!row.groupJid) throw new Error("groupCreate não retornou id");
-      // Marca o momento preciso da criação — usado pela coluna "Criado em"
-      // na UI e pra exportação CSV. (wa_group_creations.created_at tem o
-      // timestamp do upsert, que pode ser ligeiramente depois.)
       row.createdAt = new Date().toISOString();
 
-      // Rejeitados no groupCreate (normalmente: cliente no fluxo HubSpot, ou
-      // qualquer member no fluxo XLSX). Baileys retorna {jid: {error: "403"}}.
-      row.clientAdded = null;   // null=skipped, true=added, false=rejected
-      row.clientDmSent = null;  // null=skipped, true=sent, false=failed
+      // Detecta rejeitados via `created.participants` (Baileys retorna
+      // {jid: {error: "403"}} pros bloqueados por privacidade). NÃO mata o
+      // socket — WhatsApp só reporta individualmente, grupo é criado OK.
+      row.clientAdded = null;
+      row.clientDmSent = null;
       let clientRejected = false;
-      const xlsxRejectedJids = []; // só usado no fluxo XLSX (DM em massa depois)
+      const rejectedJids = []; // pra DM (cliente HubSpot OU members xlsx rejeitados)
       if (created.participants && typeof created.participants === "object") {
         const entries = Object.entries(created.participants);
         row.membersAdded = entries.filter(([, p]) => !p || !p.error).length;
@@ -2208,8 +2224,11 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
               clientRejected = true;
               row.clientAdded = false;
             } else if (!isHubspotFlow) {
-              xlsxRejectedJids.push(pjid);
+              rejectedJids.push(pjid);
             }
+            // Helpers rejeitados no fluxo HubSpot: loga mas não manda DM
+            // (helpers são contas internas tipo CX2 — 403 seria config estranha,
+            // não privacy real). Não emitimos DM nem bloqueia o fluxo.
           }
         }
         if (isHubspotFlow && !clientRejected) row.clientAdded = true;
@@ -2329,88 +2348,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
       }
 
-      // 8. Helpers / demais membros — batch add de uma vez.
-      // Session-based path (preferido): resolvedHelperJids já são JIDs
-      // canônicos via sock.user.id. Sem LID, sem onWhatsApp, sem surpresa.
-      // Phone-based fallback: fluxo XLSX (ou HubSpot client velho) manda
-      // spec.members com dígitos — aí passa pelo validateMembersForCreate.
-      if (!rateLimited && resolvedHelperJids.length > 0) {
-        // Exclui adminJids já processados no Step 7.
-        const adminSet = new Set(adminJidsToProcess.map(j => String(j).split("@")[0]));
-        const clientDigits = spec.clientPhone ? String(spec.clientPhone).replace(/\D/g, "") : "";
-        const extraJids = resolvedHelperJids
-          .filter(j => {
-            const d = String(j).split("@")[0];
-            return d !== clientDigits && !adminSet.has(d);
-          });
-        if (extraJids.length > 0) {
-          try {
-            const addRes = await sock.groupParticipantsUpdate(row.groupJid, extraJids, "add");
-            if (Array.isArray(addRes)) {
-              const okCount = addRes.filter(r => r && String(r.status) === "200").length;
-              row.membersAdded = (row.membersAdded || 0) + okCount;
-              const failCount = addRes.length - okCount;
-              if (failCount > 0) {
-                const failJids = addRes.filter(r => !r || String(r.status) !== "200").map(r => (r && r.jid || "?").split("@")[0]);
-                row.statusMessage = appendNote(row.statusMessage, "helpers_add_partial: " + failCount + " falha(s) — " + failJids.join(","));
-              }
-            }
-          } catch (e) {
-            if (isRateLimitError(e)) { rateLimited = true; }
-            else row.statusMessage = appendNote(row.statusMessage, "helpers_add_fail: " + (e?.message || e));
-          }
-          await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
-        }
-      } else if (!rateLimited && isHubspotFlow && Array.isArray(spec.members) && spec.members.length > 1) {
-        // Fallback phone-based (spec.members sem helperSessionIds).
-        const adminSet = new Set((spec.adminJids || []).map(j => String(j).split("@")[0]));
-        const extraPhones = (spec.members || [])
-          .filter(p => p && p !== spec.clientPhone && !adminSet.has(p));
-        if (extraPhones.length > 0) {
-          // Valida via onWhatsApp batch antes de adicionar — filtra LIDs
-          // (14-15 dígitos não-BR tipo "65816548667409") e números fora do
-          // WhatsApp. CRÍTICO: sem esse filtro, passar um LID como JID
-          // "{digits}@s.whatsapp.net" faz o WhatsApp derrubar o socket com
-          // loggedOut 401, quebrando o welcome de TODOS os grupos
-          // seguintes (bug observado em Aline/Priscila/Amanda 20/04 tarde).
-          const extraJids = await validateMembersForCreate(sock, extraPhones).catch(() => []);
-          // Identifica quais phones foram skipados (por LID ou por não estarem
-          // no WhatsApp) pra log/status_message — melhora diagnóstico.
-          const validatedDigits = new Set(extraJids.map(j => String(j).split("@")[0]));
-          const skippedList = extraPhones
-            .map(p => String(p).replace(/\D/g, ""))
-            .filter(p => p && !validatedDigits.has(p));
-          if (skippedList.length > 0) {
-            row.statusMessage = appendNote(row.statusMessage,
-              "helpers_skipped_invalid: " + skippedList.join(","));
-            console.log("[BAILEYS] helpers skipados (LID ou fora do WhatsApp) para",
-              row.groupJid, ":", skippedList);
-          }
-          if (extraJids.length > 0) {
-            try {
-              const addRes = await sock.groupParticipantsUpdate(row.groupJid, extraJids, "add");
-              if (Array.isArray(addRes)) {
-                const okCount = addRes.filter(r => r && String(r.status) === "200").length;
-                row.membersAdded = (row.membersAdded || 0) + okCount;
-                const failCount = addRes.length - okCount;
-                if (failCount > 0) {
-                  const failJids = addRes.filter(r => !r || String(r.status) !== "200").map(r => (r && r.jid || "?").split("@")[0]);
-                  row.statusMessage = appendNote(row.statusMessage, "helpers_add_partial: " + failCount + " falha(s) — " + failJids.join(","));
-                }
-              }
-            } catch (e) {
-              if (isRateLimitError(e)) { rateLimited = true; }
-              else row.statusMessage = appendNote(row.statusMessage, "helpers_add_fail: " + (e?.message || e));
-            }
-            await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
-          }
-        }
-      }
+      // Step 8 (batch add helpers) REMOVIDO: helpers já entraram no groupCreate.
+      // Foi esse step adicional + o groupCreate com só [clientJid] que mudou
+      // o pattern de IQs pro WhatsApp e disparou o device_removed.
 
       // 9. DM pros rejeitados (fluxo XLSX only — HubSpot já tratou no Step 3).
-      if (!rateLimited && !isHubspotFlow && row.inviteLink && xlsxRejectedJids.length > 0) {
+      if (!rateLimited && !isHubspotFlow && row.inviteLink && rejectedJids.length > 0) {
         let notified = 0;
-        for (const pjid of xlsxRejectedJids) {
+        for (const pjid of rejectedJids) {
           try {
             const dmText = 'Olá! Criei o grupo "' + (spec.name || "") + '" mas '
               + 'suas configurações de privacidade não permitem que eu te adicione '
@@ -2424,7 +2369,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
         if (notified > 0) {
           row.statusMessage = appendNote(row.statusMessage,
-            notified + "/" + xlsxRejectedJids.length + " não-adicionados receberam o link no privado");
+            notified + "/" + rejectedJids.length + " não-adicionados receberam o link no privado");
         }
       }
 
