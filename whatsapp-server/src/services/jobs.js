@@ -450,6 +450,16 @@ async function runCreateGroupsWorker(job) {
       delaySec: job.config.delaySec,
       shouldCancel: () => job.cancelRequested,
       onProgress: (payload) => {
+        // "processing_spec" marca qual spec o worker está começando a criar
+        // AGORA — UI usa pra mostrar "⏳ Pendente" na linha certa.
+        if (payload && payload.phase === "processing_spec") {
+          job.progress.currentSpecHash = payload.specHash || null;
+          job.progress.currentSpecName = payload.name || null;
+          job.progress.updatedAt = new Date().toISOString();
+          job.updatedAt = job.progress.updatedAt;
+          return;
+        }
+
         // waitForGroupCreateBudget / waitWithHeartbeat send heartbeat ticks with
         // { phase, remainingMs, ... } and no row/processed. Surface these as
         // waitPhase on job.progress so the frontend can render the right message.
@@ -463,9 +473,11 @@ async function runCreateGroupsWorker(job) {
           return;
         }
 
-        // Normal per-row progress tick — clear any leftover wait state
+        // Normal per-row progress tick — clear any leftover wait state + current spec
         job.progress.waitPhase = null;
         job.progress.waitRemainingMs = 0;
+        job.progress.currentSpecHash = null;
+        job.progress.currentSpecName = null;
 
         const { processed, total, row, rateLimited } = payload;
 

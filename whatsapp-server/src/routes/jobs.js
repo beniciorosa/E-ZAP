@@ -90,12 +90,21 @@ router.get("/", (req, res) => {
   }
 });
 
-// GET /api/jobs/:jobId — full snapshot (includes results array)
+// GET /api/jobs/:jobId — full snapshot (includes results array + pending specs)
 router.get("/:jobId", (req, res) => {
   try {
     const job = jobs.getJob(req.params.jobId);
     if (!job) return res.status(404).json({ error: "Job não encontrado" });
-    // Return everything; frontend decides what to render.
+
+    // Deriva a lista de specs pendentes (não processados ainda) pra UI mostrar
+    // linhas "⏸ Aguardando" antes dos grupos terem sido criados.
+    const processedHashes = new Set((job.results || []).map(r => r && r.specHash));
+    const pendingSpecs = Array.isArray(job._specs)
+      ? job._specs
+          .filter(s => s && s.specHash && !processedHashes.has(s.specHash))
+          .map(s => ({ specHash: s.specHash, name: s.name || "(sem nome)" }))
+      : [];
+
     res.json({
       ok: true,
       job: {
@@ -106,6 +115,7 @@ router.get("/:jobId", (req, res) => {
         config: job.config,
         progress: job.progress,
         results: job.results,
+        pendingSpecs,
         lastError: job.lastError,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,

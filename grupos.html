@@ -1741,14 +1741,40 @@ function renderJobResultsTable(job) {
 }
 
 function renderCreateGroupsResultsTable(job) {
-  // Sort: created first, then failed/rate_limited, alphabetically within each
+  // Monta 3 grupos de rows pra exibir em ordem:
+  // 1. Já processados (results ordenados: created > failed > rate_limited > cancelled)
+  // 2. Spec atualmente sendo processado (currentSpecHash) com ⏳ Pendente + spinner
+  // 3. Specs aguardando (pendingSpecs sem o atual) com ⏸ Aguardando
   var statusRank = { created: 0, pending: 1, failed: 2, rate_limited: 3, cancelled: 4 };
-  var rows = job.results.slice().sort(function(a, b) {
+  var processedResults = (job.results || []).slice().sort(function(a, b) {
     var ra = statusRank[a.status] != null ? statusRank[a.status] : 9;
     var rb = statusRank[b.status] != null ? statusRank[b.status] : 9;
     if (ra !== rb) return ra - rb;
     return (a.name || "").localeCompare(b.name || "");
   });
+  // Filtra results processados de verdade (não os "pending" que o backend
+  // pode ter inserido temporariamente via retry)
+  processedResults = processedResults.filter(function(r) {
+    return r.status === "created" || r.status === "failed"
+      || r.status === "rate_limited" || r.status === "cancelled";
+  });
+
+  var currentSpecHash = job.progress && job.progress.currentSpecHash;
+  var pendingSpecs = Array.isArray(job.pendingSpecs) ? job.pendingSpecs.slice() : [];
+  // Separa o atual do resto (atual fica logo após os processados)
+  var currentSpec = null;
+  if (currentSpecHash) {
+    var idx = pendingSpecs.findIndex(function(s) { return s.specHash === currentSpecHash; });
+    if (idx >= 0) {
+      currentSpec = pendingSpecs[idx];
+      pendingSpecs.splice(idx, 1);
+    } else {
+      // Pode acontecer se a row já está em results como "pending" do retry
+      currentSpec = { specHash: currentSpecHash, name: job.progress.currentSpecName || "(processando…)" };
+    }
+  }
+
+  var rows = processedResults.slice();
 
   var html = '<table><thead><tr>'
     + '<th>Nome</th>'
@@ -1789,6 +1815,37 @@ function renderCreateGroupsResultsTable(job) {
       + '<td>' + linkCell + '</td>'
       + '</tr>';
   });
+
+  // Row do spec ATUALMENTE sendo processado — com spinner ⏳ Pendente
+  if (currentSpec) {
+    html += '<tr style="background:rgba(157,124,255,0.06)">'
+      + '<td>' + esc(currentSpec.name || "(sem nome)") + '</td>'
+      + '<td><span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><span style="color:var(--warn)">⏳ Pendente</span></td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="color:var(--muted)">—</td>'
+      + '<td style="color:var(--muted)">—</td>'
+      + '</tr>';
+  }
+
+  // Rows dos specs AGUARDANDO (próximos da fila) — cinza
+  pendingSpecs.forEach(function(ps) {
+    html += '<tr style="opacity:0.55">'
+      + '<td>' + esc(ps.name || "(sem nome)") + '</td>'
+      + '<td style="color:var(--muted)">⏸ Aguardando</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="text-align:center; color:var(--muted)">—</td>'
+      + '<td style="color:var(--muted)">—</td>'
+      + '<td style="color:var(--muted)">—</td>'
+      + '</tr>';
+  });
+
   html += '</tbody></table>';
   return html;
 }

@@ -2098,6 +2098,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     const spec = specs[i];
     processed++;
 
+    // Sinaliza pro job manager qual spec está processando AGORA — a UI usa
+    // isso pra mostrar "⏳ Pendente" na linha correta enquanto o grupo está
+    // sendo criado, e as demais como "⏸ Aguardando".
+    if (onProgress) {
+      try {
+        onProgress({ phase: "processing_spec", specHash: spec.specHash, name: spec.name, index: i });
+      } catch (_) {}
+    }
+
     const row = {
       index: i,
       specHash: spec.specHash,
@@ -2197,11 +2206,47 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 1. groupCreate com TODOS — retry em Connection Closed / Bad MAC.
       // Este é o pattern orgânico que o WhatsApp aceita sem flagar como bot.
-      const created = await callWithTransientRetry(
-        sessionId,
-        (s) => s.groupCreate(spec.name, memberJids),
-        { label: "groupCreate[" + (spec.name || "").substring(0, 30) + "]" }
-      );
+      // Fallback pra `bad-request`: WhatsApp rejeita groupCreate quando o cliente
+      // não está nos contatos do criador (Andrei/Franciele/Marlie). Nesse caso,
+      // tentamos sem o cliente: o grupo é criado só com mentor+CX2, e depois
+      // mandamos DM com invite link pro cliente + mensagem alt no grupo.
+      let created;
+      let clientWasSkipped = false;
+      try {
+        created = await callWithTransientRetry(
+          sessionId,
+          (s) => s.groupCreate(spec.name, memberJids),
+          { label: "groupCreate[" + (spec.name || "").substring(0, 30) + "]" }
+        );
+      } catch (e) {
+        const errMsg = String(e?.message || "").toLowerCase();
+        const isBadRequest = errMsg.includes("bad-request") || (e && e.output && e.output.statusCode === 400);
+        if (isBadRequest && isHubspotFlow && spec.clientPhone && memberJids.length > 1) {
+          // Retry sem o cliente. Assume que o cliente é o primeiro JID no array
+          // (buildSpec monta assim: [clientJid, ...helpers]).
+          const clientJid = spec.clientPhone + "@s.whatsapp.net";
+          const memberJidsNoClient = memberJids.filter(j => j !== clientJid);
+          if (memberJidsNoClient.length > 0) {
+            console.log("[BAILEYS] groupCreate bad-request — retry sem cliente", spec.clientPhone, "para", spec.name);
+            try {
+              created = await callWithTransientRetry(
+                sessionId,
+                (s) => s.groupCreate(spec.name, memberJidsNoClient),
+                { label: "groupCreate[no-client]" }
+              );
+              clientWasSkipped = true;
+              row.statusMessage = appendNote(row.statusMessage,
+                "groupCreate sem cliente (bad-request): grupo criado, link enviado por DM");
+            } catch (e2) {
+              throw e2; // falha de novo, sem cliente — não tem o que fazer
+            }
+          } else {
+            throw e;
+          }
+        } else {
+          throw e;
+        }
+      }
       row.groupJid = created?.id || null;
       if (!row.groupJid) throw new Error("groupCreate não retornou id");
       row.createdAt = new Date().toISOString();
@@ -2211,12 +2256,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // socket — WhatsApp só reporta individualmente, grupo é criado OK.
       row.clientAdded = null;
       row.clientDmSent = null;
-      let clientRejected = false;
+      // Se o cliente foi pulado no groupCreate (bad-request), trata como rejected
+      // desde já — Step 3 vai enviar DM, Step 10 vai mandar alt message.
+      let clientRejected = clientWasSkipped;
+      if (clientWasSkipped) row.clientAdded = false;
       const rejectedJids = []; // pra DM (cliente HubSpot OU members xlsx rejeitados)
       if (created.participants && typeof created.participants === "object") {
         const entries = Object.entries(created.participants);
         row.membersAdded = entries.filter(([, p]) => !p || !p.error).length;
-        const clientJid = isHubspotFlow ? spec.clientPhone + "@s.whatsapp.net" : null;
+        const clientJid = isHubspotFlow && !clientWasSkipped ? spec.clientPhone + "@s.whatsapp.net" : null;
         for (const [pjid, info] of entries) {
           const code = String((info && (info.error || info.statusCode)) || "");
           if (code === "403") {
@@ -2240,18 +2288,21 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // Wait 8s for Signal key establishment (PreKeyError prevention).
       await new Promise(r => setTimeout(r, 8000));
 
-      // 2. Invite link — generated EARLY so we can DM it to the client
-      // immediately if they were rejected by privacy. Best-effort.
+      // 2. Invite link — envolvido em callWithTransientRetry pra sobreviver
+      // a Connection Closed pós-groupCreate (bug observado Vitor/Max/Emerson).
       try {
-        const code = await sock.groupInviteCode(row.groupJid);
+        const code = await callWithTransientRetry(
+          sessionId,
+          (s) => s.groupInviteCode(row.groupJid),
+          { label: "inviteCode[" + (spec.name || "").substring(0, 30) + "]" }
+        );
         if (code) row.inviteLink = "https://chat.whatsapp.com/" + code;
       } catch (e) {
         if (isRateLimitError(e)) { rateLimited = true; }
+        row.statusMessage = appendNote(row.statusMessage, "invite_link_fail: " + (e?.message || e));
       }
 
-      // 3. Client rejected by privacy (HubSpot flow) → DM invite link
-      // IMMEDIATELY before we touch helpers/admins. Avoids the race where
-      // a later explicit re-add succeeds but the DM was already sent.
+      // 3. Client rejected by privacy OU bad-request (HubSpot flow) → DM invite link.
       if (!rateLimited && isHubspotFlow && clientRejected && row.inviteLink) {
         const clientJid = spec.clientPhone + "@s.whatsapp.net";
         try {
@@ -2260,7 +2311,11 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           const dmText = rejectTemplate
             .replace(/\{nome_grupo\}/g, spec.name || "")
             .replace(/\{link\}/g, row.inviteLink);
-          await sock.sendMessage(clientJid, { text: dmText });
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.sendMessage(clientJid, { text: dmText }),
+            { label: "dmClientReject[...]" }
+          );
           row.clientDmSent = true;
           row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: link enviado por DM");
         } catch (dmErr) {
@@ -2274,7 +2329,11 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // 4. Description
       if (!rateLimited && spec.description) {
         try {
-          await sock.groupUpdateDescription(row.groupJid, String(spec.description));
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.groupUpdateDescription(row.groupJid, String(spec.description)),
+            { label: "desc[" + (spec.name || "").substring(0, 30) + "]" }
+          );
           row.hasDescription = true;
         } catch (e) {
           row.statusMessage = appendNote(row.statusMessage, "desc_fail: " + (e.message || e));
@@ -2287,7 +2346,11 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       if (!rateLimited && spec.photoUrl) {
         try {
           const buf = await fetchPhotoBuffer(spec.photoUrl);
-          await sock.updateProfilePicture(row.groupJid, buf);
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.updateProfilePicture(row.groupJid, buf),
+            { label: "photo[" + (spec.name || "").substring(0, 30) + "]" }
+          );
           row.hasPhoto = true;
         } catch (e) {
           row.statusMessage = appendNote(row.statusMessage, "photo_fail: " + (e.message || e));
@@ -2296,14 +2359,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
       }
 
-      // 6a. "Adicionar membros" = todos — ANTES do lock. A permissão de
-      // "Convidar via link ou QR code" no WhatsApp só fica disponível DEPOIS
-      // que "Adicionar membros" está habilitado; com o lock vindo primeiro o
-      // toggle do link fica OFF. Esperamos 4s antes do próximo setting pra
-      // o servidor propagar o flag.
+      // 6a. "Adicionar membros" = todos — ANTES do lock (permissão de invite
+      // link depende disso).
       if (!rateLimited) {
         try {
-          await sock.groupMemberAddMode(row.groupJid, "all_member_add");
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.groupMemberAddMode(row.groupJid, "all_member_add"),
+            { label: "memberAddMode" }
+          );
         } catch (e) {
           row.statusMessage = appendNote(row.statusMessage, "member_add_mode_fail: " + (e?.message || e));
           if (isRateLimitError(e)) { rateLimited = true; }
@@ -2311,11 +2375,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, 4000));
       }
 
-      // 6b. Lock "Editar configurações do grupo" (apenas admins) — DEPOIS
-      // de habilitar add_members, pra não bloquear o invite link.
+      // 6b. Lock "Editar configurações do grupo".
       if (!rateLimited && spec.lockInfo) {
         try {
-          await sock.groupSettingUpdate(row.groupJid, "locked");
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.groupSettingUpdate(row.groupJid, "locked"),
+            { label: "lock" }
+          );
           row.locked = true;
         } catch (e) {
           row.statusMessage = appendNote(row.statusMessage, "lock_fail: " + (e.message || e));
@@ -2325,21 +2392,27 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       }
 
       // 7. Add + promote extra admin JIDs (e.g. Escalada Ltda).
-      // Preferência: resolvedAdminJids (session-based — JIDs canônicos via
-      // sock.user.id, sem risco de LID). Fallback: spec.adminJids (legado,
-      // usado só por clients antigos que ainda não enviam adminSessionIds).
+      // Preferência: resolvedAdminJids (session-based). Fallback: spec.adminJids.
       const adminJidsToProcess = resolvedAdminJids.length > 0
         ? resolvedAdminJids
         : (Array.isArray(spec.adminJids) ? spec.adminJids : []);
       if (!rateLimited && adminJidsToProcess.length > 0) {
         for (const adminJid of adminJidsToProcess) {
           try {
-            const addRes = await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "add");
+            const addRes = await callWithTransientRetry(
+              sessionId,
+              (s) => s.groupParticipantsUpdate(row.groupJid, [adminJid], "add"),
+              { label: "adminAdd[" + adminJid.split("@")[0] + "]" }
+            );
             if (Array.isArray(addRes) && addRes[0] && String(addRes[0].status) === "200") {
               row.membersAdded = (row.membersAdded || 0) + 1;
             }
             await new Promise(r => setTimeout(r, 2000));
-            await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "promote");
+            await callWithTransientRetry(
+              sessionId,
+              (s) => s.groupParticipantsUpdate(row.groupJid, [adminJid], "promote"),
+              { label: "adminPromote[" + adminJid.split("@")[0] + "]" }
+            );
             await new Promise(r => setTimeout(r, 1000));
           } catch (e) {
             if (isRateLimitError(e)) { rateLimited = true; break; }
@@ -2437,10 +2510,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       try { onProgress({ processed, total, row, rateLimited }); } catch (_) {}
     }
 
-    // Delay between groups (only if more to process and not aborting)
+    // Delay between groups (only if more to process and not aborting).
+    // Usa waitWithHeartbeat em vez de setTimeout direto pra o botão Interromper
+    // funcionar DURANTE o delay (sem precisar esperar os 10 min terminarem).
     if (i < total - 1 && !rateLimited && !(shouldCancel && shouldCancel())) {
       const jitterMs = Math.floor((Math.random() - 0.5) * 60000); // ±30s
-      await new Promise(r => setTimeout(r, baseDelayMs + jitterMs));
+      const ok = await waitWithHeartbeat(baseDelayMs + jitterMs, {
+        onProgress, shouldCancel, phase: "between_groups",
+      });
+      if (!ok) { cancelled = true; break; }
     }
   }
 
