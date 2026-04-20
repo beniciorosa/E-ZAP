@@ -1091,6 +1091,19 @@ function isRateLimitError(e) {
     || msg.includes("not-acceptable");
 }
 
+// Detecta LID (Linked ID) disfarçado de telefone. Telefones BR válidos têm
+// 10-13 dígitos (com ou sem DDI 55). LIDs típicos têm 14-19 dígitos e NÃO
+// funcionam como JID `{digits}@s.whatsapp.net` — passam pro
+// groupParticipantsUpdate, o WhatsApp rejeita a stanza e pode derrubar a
+// sessão com loggedOut 401 (bug Aline/Priscila/Luis 20/04). Filtro LOCAL,
+// sem depender de sock.onWhatsApp (que retorna exists=true se o LID estiver
+// no contact store da sessão).
+function isLikelyLid(phoneOrDigits) {
+  const d = String(phoneOrDigits || "").replace(/\D/g, "");
+  if (d.length < 10 || d.length > 13) return true; // fora do range BR = suspeito
+  return false;
+}
+
 // Detect transient connection errors that a retry can recover from.
 // These happen when the Baileys socket disconnects mid-operation (Bad MAC,
 // auto-reconnect, WebSocket ping timeout) — the driver will reconnect in
@@ -2280,10 +2293,17 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           // loggedOut 401, quebrando o welcome de TODOS os grupos
           // seguintes (bug observado em Aline/Priscila/Amanda 20/04 tarde).
           const extraJids = await validateMembersForCreate(sock, extraPhones).catch(() => []);
-          const skippedInvalid = extraPhones.length - extraJids.length;
-          if (skippedInvalid > 0) {
+          // Identifica quais phones foram skipados (por LID ou por não estarem
+          // no WhatsApp) pra log/status_message — melhora diagnóstico.
+          const validatedDigits = new Set(extraJids.map(j => String(j).split("@")[0]));
+          const skippedList = extraPhones
+            .map(p => String(p).replace(/\D/g, ""))
+            .filter(p => p && !validatedDigits.has(p));
+          if (skippedList.length > 0) {
             row.statusMessage = appendNote(row.statusMessage,
-              "helpers_skipped_invalid: " + skippedInvalid + " (LID ou fora do WhatsApp)");
+              "helpers_skipped_invalid: " + skippedList.join(","));
+            console.log("[BAILEYS] helpers skipados (LID ou fora do WhatsApp) para",
+              row.groupJid, ":", skippedList);
           }
           if (extraJids.length > 0) {
             try {
@@ -2423,16 +2443,20 @@ function appendNote(existing, note) {
 // Validates a list of raw phone digits against WhatsApp and returns JIDs.
 // Uses a single sock.onWhatsApp call for the whole batch.
 async function validateMembersForCreate(sock, phones) {
+  // 1. Filtra LIDs LOCALMENTE (antes de qualquer chamada remota). sock.onWhatsApp
+  //    retorna exists=true pra LIDs que o contact store da sessão já conhece
+  //    (common após history sync), então o check remoto sozinho não é suficiente.
   const clean = (Array.isArray(phones) ? phones : [])
     .map(p => String(p || "").replace(/\D/g, ""))
-    .filter(p => p.length >= 8);
+    .filter(p => !isLikelyLid(p));
   if (clean.length === 0) return [];
   try {
     const checks = await sock.onWhatsApp(...clean);
     const out = [];
     const seen = new Set();
     for (const c of (checks || [])) {
-      if (c && c.exists && c.jid && !seen.has(c.jid)) {
+      // Defense: reject @lid JIDs caso o Baileys os devolva mesmo assim.
+      if (c && c.exists && c.jid && !c.jid.endsWith("@lid") && !seen.has(c.jid)) {
         out.push(c.jid);
         seen.add(c.jid);
       }
@@ -2440,8 +2464,9 @@ async function validateMembersForCreate(sock, phones) {
     return out;
   } catch (e) {
     console.error("[BAILEYS] validateMembersForCreate failed:", e.message);
-    // Fallback: assume all numbers are valid, build JIDs manually
-    return clean.map(p => p + "@s.whatsapp.net");
+    // Fallback SEGURO: sem validação = não adiciona. Prefere "grupo faltando
+    // helpers" a "sessão morta por stanza malformada + welcome não enviado".
+    return [];
   }
 }
 
