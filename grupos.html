@@ -502,19 +502,18 @@
         <div style="font-size:11px; color:var(--muted); margin-top:4px">A planilha precisa estar publicada como <b>Qualquer pessoa com o link</b>.</div>
       </div>
 
-      <div id="helperSessionsBox" style="margin-bottom:16px">
-        <label>Membros "helper" (sessões que entram em TODOS os grupos do lote)</label>
-        <div id="helperSessionsChecklist" style="display:flex; flex-wrap:wrap; gap:8px; padding:10px; background:var(--bg); border:1px solid var(--border); border-radius:8px; max-height:140px; overflow-y:auto"></div>
-        <div style="font-size:11px; color:var(--muted); margin-top:4px">Ex: CX2 ou o assistente que deve estar em cada grupo. O mentor do ticket já entra automaticamente — não precisa marcar.</div>
+      <div id="hubspotFixedMembersBox" style="margin-bottom:16px; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px">
+        <label style="margin:0; font-weight:600; font-size:13px">Membros fixos em todos os grupos do lote</label>
+        <ul style="margin:6px 0 0; padding-left:18px; font-size:12px; color:var(--muted)">
+          <li><strong>Cliente</strong> — do ticket HubSpot (dinâmico por grupo)</li>
+          <li><strong>Mentor responsável</strong> — sessão do dono do ticket (dinâmico)</li>
+          <li><strong>CX2</strong> (<code>5519971505209</code>) — membro fixo</li>
+          <li><strong>Escalada Ltda</strong> (<code>5519993473149</code>) — administrador fixo (add + promote)</li>
+        </ul>
+        <div id="fixedMembersWarn" style="font-size:11px; color:var(--danger); margin-top:6px; display:none"></div>
       </div>
-
-      <div id="hubspotAdminBox" style="margin-bottom:16px">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:8px">
-          <input type="checkbox" id="hubspotAddEscaladaAdmin" checked onchange="onHelperChecklistChange()" style="width:16px; height:16px; accent-color:var(--primary)">
-          <span style="font-size:13px">Adicionar <strong>Escalada Ltda (5519993473149)</strong> como administrador de todos os grupos</span>
-        </label>
-        <div style="font-size:11px; color:var(--muted); margin-top:4px">O mentor cria o grupo e depois adiciona + promove a Escalada como admin (2 IQs extras por grupo, saem do budget do mentor). Desmarque se não quiser.</div>
-      </div>
+      <!-- Checkbox legado preservado como hidden (valor sempre true) — Escalada fica fixa. -->
+      <input type="checkbox" id="hubspotAddEscaladaAdmin" checked style="display:none">
 
       <div id="hubspotCustomFields" style="margin-bottom:16px">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px">
@@ -2149,7 +2148,7 @@ function openCreateGroupsModal() {
   _hubspotResolved = [];
   _expandedPreviewRows = {};
   // Populate helper sessions checklist from connected sessions
-  renderHelperSessionsChecklist();
+  // (legado) checklist de helpers foi removido — CX2 e Escalada agora são fixos.
   // Default to HubSpot mode (Tickets é o fluxo principal agora)
   var hubRadio = document.querySelector('input[name=createSourceMode][value=hubspot]');
   if (hubRadio) hubRadio.checked = true;
@@ -2160,9 +2159,8 @@ function openCreateGroupsModal() {
 function toggleCreateSourceMode() {
   var mode = (document.querySelector('input[name=createSourceMode]:checked') || {}).value || "hubspot";
   var hubspotBox = document.getElementById("createHubspotBox");
-  var hubspotAdminBox = document.getElementById("hubspotAdminBox");
+  var hubspotFixedBox = document.getElementById("hubspotFixedMembersBox");
   var hubspotCustomBox = document.getElementById("hubspotCustomFields");
-  var helperBox = document.getElementById("helperSessionsBox");
   var fileBox = document.getElementById("createFileBox");
   var gsheetsBox = document.getElementById("createGsheetsBox");
   var fileInput = document.getElementById("createFileInput");
@@ -2171,18 +2169,15 @@ function toggleCreateSourceMode() {
   hubspotBox.classList.add("hidden");
   fileBox.classList.add("hidden");
   gsheetsBox.classList.add("hidden");
-  // The HubSpot custom fields, admin checkbox, and helper checklist only
-  // make sense in HubSpot mode. For xlsx/csv/sheets each row carries its
-  // own description + welcome + members.
-  hubspotAdminBox.classList.add("hidden");
+  // HubSpot custom fields + fixed members box só fazem sentido no fluxo
+  // HubSpot. XLSX/CSV/Sheets carregam seus próprios members por linha.
+  if (hubspotFixedBox) hubspotFixedBox.classList.add("hidden");
   hubspotCustomBox.classList.add("hidden");
-  helperBox.classList.add("hidden");
 
   if (mode === "hubspot") {
     hubspotBox.classList.remove("hidden");
-    hubspotAdminBox.classList.remove("hidden");
+    if (hubspotFixedBox) hubspotFixedBox.classList.remove("hidden");
     hubspotCustomBox.classList.remove("hidden");
-    helperBox.classList.remove("hidden");
   } else if (mode === "gsheets") {
     gsheetsBox.classList.remove("hidden");
   } else {
@@ -2546,35 +2541,40 @@ async function buildSpecsFromHubspotResolved() {
   }
 
   // Lê sessões helper marcadas no checklist
-  // Coleta helpers como SESSION_IDs (não phones) — backend resolve via
-  // sock.user.id no momento do add, pegando o JID canônico da sessão
-  // conectada. Isso evita LID/phone corrompido em wa_sessions.phone.
-  var helperPhones = [];       // legado — ainda usado pro preview dos labels
+  // Members fixos do fluxo HubSpot (pedido Dhiego 2026-04-20):
+  // - CX2: member fixo em todos os grupos (entra no groupCreate).
+  // - Escalada Ltda: admin fixo (add + promote pós-groupCreate).
+  // Elimina o checklist "helper" — reduz superfície pra regressão e garante
+  // que todos os lotes saem com o pattern esperado.
+  var helperPhones = [];       // legado — mantido pra preview labels (se precisar)
   var helperLabels = [];
-  var helperSessionIds = [];   // novo — enviado ao backend como fonte de verdade
-  document.querySelectorAll("#helperSessionsChecklist input[type=checkbox]:checked").forEach(function(cb) {
-    var sid = cb.getAttribute("data-session-id") || "";
-    var p = cb.getAttribute("data-phone") || "";
-    if (sid) helperSessionIds.push(sid);
-    if (p) {
-      helperPhones.push(p.replace(/\D/g, ""));
-      var lbl = cb.parentElement ? (cb.parentElement.querySelector("span") || {}).textContent : "";
-      helperLabels.push(lbl || p);
-    }
+  var helperSessionIds = [];   // CX2 vai aqui
+  var adminSessionIds = [];    // Escalada vai aqui
+  var adminJids = [];          // fallback hardcoded se Escalada offline
+
+  var cx2Session = (_sessions || []).find(function(s) {
+    return String(s.phone || "").replace(/\D/g, "") === "5519971505209" && s.status === "connected";
+  });
+  var escaladaSession = (_sessions || []).find(function(s) {
+    return String(s.phone || "").replace(/\D/g, "") === "5519993473149" && s.status === "connected";
   });
 
-  // Escalada Ltda admin checkbox — resolve como SESSION_ID quando a Escalada
-  // estiver conectada (preferido, JID canônico). Fallback pro JID hardcoded
-  // caso a Escalada não esteja em _sessions (mantém o comportamento legado).
-  var addEscaladaAdmin = document.getElementById("hubspotAddEscaladaAdmin") && document.getElementById("hubspotAddEscaladaAdmin").checked;
-  var adminJids = [];
-  var adminSessionIds = [];
-  if (addEscaladaAdmin) {
-    var escaladaSession = (_sessions || []).find(function(s) {
-      return String(s.phone || "").replace(/\D/g, "") === "5519993473149" && s.status === "connected";
-    });
-    if (escaladaSession) adminSessionIds.push(escaladaSession.id);
-    else adminJids.push("5519993473149@s.whatsapp.net");
+  if (cx2Session) helperSessionIds.push(cx2Session.id);
+  if (escaladaSession) adminSessionIds.push(escaladaSession.id);
+  else adminJids.push("5519993473149@s.whatsapp.net");
+
+  // Warning visual no modal se algum dos fixos estiver desconectado.
+  var warnEl = document.getElementById("fixedMembersWarn");
+  if (warnEl) {
+    var missing = [];
+    if (!cx2Session) missing.push("CX2");
+    if (!escaladaSession) missing.push("Escalada Ltda");
+    if (missing.length > 0) {
+      warnEl.textContent = "⚠️ Sessões desconectadas: " + missing.join(", ") + ". Reconecte antes de criar.";
+      warnEl.style.display = "block";
+    } else {
+      warnEl.style.display = "none";
+    }
   }
 
   // Lê os campos custom — aplicam a TODOS os grupos do lote
@@ -3146,17 +3146,19 @@ function buildSpecForPendingTicket(t, owner, mentorPhone, welcomeRaw, rejectRaw,
     .replace(/\{primeiro_nome\}/g, firstName)
     .replace(/\{mentor\}/g, mentorNameForTpl);
 
-  // Escalada Ltda como admin permanente — preferir session_id se a Escalada
-  // estiver conectada (JID canônico via sock.user.id, sem risco de LID).
+  // Members fixos (mesmo critério do fluxo HubSpot principal):
+  // - CX2: member fixo (entra no groupCreate junto com cliente + mentor).
+  // - Escalada Ltda: admin fixo (add + promote separado).
+  var cx2Session = (_sessions || []).find(function(s) {
+    return String(s.phone || "").replace(/\D/g, "") === "5519971505209" && s.status === "connected";
+  });
   var escaladaSession = (_sessions || []).find(function(s) {
     return String(s.phone || "").replace(/\D/g, "") === "5519993473149" && s.status === "connected";
   });
+  var helperSessionIds = cx2Session ? [cx2Session.id] : [];
   var adminSessionIds = escaladaSession ? [escaladaSession.id] : [];
   var adminJids = escaladaSession ? [] : ["5519993473149@s.whatsapp.net"];
 
-  // Mentor é o proprietário do ticket — sua sessão criadora já é o owner
-  // do grupo. Não precisa adicionar como helper. Só marcamos mentorSessionId
-  // no spec pra audit (wa_group_creations).
   var spec = {
     name: groupName,
     description: finalDescription,
@@ -3167,7 +3169,7 @@ function buildSpecForPendingTicket(t, owner, mentorPhone, welcomeRaw, rejectRaw,
     rejectDmTemplate: rejectDm,
     adminJids: adminJids,
     adminSessionIds: adminSessionIds,
-    helperSessionIds: [],          // Auto-criar não tem helpers extras
+    helperSessionIds: helperSessionIds,
     clientPhone: clientPhone,
     specHash: null,
     hubspotTicketId: t.ticket_id,
