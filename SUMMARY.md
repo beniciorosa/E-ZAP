@@ -1,5 +1,42 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/20
 
+> **Update 2026-04-20 tarde — Widget CALLS no sidebar direito (HOJE/AMANHÃ/SEMANA) — DEPLOYED v2.0.38**
+>
+> Plano: [C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md](C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md)
+>
+> Continuação da feature CALLS DE HOJE. Agora o mentor tem visibilidade futura: novo ícone CALLS no sidebar direito abre widget com 3 seções accordion (HOJE expandido, AMANHÃ e SEMANA colapsados). Cada linha mostra horário + nome do grupo/contato + título da meeting. Click abre o chat via `ezapOpenChat`. Ícone 🎥 continua aparecendo **apenas** nas calls de hoje (inalterado).
+>
+> ### Mudanças técnicas
+> - **Migration 059** — nova tabela `calls_events` (meeting_id, phone, start_time, end_time, title, primary_jid, jid_type, contact_name, owner_id). UNIQUE (meeting_id, phone). Índices em start_time/phone/primary_jid.
+> - **whatsapp-server (Hetzner)**:
+>   - `hubspot-api.js`: `searchMeetingsByDateRange` agora também busca `hs_meeting_end_time`
+>   - `supabase.js`: +3 helpers — `classifyJid` (sufixo→tipo), `pickPrimaryJid` (prioridade group>dm>lid), `fetchChatNamesBatch` (wa_chats→group_members→wa_contacts em fallback)
+>   - `routes/hubspot.js`: +`POST /api/hubspot/calls-week/refresh?days=N&date=YYYY-MM-DD` (upsert + delete stale) e +`GET /api/hubspot/calls?from=&to=` (lê calls_events ordenado)
+>   - `index.js`: cron `'1 0 * * *'` agora chama sequencialmente calls-today/refresh + calls-week/refresh
+> - **chrome-extension**:
+>   - `calls.js` (NOVO, ~280 linhas) — widget CALLS: button com SVG videocam, sidebar com accordion, lê `calls_events` via `window.ezapSupaRest` direto (sem proxy), cache 30s, click chama `window.ezapOpenChat`
+>   - `sidebar-manager.js`: registrou `calls` em _tabIcons / _tabLabels / _tabFeatures / tabOrder / sidebarIds / _buttonMap
+>   - `manifest.json`: +`calls.js` em content_scripts, versão 2.0.38
+>   - `sidebar.css`: +bloco com `.calls-section`, `.calls-item`, `.calls-week-day-label` com suporte a dark/light
+> - **admin.html**: +botão "📅 Atualizar CALLS DA SEMANA" ao lado do de HOJE, chama `/calls-week/refresh` via waFetch
+>
+> ### Smoke test pós-deploy (20/04 tarde)
+> - `POST /calls-week/refresh` retornou `{meetings_count: 367, events_count: 56, deleted_count: 0}` — 56 pairs (meeting,phone) com telefone válido dos próximos 7 dias
+> - `GET /calls` (Bearer) retorna array ordenado por start_time, com contact_name resolvido em wa_chats/wa_contacts/group_members
+> - `pm2 restart ezap-whatsapp` ok, health 200
+>
+> ### Arquitetura decidida
+> - Widget lê direto do Supabase via REST (não precisa proxy pelo whatsapp-server). Bearer só pro refresh manual do admin.
+> - Mudança de horário/cancelamento no HubSpot → reflete no próximo cron 00:01 ou botão manual no admin. Não implementado cron mid-day ainda (pra não estourar HS rate limit).
+> - Prioridade de chat ao clicar: grupo > DM > LID (faz sentido pro modelo de mentoria com grupos).
+>
+> ### Próximos passos naturais (com calls_events em produção)
+> - Tooltip no ícone 🎥 mostrando "14:00 — João" (hover lê calls_events por jid)
+> - Badge countdown "call em 23min" no header do chat
+> - "CALLS DE ONTEM" (follow-up) usando last_seen_at preservado
+
+---
+
 > **Update 2026-04-20 — ABA Admin "CALLS DE HOJE" auto-populada via cron HubSpot — DEPLOYED v2.0.37**
 >
 > Sessão grande (~17/04 a 20/04). Estado atual em produção:

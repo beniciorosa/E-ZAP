@@ -702,3 +702,89 @@ span[title]:has(.ezap-note-dot) {
 .ao-date-divider span { background: #1a2530; color: #8696a0; font-size: 11px; padding: 4px 14px; border-radius: 8px; }
 .ao-imm-row { display: flex; align-items: center; padding: 10px 16px; cursor: pointer; border-bottom: 1px solid rgba(134,150,160,0.08); transition: background 0.1s; }
 .ao-imm-row:hover { background: #202c33; }
+
+/* ============================================================================
+ * CALLS — widget do sidebar direito (HOJE / AMANHA / SEMANA)
+ * ========================================================================== */
+.calls-content { padding: 0 !important; overflow-y: auto; }
+
+.calls-section { border-bottom: 1px solid rgba(134,150,160,0.12); }
+.calls-section-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; cursor: pointer;
+  background: transparent; user-select: none;
+  transition: background 0.12s;
+}
+.calls-section-header:hover { background: rgba(134,150,160,0.08); }
+.calls-section-chevron {
+  display: inline-block; color: #8696a0; font-size: 10px;
+  transition: transform 0.15s; transform: rotate(90deg);
+}
+.calls-section.collapsed .calls-section-chevron { transform: rotate(0deg); }
+.calls-section-label { flex: 1; font-weight: 700; font-size: 13px; letter-spacing: 0.3px; }
+.calls-section-count {
+  background: rgba(134,150,160,0.16); color: #8696a0;
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+}
+.calls-section-body { overflow: hidden; }
+.calls-section.collapsed .calls-section-body { display: none; }
+
+.calls-empty {
+  padding: 16px; text-align: center; color: #8696a0;
+  font-size: 12px; font-style: italic;
+}
+
+.calls-list { list-style: none; margin: 0; padding: 0; }
+
+.calls-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 16px; cursor: pointer;
+  border-bottom: 1px solid rgba(134,150,160,0.06);
+  transition: background 0.1s;
+}
+.calls-item:hover { background: rgba(134,150,160,0.1); }
+.calls-item--disabled { opacity: 0.55; cursor: default; }
+.calls-item--disabled:hover { background: transparent; }
+
+.calls-item-time {
+  flex-shrink: 0; width: 46px;
+  font-weight: 700; font-size: 13px; color: #00a884;
+  font-variant-numeric: tabular-nums;
+}
+.calls-item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.calls-item-name {
+  font-weight: 600; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.calls-item-type {
+  display: inline-block; width: fit-content;
+  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: rgba(139,92,246,0.15); color: #a78bfa;
+  text-transform: uppercase; letter-spacing: 0.3px;
+}
+.calls-item-title {
+  font-size: 11px; color: #8696a0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.calls-week-day { padding-top: 4px; }
+.calls-week-day-label {
+  margin: 0; padding: 8px 16px 4px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+  color: #8696a0; text-transform: uppercase;
+  background: rgba(134,150,160,0.04);
+}
+
+/* Tema claro */
+body[data-ezap-theme="light"] .calls-section-header:hover,
+.ezap-sidebar[data-theme="light"] .calls-section-header:hover { background: rgba(0,0,0,0.04); }
+body[data-ezap-theme="light"] .calls-item:hover,
+.ezap-sidebar[data-theme="light"] .calls-item:hover { background: rgba(0,0,0,0.04); }
+body[data-ezap-theme="light"] .calls-section-count,
+.ezap-sidebar[data-theme="light"] .calls-section-count { background: rgba(0,0,0,0.08); color: #54656f; }
+body[data-ezap-theme="light"] .calls-item-time,
+.ezap-sidebar[data-theme="light"] .calls-item-time { color: #008069; }
+body[data-ezap-theme="light"] .calls-item-title,
+.ezap-sidebar[data-theme="light"] .calls-item-title { color: #667781; }
+body[data-ezap-theme="light"] .calls-week-day-label,
+.ezap-sidebar[data-theme="light"] .calls-week-day-label { color: #54656f; background: rgba(0,0,0,0.03); }

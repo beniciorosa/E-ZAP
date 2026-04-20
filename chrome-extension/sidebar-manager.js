@@ -87,15 +87,16 @@
     msg: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
     abas: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
     geia: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1v3h-1.07A7 7 0 0 1 14 20h-4a7 7 0 0 1-6.93-2H2v-3h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/></svg>',
-    admin_overlay: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+    admin_overlay: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+    calls: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'
   };
 
   var _tabLabels = {
-    crm: "CRM", msg: "MSG", abas: "ABAS", geia: "GEIA", admin_overlay: "SPV"
+    crm: "CRM", msg: "MSG", abas: "ABAS", geia: "GEIA", admin_overlay: "SPV", calls: "CALLS"
   };
 
   var _tabFeatures = {
-    crm: "crm", msg: "msg", abas: "abas", geia: "geia", admin_overlay: "admin_overlay"
+    crm: "crm", msg: "msg", abas: "abas", geia: "geia", admin_overlay: "admin_overlay", calls: "calls"
   };
 
   function _buildTabBar(activeName) {
@@ -103,7 +104,7 @@
     bar.className = "ezap-tab-bar";
     bar.id = "ezap-tab-bar";
 
-    var tabOrder = ["crm", "msg", "abas", "geia", "admin_overlay"];
+    var tabOrder = ["crm", "msg", "abas", "geia", "admin_overlay", "calls"];
     tabOrder.forEach(function(name) {
       if (!_sidebars[name]) return;
       // Check feature flag
@@ -133,7 +134,8 @@
     var sidebarEl = null;
     var sidebarIds = {
       crm: "wcrm-sidebar", msg: "wcrm-msg-sidebar", abas: "wcrm-abas-sidebar",
-      geia: "geia-sidebar", admin_overlay: "admin-overlay-sidebar"
+      geia: "geia-sidebar", admin_overlay: "admin-overlay-sidebar",
+      calls: "calls-sidebar"
     };
     var elId = sidebarIds[sidebarName];
     if (elId) sidebarEl = document.getElementById(elId);
@@ -302,6 +304,7 @@
     abas: "wcrm-abas-toggle",
     geia: "geia-toggle",
     admin_overlay: "admin-overlay-toggle",
+    calls: "calls-toggle",
   };
 
   function _highlightActiveButton() {

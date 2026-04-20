@@ -1565,6 +1565,9 @@
           <button class="btn-secondary" onclick="refreshCallsHoje()" title="Atualiza manualmente a aba CALLS DE HOJE buscando reuniões agendadas no HubSpot">
             🎥 Atualizar CALLS DE HOJE
           </button>
+          <button class="btn-secondary" onclick="refreshCallsSemana()" title="Atualiza manualmente as CALLS DA SEMANA (próximos 7 dias) — alimenta o widget CALLS da extensão">
+            📅 Atualizar CALLS DA SEMANA
+          </button>
           <button class="btn-primary" onclick="openAdminAbaModal()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Nova Aba
@@ -7696,6 +7699,35 @@ function refreshCallsHoje() {
     })
     .catch(function(err) {
       if (btn) { btn.disabled = false; btn.textContent = '🎥 Atualizar CALLS DE HOJE'; }
+      alert('Erro: ' + (err && err.message ? err.message : 'desconhecido'));
+    });
+}
+
+// ===== CALLS DA SEMANA - refresh manual =====
+function refreshCallsSemana() {
+  if (!WA_SERVER_URL) {
+    alert('URL do servidor WhatsApp não configurada. Configure em Settings primeiro.');
+    return;
+  }
+  var btn = event && event.currentTarget;
+  if (btn) { btn.disabled = true; btn.textContent = 'Atualizando...'; }
+  waFetch('/api/hubspot/calls-week/refresh', { method: 'POST' })
+    .then(function(data) {
+      if (btn) { btn.disabled = false; btn.textContent = '📅 Atualizar CALLS DA SEMANA'; }
+      if (data && data.ok) {
+        alert(
+          'CALLS DA SEMANA atualizada!\n\n' +
+          (data.meetings_count || 0) + ' reuniões encontradas no HubSpot\n' +
+          (data.events_count || 0) + ' eventos salvos (com telefone válido)\n' +
+          (data.deleted_count || 0) + ' canceladas removidas\n\n' +
+          'Range: ' + (data.range && data.range.days || 7) + ' dias'
+        );
+      } else {
+        alert('Erro: ' + ((data && data.error) || 'desconhecido'));
+      }
+    })
+    .catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '📅 Atualizar CALLS DA SEMANA'; }
       alert('Erro: ' + (err && err.message ? err.message : 'desconhecido'));
     });
 }
