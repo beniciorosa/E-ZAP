@@ -87,7 +87,10 @@ async function validateToken(token, deviceId, ipAddress, locationStr, userAgent,
     saveExtVersion(row.user_id);
     return { ok: true, data: row };
   } else {
-    return { ok: false, error: "Token inválido ou desativado." };
+    // RPC retornou array vazio = token não existe OU foi desativado (active=false).
+    // Flag token_inactive permite o client tratar como revogação determinística
+    // (diferente de erro transiente de rede/5xx que NÃO deve deslogar).
+    return { ok: false, token_inactive: true, error: "Token inválido ou desativado." };
   }
 }
 

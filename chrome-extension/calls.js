@@ -313,6 +313,12 @@ function initCalls() {
 }
 
 document.addEventListener("wcrm-auth-ready", function() {
-  setTimeout(initCalls, 1200);
+  if (window.__ezapHasFeature && window.__ezapHasFeature("calls")) {
+    setTimeout(initCalls, 1200);
+  } else {
+    console.log("[CALLS] Feature not enabled for this user");
+  }
 });
-if (window.__wcrmAuth) setTimeout(initCalls, 3200);
+if (window.__wcrmAuth && window.__ezapHasFeature && window.__ezapHasFeature("calls")) {
+  setTimeout(initCalls, 3200);
+}

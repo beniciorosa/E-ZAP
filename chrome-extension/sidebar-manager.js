@@ -2,6 +2,19 @@
 // Centralized sidebar lifecycle: mutual exclusion, app width, floating buttons,
 // tab bar navigation, resizable width, drag-and-drop button reordering
 // Usage: ezapSidebar.register("crm", { show, hide, onOpen }), ezapSidebar.toggle("crm")
+//
+// ============================================================================
+// CHECKLIST — adicionando nova feature com botão flutuante + sidebar:
+//   1. Arquivo da feature (ex: minhafeature.js): init envolvido com
+//      if (window.__ezapHasFeature && window.__ezapHasFeature("minhafeature")) {...}
+//   2. chrome-extension/auth.js: entrada em __ezapDefaultButtonConfig
+//   3. chrome-extension/sidebar-manager.js (AQUI): _tabIcons, _tabLabels,
+//      _tabFeatures, tabOrder, sidebarIds, _buttonMap
+//   4. chrome-extension/manifest.json: +minhafeature.js em content_scripts
+//   5. admin.html: +entrada em ALL_FEATURES
+// Esquecer qualquer um desses gera bugs silenciosos (feature aparece pra todos,
+// feature não aparece pra ninguém, botão sem estilo, etc).
+// ============================================================================
 (function() {
   "use strict";
   var _sidebars = {};

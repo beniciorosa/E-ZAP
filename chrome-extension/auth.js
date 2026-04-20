@@ -165,12 +165,18 @@ window.__ezapHasFeature = function(feature) {
 };
 
 // ===== Button config (label, colors, order) =====
+// CHECKLIST ao adicionar feature nova com botão flutuante:
+//   1. Adicione entrada em __ezapDefaultButtonConfig abaixo
+//   2. No arquivo da feature (ex: calls.js), envolva o init com __ezapHasFeature("chave")
+//   3. Adicione em chrome-extension/sidebar-manager.js (_tabIcons/_tabLabels/_tabFeatures/tabOrder/sidebarIds/_buttonMap)
+//   4. Adicione em admin.html > ALL_FEATURES
 window.__ezapDefaultButtonConfig = {
   crm:   { label: "CRM",   bgColor: "#00a884", textColor: "#111b21", order: 1 },
   msg:   { label: "MSG",   bgColor: "#4d96ff", textColor: "#ffffff", order: 2 },
   abas:  { label: "ABAS",  bgColor: "#8b5cf6", textColor: "#ffffff", order: 4 },
   geia:  { label: "GEIA",  bgColor: "#8b5cf6", textColor: "#ffffff", order: 5 },
-  admin_overlay: { label: "SPV", bgColor: "#ff922b", textColor: "#ffffff", order: 6 }
+  admin_overlay: { label: "SPV", bgColor: "#ff922b", textColor: "#ffffff", order: 6 },
+  calls: { label: "CALLS", bgColor: "#ef4444", textColor: "#ffffff", order: 7 }
 };
 
 window.__ezapButtonConfig = window.__ezapDefaultButtonConfig;
@@ -526,6 +532,9 @@ function checkPhoneMatch(detected, allowedPhones) {
 }
 
 // ===== Phone block overlay =====
+// NUNCA use onclick="..." inline nos overlays — content_script roda em isolated
+// world e o onclick inline é avaliado no main world da página WhatsApp, que
+// NÃO enxerga window.__wcrmLogout. Sempre use addEventListener.
 function showPhoneBlockOverlay(message) {
   // Remove any existing overlay
   var existing = document.getElementById("ezap-phone-block");
@@ -552,11 +561,31 @@ function showPhoneBlockOverlay(message) {
       '<svg viewBox="0 0 24 24" width="32" height="32" fill="#fff"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>' +
     '</div>' +
     '<h2 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#ff6b6b">Acesso Bloqueado</h2>' +
-    '<p style="margin:0 0 20px;font-size:14px;color:#8696a0;line-height:1.6">' + message + '</p>' +
-    '<button onclick="window.__wcrmLogout()" style="padding:12px 24px;background:#ff6b6b;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Sair</button>';
+    '<p style="margin:0 0 20px;font-size:14px;color:#8696a0;line-height:1.6">' + message + '</p>';
+
+  var logoutBtn = document.createElement("button");
+  logoutBtn.textContent = "Sair";
+  Object.assign(logoutBtn.style, {
+    padding: "12px 24px", background: "#ff6b6b", color: "#fff",
+    border: "none", borderRadius: "8px", fontSize: "14px",
+    fontWeight: "600", cursor: "pointer",
+  });
+  logoutBtn.addEventListener("click", function() {
+    if (typeof window.__wcrmLogout === "function") window.__wcrmLogout();
+  });
+  card.appendChild(logoutBtn);
 
   overlay.appendChild(card);
   document.body.appendChild(overlay);
+
+  // Esconde o rail de botões flutuantes (CRM/MSG/ABAS/etc) pra não ficar atrás
+  var floatContainer = document.getElementById("ezap-float-container");
+  if (floatContainer) floatContainer.style.display = "none";
+
+  // Fecha qualquer sidebar aberta
+  document.querySelectorAll(".ezap-sidebar.open").forEach(function(sb) {
+    sb.classList.remove("open");
+  });
 
   // Disable all E-ZAP functionality
   window.__wcrmAuth = null;
@@ -586,14 +615,22 @@ function silentRevalidate(token) {
       }
 
       if (!response || !response.ok) {
-        // ONLY condition that forces a logout: another browser took over this token.
+        // Condition 1: token redeemed in another browser — force logout
         if (response && response.blocked) {
           showPhoneBlockOverlay(response.error || "Token em uso em outro navegador.");
           chrome.storage.local.remove(AUTH_STORAGE_KEY);
           return;
         }
-        // Any other error (network/API/revoked/etc) — keep the session alive.
-        console.log("[EZAP AUTH] silentRevalidate: non-blocked error (ignored):",
+        // Condition 2: token foi DESATIVADO/REVOGADO pelo admin no banco.
+        // Resposta HTTP 200 OK com array vazio = determinístico, não é erro
+        // transiente. Flag token_inactive é setada pelo background.js:90.
+        if (response && response.token_inactive) {
+          showPhoneBlockOverlay(response.error || "Token desativado pelo administrador.");
+          chrome.storage.local.remove(AUTH_STORAGE_KEY);
+          return;
+        }
+        // Erros transientes (network timeout, 5xx, service worker dead) — keep session alive.
+        console.log("[EZAP AUTH] silentRevalidate: transient error (ignored):",
           (response && response.error) || "empty");
         return;
       } else if (response.data) {

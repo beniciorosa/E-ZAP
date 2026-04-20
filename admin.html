@@ -2190,10 +2190,16 @@
 var SUPA_URL = "https://xsqpqdjffjqxdcmoytfc.supabase.co";
 var SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzcXBxZGpmZmpxeGRjbW95dGZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzUxMjIwMywiZXhwIjoyMDc5MDg4MjAzfQ.QmSMnUA2x5AkhN_je20lcAb889-DnSyT-8w3dSQhsWM";
 
+// ALL_FEATURES: source of truth das features selecionáveis por usuário.
+// IMPORTANTE: ao adicionar feature nova aqui, também adicione:
+//   1. O gate __ezapHasFeature("chave") no arquivo de init da feature (ex: calls.js)
+//   2. A config do botão em chrome-extension/auth.js (__ezapDefaultButtonConfig)
+//   3. Entrada no tab bar em chrome-extension/sidebar-manager.js (_tabIcons/_tabLabels/_tabFeatures/tabOrder)
 var ALL_FEATURES = [
   { key: "crm", label: "CRM (Labels + HubSpot)", category: "sidebar", side: "right" },
   { key: "msg", label: "Mensagens (MSG)", category: "sidebar", side: "right" },
   { key: "abas", label: "ABAS (Grupos)", category: "sidebar", side: "right" },
+  { key: "calls", label: "CALLS (Reuniões da semana)", category: "sidebar", side: "right" },
   { key: "pin", label: "PIN (Fixar contatos)", category: "complementar" },
   { key: "transcribe", label: "Transcrição de Áudio", category: "complementar" },
   { key: "admin_overlay", label: "Supervisão (SPV)", category: "complementar" },
@@ -2560,12 +2566,17 @@ function loadUserTokens(userId) {
       var toggleBtn = t.active
         ? '<button class="btn-icon" onclick="event.stopPropagation();toggleToken(\'' + t.id + '\',false,\'' + userId + '\')" title="Desativar token" style="width:24px;height:24px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></button>'
         : '<button class="btn-icon primary" onclick="event.stopPropagation();toggleToken(\'' + t.id + '\',true,\'' + userId + '\')" title="Ativar token" style="width:24px;height:24px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></button>';
+      // Reset device button — só aparece se o token já foi resgatado em alguma máquina
+      var resetBtn = t.token_redeemed
+        ? '<button class="btn-icon warn" onclick="event.stopPropagation();resetTokenDevice(\'' + t.id + '\',\'' + userId + '\')" title="Resetar dispositivo (libera o token pra ser usado em outra máquina, mantendo o mesmo código)" style="width:24px;height:24px"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>'
+        : '';
       html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px">';
       html += '<span class="token-cell" onclick="event.stopPropagation();copyToken(this,\'' + esc(t.token) + '\')" style="font-size:12px;flex-shrink:0">' + esc(t.token) + '</span>';
       html += '<span style="font-size:11px;color:var(--on-surface-variant);min-width:60px">' + esc(t.label || 'Principal') + '</span>';
       html += statusBadge;
       html += deviceInfo;
       html += '<span style="font-size:10px;color:var(--on-surface-variant);margin-left:auto">' + lastUse + '</span>';
+      html += resetBtn;
       html += toggleBtn;
       html += '</div>';
     });
@@ -2597,6 +2608,18 @@ function toggleToken(tokenId, active, userId) {
     body: { active: active }
   }).then(function() {
     loadUserTokens(userId);
+  });
+}
+
+function resetTokenDevice(tokenId, userId) {
+  if (!confirm("Resetar o dispositivo deste token?\n\nO token voltará pra 'Não resgatado' e o usuário poderá usá-lo em qualquer máquina (incluindo a mesma).")) return;
+  supa("/rest/v1/rpc/reset_token_device", {
+    method: "POST",
+    body: { p_token_id: tokenId }
+  }).then(function() {
+    loadUserTokens(userId);
+  }).catch(function(err) {
+    alert("Erro ao resetar: " + (err && err.message ? err.message : "desconhecido"));
   });
 }
 

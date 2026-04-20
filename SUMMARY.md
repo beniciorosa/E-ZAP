@@ -1,5 +1,45 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/20
 
+> **Update 2026-04-20 noite — Fix 4 bugs pós-widget CALLS — DEPLOYED v2.0.39**
+>
+> Plano: [C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md](C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md)
+>
+> Correção de 4 regressões introduzidas no deploy do widget CALLS + guardas sistêmicos pra não repetir:
+>
+> 1. **CALLS sem feature flag** — widget aparecia pra todo usuário. Fix: gate `__ezapHasFeature("calls")` no `calls.js` (pattern igual ao `content.js:2031`), entrada em `__ezapDefaultButtonConfig` e em `admin.html > ALL_FEATURES`.
+> 2. **Sidebar persistia após token revogado** — policy em `silentRevalidate` só deslogava em `blocked=true`. Agora detecta também `token_inactive=true` (flag adicionada em `background.js:90` quando RPC retorna array vazio com HTTP 200 — determinístico, não transiente). Mostra overlay + esconde rail de botões + fecha sidebars abertas.
+> 3. **Botão "Sair" não funcionava na tela BLOQUEADO** — root cause: `onclick="window.__wcrmLogout()"` inline é parseado no *main world* da página WhatsApp, que NÃO enxerga funções do content_script (*isolated world*). Fix: DOM construído programaticamente com `addEventListener` no botão.
+> 4. **Admin perdeu "Reset" por token** — a RPC antiga `reset_user_device` limpa `users.*` mas a migração pra `user_tokens` deixou a RPC órfã. Fix: nova RPC `reset_token_device(p_token_id)` + update em `reset_user_device` pra também limpar `user_tokens`. Botão "Resetar" agora aparece em cada card de token no admin (só se `token_redeemed=true`).
+>
+> ### Guardas sistêmicos pra não repetir
+>
+> - Comentário **CHECKLIST** no topo de `sidebar-manager.js` listando os 5 pontos que precisam ser atualizados ao adicionar feature nova (arquivo da feature + `__ezapDefaultButtonConfig` + `_tabIcons`/`_tabLabels`/etc + `manifest.json` + `ALL_FEATURES` no admin).
+> - Comentário de aviso em `admin.html > ALL_FEATURES` apontando pros 3 pontos correlatos.
+> - Comentário acima de `showPhoneBlockOverlay` em `auth.js` proibindo `onclick=` inline em content_script (causa do Bug 3).
+>
+> ### Mudanças técnicas
+>
+> - **Migration 060** (`supabase/migration_060_reset_token_device.sql`): RPC `reset_token_device(p_token_id)` + update `reset_user_device` pra incluir `user_tokens`. Aplicada via Management API.
+> - **chrome-extension/background.js:90**: adicionado `token_inactive: true` quando `validate_token` retorna empty.
+> - **chrome-extension/auth.js**: `silentRevalidate` detecta `token_inactive`; `showPhoneBlockOverlay` usa `addEventListener` + esconde `ezap-float-container`; `__ezapDefaultButtonConfig` +calls; CHECKLIST acima.
+> - **chrome-extension/calls.js**: gate `__ezapHasFeature("calls")` no init.
+> - **chrome-extension/sidebar-manager.js**: CHECKLIST no header (sem mudança funcional).
+> - **admin.html**: `ALL_FEATURES` +`calls`; `loadUserTokens` render +`resetBtn` (só se `token_redeemed`); `resetTokenDevice(tokenId, userId)` handler chama RPC e re-renderiza.
+>
+> ### Verificação pós-deploy
+>
+> 1. Admin painel → ABA "Usuários" → expandir user → desativar token ativo → **esperar ≤2min** → user deve ver overlay "Acesso Bloqueado — Token desativado".
+> 2. No overlay: clicar "Sair" → `chrome.storage` limpa → tela de login aparece (antes não rodava).
+> 3. Admin re-ativa token + clica "Resetar" (ícone circular warning ao lado de "Desativar") → token volta pra "Não resgatado" → user pode logar em qualquer máquina com mesmo código.
+> 4. Pra user comum sem "calls" em `features`: botão CALLS não aparece no rail direito. Admin ativa checkbox CALLS → próxima revalidação (2min) ou F5 → botão aparece.
+>
+> ### Extensão atualizada
+> - ZIP `ezap-v2.0.39.zip` no Supabase Storage `releases/`
+> - `release.json` com notes + `notify:false`
+> - Usuários recebem via `ezap-update` (Windows PowerShell ou Mac .command)
+
+---
+
 > **Update 2026-04-20 tarde — Widget CALLS no sidebar direito (HOJE/AMANHÃ/SEMANA) — DEPLOYED v2.0.38**
 >
 > Plano: [C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md](C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md)
