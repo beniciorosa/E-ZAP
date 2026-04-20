@@ -122,10 +122,28 @@ try {
     }
     Write-Host ""
 
-    # 8. Abrir Chrome se solicitado
+    # 8. Abrir Chrome se solicitado (no perfil mais recentemente usado)
     if ($OpenChrome) {
         Write-Step "Abrindo chrome://extensions..."
-        Start-Process "chrome.exe" -ArgumentList "chrome://extensions" -ErrorAction SilentlyContinue
+
+        # Tenta detectar o ultimo perfil usado pra evitar a tela "Quem esta usando o Chrome?"
+        # quando o Chrome esta fechado e ha multiplos perfis instalados.
+        $profileArg = $null
+        $localState = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data\Local State"
+        if (Test-Path $localState) {
+            try {
+                $stateJson = Get-Content $localState -Raw -ErrorAction Stop | ConvertFrom-Json
+                if ($stateJson.profile -and $stateJson.profile.last_used) {
+                    $profileArg = '--profile-directory=' + $stateJson.profile.last_used
+                }
+            } catch {}
+        }
+
+        $chromeArgs = @()
+        if ($profileArg) { $chromeArgs += $profileArg }
+        $chromeArgs += "chrome://extensions"
+
+        Start-Process "chrome.exe" -ArgumentList $chromeArgs -ErrorAction SilentlyContinue
     }
 
 } catch {
