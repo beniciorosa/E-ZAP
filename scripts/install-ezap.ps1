@@ -139,9 +139,13 @@ try {
             } catch {}
         }
 
+        # Usa --new-window: garante que a URL chrome://extensions abra mesmo
+        # quando combinada com --profile-directory (caso contrario o Chrome
+        # ignora URLs internas chrome:// quando profile-directory esta presente)
         $chromeArgs = @()
         if ($profileArg) { $chromeArgs += $profileArg }
-        $chromeArgs += "chrome://extensions"
+        $chromeArgs += "--new-window"
+        $chromeArgs += "chrome://extensions/"
 
         Start-Process "chrome.exe" -ArgumentList $chromeArgs -ErrorAction SilentlyContinue
     }
