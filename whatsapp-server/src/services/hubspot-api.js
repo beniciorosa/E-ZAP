@@ -247,7 +247,7 @@ async function searchMeetingsByDateRange(startTimeISO, endTimeISO, hsKey) {
 
     const resp = await hsFetch("/crm/v3/objects/meetings/search", hsKey, {
       method: "POST",
-      body: JSON.stringify(body),
+      body: body, // hsFetch already does JSON.stringify internally
     });
 
     if (!resp.ok) {
