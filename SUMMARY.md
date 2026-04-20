@@ -2,6 +2,25 @@
 
 > 📌 **Próxima sessão**: para qualquer trabalho na ferramenta de grupos (grupos.html, criação em massa, Auto-criar, Dashboard, wa_group_*), LER TAMBÉM [GRUPOS.md](GRUPOS.md) na raiz — é o handoff vivo e canônico dessa área (arquitetura, tabelas, endpoints, funções, deploy pattern, changelog). Este SUMMARY tem só o cronológico; GRUPOS.md tem o estado atual consolidado.
 
+> **Update 2026-04-20 tarde (commit `a4d8878`) — 4 fixes reportados em produção — DEPLOYED**
+>
+> Pós smoke-test do `deb412c`, Dhiego reportou 4 bugs no fluxo real de criação. Todos corrigidos:
+>
+> 1. **Cliente recebia DM mesmo estando no grupo**: `groupCreate` passava todos os membros de uma vez e, se o cliente era rejeitado por privacy (403), a DM já tinha sido enviada antes do Step 9 conseguir adicioná-lo na segunda tentativa. Fix: **fluxo HubSpot agora cria o grupo SÓ com o cliente** (`[clientJid]`); se 403, gera invite link e manda DM IMEDIATAMENTE; só depois adiciona helpers (batch) e admins (sequencial). Fluxo XLSX preservado.
+> 2. **"Convidar via link ou QR code" ficava OFF**: `groupSettingUpdate("locked")` vinha antes de `groupMemberAddMode("all_member_add")`. A permissão de invite link só fica disponível após add_members estar ON. Fix: inverte ordem — add_members primeiro, 4s de delay, depois lock.
+> 3. **Último grupo do lote falhando com "Connection Closed / Bad MAC"**: logs do Hetzner confirmaram que é reconnect do socket Baileys (não rate-limit). Fix: novo helper `callWithTransientRetry(sessionId, fn, opts)` — aguarda reconexão via `waitForSessionConnected(30000)` e retenta até 3x com delays 15s/20s/25s. Aplicado no `groupCreate`.
+> 4. **Sem UI de retry por grupo**: novo endpoint `POST /api/jobs/:jobId/retry-group { specHash }` + `retryGroupInJob` fire-and-forget. Botão "↻ Tentar" aparece em rows `status=failed` na tabela do job card.
+>
+> **Extra**: nova coluna "Criado em" entre Welcome e Link (`row.createdAt` preenchido pós-groupCreate, formato "DD/MM - HHhMM" via `formatDateShort`).
+>
+> Arquivos: [whatsapp-server/src/services/baileys.js](whatsapp-server/src/services/baileys.js) (callWithTransientRetry no ~1100, createGroupsFromList refatorado ~2095-2310), [whatsapp-server/src/services/jobs.js](whatsapp-server/src/services/jobs.js) (retryGroupInJob ~508), [whatsapp-server/src/routes/jobs.js](whatsapp-server/src/routes/jobs.js) (endpoint retry-group ~131), [grupos.html](grupos.html) (renderCreateGroupsResultsTable com nova coluna + retry button, formatDateShort, retryCreateGroup).
+>
+> Deploy: preservou CORS override + Baileys 6.6.0; pm2 restart com `set -eo pipefail` + `node --check` em 4 arquivos antes. Health 200.
+>
+> Pendências: validar end-to-end com 1 lote real (groupCreate com 1 spec, forçar client rejeitado em sandbox, verificar se DM vai só 1x). Botão "Tentar" só funciona se job ainda está em memória (`job._specs`) — PM2 restart drena, nesse caso frontend mostra erro 410.
+>
+> ---
+
 > **Update 2026-04-20 (commit `deb412c`) — Auto-criar grupos por mentor + Dashboard histórico + fix título HubSpot — DEPLOYED**
 >
 > Plano: [C:\Users\dhiee\.claude\plans\leia-o-summary-md-entenda-linear-curry.md](C:\Users\dhiee\.claude\plans\leia-o-summary-md-entenda-linear-curry.md)

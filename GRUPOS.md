@@ -239,6 +239,13 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-20 tarde — commit `a4d8878` — Fix ordem cliente-primeiro + permissões + retry por grupo
+- **Bug fix cliente-DM-duplicada**: no fluxo HubSpot, `groupCreate` agora é chamado SÓ com o cliente. Se o WhatsApp retorna 403 (privacy block), gera invite link e manda DM IMEDIATAMENTE antes de adicionar helpers/admins. Depois adiciona helpers em batch (1 IQ) e admins sequencialmente. Fluxo XLSX preservado.
+- **Bug fix "Convidar via link" OFF**: `groupMemberAddMode("all_member_add")` agora é chamado ANTES de `groupSettingUpdate("locked")`, com 4s entre as calls. A permissão de invite via link só fica disponível no WhatsApp após `add_members` estar habilitado.
+- **Connection Closed retry**: novo helper `callWithTransientRetry(sessionId, fn, opts)` em baileys.js — retenta até 3x com delays 15s/20s/25s, aguarda reconexão via `waitForSessionConnected(30000)` entre tentativas. Aplicado no `groupCreate` principal. Não retenta rate-limit.
+- **Retry por grupo falho**: novo endpoint `POST /api/jobs/:jobId/retry-group { specHash }` + `retryGroupInJob` em services/jobs.js. Fire-and-forget, re-roda `createGroupsFromList` com 1 spec, atualiza `job.results[idx]`. Botão "↻ Tentar" no frontend aparece em rows com `status=failed`.
+- **Coluna "Criado em"**: nova coluna na tabela de resultados do job card (entre Welcome e Link). `row.createdAt` preenchido logo após groupCreate. Formato "DD/MM - HHhMM" via helper `formatDateShort`.
+
 ### 2026-04-20 — commit `deb412c` — Auto-criar + Dashboard histórico + fix título HubSpot
 - `/api/hubspot/resolve-tickets` passa a ler de `hubspot_tickets` (fonte canônica) — expõe `ticket_owner`, `tier` string, `pipeline_stage_name`, `pipeline_type`, `status_ticket`.
 - Fix duplicação do mentor no preview: `clientName = split("|")[0]` + `owner = r.ticket_owner || r.mentor`.
