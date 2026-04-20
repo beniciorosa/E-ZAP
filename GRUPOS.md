@@ -239,6 +239,14 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-20 noite-2 — commit `6cf308d` — 4 fixes no createGroupsFromList (welcome não enviava)
+**Regressão do commit `a4d8878`**: Step 8 (batch add helpers) passava dígitos direto como `{digits}@s.whatsapp.net` pro `groupParticipantsUpdate`. Se algum member era um LID (14-15 dígitos não-BR como `65816548667409`), WhatsApp derrubava o socket com loggedOut 401 — quebrando welcome de TODOS os grupos seguintes. Observado em Aline/Priscila/Amanda (20/04 tarde).
+
+- **Fase 1**: `stopSession` ([baileys.js:2494](whatsapp-server/src/services/baileys.js:2494)) agora chama `sock.ev.removeAllListeners()` ANTES de `sock.end()`. Impede eventos async tardios (connection.update loggedOut, creds.update com creds velhas) de contaminar sessões novas startadas depois. Era o root cause do QR não aparecer após fresh-qr e de 401 mid-job.
+- **Fase 2**: `membersTotal` agora inclui `spec.adminJids.length + 1` (owner). Corrige UI "4/3" — bate com o critério usado em `membersAdded`.
+- **Fase 3** (FIX PRINCIPAL): Step 8 (linha ~2270) agora filtra os helpers via `validateMembersForCreate(sock, extraPhones)` antes do `groupParticipantsUpdate`. LIDs e números fora do WhatsApp são descartados (reportados em `helpers_skipped_invalid: N`). Elimina a stanza malformada → socket sobrevive → welcome funciona.
+- **Fase 4**: `sendMessage` do welcome (normal e alt) envolto em `callWithTransientRetry(sessionId, fn, {label})` — defensivo pra disconnects transientes entre groupCreate e welcome.
+
 ### 2026-04-20 noite — commit `3eb1870` — Retry/Delete por linha no Dashboard + fix CSS inputs de data
 - Novo endpoint `POST /api/hubspot/group-creation/:id/retry` — reconstrói spec a partir da row persistida (`group_name`, `client_phone`, `hubspot_tier`, `mentor_session_phone`) + fire-and-forget `createGroupsFromList` com `specHash` original (upsert atualiza a MESMA row). Bloqueia com 429 se sessão em cooldown; recusa 400 se `status=created`. Helpers não ficam persistidos, então o retry só repõe cliente + mentor como members.
 - Novo endpoint `DELETE /api/hubspot/group-creation/:id` — apaga a row do banco, não toca o grupo no WhatsApp. Útil pra duplicatas e pra ticket reaparecer como pendente no Auto-criar.
