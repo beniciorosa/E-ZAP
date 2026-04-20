@@ -1571,8 +1571,9 @@ function renderJobCard(job) {
   }
 
   var spinner = (job.status === "running") ? '<span class="spinner"></span>' : '';
+  var cancelLabel = (job.type === "create-groups") ? "⏸ Pausar" : "Interromper";
   var cancelBtn = (job.status === "running" || job.status === "pending")
-    ? '<button class="btn-danger btn-icon" onclick="cancelJobAction(\'' + job.id + '\')">Interromper</button>'
+    ? '<button class="btn-danger btn-icon" onclick="cancelJobAction(\'' + job.id + '\', \'' + job.type + '\')">' + cancelLabel + '</button>'
     : '';
   var exportBtn = (job.results && job.results.length > 0)
     ? '<button class="btn-secondary btn-icon" onclick="exportJobCSV(\'' + job.id + '\')">Exportar CSV</button>'
@@ -1580,10 +1581,24 @@ function renderJobCard(job) {
   // Retry/resume button: on error, rate_limited, or cancelled jobs.
   // The dedup cache (getCachedGroupCreations with specHash) automatically
   // skips already-created groups, so resuming just processes the remaining.
+  // Para create-groups, expomos um input de delay editável: usuário pode
+  // pausar, ajustar o delay (em min) e retomar com cadência diferente.
   var retryBtn = "";
   if ((job.status === "error" || job.status === "cancelled" || job.status === "rate_limited") && job.type && job.sessionId && job.config) {
-    var retryLabel = job.status === "cancelled" ? "▶️ Restaurar" : "🔄 Tentar novamente";
-    retryBtn = '<button class="btn-secondary btn-icon" onclick="retryFailedJob(\'' + job.id + '\')">' + retryLabel + '</button>';
+    if (job.type === "create-groups") {
+      var currentDelayMin = Math.max(1, Math.round((job.config.delaySec || 1200) / 60));
+      retryBtn =
+        '<span style="display:inline-flex; align-items:center; gap:4px; margin-right:6px">'
+        + '<input type="number" id="job-delay-' + job.id + '" min="1" max="30" value="' + currentDelayMin + '" '
+        + 'style="width:56px; padding:5px 7px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:13px" '
+        + 'title="Delay entre grupos (em minutos). Backend aceita 1-30 min.">'
+        + '<span style="font-size:12px; color:var(--muted)">min</span>'
+        + '</span>'
+        + '<button class="btn-secondary btn-icon" onclick="resumeCreateGroupsJob(\'' + job.id + '\')" title="Retomar com o delay configurado ao lado. Grupos já criados são pulados via cache.">▶️ Retomar</button>';
+    } else {
+      var retryLabel = job.status === "cancelled" ? "▶️ Restaurar" : "🔄 Tentar novamente";
+      retryBtn = '<button class="btn-secondary btn-icon" onclick="retryFailedJob(\'' + job.id + '\')">' + retryLabel + '</button>';
+    }
   }
   var removeBtn = (job.status !== "running" && job.status !== "pending")
     ? '<button class="btn-secondary btn-icon" onclick="removeJobCard(\'' + job.id + '\')" title="Remover card da tela (não apaga do servidor)">✕ Fechar</button>'
@@ -1661,10 +1676,21 @@ function renderJobCard(job) {
     if (job.type === "extract") rateLabel = "extração";
     else if (job.type === "create-groups") rateLabel = "criação";
     else rateLabel = "adição";
-    message = '<div class="job-message error">⏸️ Pausado por rate-limit' + adminStat + '. '
-      + 'Aguarde ~30min e inicie uma nova ' + rateLabel + ' — o cache do Supabase preserva o progresso.</div>';
+    if (job.type === "create-groups") {
+      message = '<div class="job-message error">⏸️ Pausado por rate-limit' + adminStat + '. '
+        + 'Aguarde ~30min, ajuste o <b>delay (em min)</b> ao lado se quiser e clique <b>▶️ Retomar</b> — '
+        + 'o cache do Supabase preserva o progresso.</div>';
+    } else {
+      message = '<div class="job-message error">⏸️ Pausado por rate-limit' + adminStat + '. '
+        + 'Aguarde ~30min e inicie uma nova ' + rateLabel + ' — o cache do Supabase preserva o progresso.</div>';
+    }
   } else if (job.status === "cancelled") {
-    message = '<div class="job-message warn">⏹️ Cancelado' + adminStat + '</div>';
+    if (job.type === "create-groups") {
+      message = '<div class="job-message warn">⏸ Pausado' + adminStat + '. '
+        + 'Ajuste o <b>delay (em min)</b> ao lado se quiser e clique <b>▶️ Retomar</b>.</div>';
+    } else {
+      message = '<div class="job-message warn">⏹️ Cancelado' + adminStat + '</div>';
+    }
   } else if (job.status === "error") {
     message = '<div class="job-message error">❌ Erro: ' + esc(job.lastError || "desconhecido") + '</div>';
   }
@@ -1932,19 +1958,40 @@ function toggleJobTable(jobId) {
   }
 }
 
-function cancelJobAction(jobId) {
-  if (!confirm("Interromper este job? O que já foi processado fica salvo no Supabase.")) return;
+function cancelJobAction(jobId, jobType) {
+  var msg = (jobType === "create-groups")
+    ? "Pausar este job? Os grupos já criados ficam preservados no Supabase. Você pode mudar o delay e clicar Retomar quando quiser."
+    : "Interromper este job? O que já foi processado fica salvo no Supabase.";
+  if (!confirm(msg)) return;
+  var okMsg = (jobType === "create-groups") ? "Pausa solicitada" : "Cancelamento solicitado";
   waFetch("/api/jobs/" + jobId + "/cancel", "POST", {}).then(function() {
-    showToast("Cancelamento solicitado", "ok");
+    showToast(okMsg, "ok");
     refreshJobs();
   }).catch(function(e) { showToast("Erro: " + e.message, "error"); });
+}
+
+// Lê o input de delay do card e re-dispara o job via retryFailedJob.
+// Backend dedup por specHash → só os grupos ainda não criados rodam,
+// agora com a cadência nova.
+function resumeCreateGroupsJob(jobId) {
+  var input = document.getElementById("job-delay-" + jobId);
+  var minutes = input ? parseInt(input.value, 10) : NaN;
+  if (!Number.isFinite(minutes) || minutes < 1) {
+    showToast("Delay inválido — informe um número entre 1 e 30 (min)", "error");
+    return;
+  }
+  if (minutes > 30) {
+    showToast("Backend clampa em 30 min — usando 30", "warn");
+    minutes = 30;
+  }
+  retryFailedJob(jobId, minutes * 60);
 }
 
 // Recreate a failed job with the same config. Used by the "Tentar novamente"
 // button on cards with status="error" (e.g., when a transient "Sessão não
 // conectada" slips past the waitForSessionConnected backoff). Hides the old
 // card locally (server keeps the record, auto-cleans in 24h).
-function retryFailedJob(jobId) {
+function retryFailedJob(jobId, delaySecOverride) {
   var job = _activeJobs[jobId];
   if (!job) { showToast("Job não encontrado", "error"); return; }
 
@@ -1953,14 +2000,14 @@ function retryFailedJob(jobId) {
     endpoint = "/api/jobs/extract/start";
     body = {
       sessionId: job.sessionId,
-      delaySec: (job.config && job.config.delaySec) || 60,
+      delaySec: delaySecOverride || (job.config && job.config.delaySec) || 60,
     };
   } else if (job.type === "add") {
     endpoint = "/api/jobs/add/start";
     body = {
       sessionId: job.sessionId,
       phone: job.config && job.config.phone,
-      delaySec: (job.config && job.config.delaySec) || 20,
+      delaySec: delaySecOverride || (job.config && job.config.delaySec) || 20,
       promoteToAdmin: !!(job.config && job.config.promoteToAdmin),
     };
     if (job.config && job.config.onlyJids) body.onlyJids = job.config.onlyJids;
@@ -1976,7 +2023,7 @@ function retryFailedJob(jobId) {
     body = {
       sessionId: job.sessionId,
       specs: _createSpecs,
-      delaySec: (job.config && job.config.delaySec) || 600,
+      delaySec: delaySecOverride || (job.config && job.config.delaySec) || 600,
     };
   } else {
     showToast("Tipo de job desconhecido: " + job.type, "error");
