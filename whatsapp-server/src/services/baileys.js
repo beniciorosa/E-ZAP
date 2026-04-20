@@ -1091,6 +1091,59 @@ function isRateLimitError(e) {
     || msg.includes("not-acceptable");
 }
 
+// Detect transient connection errors that a retry can recover from.
+// These happen when the Baileys socket disconnects mid-operation (Bad MAC,
+// auto-reconnect, WebSocket ping timeout) — the driver will reconnect in
+// seconds, so waiting + retrying typically works.
+function isTransientConnectionError(e) {
+  const msg = (e?.message || "").toLowerCase();
+  if (!msg) return false;
+  return msg.includes("connection closed")
+    || msg.includes("connection lost")
+    || msg.includes("websocket")
+    || msg.includes("bad mac")
+    || msg.includes("prekeyerror")
+    || msg.includes("no session record")
+    || msg.includes("timed out")
+    || msg.includes("timeout")
+    || msg.includes("socket")
+    || msg.includes("stream errored");
+}
+
+// Wrap a Baileys call with retry on transient connection errors. Waits for
+// the session to reconnect between attempts (up to waitForSessionConnected).
+// Does NOT retry rate-limit errors (those must abort). Takes an async
+// function that receives the *current* sock (refreshed after reconnect).
+//
+// Usage: await callWithTransientRetry(sessionId, async (sock) => sock.groupCreate(name, jids))
+async function callWithTransientRetry(sessionId, fn, opts = {}) {
+  const RETRY_DELAYS = opts.retryDelays || [15000, 20000, 25000]; // 15s/20s/25s
+  const label = opts.label || "baileys_call";
+  let lastError;
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    try {
+      const session = sessions.get(sessionId);
+      if (!session || !session.sock) {
+        if (attempt >= RETRY_DELAYS.length) throw new Error("Sessão não disponível");
+        await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+        continue;
+      }
+      return await fn(session.sock);
+    } catch (e) {
+      lastError = e;
+      if (isRateLimitError(e)) throw e; // don't retry rate-limit
+      if (!isTransientConnectionError(e) || attempt >= RETRY_DELAYS.length) throw e;
+      console.log(`[BAILEYS] ${label} transient fail attempt ${attempt + 1}/${RETRY_DELAYS.length + 1}: ${e.message}. Waiting ${RETRY_DELAYS[attempt]}ms + reconnect…`);
+      await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+      // Tenta aguardar reconexão (até 30s); se não rolar, a próxima iteração vai pular
+      try {
+        await waitForSessionConnected(sessionId, 30000);
+      } catch (_) { /* segue pra próxima tentativa */ }
+    }
+  }
+  throw lastError;
+}
+
 // Extract base ID from a JID: strips device suffix ":N" and "@domain"
 // Examples: "5511999:1@s.whatsapp.net" -> "5511999", "123456@lid" -> "123456"
 function extractBase(jid) {
@@ -2041,44 +2094,101 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     };
 
     try {
-      // Validate members exist on WhatsApp (single batch call)
-      const memberJids = await validateMembersForCreate(sock, spec.members || []);
-      if (memberJids.length === 0) {
-        throw new Error("Nenhum membro válido no WhatsApp");
+      // Fluxo HubSpot (`spec.clientPhone` presente) cria o grupo SÓ com o
+      // cliente, pra ter certeza antes de qualquer DM se ele entrou ou não.
+      // Fluxo XLSX (sem clientPhone) mantém comportamento antigo: valida
+      // todos os membros e passa todos de uma vez no groupCreate.
+      const isHubspotFlow = !!spec.clientPhone;
+
+      let memberJids;
+      if (isHubspotFlow) {
+        const clientJid = spec.clientPhone + "@s.whatsapp.net";
+        memberJids = [clientJid];
+      } else {
+        memberJids = await validateMembersForCreate(sock, spec.members || []);
+        if (memberJids.length === 0) {
+          throw new Error("Nenhum membro válido no WhatsApp");
+        }
       }
 
-      // 1. Create group
-      const created = await sock.groupCreate(spec.name, memberJids);
+      // 1. groupCreate com retry automático em Connection Closed / Bad MAC.
+      // O wrapper espera reconectar (até 30s + delay entre tentativas de 15/20/25s)
+      // e só aborta se for rate-limit real ou se esgotar as 3 tentativas.
+      const created = await callWithTransientRetry(
+        sessionId,
+        (s) => s.groupCreate(spec.name, memberJids),
+        { label: "groupCreate[" + (spec.name || "").substring(0, 30) + "]" }
+      );
       row.groupJid = created?.id || null;
       if (!row.groupJid) throw new Error("groupCreate não retornou id");
+      // Marca o momento preciso da criação — usado pela coluna "Criado em"
+      // na UI e pra exportação CSV. (wa_group_creations.created_at tem o
+      // timestamp do upsert, que pode ser ligeiramente depois.)
+      row.createdAt = new Date().toISOString();
 
-      // Collect members that were rejected by privacy settings or other errors.
-      // Baileys returns participants as {jid: {error: '403'}} for privacy blocks.
-      // We'll DM these users the invite link later, since they couldn't be added directly.
-      const rejectedJids = [];
+      // Rejeitados no groupCreate (normalmente: cliente no fluxo HubSpot, ou
+      // qualquer member no fluxo XLSX). Baileys retorna {jid: {error: "403"}}.
+      row.clientAdded = null;   // null=skipped, true=added, false=rejected
+      row.clientDmSent = null;  // null=skipped, true=sent, false=failed
+      let clientRejected = false;
+      const xlsxRejectedJids = []; // só usado no fluxo XLSX (DM em massa depois)
       if (created.participants && typeof created.participants === "object") {
         const entries = Object.entries(created.participants);
+        row.membersAdded = entries.filter(([, p]) => !p || !p.error).length;
+        const clientJid = isHubspotFlow ? spec.clientPhone + "@s.whatsapp.net" : null;
         for (const [pjid, info] of entries) {
-          if (info && (info.error || info.statusCode)) {
-            const code = String(info.error || info.statusCode || "");
-            if (code === "403" || code === "408" || code === "409") {
-              if (code === "403") rejectedJids.push(pjid);
+          const code = String((info && (info.error || info.statusCode)) || "");
+          if (code === "403") {
+            if (isHubspotFlow && pjid === clientJid) {
+              clientRejected = true;
+              row.clientAdded = false;
+            } else if (!isHubspotFlow) {
+              xlsxRejectedJids.push(pjid);
             }
           }
         }
-        row.membersAdded = entries.filter(([, p]) => !p || !p.error).length;
+        if (isHubspotFlow && !clientRejected) row.clientAdded = true;
       } else {
         row.membersAdded = memberJids.length;
+        if (isHubspotFlow) row.clientAdded = true;
       }
 
-      // Signal key establishment with the new participants happens inside
-      // baileys automatically after groupCreate returns. We need a longer
-      // wait (8s) for the key exchange to settle — 4s was too short and
-      // caused welcome messages to fail with PreKeyError / "No session".
+      // Wait 8s for Signal key establishment (PreKeyError prevention).
       await new Promise(r => setTimeout(r, 8000));
 
-      // 2. Description
-      if (spec.description) {
+      // 2. Invite link — generated EARLY so we can DM it to the client
+      // immediately if they were rejected by privacy. Best-effort.
+      try {
+        const code = await sock.groupInviteCode(row.groupJid);
+        if (code) row.inviteLink = "https://chat.whatsapp.com/" + code;
+      } catch (e) {
+        if (isRateLimitError(e)) { rateLimited = true; }
+      }
+
+      // 3. Client rejected by privacy (HubSpot flow) → DM invite link
+      // IMMEDIATELY before we touch helpers/admins. Avoids the race where
+      // a later explicit re-add succeeds but the DM was already sent.
+      if (!rateLimited && isHubspotFlow && clientRejected && row.inviteLink) {
+        const clientJid = spec.clientPhone + "@s.whatsapp.net";
+        try {
+          const rejectTemplate = spec.rejectDmTemplate
+            || 'Olá! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
+          const dmText = rejectTemplate
+            .replace(/\{nome_grupo\}/g, spec.name || "")
+            .replace(/\{link\}/g, row.inviteLink);
+          await sock.sendMessage(clientJid, { text: dmText });
+          row.clientDmSent = true;
+          row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: link enviado por DM");
+        } catch (dmErr) {
+          row.clientDmSent = false;
+          row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: falha ao enviar DM (" + (dmErr?.message || dmErr) + ")");
+          if (isRateLimitError(dmErr)) { rateLimited = true; }
+        }
+        await new Promise(r => setTimeout(r, 2500));
+      }
+
+      // 4. Description
+      if (!rateLimited && spec.description) {
         try {
           await sock.groupUpdateDescription(row.groupJid, String(spec.description));
           row.hasDescription = true;
@@ -2089,7 +2199,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
       }
 
-      // 3. Photo from URL
+      // 5. Photo from URL
       if (!rateLimited && spec.photoUrl) {
         try {
           const buf = await fetchPhotoBuffer(spec.photoUrl);
@@ -2102,7 +2212,23 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
       }
 
-      // 4. Lock info (only admins edit group info) + set permissions
+      // 6a. "Adicionar membros" = todos — ANTES do lock. A permissão de
+      // "Convidar via link ou QR code" no WhatsApp só fica disponível DEPOIS
+      // que "Adicionar membros" está habilitado; com o lock vindo primeiro o
+      // toggle do link fica OFF. Esperamos 4s antes do próximo setting pra
+      // o servidor propagar o flag.
+      if (!rateLimited) {
+        try {
+          await sock.groupMemberAddMode(row.groupJid, "all_member_add");
+        } catch (e) {
+          row.statusMessage = appendNote(row.statusMessage, "member_add_mode_fail: " + (e?.message || e));
+          if (isRateLimitError(e)) { rateLimited = true; }
+        }
+        await new Promise(r => setTimeout(r, 4000));
+      }
+
+      // 6b. Lock "Editar configurações do grupo" (apenas admins) — DEPOIS
+      // de habilitar add_members, pra não bloquear o invite link.
       if (!rateLimited && spec.lockInfo) {
         try {
           await sock.groupSettingUpdate(row.groupJid, "locked");
@@ -2114,33 +2240,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
       }
 
-      // 4b. Explicitly set "Adicionar membros" = all members (not admin-only).
-      // Baileys creates groups with admin-only add mode by default. Without
-      // this call, the "Adicionar membros" permission stays OFF and the
-      // invite link sharing via QR/link is also restricted.
-      if (!rateLimited) {
-        try {
-          await sock.groupMemberAddMode(row.groupJid, "all_member_add");
-        } catch (e) {
-          row.statusMessage = appendNote(row.statusMessage, "member_add_mode_fail: " + (e?.message || e));
-        }
-        await new Promise(r => setTimeout(r, 2000));
-      }
-
-      // 5. Welcome message — DEFERRED to Step 10 (after client verification).
-      // We need to know whether the client was actually added before deciding
-      // which message to send in the group.
-
-      // 6. Add + promote extra admin JIDs (e.g. Escalada Ltda as group admin).
-      // The frontend populates spec.adminJids when the user checks the
-      // "Adicionar Escalada Ltda como administrador" checkbox. Each JID
-      // is added as member then promoted — 2 IQs per JID, all on the
-      // CREATOR session's budget (not Escalada's, since Escalada isn't
-      // connected to this sock instance).
+      // 7. Add + promote extra admin JIDs (e.g. Escalada Ltda).
       if (!rateLimited && Array.isArray(spec.adminJids) && spec.adminJids.length > 0) {
         for (const adminJid of spec.adminJids) {
           try {
-            await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "add");
+            const addRes = await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "add");
+            if (Array.isArray(addRes) && addRes[0] && String(addRes[0].status) === "200") {
+              row.membersAdded = (row.membersAdded || 0) + 1;
+            }
             await new Promise(r => setTimeout(r, 2000));
             await sock.groupParticipantsUpdate(row.groupJid, [adminJid], "promote");
             await new Promise(r => setTimeout(r, 1000));
@@ -2151,19 +2258,39 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
       }
 
-      // 7. Invite link (best-effort, useful for audit trail + privacy-block fallback)
-      if (!rateLimited) {
-        try {
-          const code = await sock.groupInviteCode(row.groupJid);
-          if (code) row.inviteLink = "https://chat.whatsapp.com/" + code;
-        } catch (e) { /* non-fatal */ }
+      // 8. Helpers / demais membros (fluxo HubSpot) — batch add de uma vez.
+      // Exclui cliente (já adicionado no groupCreate) e adminJids (já processados
+      // no Step 7). Se algum falhar com 403, não mandamos DM — são sessões
+      // internas (CX2 etc) e 403 significa config errada, não privacidade real.
+      if (!rateLimited && isHubspotFlow && Array.isArray(spec.members) && spec.members.length > 1) {
+        const adminSet = new Set((spec.adminJids || []).map(j => String(j).split("@")[0]));
+        const extraPhones = (spec.members || [])
+          .filter(p => p && p !== spec.clientPhone && !adminSet.has(p));
+        if (extraPhones.length > 0) {
+          const extraJids = extraPhones.map(p => p + "@s.whatsapp.net");
+          try {
+            const addRes = await sock.groupParticipantsUpdate(row.groupJid, extraJids, "add");
+            if (Array.isArray(addRes)) {
+              const okCount = addRes.filter(r => r && String(r.status) === "200").length;
+              row.membersAdded = (row.membersAdded || 0) + okCount;
+              const failCount = addRes.length - okCount;
+              if (failCount > 0) {
+                const failJids = addRes.filter(r => !r || String(r.status) !== "200").map(r => (r && r.jid || "?").split("@")[0]);
+                row.statusMessage = appendNote(row.statusMessage, "helpers_add_partial: " + failCount + " falha(s) — " + failJids.join(","));
+              }
+            }
+          } catch (e) {
+            if (isRateLimitError(e)) { rateLimited = true; }
+            else row.statusMessage = appendNote(row.statusMessage, "helpers_add_fail: " + (e?.message || e));
+          }
+          await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+        }
       }
 
-      // 8. DM the invite link to members that were rejected by privacy settings.
-      // This way they still get a way to join even though they block being added directly.
-      if (!rateLimited && row.inviteLink && rejectedJids.length > 0) {
+      // 9. DM pros rejeitados (fluxo XLSX only — HubSpot já tratou no Step 3).
+      if (!rateLimited && !isHubspotFlow && row.inviteLink && xlsxRejectedJids.length > 0) {
         let notified = 0;
-        for (const pjid of rejectedJids) {
+        for (const pjid of xlsxRejectedJids) {
           try {
             const dmText = 'Olá! Criei o grupo "' + (spec.name || "") + '" mas '
               + 'suas configurações de privacidade não permitem que eu te adicione '
@@ -2177,66 +2304,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         }
         if (notified > 0) {
           row.statusMessage = appendNote(row.statusMessage,
-            notified + "/" + rejectedJids.length + " não-adicionados receberam o link no privado");
-        }
-      }
-
-      // 9. Explicit client add verification + invite DM.
-      // groupCreate sometimes returns the client as "added" even when their
-      // privacy settings silently block the add. We do a second explicit add
-      // attempt: if the client IS in the group already it's a no-op; if they
-      // can't be added, WhatsApp returns 403 and we DM the invite link.
-      // spec.clientPhone is set by the HubSpot flow (normalizePhoneBr of
-      // whatsapp_do_mentorado). For xlsx specs without this field, this step
-      // is skipped.
-      row.clientAdded = null;   // null=skipped, true=confirmed, false=rejected
-      row.clientDmSent = null;  // null=skipped, true=sent, false=failed
-      if (!rateLimited && spec.clientPhone) {
-        const clientJid = spec.clientPhone + "@s.whatsapp.net";
-        try {
-          await sock.groupParticipantsUpdate(row.groupJid, [clientJid], "add");
-          row.clientAdded = true;
-          await new Promise(r => setTimeout(r, 1500));
-        } catch (e) {
-          const errMsg = (e?.message || "").toLowerCase();
-          // 403 = privacy block, 408/409 = other rejection
-          if (errMsg.includes("403") || errMsg.includes("not-authorized") || errMsg.includes("privacy")) {
-            row.clientAdded = false;
-            console.log("[BAILEYS] Client rejected from group:", spec.clientPhone, "in", row.groupJid);
-            // Send invite link via DM — use the user-editable template if provided,
-            // falling back to a sensible default. Interpolates {nome_grupo} and {link}.
-            if (row.inviteLink) {
-              try {
-                const rejectTemplate = spec.rejectDmTemplate
-                  || 'Olá! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
-                const dmText = rejectTemplate
-                  .replace(/\{nome_grupo\}/g, spec.name || "")
-                  .replace(/\{link\}/g, row.inviteLink);
-                await sock.sendMessage(clientJid, { text: dmText });
-                row.clientDmSent = true;
-                row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: link enviado por DM");
-              } catch (dmErr) {
-                row.clientDmSent = false;
-                row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: falha ao enviar DM (" + (dmErr?.message || dmErr) + ")");
-                if (isRateLimitError(dmErr)) { rateLimited = true; }
-              }
-            } else {
-              row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: sem invite link disponível");
-            }
-          } else if (isRateLimitError(e)) {
-            rateLimited = true;
-          } else {
-            // Other errors (e.g. "item-not-found" = number not on WhatsApp)
-            row.clientAdded = false;
-            row.statusMessage = appendNote(row.statusMessage, "cliente_add_error: " + (e?.message || e));
-          }
+            notified + "/" + xlsxRejectedJids.length + " não-adicionados receberam o link no privado");
         }
       }
 
       // 10. Welcome or fallback message in the group.
-      // Now that we know whether the client was added (Step 9), we pick
-      // the right message: normal welcome if client is in, or an alert
-      // message with the client's phone if they couldn't be added.
+      // clientAdded foi determinado no Step 1 via created.participants — no
+      // novo fluxo HubSpot não precisamos de Step 9 explicit re-add: o grupo
+      // foi criado SÓ com o cliente, então groupCreate já dá a resposta certa.
       if (!rateLimited && spec.welcomeMessage) {
         const clientName = (spec.name || "").split("|")[0].trim().split(" ")[0] || "cliente";
         if (row.clientAdded === false && spec.clientPhone) {

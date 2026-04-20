@@ -127,4 +127,21 @@ router.post("/:jobId/cancel", (req, res) => {
   }
 });
 
+// POST /api/jobs/:jobId/retry-group
+// Body: { specHash: string }
+// Re-runs createGroupsFromList for a single spec that previously failed.
+// Used by the "↻ Tentar" button on failed rows in the job card. Fire-and-forget:
+// returns 202 immediately; the frontend sees the new result in the next poll.
+router.post("/:jobId/retry-group", async (req, res) => {
+  try {
+    const { specHash } = req.body || {};
+    if (!specHash) return res.status(400).json({ error: "specHash é obrigatório" });
+    const result = await jobs.retryGroupInJob(req.params.jobId, specHash);
+    res.status(202).json({ ok: true, job: jobs.summarizeJob(result.job), specHash });
+  } catch (e) {
+    const status = e.statusCode || 500;
+    res.status(status).json({ error: e.message || String(e) });
+  }
+});
+
 module.exports = router;

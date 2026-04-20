@@ -504,6 +504,82 @@ async function runCreateGroupsWorker(job) {
   }
 }
 
+// Retry a single spec in an already-finished create-groups job. Called when
+// the user clicks "↻ Tentar" on a failed row. Re-runs createGroupsFromList
+// with just that spec, overwrites the row in job.results, upserts the new
+// wa_group_creations row (on_conflict=source_session_id,spec_hash → replaces
+// the old failed record). Fire-and-forget: the HTTP response acks immediately
+// and the frontend sees progress via the next poll.
+async function retryGroupInJob(jobId, specHash) {
+  const job = getJob(jobId);
+  if (!job) throw Object.assign(new Error("job_not_found"), { statusCode: 404 });
+  if (job.type !== "create-groups") throw Object.assign(new Error("not a create-groups job"), { statusCode: 400 });
+  if (!Array.isArray(job._specs) || job._specs.length === 0) {
+    throw Object.assign(new Error("specs_not_available (job muito antigo, PM2 reiniciou)"), { statusCode: 410 });
+  }
+
+  const spec = job._specs.find(s => s && s.specHash === specHash);
+  if (!spec) throw Object.assign(new Error("spec_not_found_in_job"), { statusCode: 404 });
+
+  const rl = baileys.getRateLimitStatus(job.sessionId);
+  if (rl) {
+    const minutes = Math.ceil(rl.remainingMs / 60000);
+    throw Object.assign(new Error("Sessão em cooldown (~" + minutes + "min)"), { statusCode: 429 });
+  }
+
+  // Mark current row as retrying so the UI shows a spinner immediately
+  const rowIdx = (job.results || []).findIndex(r => r.specHash === specHash);
+  if (rowIdx >= 0) {
+    job.results[rowIdx] = Object.assign({}, job.results[rowIdx], {
+      status: "pending",
+      statusMessage: "retry em andamento…",
+      fromCache: false,
+    });
+  }
+  job.updatedAt = new Date().toISOString();
+
+  // Fire-and-forget — the HTTP caller sees ack immediately; real result lands
+  // via the next GET /api/jobs/:id poll.
+  (async () => {
+    try {
+      const result = await baileys.createGroupsFromList(job.sessionId, [spec], {
+        delaySec: job.config?.delaySec || 180,
+        _leadingDelayMs: 30000, // 30s leading (menor que o normal pq é só 1 grupo)
+        shouldCancel: () => false,
+        onProgress: (payload) => {
+          if (!payload || !payload.row) return;
+          const r = payload.row;
+          const idx = (job.results || []).findIndex(x => x.specHash === r.specHash);
+          const merged = Object.assign({}, r, { fromCache: false });
+          if (idx >= 0) job.results[idx] = merged;
+          else job.results.push(merged);
+          job.updatedAt = new Date().toISOString();
+        },
+      });
+      const resultRow = result && result.results && result.results[0];
+      if (resultRow) {
+        const idx = (job.results || []).findIndex(r => r.specHash === specHash);
+        const merged = Object.assign({}, resultRow, { fromCache: false });
+        if (idx >= 0) job.results[idx] = merged;
+        else job.results.push(merged);
+      }
+      job.updatedAt = new Date().toISOString();
+    } catch (e) {
+      console.error("[JOBS] retryGroupInJob error:", e && e.message);
+      const idx = (job.results || []).findIndex(r => r.specHash === specHash);
+      if (idx >= 0) {
+        job.results[idx] = Object.assign({}, job.results[idx], {
+          status: "failed",
+          statusMessage: "retry falhou: " + (e && e.message || e),
+        });
+      }
+      job.updatedAt = new Date().toISOString();
+    }
+  })();
+
+  return { job, spec };
+}
+
 // ===== Helpers =====
 
 function isRateLimitMessageString(msg) {
@@ -520,5 +596,6 @@ module.exports = {
   startExtractJob,
   startAddJob,
   startCreateGroupsJob,
+  retryGroupInJob,
   summarizeJob,
 };

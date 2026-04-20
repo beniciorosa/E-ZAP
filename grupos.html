@@ -161,6 +161,15 @@
       border-color:var(--primary);
     }
 
+    /* Botão de retry inline na tabela de resultados do job */
+    .btn-retry {
+      background:var(--surface-2); color:var(--primary); border:1px solid var(--primary);
+      padding:1px 6px; font-size:11px; border-radius:4px; cursor:pointer; margin-left:4px;
+      font-family:inherit;
+    }
+    .btn-retry:hover:not(:disabled) { background:var(--primary); color:#fff; }
+    .btn-retry:disabled { opacity:0.5; cursor:not-allowed; }
+
     /* Auto-criar grupos — accordion por mentor */
     .auto-mentor {
       background:var(--surface); border:1px solid var(--border); border-radius:8px;
@@ -1731,21 +1740,30 @@ function renderCreateGroupsResultsTable(job) {
 
   var html = '<table><thead><tr>'
     + '<th>Nome</th>'
-    + '<th style="width:110px">Status</th>'
+    + '<th style="width:150px">Status</th>'
     + '<th style="width:70px;text-align:center">Membros</th>'
     + '<th style="width:50px;text-align:center">Desc</th>'
     + '<th style="width:50px;text-align:center">Foto</th>'
     + '<th style="width:50px;text-align:center">Lock</th>'
     + '<th style="width:60px;text-align:center">Welcome</th>'
+    + '<th style="width:110px">Criado em</th>'
     + '<th>Link</th>'
     + '</tr></thead><tbody>';
 
   rows.forEach(function(r) {
     var statusCell = renderCreateStatus(r.status, r.statusMessage);
+    // Botão retry pra rows falhas — chama POST /api/jobs/:jobId/retry-group.
+    // Só habilita se o job ainda tem specHash em memória (backend valida isso).
+    if (r.status === "failed" && r.specHash) {
+      statusCell += ' <button class="btn-retry" onclick="retryCreateGroup(\'' + esc(job.id) + '\', \'' + esc(r.specHash) + '\', this)" title="Tentar criar este grupo de novo">↻ Tentar</button>';
+    }
     var membersCell = (r.membersAdded || 0) + "/" + (r.membersTotal || 0);
     var check = function(v) { return v ? '<span class="ok">✓</span>' : '<span style="color:var(--muted)">—</span>'; };
     var linkCell = r.inviteLink
       ? '<a href="' + esc(r.inviteLink) + '" target="_blank">' + esc(r.inviteLink.replace("https://chat.whatsapp.com/", "")) + '</a>'
+      : '<span style="color:var(--muted)">—</span>';
+    var createdCell = r.createdAt
+      ? '<span style="font-size:11px; color:var(--muted)" title="' + esc(r.createdAt) + '">' + esc(formatDateShort(r.createdAt)) + '</span>'
       : '<span style="color:var(--muted)">—</span>';
     html += '<tr>'
       + '<td>' + esc(r.name || "(sem nome)") + '</td>'
@@ -1755,11 +1773,42 @@ function renderCreateGroupsResultsTable(job) {
       + '<td style="text-align:center">' + check(r.hasPhoto) + '</td>'
       + '<td style="text-align:center">' + check(r.locked) + '</td>'
       + '<td style="text-align:center">' + check(r.welcomeSent) + '</td>'
+      + '<td>' + createdCell + '</td>'
       + '<td>' + linkCell + '</td>'
       + '</tr>';
   });
   html += '</tbody></table>';
   return html;
+}
+
+// Formata timestamp ISO -> "DD/MM - HHhMM" (ex: "20/04 - 13h41").
+// Usado na coluna "Criado em" da tabela de resultados do job.
+function formatDateShort(iso) {
+  if (!iso) return "—";
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  var dd = String(d.getDate()).padStart(2, "0");
+  var mm = String(d.getMonth() + 1).padStart(2, "0");
+  var hh = String(d.getHours()).padStart(2, "0");
+  var mi = String(d.getMinutes()).padStart(2, "0");
+  return dd + "/" + mm + " - " + hh + "h" + mi;
+}
+
+// Retry de um grupo que falhou. Chama POST /api/jobs/:jobId/retry-group
+// com body {specHash}. Desabilita o botão durante o request; a UI atualiza
+// no próximo poll (5s) com o novo status da row.
+function retryCreateGroup(jobId, specHash, btn) {
+  if (!jobId || !specHash) return;
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ enviando…"; }
+  waFetch("/api/jobs/" + encodeURIComponent(jobId) + "/retry-group", "POST", { specHash: specHash })
+    .then(function() {
+      showToast("Retry iniciado — acompanhe na tabela", "ok");
+      refreshJobs();
+    })
+    .catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = "↻ Tentar"; }
+      showToast("Falha no retry: " + (e.message || e), "error");
+    });
 }
 
 function renderCreateStatus(status, msg) {
