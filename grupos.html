@@ -148,6 +148,47 @@
       padding:40px; text-align:center; color:var(--muted); font-size:13px;
       background:var(--surface); border:1px dashed var(--border); border-radius:12px;
     }
+
+    /* Editable title no row expandido do preview HubSpot */
+    .editable-title {
+      font-size:13px; font-weight:600; margin-bottom:4px;
+      border:1px dashed transparent; padding:3px 6px; border-radius:4px;
+      cursor:text; transition:border-color 0.15s, background 0.15s;
+    }
+    .editable-title:hover { border-color:rgba(157,124,255,0.4); }
+    .editable-title:focus {
+      outline:none; background:rgba(157,124,255,0.08);
+      border-color:var(--primary);
+    }
+
+    /* Auto-criar grupos — accordion por mentor */
+    .auto-mentor {
+      background:var(--surface); border:1px solid var(--border); border-radius:8px;
+      margin-bottom:8px; overflow:hidden;
+    }
+    .auto-mentor[data-disabled="1"] { opacity:0.55; }
+    .auto-mentor summary {
+      padding:10px 14px; cursor:pointer; display:flex; align-items:center; gap:10px;
+      font-size:13px; list-style:none;
+    }
+    .auto-mentor summary::-webkit-details-marker { display:none; }
+    .auto-mentor summary::before {
+      content:"▶"; font-size:10px; color:var(--muted); transition:transform 0.15s; flex-shrink:0;
+    }
+    .auto-mentor[open] summary::before { transform:rotate(90deg); }
+    .auto-mentor .auto-mentor-body {
+      padding:12px 16px 16px 16px; border-top:1px solid var(--border); background:var(--bg);
+    }
+    .auto-mentor .auto-session-ok { color:var(--accent-green, #22c55e); font-weight:500; }
+    .auto-mentor .auto-session-err { color:var(--danger, #ef4444); font-weight:500; }
+    .auto-mentor .badge-count {
+      background:var(--primary); color:#fff; font-size:11px; padding:2px 8px; border-radius:10px;
+    }
+    .auto-mentor table { width:100%; border-collapse:collapse; font-size:12px; }
+    .auto-mentor table th { text-align:left; color:var(--muted); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--border); }
+    .auto-mentor table td { padding:6px 8px; border-bottom:1px solid var(--border); }
+    .auto-mentor .auto-status-ok { color:var(--accent-green, #22c55e); font-size:11px; }
+    .auto-mentor .auto-status-err { color:var(--danger, #ef4444); font-size:11px; }
   </style>
 </head>
 <body>
@@ -175,6 +216,8 @@
       <button class="btn-primary" onclick="openExtractModal()">+ Nova extração</button>
       <button class="btn-primary" onclick="openAddModal()">+ Adicionar número</button>
       <button class="btn-primary" onclick="openCreateGroupsModal()">+ Criar grupos</button>
+      <button class="btn-primary" onclick="openAutoCreateModal()" title="Busca mentorados sem grupo na tabela hubspot_tickets e cria agrupado por proprietário do ticket">🤖 Auto-criar grupos</button>
+      <button class="btn-secondary" onclick="toggleHistoryView()" title="Abre o dashboard de histórico de grupos criados em todas as sessões">📊 Histórico</button>
       <button class="btn-secondary" onclick="window.open('fotos.html', '_blank')" title="Abre o gerenciador de fotos de grupos em uma nova aba">🖼️ Gerenciar fotos</button>
       <button class="btn-secondary" onclick="refreshJobs()" title="Atualiza a lista de jobs agora (fora do intervalo de polling)">🔄 Atualizar</button>
     </div>
@@ -193,6 +236,88 @@
     <div id="jobsContainer" class="jobs-container"></div>
     <div id="emptyState" class="empty-state">
       Nenhum job ativo. Clique em <strong>Nova extração</strong> ou <strong>Adicionar número</strong> para começar.
+    </div>
+
+    <!-- View: Dashboard de Histórico (cross-session) -->
+    <div id="historyView" style="display:none">
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px">
+          <div style="font-weight:600; font-size:14px">📊 Histórico de grupos criados</div>
+          <div style="font-size:12px; color:var(--muted); flex:1">Lotes de <code>wa_group_creations</code> em todas as sessões, enriquecidos com dados HubSpot.</div>
+          <button class="btn-secondary" onclick="toggleHistoryView()">← Voltar</button>
+        </div>
+        <div class="row" style="gap:8px; flex-wrap:wrap; align-items:end">
+          <div>
+            <label>De</label>
+            <input type="date" id="historyFilterFrom" style="min-width:130px">
+          </div>
+          <div>
+            <label>Até</label>
+            <input type="date" id="historyFilterTo" style="min-width:130px">
+          </div>
+          <div>
+            <label>Mentor (contém)</label>
+            <input type="text" id="historyFilterMentor" placeholder="ex: Rodrigo" style="min-width:180px">
+          </div>
+          <div>
+            <label>Tier</label>
+            <select id="historyFilterTier" style="min-width:130px">
+              <option value="">Todos</option>
+              <option value="pro">Pro</option>
+              <option value="business">Business</option>
+              <option value="starter">Starter</option>
+            </select>
+          </div>
+          <div>
+            <label>Status</label>
+            <select id="historyFilterStatus" style="min-width:150px">
+              <option value="">Todos</option>
+              <option value="created">Criado</option>
+              <option value="failed">Falhou</option>
+              <option value="rate_limited">Rate-limited</option>
+              <option value="cancelled">Cancelado</option>
+              <option value="pending">Pendente</option>
+            </select>
+          </div>
+          <div>
+            <label>Sessão criadora</label>
+            <select id="historyFilterSession" style="min-width:180px">
+              <option value="">Todas</option>
+            </select>
+          </div>
+          <button class="btn-primary" onclick="loadHistoryRows(false)">🔍 Aplicar</button>
+          <button class="btn-secondary" onclick="exportHistoryCsv()" id="historyExportBtn" disabled>💾 Exportar CSV</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0; overflow:hidden">
+        <div style="max-height:620px; overflow:auto">
+          <table id="historyTable" style="width:100%; border-collapse:collapse; font-size:12px">
+            <thead>
+              <tr>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Data</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Grupo</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Owner (dono)</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Mentor</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Tier</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Pipeline</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Sessão</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Status</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Membros</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Link</th>
+                <th style="text-align:left; padding:10px; background:var(--surface-2); position:sticky; top:0">Sincronizado</th>
+              </tr>
+            </thead>
+            <tbody id="historyTbody">
+              <tr><td colspan="11" style="text-align:center; padding:24px; color:var(--muted)">Clique em <b>🔍 Aplicar</b> para carregar o histórico.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="text-align:center; padding:10px">
+          <button class="btn-secondary" id="historyLoadMoreBtn" onclick="loadHistoryRows(true)" style="display:none">Carregar mais</button>
+          <span id="historyStatus" style="font-size:12px; color:var(--muted); margin-left:8px"></span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -429,6 +554,59 @@
       <div class="modal-actions">
         <button class="btn-secondary" onclick="closeModal('createGroupsModal')">Cancelar</button>
         <button class="btn-primary" id="createSubmitBtn" onclick="submitCreateGroupsJob()" disabled>Iniciar criação</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Auto-criar grupos (mentorados pendentes) -->
+  <div class="modal-backdrop" id="autoCreateModal" style="display:none">
+    <div class="modal" style="max-width:1100px">
+      <div class="modal-title">🤖 Auto-criar grupos dos mentorados pendentes</div>
+      <div class="modal-sub">Busca na <b>hubspot_tickets</b> quem ainda não tem grupo criado (sem row com status=created em wa_group_creations), agrupa por proprietário do ticket, e auto-mapeia a sessão do mentor via label.</div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px">
+        <div>
+          <label>Tier</label>
+          <select id="autoFilterTier" style="min-width:140px">
+            <option value="">Todos</option>
+            <option value="pro">Pro</option>
+            <option value="business">Business</option>
+            <option value="starter">Starter</option>
+          </select>
+        </div>
+        <div>
+          <label>Pipeline</label>
+          <select id="autoFilterPipelineType" style="min-width:160px">
+            <option value="">Todos</option>
+            <option value="mentoria">Mentoria</option>
+            <option value="pre_mentoria">Pré-mentoria</option>
+            <option value="aprovacao_financeiro">Aprovação financeiro</option>
+          </select>
+        </div>
+        <button class="btn-primary" onclick="loadAutoCreatePending()">🔍 Buscar pendentes</button>
+        <span id="autoCountersLabel" style="font-size:12px; color:var(--muted); align-self:center"></span>
+      </div>
+
+      <div id="autoCreateResults" style="min-height:140px; max-height:520px; overflow:auto; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px">
+        <div style="color:var(--muted); text-align:center; padding:32px 8px; font-size:13px">
+          Clique em <b>🔍 Buscar pendentes</b> para listar os mentorados sem grupo criado.
+        </div>
+      </div>
+
+      <div style="margin:14px 0">
+        <label>Delay entre grupos (dentro de cada mentor)</label>
+        <div class="delay-presets">
+          <label><input type="radio" name="autoDelay" value="180"> 3 min</label>
+          <label><input type="radio" name="autoDelay" value="300"> 5 min</label>
+          <label><input type="radio" name="autoDelay" value="480"> 8 min</label>
+          <label><input type="radio" name="autoDelay" value="600" checked> 10 min (recomendado)</label>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px">Jobs por mentor rodam em paralelo (1 sessão = 1 job). Dentro de cada job, os grupos do mesmo mentor são criados serialmente com o delay escolhido. Sessões críticas (Escalada) forçam 10 min no backend mesmo se você escolher menos.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('autoCreateModal')">Fechar</button>
+        <button class="btn-primary" id="autoCreateAllBtn" onclick="startAutoCreateAllSelected()" disabled>▶ Iniciar todos selecionados</button>
       </div>
     </div>
   </div>
@@ -2372,14 +2550,27 @@ async function buildSpecsFromHubspotResolved() {
       reason = "Menos de 2 membros válidos";
     }
 
-    var groupName = (r.ticket_name || "(sem nome)") + " | " + (r.mentor || "");
+    // ticket_name no HubSpot vem no formato "Cliente | Mentor".
+    // Extraímos só o cliente (parte antes do primeiro "|") e concatenamos
+    // com ticket_owner (dono do ticket — resolvido via hubspot_tickets.owner_name).
+    // Fallback: se ticket_owner vier null (backfill incompleto), usa r.mentor.
+    // Se o user editou o nome manualmente no preview (r._editedName), esse
+    // override prevalece — preserva a edição entre re-renders (helpers toggle,
+    // etc). Reseta só quando o user clica "🔍 Resolver tickets" de novo.
+    var rawTicketName = String(r.ticket_name || "").trim();
+    var clientName = rawTicketName.split("|")[0].trim() || "(sem nome)";
+    var ownerName = String(r.ticket_owner || r.mentor || "").trim();
+    var defaultGroupName = ownerName ? (clientName + " | " + ownerName) : clientName;
+    var groupName = r._editedName || defaultGroupName;
     var finalDescription = "[" + r.ticket_id + "]" + (customDescription ? "\n" + customDescription : "");
 
-    // First name = first whitespace-separated token of the client name.
-    // Ex: "Marcio Ferraz Lima" -> "Marcio".
-    var firstName = String(r.ticket_name || "").trim().split(/\s+/)[0] || "";
+    // First name = first whitespace-separated token of the client name
+    // (after stripping the mentor suffix). Ex: "Marcio Ferraz Lima" -> "Marcio".
+    var firstName = clientName.split(/\s+/)[0] || "";
 
-    // Mentor name for the {mentor} placeholder — first + last name.
+    // Mentor name for the {mentor} placeholder — keep using r.mentor
+    // (mentor_responsavel_name from hubspot_tickets). The {mentor} placeholder
+    // refers to the mentor that OWNS the group creation flow, not the ticket owner.
     var mentorName = String(r.mentor || "").trim();
 
     // We pre-interpolate {primeiro_nome} and {mentor} on the frontend before
@@ -2422,6 +2613,8 @@ async function buildSpecsFromHubspotResolved() {
         hubspotTier: r.tier || null,
         mentorSessionId: r.mentorSessionId || null,
         mentorSessionPhone: r.mentorSessionPhone || null,
+        // Client-side reference (used by inline title edit to find the spec)
+        _ticketId: r.ticket_id || null,
       };
     }
 
@@ -2429,6 +2622,7 @@ async function buildSpecsFromHubspotResolved() {
       ticket_id: r.ticket_id,
       ticket_name: r.ticket_name,
       mentor: r.mentor,
+      ticket_owner: r.ticket_owner || null,
       tier: r.tier,
       tierLabel: tierLabel,
       photoUrl: photoUrl,
@@ -2469,6 +2663,44 @@ function toggleHubspotPreviewRow(ticketId) {
   // Só re-renderiza o preview, sem recalcular specs
   if (_hubspotResolved.length > 0) {
     buildSpecsFromHubspotResolved();
+  }
+}
+
+// Edição inline do título de um grupo no preview expandido.
+// Atualiza _hubspotResolved[*].finalGroupName + _createSpecs[*].name e
+// recalcula specHash (porque o hash é derivado do nome + membros).
+function onTitleEdit(el) {
+  var ticketId = Number(el.dataset.ticketId);
+  var newName = (el.textContent || "").replace(/\s+/g, " ").trim();
+  if (!newName) {
+    // Se user apagou tudo, restaura o nome atual (não aceita vazio)
+    var current = _hubspotResolved.find(function(r) { return Number(r.ticket_id) === ticketId; });
+    if (current) el.textContent = current.finalGroupName || "";
+    return;
+  }
+  var row = _hubspotResolved.find(function(r) { return Number(r.ticket_id) === ticketId; });
+  if (!row) return;
+  if (row.finalGroupName === newName) return; // no-op
+  row.finalGroupName = newName;
+  row._editedName = newName; // marca override pra sobreviver a re-renders
+  var spec = _createSpecs.find(function(s) { return Number(s._ticketId) === ticketId; });
+  if (spec) {
+    spec.name = newName;
+    var hashInput = JSON.stringify([newName, (spec.members || []).slice().sort()]);
+    sha1Hex(hashInput).then(function(h) { spec.specHash = h; }).catch(function() {});
+  }
+}
+
+function onTitleKeydown(ev, el) {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    el.blur(); // triggers onblur → onTitleEdit
+  } else if (ev.key === "Escape") {
+    ev.preventDefault();
+    var ticketId = Number(el.dataset.ticketId);
+    var original = _hubspotResolved.find(function(r) { return Number(r.ticket_id) === ticketId; });
+    if (original) el.textContent = original.finalGroupName || "";
+    el.blur();
   }
 }
 
@@ -2547,12 +2779,17 @@ function renderHubspotPreview(rows) {
         ? '<img src="' + esc(r.photoUrl) + '" style="width:64px; height:64px; border-radius:8px; object-fit:cover; display:block" onerror="this.style.display=\'none\'">'
         : '<div style="width:64px; height:64px; border-radius:8px; background:var(--surface-2); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:10px">sem foto</div>';
 
+      var editableTitleHtml = r.disabled
+        ? '<div style="font-size:13px; font-weight:600; margin-bottom:10px; opacity:0.7">' + esc(r.finalGroupName || "") + '</div>'
+        : '<div class="editable-title" contenteditable="true" spellcheck="false" data-ticket-id="' + esc(String(r.ticket_id)) + '" onblur="onTitleEdit(this)" onkeydown="onTitleKeydown(event, this)">' + esc(r.finalGroupName || "") + '</div>'
+          + '<div style="font-size:10px; color:var(--muted); margin:-6px 0 10px 2px">✎ clique no nome para editar (Enter salva, Esc cancela)</div>';
+
       html += '<tr><td colspan="8" style="background:var(--surface-2); padding:14px 18px; border-left:3px solid var(--primary)">'
         + '<div style="display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap">'
         +   '<div style="flex:0 0 auto">' + photoPreview + '</div>'
         +   '<div style="flex:1; min-width:240px">'
         +     '<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px">Nome do grupo</div>'
-        +     '<div style="font-size:13px; font-weight:600; margin-bottom:10px">' + esc(r.finalGroupName || "") + '</div>'
+        +     editableTitleHtml
         +     '<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px">Descrição</div>'
         +     '<pre style="font-size:12px; white-space:pre-wrap; margin:0 0 10px 0; font-family:inherit; background:var(--bg); padding:8px 10px; border-radius:6px; border:1px solid var(--border)">' + esc(r.finalDescription || "(vazia)") + '</pre>'
         +     '<div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:2px">Mensagem de boas-vindas</div>'
@@ -2601,6 +2838,482 @@ function submitCreateGroupsJob() {
   }).catch(function(e) {
     showToast("Falha: " + e.message, "error");
   });
+}
+
+// ============================================================
+// ===== Auto-criar grupos (mentorados pendentes) =============
+// ============================================================
+// Estado: { groups: [{owner_name, session_id, session_phone, session_warning, tickets}],
+//          selected: Set<"ownerName::ticket_id">,
+//          welcomeByOwner: Map<ownerName, string>,
+//          rejectByOwner: Map<ownerName, string>,
+//          statusByOwner: Map<ownerName, "idle"|"starting"|"started"|"error"> }
+var _autoData = null;
+var _autoSelected = new Set();
+var _autoWelcomeByOwner = {};
+var _autoRejectByOwner = {};
+var _autoStatusByOwner = {};
+
+function openAutoCreateModal() {
+  // Reset visual state
+  _autoData = null;
+  _autoSelected = new Set();
+  _autoWelcomeByOwner = {};
+  _autoRejectByOwner = {};
+  _autoStatusByOwner = {};
+  document.getElementById("autoCountersLabel").textContent = "";
+  document.getElementById("autoCreateAllBtn").disabled = true;
+  document.getElementById("autoCreateResults").innerHTML =
+    '<div style="color:var(--muted); text-align:center; padding:32px 8px; font-size:13px">Clique em <b>🔍 Buscar pendentes</b> para listar os mentorados sem grupo criado.</div>';
+  document.getElementById("autoCreateModal").style.display = "flex";
+}
+
+function loadAutoCreatePending() {
+  var tier = document.getElementById("autoFilterTier").value;
+  var pipelineType = document.getElementById("autoFilterPipelineType").value;
+  var qs = [];
+  if (tier) qs.push("tier=" + encodeURIComponent(tier));
+  if (pipelineType) qs.push("pipeline_type=" + encodeURIComponent(pipelineType));
+  var path = "/api/hubspot/pending-groups" + (qs.length ? "?" + qs.join("&") : "");
+
+  document.getElementById("autoCreateResults").innerHTML =
+    '<div style="color:var(--muted); text-align:center; padding:32px 8px; font-size:13px">⏳ Buscando pendentes…</div>';
+  document.getElementById("autoCreateAllBtn").disabled = true;
+
+  waFetch(path, "GET").then(function(res) {
+    _autoData = res || { groups: [], counters: {} };
+    _autoSelected = new Set();
+    _autoWelcomeByOwner = {};
+    _autoRejectByOwner = {};
+    _autoStatusByOwner = {};
+
+    // Pré-marca todos os tickets dos mentores com sessão conectada
+    (_autoData.groups || []).forEach(function(g) {
+      _autoWelcomeByOwner[g.owner_name] = HUBSPOT_WELCOME_TEMPLATE;
+      _autoRejectByOwner[g.owner_name] = HUBSPOT_REJECT_DM_TEMPLATE;
+      _autoStatusByOwner[g.owner_name] = "idle";
+      if (!g.session_warning) {
+        (g.tickets || []).forEach(function(t) {
+          _autoSelected.add(g.owner_name + "::" + t.ticket_id);
+        });
+      }
+    });
+    renderAutoCreateResults();
+    updateAutoCountersLabel();
+  }).catch(function(e) {
+    document.getElementById("autoCreateResults").innerHTML =
+      '<div style="color:var(--danger); text-align:center; padding:32px 8px; font-size:13px">Erro: ' + esc(e.message || String(e)) + '</div>';
+  });
+}
+
+function renderAutoCreateResults() {
+  var box = document.getElementById("autoCreateResults");
+  if (!_autoData || !Array.isArray(_autoData.groups) || _autoData.groups.length === 0) {
+    box.innerHTML = '<div style="color:var(--muted); text-align:center; padding:32px 8px; font-size:13px">Nenhum mentorado pendente encontrado com os filtros atuais.</div>';
+    document.getElementById("autoCreateAllBtn").disabled = true;
+    return;
+  }
+
+  var html = "";
+  _autoData.groups.forEach(function(g, gi) {
+    var disabled = !!g.session_warning;
+    var sessionBadge = disabled
+      ? '<span class="auto-session-err">✗ Sem sessão conectada</span>'
+      : '<span class="auto-session-ok">✓ Sessão ' + esc(g.session_phone || "") + '</span>';
+    var statusBadge = "";
+    var status = _autoStatusByOwner[g.owner_name] || "idle";
+    if (status === "starting") statusBadge = ' <span class="auto-status-ok">⏳ enviando…</span>';
+    else if (status === "started") statusBadge = ' <span class="auto-status-ok">✓ Job iniciado</span>';
+    else if (status === "error") statusBadge = ' <span class="auto-status-err">✗ Erro ao iniciar</span>';
+
+    // Tabela de tickets
+    var tbodyHtml = (g.tickets || []).map(function(t) {
+      var key = g.owner_name + "::" + t.ticket_id;
+      var checked = _autoSelected.has(key) ? " checked" : "";
+      var tierLabel = t.tier === "pro" ? "Pro" : t.tier === "business" ? "Business" : t.tier === "starter" ? "Starter" : "—";
+      var created = t.ticket_created_at ? new Date(t.ticket_created_at).toLocaleDateString("pt-BR") : "—";
+      var clientFull = String(t.ticket_name || "").split("|")[0].trim() || "(sem nome)";
+      return '<tr>'
+        + '<td style="width:24px"><input type="checkbox" data-auto-owner="' + esc(g.owner_name) + '" data-auto-ticket="' + esc(String(t.ticket_id)) + '" onchange="onAutoTicketToggle(this)"' + checked + (disabled ? " disabled" : "") + '></td>'
+        + '<td>' + esc(clientFull) + '</td>'
+        + '<td><span class="badge-count" style="background:' + (t.tier === "pro" ? "#9d7cff" : t.tier === "business" ? "#22c55e" : "#f59e0b") + '">' + esc(tierLabel) + '</span></td>'
+        + '<td style="font-size:11px; color:var(--muted)">' + esc(t.whatsapp_do_mentorado || "—") + '</td>'
+        + '<td style="font-size:11px; color:var(--muted)">' + esc(t.pipeline_stage_name || "—") + '</td>'
+        + '<td style="font-size:11px; color:var(--muted)">' + esc(created) + '</td>'
+        + '</tr>';
+    }).join("");
+
+    // Welcome textarea por mentor
+    var welcomeVal = esc(_autoWelcomeByOwner[g.owner_name] || HUBSPOT_WELCOME_TEMPLATE);
+    var rejectVal = esc(_autoRejectByOwner[g.owner_name] || HUBSPOT_REJECT_DM_TEMPLATE);
+
+    html += '<details class="auto-mentor" data-disabled="' + (disabled ? "1" : "0") + '"' + (gi === 0 ? " open" : "") + '>';
+    html += '<summary>'
+      + '<span style="font-weight:600">👤 ' + esc(g.owner_name) + '</span>'
+      + ' <span class="badge-count">' + (g.tickets || []).length + ' pendentes</span>'
+      + ' ' + sessionBadge + statusBadge
+      + '</summary>';
+    html += '<div class="auto-mentor-body">';
+    html += '<div style="margin-bottom:8px">'
+      + '<label style="font-size:11px"><input type="checkbox" onchange="onAutoToggleAllInOwner(\'' + esc(g.owner_name) + '\', this.checked)"' + (disabled ? " disabled" : " checked") + '> Marcar/desmarcar todos</label>'
+      + '</div>';
+    html += '<table><thead><tr><th></th><th>Cliente</th><th>Tier</th><th>Telefone</th><th>Pipeline Stage</th><th>Criado em</th></tr></thead><tbody>' + tbodyHtml + '</tbody></table>';
+    html += '<div style="margin-top:12px">'
+      + '<label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">Mensagem de boas-vindas (<code>{primeiro_nome}</code>, <code>{mentor}</code>, <code>{nome_grupo}</code>)</label>'
+      + '<textarea data-auto-welcome-owner="' + esc(g.owner_name) + '" rows="3" oninput="onAutoWelcomeEdit(this)" style="width:100%; font-family:inherit; font-size:12px">' + welcomeVal + '</textarea>'
+      + '</div>';
+    html += '<div style="margin-top:8px">'
+      + '<label style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px">DM de rejeição (bloqueados por privacidade) — usa <code>{link}</code></label>'
+      + '<textarea data-auto-reject-owner="' + esc(g.owner_name) + '" rows="2" oninput="onAutoRejectEdit(this)" style="width:100%; font-family:inherit; font-size:12px">' + rejectVal + '</textarea>'
+      + '</div>';
+    html += '<div style="margin-top:10px; text-align:right">'
+      + '<button class="btn-primary" onclick="startAutoCreateForMentor(\'' + esc(g.owner_name) + '\')"' + (disabled ? " disabled" : "") + '>▶ Iniciar só ' + esc(g.owner_name) + '</button>'
+      + '</div>';
+    html += '</div></details>';
+  });
+
+  box.innerHTML = html;
+}
+
+function updateAutoCountersLabel() {
+  if (!_autoData) return;
+  var total = (_autoData.groups || []).reduce(function(s, g) { return s + (g.tickets || []).length; }, 0);
+  var selected = _autoSelected.size;
+  var owners = (_autoData.groups || []).filter(function(g) { return !g.session_warning; }).length;
+  var el = document.getElementById("autoCountersLabel");
+  if (el) el.textContent = selected + " selecionados / " + total + " pendentes / " + owners + " mentores com sessão";
+  document.getElementById("autoCreateAllBtn").disabled = selected === 0;
+}
+
+function onAutoTicketToggle(cb) {
+  var owner = cb.dataset.autoOwner;
+  var ticketId = cb.dataset.autoTicket;
+  var key = owner + "::" + ticketId;
+  if (cb.checked) _autoSelected.add(key);
+  else _autoSelected.delete(key);
+  updateAutoCountersLabel();
+}
+
+function onAutoToggleAllInOwner(owner, checked) {
+  if (!_autoData) return;
+  var group = _autoData.groups.find(function(g) { return g.owner_name === owner; });
+  if (!group) return;
+  group.tickets.forEach(function(t) {
+    var key = owner + "::" + t.ticket_id;
+    if (checked) _autoSelected.add(key);
+    else _autoSelected.delete(key);
+  });
+  // Atualiza os checkboxes individuais sem re-render completo
+  document.querySelectorAll('input[data-auto-owner="' + CSS.escape(owner) + '"]').forEach(function(cb) {
+    cb.checked = checked;
+  });
+  updateAutoCountersLabel();
+}
+
+function onAutoWelcomeEdit(ta) {
+  var owner = ta.dataset.autoWelcomeOwner;
+  if (owner) _autoWelcomeByOwner[owner] = ta.value;
+}
+
+function onAutoRejectEdit(ta) {
+  var owner = ta.dataset.autoRejectOwner;
+  if (owner) _autoRejectByOwner[owner] = ta.value;
+}
+
+// Constrói um spec pronto pro /api/jobs/create-groups/start a partir de um
+// ticket pendente. Segue o mesmo shape de buildSpecsFromHubspotResolved.
+function buildSpecForPendingTicket(t, owner, mentorPhone, welcomeRaw, rejectRaw) {
+  var rawTicketName = String(t.ticket_name || "").trim();
+  var clientName = rawTicketName.split("|")[0].trim() || "(sem nome)";
+  var ownerName = String(owner || "").trim();
+  var groupName = ownerName ? (clientName + " | " + ownerName) : clientName;
+
+  var clientPhone = normalizePhoneBr(t.whatsapp_do_mentorado);
+  var mentorPhoneDigits = normalizePhoneBr(mentorPhone);
+  var members = [];
+  var seen = {};
+  function addMember(p) {
+    if (!p) return;
+    if (seen[p]) return;
+    seen[p] = true;
+    members.push(p);
+  }
+  addMember(clientPhone);
+  addMember(mentorPhoneDigits);
+
+  if (!clientPhone || members.length < 2) {
+    return { spec: null, reason: clientPhone ? "menos de 2 membros" : "telefone do cliente inválido" };
+  }
+
+  var tier = t.tier || null;
+  var photoUrl = tier ? ("/static/fotos/" + (tier === "pro" ? "Pro" : tier === "business" ? "business" : "starter") + ".png") : null;
+  var finalDescription = "[" + t.ticket_id + "]";
+
+  var firstName = clientName.split(/\s+/)[0] || "";
+  var mentorNameForTpl = ownerName; // no Auto, usamos o owner como mentor (é o dono do ticket)
+  var welcome = (welcomeRaw || HUBSPOT_WELCOME_TEMPLATE)
+    .replace(/\{primeiro_nome\}/g, firstName)
+    .replace(/\{mentor\}/g, mentorNameForTpl);
+  var rejectDm = (rejectRaw || HUBSPOT_REJECT_DM_TEMPLATE)
+    .replace(/\{primeiro_nome\}/g, firstName)
+    .replace(/\{mentor\}/g, mentorNameForTpl);
+
+  // Escalada Ltda como admin permanente
+  var adminJids = ["5519993473149@s.whatsapp.net"];
+
+  var spec = {
+    name: groupName,
+    description: finalDescription,
+    photoUrl: photoUrl,
+    members: members,
+    lockInfo: true,
+    welcomeMessage: welcome,
+    rejectDmTemplate: rejectDm,
+    adminJids: adminJids,
+    clientPhone: clientPhone,
+    specHash: null,
+    hubspotTicketId: t.ticket_id,
+    hubspotTicketName: t.ticket_name || null,
+    hubspotMentor: ownerName,
+    hubspotTier: tier,
+    mentorSessionId: null, // preenchido pelo caller
+    mentorSessionPhone: mentorPhone,
+    _ticketId: t.ticket_id,
+  };
+  return { spec: spec };
+}
+
+function _getAutoDelaySec() {
+  var val = (document.querySelector('input[name=autoDelay]:checked') || {}).value || "600";
+  var n = parseInt(val, 10);
+  return n >= 60 ? n : 600;
+}
+
+async function _computeSpecHashes(specs) {
+  for (var i = 0; i < specs.length; i++) {
+    var s = specs[i];
+    var input = JSON.stringify([s.name, (s.members || []).slice().sort()]);
+    try { s.specHash = await sha1Hex(input); } catch (_) {}
+  }
+}
+
+async function startAutoCreateForMentor(owner) {
+  if (!_autoData) return;
+  var group = _autoData.groups.find(function(g) { return g.owner_name === owner; });
+  if (!group || group.session_warning) return;
+  if (_autoStatusByOwner[owner] === "starting" || _autoStatusByOwner[owner] === "started") return;
+
+  var selectedTickets = (group.tickets || []).filter(function(t) {
+    return _autoSelected.has(owner + "::" + t.ticket_id);
+  });
+  if (selectedTickets.length === 0) { showToast("Nenhum ticket selecionado para " + owner, "warn"); return; }
+
+  var welcomeRaw = _autoWelcomeByOwner[owner] || HUBSPOT_WELCOME_TEMPLATE;
+  var rejectRaw = _autoRejectByOwner[owner] || HUBSPOT_REJECT_DM_TEMPLATE;
+  var specs = [];
+  var skipped = [];
+  selectedTickets.forEach(function(t) {
+    var result = buildSpecForPendingTicket(t, owner, group.session_phone, welcomeRaw, rejectRaw);
+    if (result.spec) {
+      result.spec.mentorSessionId = group.session_id;
+      specs.push(result.spec);
+    } else {
+      skipped.push({ ticket_id: t.ticket_id, reason: result.reason });
+    }
+  });
+  if (specs.length === 0) {
+    showToast("Nenhum spec válido para " + owner + " (" + skipped.length + " pulados)", "error");
+    return;
+  }
+
+  _autoStatusByOwner[owner] = "starting";
+  renderAutoCreateResults();
+  updateAutoCountersLabel();
+
+  try {
+    await _computeSpecHashes(specs);
+    var delaySec = _getAutoDelaySec();
+    var res = await waFetch("/api/jobs/create-groups/start", "POST", { sessionId: group.session_id, specs: specs, delaySec: delaySec });
+    if (res && res.job && res.job.id) { _jobsInThisSession.add(res.job.id); saveKnownJobs(); }
+    _autoStatusByOwner[owner] = "started";
+    showToast("Job iniciado para " + owner + " — " + specs.length + " grupos" + (skipped.length ? " (" + skipped.length + " pulados)" : ""), "ok");
+    // Remove os tickets enfileirados do set de seleção (evita duplo start)
+    selectedTickets.forEach(function(t) { _autoSelected.delete(owner + "::" + t.ticket_id); });
+    refreshJobs();
+  } catch (e) {
+    _autoStatusByOwner[owner] = "error";
+    showToast("Falha ao iniciar " + owner + ": " + e.message, "error");
+  }
+  renderAutoCreateResults();
+  updateAutoCountersLabel();
+}
+
+async function startAutoCreateAllSelected() {
+  if (!_autoData) return;
+  var eligible = (_autoData.groups || []).filter(function(g) {
+    if (g.session_warning) return false;
+    if (_autoStatusByOwner[g.owner_name] === "started" || _autoStatusByOwner[g.owner_name] === "starting") return false;
+    return (g.tickets || []).some(function(t) { return _autoSelected.has(g.owner_name + "::" + t.ticket_id); });
+  });
+  if (eligible.length === 0) { showToast("Nenhum mentor elegível selecionado", "warn"); return; }
+
+  document.getElementById("autoCreateAllBtn").disabled = true;
+  // Dispara em paralelo — cada mentor tem sessão distinta, jobs são independentes
+  await Promise.all(eligible.map(function(g) { return startAutoCreateForMentor(g.owner_name); }));
+  document.getElementById("autoCreateAllBtn").disabled = _autoSelected.size === 0;
+}
+
+// ============================================================
+// ===== Dashboard de histórico (cross-session) ================
+// ============================================================
+var _historyRows = [];
+var _historyOffset = 0;
+var _historyPageSize = 200;
+
+function toggleHistoryView() {
+  var view = document.getElementById("historyView");
+  var sessions = document.getElementById("sessionsCard");
+  var jobs = document.getElementById("jobsContainer");
+  var empty = document.getElementById("emptyState");
+  var hidden = view.style.display === "none" || !view.style.display;
+  if (hidden) {
+    view.style.display = "block";
+    if (sessions) sessions.style.display = "none";
+    if (jobs) jobs.style.display = "none";
+    if (empty) empty.style.display = "none";
+    // Popula dropdown de sessões com base em _sessions
+    var sel = document.getElementById("historyFilterSession");
+    if (sel && sel.options.length <= 1) {
+      (_sessions || []).forEach(function(s) {
+        var opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = (s.label || "—") + (s.phone ? " · " + s.phone : "");
+        sel.appendChild(opt);
+      });
+    }
+  } else {
+    view.style.display = "none";
+    if (sessions && _sessions && _sessions.length > 0) sessions.style.display = "";
+    if (jobs) jobs.style.display = "";
+    if (empty) empty.style.display = "";
+  }
+}
+
+function formatRelativeTime(isoTs) {
+  if (!isoTs) return "—";
+  var t = new Date(isoTs).getTime();
+  if (!t) return "—";
+  var diffSec = Math.floor((Date.now() - t) / 1000);
+  if (diffSec < 60) return "agora";
+  if (diffSec < 3600) return "há " + Math.floor(diffSec / 60) + " min";
+  if (diffSec < 86400) return "há " + Math.floor(diffSec / 3600) + " h";
+  var dias = Math.floor(diffSec / 86400);
+  if (dias < 30) return "há " + dias + " dia" + (dias > 1 ? "s" : "");
+  return new Date(isoTs).toLocaleDateString("pt-BR");
+}
+
+function _historyBuildQuery(offset) {
+  var qs = ["limit=" + _historyPageSize, "offset=" + offset];
+  var from = document.getElementById("historyFilterFrom").value;
+  var to = document.getElementById("historyFilterTo").value;
+  var mentor = (document.getElementById("historyFilterMentor").value || "").trim();
+  var tier = document.getElementById("historyFilterTier").value;
+  var status = document.getElementById("historyFilterStatus").value;
+  var sessionId = document.getElementById("historyFilterSession").value;
+  if (from) qs.push("from=" + encodeURIComponent(from));
+  if (to) qs.push("to=" + encodeURIComponent(to));
+  if (mentor) qs.push("mentor=" + encodeURIComponent(mentor));
+  if (tier) qs.push("tier=" + encodeURIComponent(tier));
+  if (status) qs.push("status=" + encodeURIComponent(status));
+  if (sessionId) qs.push("session_id=" + encodeURIComponent(sessionId));
+  return "/api/hubspot/group-history?" + qs.join("&");
+}
+
+function loadHistoryRows(append) {
+  if (!append) { _historyRows = []; _historyOffset = 0; }
+  var path = _historyBuildQuery(_historyOffset);
+  var tbody = document.getElementById("historyTbody");
+  var status = document.getElementById("historyStatus");
+  status.textContent = "⏳ Carregando…";
+  if (!append) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--muted)">⏳ Carregando…</td></tr>';
+
+  waFetch(path, "GET").then(function(res) {
+    var rows = (res && res.rows) || [];
+    _historyRows = append ? _historyRows.concat(rows) : rows;
+    _historyOffset += rows.length;
+    renderHistoryTableRows();
+    document.getElementById("historyLoadMoreBtn").style.display = rows.length === _historyPageSize ? "inline-block" : "none";
+    document.getElementById("historyExportBtn").disabled = _historyRows.length === 0;
+    status.textContent = _historyRows.length + " linhas" + (rows.length === _historyPageSize ? " (pode ter mais — clique em Carregar mais)" : "");
+  }).catch(function(e) {
+    status.textContent = "";
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--danger)">Erro: ' + esc(e.message || String(e)) + '</td></tr>';
+  });
+}
+
+function renderHistoryTableRows() {
+  var tbody = document.getElementById("historyTbody");
+  if (!_historyRows.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--muted)">Nenhum lote encontrado com os filtros aplicados.</td></tr>';
+    return;
+  }
+  var html = "";
+  _historyRows.forEach(function(r) {
+    var dt = r.created_at ? new Date(r.created_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
+    var tierColor = r.hubspot_tier === "pro" ? "#9d7cff" : r.hubspot_tier === "business" ? "#22c55e" : r.hubspot_tier === "starter" ? "#f59e0b" : "#888";
+    var tierLabel = r.hubspot_tier === "pro" ? "Pro" : r.hubspot_tier === "business" ? "Business" : r.hubspot_tier === "starter" ? "Starter" : "—";
+    var statusColor = r.status === "created" ? "#22c55e" : r.status === "failed" ? "#ef4444" : r.status === "rate_limited" ? "#f59e0b" : "#888";
+    var linkHtml = r.invite_link
+      ? '<a href="' + esc(r.invite_link) + '" target="_blank" style="color:var(--primary); font-size:11px">🔗 Abrir</a>'
+      : '<span style="color:var(--muted); font-size:11px">—</span>';
+    html += '<tr style="border-bottom:1px solid var(--border)">'
+      + '<td style="padding:8px; font-size:11px; color:var(--muted); white-space:nowrap">' + esc(dt) + '</td>'
+      + '<td style="padding:8px">' + esc(r.group_name || "—") + '</td>'
+      + '<td style="padding:8px">' + esc(r.ticket_owner_name || "—") + '</td>'
+      + '<td style="padding:8px">' + esc(r.hubspot_mentor || "—") + '</td>'
+      + '<td style="padding:8px"><span style="background:' + tierColor + '; color:#fff; padding:2px 8px; border-radius:10px; font-size:11px">' + esc(tierLabel) + '</span></td>'
+      + '<td style="padding:8px; font-size:11px; color:var(--muted)">' + esc(r.current_pipeline_stage || r.hubspot_pipeline_stage_name || "—") + '</td>'
+      + '<td style="padding:8px; font-size:11px; color:var(--muted)">' + esc(r.session_label || "—") + (r.session_phone ? '<br><span style="color:var(--muted-2)">' + esc(r.session_phone) + '</span>' : '') + '</td>'
+      + '<td style="padding:8px"><span style="color:' + statusColor + '; font-size:11px; font-weight:500">' + esc(r.status || "—") + '</span>' + (r.status_message ? '<br><span style="color:var(--muted); font-size:10px">' + esc(r.status_message.substring(0, 60)) + '</span>' : '') + '</td>'
+      + '<td style="padding:8px; font-size:11px">' + (r.members_added != null ? (r.members_added + "/" + (r.members_total || "?")) : "—") + '</td>'
+      + '<td style="padding:8px">' + linkHtml + '</td>'
+      + '<td style="padding:8px; font-size:11px; color:var(--muted)" title="' + esc(r.hubspot_last_synced_at || "") + '">' + esc(formatRelativeTime(r.hubspot_last_synced_at)) + '</td>'
+      + '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function exportHistoryCsv() {
+  if (!_historyRows.length) return;
+  var headers = ["Data","Grupo","Owner","Mentor","Tier","Pipeline Stage","Sessao","Status","Status Msg","Membros Adicionados","Membros Total","Invite Link","Sincronizado em","Ticket ID"];
+  var lines = [headers.join(";")];
+  _historyRows.forEach(function(r) {
+    var row = [
+      r.created_at || "",
+      (r.group_name || "").replace(/[;\n\r]/g, " "),
+      (r.ticket_owner_name || "").replace(/[;\n\r]/g, " "),
+      (r.hubspot_mentor || "").replace(/[;\n\r]/g, " "),
+      r.hubspot_tier || "",
+      (r.current_pipeline_stage || r.hubspot_pipeline_stage_name || "").replace(/[;\n\r]/g, " "),
+      (r.session_label || "").replace(/[;\n\r]/g, " "),
+      r.status || "",
+      (r.status_message || "").replace(/[;\n\r]/g, " "),
+      r.members_added != null ? r.members_added : "",
+      r.members_total != null ? r.members_total : "",
+      r.invite_link || "",
+      r.hubspot_last_synced_at || "",
+      r.hubspot_ticket_id != null ? r.hubspot_ticket_id : "",
+    ];
+    lines.push(row.map(function(v) { return String(v).replace(/"/g, '""'); }).join(";"));
+  });
+  var csv = "\ufeff" + lines.join("\n"); // BOM pra UTF-8 abrir certinho no Excel
+  var blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "historico-grupos-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 500);
 }
 
 // Keep polling only when there's at least one active job

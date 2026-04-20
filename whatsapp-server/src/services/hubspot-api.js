@@ -137,13 +137,18 @@ async function fetchTicketFromApi(ticketId, hsKey) {
     Promise.all(dealPromises),
   ]);
 
-  // 3. Resolve owner → mentor_responsavel
+  // 3. Resolve owner → mentor_responsavel + owner fields
   let mentorResponsavel = null;
+  let ownerName = null;
+  let ownerEmail = null;
   if (ownerResp.ok && ownerResp.data) {
     const o = ownerResp.data;
     const fn = (o.firstName || "").trim();
     const ln = (o.lastName || "").trim();
-    mentorResponsavel = (fn || ln) ? (fn + (ln ? " " + ln : "")) : (o.email || null);
+    const fullName = (fn || ln) ? (fn + (ln ? " " + ln : "")) : null;
+    mentorResponsavel = fullName || o.email || null;
+    ownerName = fullName;
+    ownerEmail = o.email || null;
   }
 
   // 4. Resolve contacts → pick client → whatsapp_do_mentorado
@@ -179,7 +184,8 @@ async function fetchTicketFromApi(ticketId, hsKey) {
     }
   }
 
-  // 6. Return in mentorados-shaped row
+  // 6. Return row with both legacy (mentorados-shaped) and canonical
+  //    (hubspot_tickets-shaped) fields. Callers can pick what they need.
   return {
     ticket_id: Number(ticketId),
     ticket_name: ticketName,
@@ -188,7 +194,13 @@ async function fetchTicketFromApi(ticketId, hsKey) {
     mentoria_starter: tier === "starter",
     mentoria_pro: tier === "pro",
     mentoria_business: tier === "business",
-    // Extra hint fields (not persisted to mentorados) for the route to use
+    // Canonical hubspot_tickets fields (same concept as Edge Function)
+    owner_id: ownerId || null,
+    owner_name: ownerName,
+    owner_email: ownerEmail,
+    mentor_responsavel_id: ownerId || null,
+    mentor_responsavel_name: mentorResponsavel,
+    tier,
     _source: "hubspot_api",
     _tier: tier,
   };
@@ -217,6 +229,40 @@ async function upsertMentorado(row, supaRest) {
     );
   } catch (e) {
     console.error("[HUBSPOT] upsertMentorado failed for ticket_id=" + row.ticket_id + ":", e.message);
+  }
+}
+
+// Upsert a fetched ticket into `hubspot_tickets` (the canonical source).
+// Only writes the subset of columns we know about from the API fallback —
+// the Edge Function webhook writes the full set (pipeline, dates, contract
+// info). We mark synced_from='fallback' so an eventual reconciliation can
+// distinguish fallback writes from webhook writes. Fire-and-forget.
+async function upsertHubspotTicket(row, supaRest) {
+  if (!row || !row.ticket_id) return;
+  try {
+    const tier = row.tier || (row.mentoria_pro ? "pro" : row.mentoria_business ? "business" : row.mentoria_starter ? "starter" : null);
+    await supaRest(
+      "/rest/v1/hubspot_tickets?on_conflict=ticket_id",
+      "POST",
+      [{
+        ticket_id: row.ticket_id,
+        ticket_name: row.ticket_name || "",
+        owner_id: row.owner_id || null,
+        owner_name: row.owner_name || null,
+        owner_email: row.owner_email || null,
+        mentor_responsavel_id: row.mentor_responsavel_id || null,
+        mentor_responsavel_name: row.mentor_responsavel_name || row.mentor_responsavel || null,
+        whatsapp_do_mentorado: row.whatsapp_do_mentorado || null,
+        tier,
+        mentoria_starter: tier === "starter",
+        mentoria_pro: tier === "pro",
+        mentoria_business: tier === "business",
+        synced_from: "fallback",
+      }],
+      "resolution=merge-duplicates,return=minimal"
+    );
+  } catch (e) {
+    console.error("[HUBSPOT] upsertHubspotTicket failed for ticket_id=" + row.ticket_id + ":", e.message);
   }
 }
 
@@ -295,6 +341,7 @@ async function getContactPhoneDigits(contactId, hsKey) {
 module.exports = {
   fetchTicketFromApi,
   upsertMentorado,
+  upsertHubspotTicket,
   searchMeetingsByDateRange,
   getMeetingContactIds,
   getContactPhoneDigits,

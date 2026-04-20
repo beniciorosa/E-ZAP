@@ -11,7 +11,7 @@ const {
   supaRest, expandPhonesToJids, pickPrimaryJid, fetchChatNamesBatch, classifyJid,
 } = require("../services/supabase");
 const {
-  fetchTicketFromApi, upsertMentorado,
+  fetchTicketFromApi, upsertMentorado, upsertHubspotTicket,
   searchMeetingsByDateRange, getMeetingContactIds, getContactPhoneDigits,
 } = require("../services/hubspot-api");
 
@@ -25,6 +25,8 @@ const {
 //         ticket_id, ticket_name, mentor, whatsapp,
 //         tier: "pro" | "business" | "starter" | null,
 //         mentorSessionId, mentorSessionPhone,
+//         ticket_owner, ticket_owner_email,
+//         pipeline_stage_name, status_ticket,
 //         warning: null | "mentor_sem_sessao_conectada" | "sem_tier_definido"
 //       },
 //       ...
@@ -42,28 +44,27 @@ router.post("/resolve-tickets", async (req, res) => {
       return res.status(400).json({ error: "Máximo de 200 tickets por chamada" });
     }
 
-    // 1. Batch fetch from mentorados — the Hubspot webhook populates this
-    // table with ticket_name, mentor_responsavel, whatsapp_do_mentorado and
-    // the 3 tier booleans derived from the line item associated with the
-    // ticket (see supabase/functions/hubspot-tickets/index.ts).
-    const mentoradosRows = await supaRest(
-      "/rest/v1/mentorados?ticket_id=in.(" + ids.join(",") +
-      ")&select=ticket_id,ticket_name,mentor_responsavel,whatsapp_do_mentorado,mentoria_starter,mentoria_pro,mentoria_business"
+    // 1. Batch fetch from hubspot_tickets — the canonical mirror populated
+    // by the HubSpot webhook Edge Function. Includes owner_*, tier (already
+    // as string), pipeline_*, and status_ticket. Replaces the legacy
+    // `mentorados` lookup which was 1 step downstream in the trigger chain.
+    const ticketRows = await supaRest(
+      "/rest/v1/hubspot_tickets?ticket_id=in.(" + ids.join(",") +
+      ")&select=ticket_id,ticket_name,mentor_responsavel_name,whatsapp_do_mentorado,tier,owner_id,owner_name,owner_email,pipeline_stage_name,pipeline_type,status_ticket"
     ).catch((e) => {
-      console.error("[HUBSPOT] mentorados fetch error:", e.message);
+      console.error("[HUBSPOT] hubspot_tickets fetch error:", e.message);
       return [];
     });
 
     const byId = {};
-    for (const r of (mentoradosRows || [])) {
+    for (const r of (ticketRows || [])) {
       if (r && r.ticket_id != null) byId[Number(r.ticket_id)] = r;
     }
 
-    // 2. Fallback: tickets missing from mentorados get fetched from the
+    // 2. Fallback: tickets missing from hubspot_tickets get fetched from the
     // HubSpot REST API using the hubspot_api_key stored in app_settings.
-    // Results are upserted back into mentorados (with on_conflict=ticket_id)
-    // so the next resolve hits the cache. This keeps the webhook + API
-    // paths converged on the same table.
+    // Results are upserted back into hubspot_tickets AND mentorados (for
+    // legacy consumers) so the next resolve hits the cache.
     const missing = ids.filter((id) => !byId[id]);
     let hsKey = null;
     let hsAuthError = null;
@@ -97,8 +98,24 @@ router.post("/resolve-tickets", async (req, res) => {
           }));
           for (const { id, row } of fetched) {
             if (row) {
-              byId[id] = row;
-              // Fire-and-forget upsert — don't block the resolve on it.
+              // Normalize the fallback row to match the hubspot_tickets shape
+              // used downstream (so the resolved loop doesn't need two paths).
+              byId[id] = {
+                ticket_id: row.ticket_id,
+                ticket_name: row.ticket_name,
+                mentor_responsavel_name: row.mentor_responsavel_name || row.mentor_responsavel,
+                whatsapp_do_mentorado: row.whatsapp_do_mentorado,
+                tier: row.tier || null,
+                owner_id: row.owner_id || null,
+                owner_name: row.owner_name || null,
+                owner_email: row.owner_email || null,
+                pipeline_stage_name: null,
+                pipeline_type: null,
+                status_ticket: null,
+                _source: "hubspot_api",
+              };
+              // Fire-and-forget upserts — don't block the resolve.
+              upsertHubspotTicket(row, supaRest).catch(() => {});
               upsertMentorado(row, supaRest).catch(() => {});
             }
           }
@@ -107,8 +124,8 @@ router.post("/resolve-tickets", async (req, res) => {
     }
 
     // 3. Build a label -> { id, phone } map from connected wa_sessions.
-    // mentor_responsavel matches wa_sessions.label literally (confirmed in
-    // production: "Rodrigo Zangirolimo", "Eduardo Gossi", etc).
+    // mentor_responsavel_name matches wa_sessions.label literally (confirmed
+    // in production: "Rodrigo Zangirolimo", "Eduardo Gossi", etc).
     const sessionRows = await supaRest(
       "/rest/v1/wa_sessions?status=eq.connected&select=id,label,phone"
     ).catch((e) => {
@@ -130,12 +147,10 @@ router.post("/resolve-tickets", async (req, res) => {
       const r = byId[id];
       if (!r) { notFound.push(id); continue; }
 
-      const tier = r.mentoria_pro ? "pro"
-                 : r.mentoria_business ? "business"
-                 : r.mentoria_starter ? "starter"
-                 : null;
+      const tier = r.tier || null;
+      const mentorName = r.mentor_responsavel_name || r.mentor_responsavel || null;
 
-      const mentorKey = String(r.mentor_responsavel || "").trim().toLowerCase();
+      const mentorKey = String(mentorName || "").trim().toLowerCase();
       const mentorSession = mentorKey ? labelToSession[mentorKey] : null;
 
       let warning = null;
@@ -145,13 +160,18 @@ router.post("/resolve-tickets", async (req, res) => {
       resolved.push({
         ticket_id: r.ticket_id,
         ticket_name: r.ticket_name,
-        mentor: r.mentor_responsavel,
+        mentor: mentorName,
         whatsapp: r.whatsapp_do_mentorado,
         tier,
         mentorSessionId: mentorSession ? mentorSession.id : null,
         mentorSessionPhone: mentorSession ? mentorSession.phone : null,
+        ticket_owner: r.owner_name || null,
+        ticket_owner_email: r.owner_email || null,
+        pipeline_stage_name: r.pipeline_stage_name || null,
+        pipeline_type: r.pipeline_type || null,
+        status_ticket: r.status_ticket || null,
         warning,
-        source: r._source || "mentorados", // "hubspot_api" if fallback hit
+        source: r._source || "hubspot_tickets",
       });
     }
 
@@ -161,6 +181,171 @@ router.post("/resolve-tickets", async (req, res) => {
     res.json(response);
   } catch (e) {
     console.error("[HUBSPOT] resolve-tickets error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== Pending groups (Auto-create modal) =====
+// GET /api/hubspot/pending-groups[?tier=&pipeline_type=&owner_id=]
+// Returns tickets in hubspot_tickets that still need a WhatsApp group created,
+// grouped by the ticket owner (mentor). A ticket is "pending" if:
+//   - tier is filled (otherwise we can't pick a group photo), AND
+//   - no row in wa_group_creations with status='created' references its ticket_id.
+// Tickets whose previous attempt failed/rate-limited/cancelled are included
+// (the user may want to retry).
+router.get("/pending-groups", async (req, res) => {
+  try {
+    const { tier, pipeline_type, owner_id } = req.query || {};
+    // 1. Fetch tickets with tier set (required — photo depends on tier)
+    const ticketFilters = [
+      "select=ticket_id,ticket_name,mentor_responsavel_name,whatsapp_do_mentorado,tier,owner_id,owner_name,pipeline_stage_name,pipeline_type,status_ticket,ticket_created_at",
+      "tier=not.is.null",
+      "order=ticket_created_at.desc",
+      "limit=500",
+    ];
+    if (tier) ticketFilters.push("tier=eq." + encodeURIComponent(tier));
+    if (pipeline_type) ticketFilters.push("pipeline_type=eq." + encodeURIComponent(pipeline_type));
+    if (owner_id) ticketFilters.push("owner_id=eq." + encodeURIComponent(owner_id));
+    const tickets = await supaRest(
+      "/rest/v1/hubspot_tickets?" + ticketFilters.join("&")
+    ).catch((e) => {
+      console.error("[HUBSPOT] pending-groups tickets fetch error:", e.message);
+      return [];
+    });
+
+    // 2. Identify ticket_ids that already have a created group
+    const ticketIds = tickets.map((t) => t.ticket_id).filter((id) => id != null);
+    let createdTicketIds = new Set();
+    if (ticketIds.length > 0) {
+      const createdRows = await supaRest(
+        "/rest/v1/wa_group_creations?hubspot_ticket_id=in.(" + ticketIds.join(",") +
+        ")&status=eq.created&select=hubspot_ticket_id"
+      ).catch((e) => {
+        console.error("[HUBSPOT] pending-groups created fetch error:", e.message);
+        return [];
+      });
+      createdTicketIds = new Set((createdRows || []).map((r) => Number(r.hubspot_ticket_id)));
+    }
+
+    // 3. Filter pending (= not yet successfully created)
+    const pending = tickets.filter((t) => !createdTicketIds.has(Number(t.ticket_id)));
+
+    // 4. Map owner_name → connected wa_session
+    const sessions = await supaRest(
+      "/rest/v1/wa_sessions?status=eq.connected&select=id,label,phone"
+    ).catch(() => []);
+    const labelToSession = {};
+    for (const s of (sessions || [])) {
+      if (s && s.label) {
+        labelToSession[String(s.label).trim().toLowerCase()] = { id: s.id, phone: s.phone };
+      }
+    }
+
+    // 5. Group by owner_name (falling back to mentor_responsavel_name when owner is blank)
+    const byOwner = {};
+    for (const t of pending) {
+      const owner = (t.owner_name || t.mentor_responsavel_name || "(sem dono)").trim();
+      if (!byOwner[owner]) {
+        const key = owner.toLowerCase();
+        const session = labelToSession[key] || null;
+        byOwner[owner] = {
+          owner_name: owner,
+          owner_id: t.owner_id || null,
+          session_id: session ? session.id : null,
+          session_phone: session ? session.phone : null,
+          session_label: session ? owner : null,
+          session_warning: session ? null : "sem_sessao_conectada",
+          tickets: [],
+        };
+      }
+      byOwner[owner].tickets.push(t);
+    }
+
+    const groups = Object.values(byOwner).sort((a, b) => b.tickets.length - a.tickets.length);
+    res.json({
+      ok: true,
+      groups,
+      counters: { total_tickets: tickets.length, pending: pending.length, owners: groups.length },
+    });
+  } catch (e) {
+    console.error("[HUBSPOT] pending-groups error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== Group creation history (cross-session, Dashboard) =====
+// GET /api/hubspot/group-history[?from=&to=&mentor=&tier=&status=&session_id=&limit=&offset=]
+// Returns wa_group_creations rows across all sessions with HubSpot-enriched
+// fields (via trigger trg_sync_mentorados_to_group_creations) + owner_name
+// joined on-the-fly from hubspot_tickets. Used by the Dashboard view.
+router.get("/group-history", async (req, res) => {
+  try {
+    const { from, to, mentor, tier, status, session_id } = req.query || {};
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+    const filters = [
+      "select=id,source_session_id,spec_hash,group_name,group_jid,status,status_message,members_total,members_added,has_description,has_photo,locked,welcome_sent,invite_link,created_at,hubspot_ticket_id,hubspot_ticket_name,hubspot_mentor,hubspot_tier,hubspot_pipeline_stage_name,hubspot_last_synced_at,client_phone,mentor_session_phone",
+      "order=created_at.desc",
+      "limit=" + limit,
+      "offset=" + offset,
+    ];
+    if (from) filters.push("created_at=gte." + encodeURIComponent(from));
+    if (to) filters.push("created_at=lte." + encodeURIComponent(to));
+    if (mentor) filters.push("hubspot_mentor=ilike.*" + encodeURIComponent(mentor) + "*");
+    if (tier) filters.push("hubspot_tier=eq." + encodeURIComponent(tier));
+    if (status) filters.push("status=eq." + encodeURIComponent(status));
+    if (session_id) filters.push("source_session_id=eq." + encodeURIComponent(session_id));
+
+    const rows = await supaRest(
+      "/rest/v1/wa_group_creations?" + filters.join("&")
+    ).catch((e) => {
+      console.error("[HUBSPOT] group-history fetch error:", e.message);
+      return [];
+    });
+
+    // JOIN on-the-fly com hubspot_tickets pra trazer owner_name (dono do ticket)
+    const ticketIds = [...new Set((rows || []).map(r => r.hubspot_ticket_id).filter(Boolean))];
+    const ownerByTicketId = {};
+    if (ticketIds.length > 0) {
+      const owners = await supaRest(
+        "/rest/v1/hubspot_tickets?ticket_id=in.(" + ticketIds.join(",") +
+        ")&select=ticket_id,owner_name,pipeline_stage_name,status_ticket"
+      ).catch(() => []);
+      (owners || []).forEach((o) => {
+        if (o && o.ticket_id != null) ownerByTicketId[Number(o.ticket_id)] = o;
+      });
+    }
+
+    // JOIN com wa_sessions pra trazer label da sessão criadora
+    const sessionIds = [...new Set((rows || []).map(r => r.source_session_id).filter(Boolean))];
+    const sessionLabelById = {};
+    if (sessionIds.length > 0) {
+      const sessions = await supaRest(
+        "/rest/v1/wa_sessions?id=in.(" + sessionIds.map(encodeURIComponent).join(",") +
+        ")&select=id,label,phone"
+      ).catch(() => []);
+      (sessions || []).forEach((s) => {
+        if (s && s.id) sessionLabelById[s.id] = { label: s.label, phone: s.phone };
+      });
+    }
+
+    const enriched = (rows || []).map((r) => {
+      const ownerInfo = ownerByTicketId[Number(r.hubspot_ticket_id)] || null;
+      const sessionInfo = sessionLabelById[r.source_session_id] || null;
+      return {
+        ...r,
+        ticket_owner_name: ownerInfo ? ownerInfo.owner_name : null,
+        current_pipeline_stage: ownerInfo ? ownerInfo.pipeline_stage_name : r.hubspot_pipeline_stage_name,
+        current_status_ticket: ownerInfo ? ownerInfo.status_ticket : null,
+        session_label: sessionInfo ? sessionInfo.label : null,
+        session_phone: sessionInfo ? sessionInfo.phone : null,
+      };
+    });
+
+    res.json({ ok: true, rows: enriched, count: enriched.length, limit, offset });
+  } catch (e) {
+    console.error("[HUBSPOT] group-history cross-session error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
