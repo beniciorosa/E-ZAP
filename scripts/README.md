@@ -1,5 +1,43 @@
 # E-ZAP — Scripts utilitarios
 
+## E-ZAP-Instalar.bat — Para os usuarios finais
+
+Arquivo unico. **Duplo clique e pronto.** Baixa o script PowerShell mais
+recente do GitHub e instala/atualiza a extensao em `C:\ezap-ext`.
+
+### Distribuir
+
+Envie o arquivo `E-ZAP-Instalar.bat` para os usuarios (WhatsApp, e-mail,
+Drive). Eles so precisam dar duplo clique.
+
+### O que o .bat faz
+
+1. Baixa o script `install-ezap.ps1` mais recente do GitHub
+2. Roda ele com `-OpenChrome` (abre `chrome://extensions` no fim)
+3. Mostra instrucoes diferentes pra primeira instalacao vs atualizacao
+
+### Primeira vez para o usuario
+
+1. Da duplo clique em `E-ZAP-Instalar.bat`
+2. Aguarda o download
+3. Quando abrir `chrome://extensions`:
+   - Ativa "Modo do desenvolvedor" (canto superior direito)
+   - Clica "Carregar sem compactacao"
+   - Seleciona a pasta `C:\ezap-ext`
+4. Pronto. Recarrega o WhatsApp Web.
+
+### Atualizacoes
+
+Mesma coisa: duplo clique no .bat. Quando abrir `chrome://extensions`,
+clica no botao circular (Recarregar) na extensao E-ZAP. Recarrega o
+WhatsApp Web (F5).
+
+### Link direto pra download
+
+`https://raw.githubusercontent.com/beniciorosa/E-ZAP/main/scripts/E-ZAP-Instalar.bat`
+
+---
+
 ## install-ezap.ps1 — Atualizador da extensao
 
 Baixa a ultima versao publicada (release.json no Supabase Storage) e extrai
