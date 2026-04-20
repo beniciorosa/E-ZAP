@@ -273,6 +273,125 @@ router.get("/pending-groups", async (req, res) => {
   }
 });
 
+// ===== Retry / Delete individual group creation row =====
+// Used by the Dashboard "↻ Retry" / "🗑️ Deletar" buttons. Retry reconstructs
+// the spec from the persisted row (group_name, client_phone, tier, mentor_session)
+// and fires-and-forgets createGroupsFromList with just that spec — keeping the
+// same spec_hash so the upsert overwrites the failed row instead of creating
+// a duplicate. Delete just removes the row from wa_group_creations (does NOT
+// touch the group on WhatsApp — useful when a duplicate group exists and the
+// user wants the ticket to appear as "pending" again in Auto-criar).
+const baileys = require("../services/baileys");
+
+router.post("/group-creation/:id/retry", async (req, res) => {
+  try {
+    const rowId = req.params.id;
+    const rows = await supaRest(
+      "/rest/v1/wa_group_creations?id=eq." + encodeURIComponent(rowId) +
+      "&select=id,source_session_id,spec_hash,group_name,status,hubspot_ticket_id,hubspot_ticket_name,hubspot_mentor,hubspot_tier,client_phone,mentor_session_id,mentor_session_phone"
+    );
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: "Registro não encontrado" });
+    }
+    const row = rows[0];
+    if (row.status === "created") {
+      return res.status(400).json({ error: "Grupo já foi criado. Se quer recriar, delete o registro primeiro." });
+    }
+    if (!row.source_session_id) return res.status(400).json({ error: "Registro sem source_session_id" });
+    if (!row.client_phone) return res.status(400).json({ error: "Registro sem client_phone — não dá pra reconstruir o spec" });
+    if (!row.spec_hash) return res.status(400).json({ error: "Registro sem spec_hash" });
+
+    const rl = baileys.getRateLimitStatus(row.source_session_id);
+    if (rl) {
+      return res.status(429).json({ error: "Sessão em cooldown (~" + Math.ceil(rl.remainingMs / 60000) + "min)" });
+    }
+
+    // Photo pela tier
+    const tierMap = { pro: "Pro", business: "business", starter: "starter" };
+    const tierPhoto = tierMap[row.hubspot_tier] || null;
+    const photoUrl = tierPhoto ? ("/static/fotos/" + tierPhoto + ".png") : null;
+
+    // Reconstruct members: só cliente + mentor (helpers do lote original não
+    // ficam persistidos; se o user quiser helpers, tem que usar o fluxo normal).
+    const members = [String(row.client_phone).replace(/\D/g, "")];
+    if (row.mentor_session_phone) {
+      const mp = String(row.mentor_session_phone).replace(/\D/g, "");
+      if (mp && mp !== members[0]) members.push(mp);
+    }
+
+    // Templates default (user pode ter customizado no fluxo original — não
+    // preservamos. Usa default do servidor).
+    const WELCOME_DEFAULT = "Opa, tudo bem? seja muito bem-vindo a nossa Mentoria Escalada. Em breve o mentor de vocês fará uma apresentação e iniciaremos a nossa jornada juntos! #aMETAéoTOPO";
+    const REJECT_DEFAULT = 'Olá {primeiro_nome}! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
+
+    // Interpola {primeiro_nome} e {mentor} — usa o primeiro token do client name
+    // (extraído do group_name antes do `|`) e o mentor da row.
+    const clientName = String(row.group_name || "").split("|")[0].trim();
+    const firstName = clientName.split(/\s+/)[0] || "";
+    const mentorName = row.hubspot_mentor || "";
+    const welcome = WELCOME_DEFAULT
+      .replace(/\{primeiro_nome\}/g, firstName)
+      .replace(/\{mentor\}/g, mentorName);
+    const rejectDm = REJECT_DEFAULT
+      .replace(/\{primeiro_nome\}/g, firstName)
+      .replace(/\{mentor\}/g, mentorName);
+
+    const spec = {
+      name: row.group_name || "",
+      description: "[" + (row.hubspot_ticket_id || "") + "]",
+      photoUrl,
+      members,
+      lockInfo: true,
+      welcomeMessage: welcome,
+      rejectDmTemplate: rejectDm,
+      adminJids: ["5519993473149@s.whatsapp.net"],
+      clientPhone: String(row.client_phone).replace(/\D/g, ""),
+      specHash: row.spec_hash, // mantém o hash pra upsert ATUALIZAR a row existente
+      hubspotTicketId: row.hubspot_ticket_id,
+      hubspotTicketName: row.hubspot_ticket_name || null,
+      hubspotMentor: row.hubspot_mentor || null,
+      hubspotTier: row.hubspot_tier || null,
+      mentorSessionId: row.mentor_session_id,
+      mentorSessionPhone: row.mentor_session_phone,
+    };
+
+    // Fire-and-forget: respondemos 202 e o createGroupsFromList roda em background.
+    // O upsert em wa_group_creations atualiza a mesma row (on_conflict=source_session_id,spec_hash).
+    (async () => {
+      try {
+        await baileys.createGroupsFromList(row.source_session_id, [spec], {
+          delaySec: 180,
+          _leadingDelayMs: 30000, // 30s leading (apenas 1 grupo)
+          shouldCancel: () => false,
+        });
+      } catch (e) {
+        console.error("[HUBSPOT] retry history row error:", e && e.message);
+      }
+    })();
+
+    res.status(202).json({ ok: true, message: "Retry iniciado — aguarde 1-2 min e atualize o histórico" });
+  } catch (e) {
+    console.error("[HUBSPOT] retry endpoint error:", e && e.message);
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+router.delete("/group-creation/:id", async (req, res) => {
+  try {
+    const rowId = req.params.id;
+    await supaRest(
+      "/rest/v1/wa_group_creations?id=eq." + encodeURIComponent(rowId),
+      "DELETE",
+      null,
+      "return=minimal"
+    );
+    res.json({ ok: true, deleted_id: rowId });
+  } catch (e) {
+    console.error("[HUBSPOT] delete history row error:", e && e.message);
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 // ===== Group creation history (cross-session, Dashboard) =====
 // GET /api/hubspot/group-history[?from=&to=&mentor=&tier=&status=&session_id=&limit=&offset=]
 // Returns wa_group_creations rows across all sessions with HubSpot-enriched
