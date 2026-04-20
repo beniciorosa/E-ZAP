@@ -239,6 +239,12 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-20 noite — commit `3eb1870` — Retry/Delete por linha no Dashboard + fix CSS inputs de data
+- Novo endpoint `POST /api/hubspot/group-creation/:id/retry` — reconstrói spec a partir da row persistida (`group_name`, `client_phone`, `hubspot_tier`, `mentor_session_phone`) + fire-and-forget `createGroupsFromList` com `specHash` original (upsert atualiza a MESMA row). Bloqueia com 429 se sessão em cooldown; recusa 400 se `status=created`. Helpers não ficam persistidos, então o retry só repõe cliente + mentor como members.
+- Novo endpoint `DELETE /api/hubspot/group-creation/:id` — apaga a row do banco, não toca o grupo no WhatsApp. Útil pra duplicatas e pra ticket reaparecer como pendente no Auto-criar.
+- Frontend: coluna "Ações" na tabela do Dashboard com `↻ Retry` (só em `status != created`) e `🗑️` (sempre, com confirm explicando que não afeta WhatsApp).
+- Fix CSS: regra global dos inputs estendida (`text|password|date|number|email|search`) + `color-scheme:dark` em `date/datetime-local/time` — datepicker nativo agora aparece dark-themed.
+
 ### 2026-04-20 tarde — commit `a4d8878` — Fix ordem cliente-primeiro + permissões + retry por grupo
 - **Bug fix cliente-DM-duplicada**: no fluxo HubSpot, `groupCreate` agora é chamado SÓ com o cliente. Se o WhatsApp retorna 403 (privacy block), gera invite link e manda DM IMEDIATAMENTE antes de adicionar helpers/admins. Depois adiciona helpers em batch (1 IQ) e admins sequencialmente. Fluxo XLSX preservado.
 - **Bug fix "Convidar via link" OFF**: `groupMemberAddMode("all_member_add")` agora é chamado ANTES de `groupSettingUpdate("locked")`, com 4s entre as calls. A permissão de invite via link só fica disponível no WhatsApp após `add_members` estar habilitado.
