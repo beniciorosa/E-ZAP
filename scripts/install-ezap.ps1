@@ -79,7 +79,16 @@ try {
     Write-Step "Baixando $($release.url)..."
     $tempZip = Join-Path $env:TEMP ("ezap-" + $release.version + ".zip")
     if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
-    Invoke-WebRequest -Uri $release.url -OutFile $tempZip -TimeoutSec 120
+    # WebClient.DownloadFile() e ~3-5x mais rapido que Invoke-WebRequest
+    # (sem overhead de parsing/binding/progress events)
+    try {
+        $wc = New-Object System.Net.WebClient
+        $wc.DownloadFile($release.url, $tempZip)
+        $wc.Dispose()
+    } catch {
+        # Fallback caso WebClient falhe (proxy, firewall, etc)
+        Invoke-WebRequest -Uri $release.url -OutFile $tempZip -TimeoutSec 120 -UseBasicParsing
+    }
     $zipSize = (Get-Item $tempZip).Length
     Write-Ok ("Baixado: " + [math]::Round($zipSize / 1KB, 1) + " KB")
 
