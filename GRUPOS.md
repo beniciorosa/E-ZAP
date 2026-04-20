@@ -253,6 +253,22 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-20 noite-7 — commit `c655cea` — 4 fixes: bad-request fallback + transient retry + cancel + UI pendente
+Observados em produção 20/04 noite (lotes Diego Giudice + Eduardo Gossi + Mateus Gomes):
+
+- **Problema 1 — `bad-request` no `groupCreate`** quando seed member (cliente) não está nos contatos do mentor criador. Confirmado via query `wa_contacts`: Andrei, Franciele, Marlie **não estão** nos contatos dos respectivos mentores → bad-request. Vitor, Rodrigo RGB, Ricardo (que **estão** nos contatos) → OK.
+  - Fix: catch no `groupCreate` detecta `bad-request` ou `statusCode === 400`, faz segundo `groupCreate` com `memberJids.filter(j => j !== clientJid)`. Se OK: `clientRejected = true` + `clientWasSkipped = true` → Step 3 envia DM com link + Step 10 envia alt message no grupo.
+
+- **Problema 2 — Connection Closed em cascata nos Steps 2-7** derrubava desc/foto/lock/invite_link/Escalada admin. Só welcome (Step 10) sobrevivia porque tinha `callWithTransientRetry`.
+  - Fix: todos os Steps 2-7 envolvidos em `callWithTransientRetry(sessionId, fn, {label})` — 3 tentativas (15s/20s/25s) aguardando `waitForSessionConnected(30000)`. Só não retenta rate-limit nem loggedOut.
+
+- **Problema 3 — Botão Interromper não funcionava durante delay** entre grupos. `setTimeout(baseDelayMs + jitter)` não checava `shouldCancel`.
+  - Fix: delay entre grupos agora usa `waitWithHeartbeat(..., {shouldCancel})` que checa em slices. Cancel imediato durante sleep.
+
+- **Problema 4 — Grupos pendentes invisíveis na UI** até serem processados.
+  - Fix backend: `GET /api/jobs/:jobId` expõe `pendingSpecs` (derivado de `job._specs` vs `job.results`) + `job.progress.currentSpecHash`/`currentSpecName` via novo evento `onProgress({phase: "processing_spec"})`.
+  - Fix frontend: `renderCreateGroupsResultsTable` monta 3 grupos de rows (processados | atual ⏳ Pendente com spinner | aguardando ⏸ opacity 0.55). Tabela mostra todos os N grupos desde o submit.
+
 ### 2026-04-20 noite-6 — commit `84017d0` — Members fixos (CX2 + Escalada) substituem checklist de helpers
 Validado em produção com Diego Giudice (20/04 noite): 1 grupo criado, welcome enviado, zero disconnect. Estado considerado **estável**.
 
