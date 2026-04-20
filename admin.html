@@ -1562,13 +1562,16 @@
       <div class="page-header">
         <div class="page-title">ABAS do Admin</div>
         <div class="page-header-actions">
+          <button class="btn-secondary" onclick="refreshCallsHoje()" title="Atualiza manualmente a aba CALLS DE HOJE buscando reuniões agendadas no HubSpot">
+            🎥 Atualizar CALLS DE HOJE
+          </button>
           <button class="btn-primary" onclick="openAdminAbaModal()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Nova Aba
           </button>
         </div>
       </div>
-      <p style="color:var(--on-surface-variant);font-size:13px;margin-bottom:16px">Abas criadas aqui aparecem para todos os usuários e não podem ser excluídas por eles.</p>
+      <p style="color:var(--on-surface-variant);font-size:13px;margin-bottom:16px">Abas criadas aqui aparecem para todos os usuários e não podem ser excluídas por eles. A aba "CALLS DE HOJE" é atualizada automaticamente todo dia às 00:01 (BRT) via cron no whatsapp-server.</p>
       <div id="adminAbasContainer">
         <div class="empty-state">Carregando...</div>
       </div>
@@ -7665,6 +7668,36 @@ function toggleAdminAba(id) {
 function deleteAdminAba(id) {
   if (!confirm('Excluir esta aba admin? Todos os contatos serão removidos.')) return;
   supa('/rest/v1/admin_abas?id=eq.' + id, 'DELETE').then(function() { loadAdminAbasAdmin(); });
+}
+
+// ===== CALLS DE HOJE - refresh manual =====
+function refreshCallsHoje() {
+  if (!WA_SERVER_URL) {
+    alert('URL do servidor WhatsApp não configurada. Configure em Settings primeiro.');
+    return;
+  }
+  var btn = event && event.currentTarget;
+  if (btn) { btn.disabled = true; btn.textContent = 'Atualizando...'; }
+  waFetch('/api/hubspot/calls-today/refresh', { method: 'POST' })
+    .then(function(data) {
+      if (btn) { btn.disabled = false; btn.textContent = '🎥 Atualizar CALLS DE HOJE'; }
+      if (data && data.ok) {
+        alert(
+          'CALLS DE HOJE atualizada!\n\n' +
+          (data.meetings_count || 0) + ' reuniões encontradas\n' +
+          (data.contacts_count || 0) + ' contatos associados\n' +
+          (data.phones_count || 0) + ' telefones únicos\n' +
+          (data.jids_count || 0) + ' JIDs salvos (chats + grupos)'
+        );
+        loadAdminAbasAdmin();
+      } else {
+        alert('Erro: ' + ((data && data.error) || 'desconhecido'));
+      }
+    })
+    .catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '🎥 Atualizar CALLS DE HOJE'; }
+      alert('Erro: ' + (err && err.message ? err.message : 'desconhecido'));
+    });
 }
 </script>
 </body>

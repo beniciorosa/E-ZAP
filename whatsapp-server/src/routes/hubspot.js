@@ -7,8 +7,11 @@
 
 const express = require("express");
 const router = express.Router();
-const { supaRest } = require("../services/supabase");
-const { fetchTicketFromApi, upsertMentorado } = require("../services/hubspot-api");
+const { supaRest, expandPhonesToJids } = require("../services/supabase");
+const {
+  fetchTicketFromApi, upsertMentorado,
+  searchMeetingsByDateRange, getMeetingContactIds, getContactPhoneDigits,
+} = require("../services/hubspot-api");
 
 // POST /api/hubspot/resolve-tickets
 // Body: { ticketIds: number[] }
@@ -388,6 +391,109 @@ router.get("/tickets", async (req, res) => {
     res.json({ ok: true, count: rows.length, limit, offset, tickets: rows || [] });
   } catch (e) {
     console.error("[HUBSPOT] tickets list error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================================================
+// CALLS DE HOJE — populate admin_aba with today's meeting contacts/groups
+// ============================================================================
+//
+// POST /api/hubspot/calls-today/refresh
+//   Busca meetings do HubSpot agendadas para HOJE (00:00 - 23:59 BRT),
+//   resolve os contatos associados em phones, expande para JIDs (chats
+//   individuais + LIDs + grupos), e atualiza admin_abas.resolved_jids
+//   da row WHERE name = 'CALLS DE HOJE'.
+//
+// Returns:
+//   {
+//     ok: true,
+//     meetings_count, contacts_count, phones_count, jids_count,
+//     refreshed_at, range: { start, end }
+//   }
+router.post("/calls-today/refresh", async (req, res) => {
+  try {
+    // 1. Range do dia em America/Sao_Paulo (UTC-3)
+    const now = new Date();
+    // Pega offset BRT (sem DST atualmente: UTC-3)
+    // Calcula meia-noite BRT como UTC: 00:00 BRT = 03:00 UTC
+    const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000); // hora atual em BRT
+    const todayBrtStr = brt.toISOString().substring(0, 10); // YYYY-MM-DD
+    const startUTC = new Date(`${todayBrtStr}T00:00:00-03:00`);
+    const endUTC = new Date(`${todayBrtStr}T23:59:59-03:00`);
+    const range = { start: startUTC.toISOString(), end: endUTC.toISOString() };
+
+    // 2. HubSpot API key
+    const settingRows = await supaRest(
+      "/rest/v1/app_settings?key=eq.hubspot_api_key&select=value"
+    ).catch(() => []);
+    const hsKey = settingRows && settingRows[0] && settingRows[0].value;
+    if (!hsKey) {
+      return res.status(400).json({ error: "hubspot_api_key não configurada em app_settings" });
+    }
+
+    // 3. Busca meetings do dia
+    console.log(`[CALLS-TODAY] Buscando meetings entre ${range.start} e ${range.end}...`);
+    const meetings = await searchMeetingsByDateRange(range.start, range.end, hsKey);
+    console.log(`[CALLS-TODAY] ${meetings.length} meetings encontradas`);
+
+    // 4. Para cada meeting, paralelizado em chunks de 8 (rate limit HubSpot)
+    const contactIdsSet = new Set();
+    const CONCURRENCY = 8;
+    for (let i = 0; i < meetings.length; i += CONCURRENCY) {
+      const chunk = meetings.slice(i, i + CONCURRENCY);
+      const lists = await Promise.all(chunk.map(m =>
+        getMeetingContactIds(m.id, hsKey).catch(e => {
+          console.warn(`[CALLS-TODAY] meeting ${m.id} associations falhou: ${e.message}`);
+          return [];
+        })
+      ));
+      for (const ids of lists) for (const id of ids) contactIdsSet.add(id);
+    }
+    const contactIds = Array.from(contactIdsSet);
+    console.log(`[CALLS-TODAY] ${contactIds.length} contatos únicos associados`);
+
+    // 5. Buscar phones desses contatos
+    const phonesSet = new Set();
+    for (let i = 0; i < contactIds.length; i += CONCURRENCY) {
+      const chunk = contactIds.slice(i, i + CONCURRENCY);
+      const phones = await Promise.all(chunk.map(id =>
+        getContactPhoneDigits(id, hsKey).catch(() => null)
+      ));
+      for (const p of phones) if (p) phonesSet.add(p);
+    }
+    const phones = Array.from(phonesSet);
+    console.log(`[CALLS-TODAY] ${phones.length} phones únicos resolvidos`);
+
+    // 6. Expandir phones em JIDs (contatos individuais + LIDs + grupos)
+    const allJids = await expandPhonesToJids(phones);
+    console.log(`[CALLS-TODAY] ${allJids.length} JIDs totais (incluindo grupos)`);
+
+    // 7. UPDATE admin_abas SET resolved_jids = ... WHERE name = 'CALLS DE HOJE'
+    const updateBody = {
+      resolved_jids: allJids.length > 0 ? allJids : null,
+    };
+    await supaRest(
+      "/rest/v1/admin_abas?name=eq." + encodeURIComponent("CALLS DE HOJE"),
+      "PATCH",
+      updateBody,
+      "return=minimal"
+    );
+
+    const refreshed_at = new Date().toISOString();
+    const result = {
+      ok: true,
+      meetings_count: meetings.length,
+      contacts_count: contactIds.length,
+      phones_count: phones.length,
+      jids_count: allJids.length,
+      refreshed_at,
+      range,
+    };
+    console.log("[CALLS-TODAY]", JSON.stringify(result));
+    res.json(result);
+  } catch (e) {
+    console.error("[CALLS-TODAY] error:", e.message, e.stack);
     res.status(500).json({ error: e.message });
   }
 });

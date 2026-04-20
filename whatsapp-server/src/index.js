@@ -88,4 +88,27 @@ server.listen(PORT, async () => {
 
   // Reconnect saved sessions on boot
   await baileys.reconnectAllSessions();
+
+  // ===== Cron: refresh CALLS DE HOJE diariamente às 00:01 BRT =====
+  try {
+    const cron = require("node-cron");
+    cron.schedule("1 0 * * *", async () => {
+      try {
+        const resp = await fetch(`http://localhost:${PORT}/api/hubspot/calls-today/refresh`, {
+          method: "POST",
+          headers: {
+            "Authorization": "Bearer " + (process.env.ADMIN_TOKEN || ""),
+            "Content-Type": "application/json",
+          },
+        });
+        const data = await resp.json().catch(() => ({}));
+        console.log("[CRON calls-today]", JSON.stringify(data));
+      } catch (e) {
+        console.error("[CRON calls-today] failed:", e.message);
+      }
+    }, { timezone: "America/Sao_Paulo" });
+    console.log("[CRON] CALLS DE HOJE refresh scheduled (00:01 America/Sao_Paulo)");
+  } catch (e) {
+    console.warn("[CRON] node-cron not available:", e.message);
+  }
 });
