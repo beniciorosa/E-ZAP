@@ -1,6 +1,42 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/20
 
-> 📌 **Próxima sessão**: para qualquer trabalho na ferramenta de grupos (grupos.html, criação em massa, Auto-criar, Dashboard, wa_group_*), LER TAMBÉM [GRUPOS.md](GRUPOS.md) na raiz — é o handoff vivo e canônico dessa área (arquitetura, tabelas, endpoints, funções, deploy pattern, changelog). Este SUMMARY tem só o cronológico; GRUPOS.md tem o estado atual consolidado.
+> 📌 **Próxima sessão**: para qualquer trabalho na ferramenta de grupos (grupos.html, criação em massa, Auto-criar, Dashboard, wa_group_*):
+> 1. LER PRIMEIRO o Obsidian em `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos A.I\E-ZAP\Grupos\`, começando por `04 - HANDOFF - Próxima sessão.md`.
+> 2. Depois [GRUPOS.md](GRUPOS.md) na raiz (changelog técnico cronológico).
+> O Obsidian tem o ESTADO ATUAL consolidado + handoff de onde paramos. GRUPOS.md tem a evolução histórica.
+
+> **Update 2026-04-20 noite (commit `c655cea` + docs `e986522`) — Ferramenta de grupos estabilizada após sprint de bugs — DEPLOYED**
+>
+> Sessão longa (~14h-21h UTC-3). Cronologia dos bugs diagnosticados e resolvidos:
+>
+> 1. **Cliente recebia DM mesmo dentro do grupo** (manhã) — ordem errada no fluxo.
+> 2. **Welcome não enviava** (tarde) — root cause `stream:error type=device_removed` (pattern de IQs fragmentado parecia bot).
+> 3. **QR Code não aparecia** (tarde) — race no `stopSession` deixava listeners vivos.
+> 4. **`bad-request` em tickets específicos** (noite) — correlação com `wa_contacts`: cliente não está nos contatos do mentor criador → WhatsApp rejeita `groupCreate`.
+> 5. **Connection Closed cascata nos Steps 4-7** (noite) — só welcome tinha retry; desc/foto/lock/invite_link/admin falhavam em transient.
+> 6. **Botão Interromper não parava no delay** (noite) — `setTimeout` puro não checava `shouldCancel`.
+> 7. **Grupos pendentes invisíveis na UI** (noite) — tabela só mostrava `job.results`.
+>
+> **Série de commits desse dia**: `4af06c5` → `4320fe8` → `deb412c` → `3eb1870` → `6cf308d` → `ed051bd` → `105ea6b` → `0d5214f` (ROLLBACK refactor "cliente-primeiro") → `84017d0` (members fixos CX2+Escalada) → `c655cea` (4 fixes final).
+>
+> **Estado atual estável**:
+> - `groupCreate(name, [cliente, mentor, CX2])` — todos juntos, 1 IQ orgânico.
+> - Escalada Ltda admin via add+promote separado.
+> - Fallback automático `bad-request` → cria sem cliente + DM com link.
+> - `callWithTransientRetry` em Steps 2-7.
+> - `stopSession.removeAllListeners()` antes de `sock.end()`.
+> - Cancel interruptível durante delay (`waitWithHeartbeat`).
+> - UI ao vivo: processados + ⏳ Pendente + ⏸ Aguardando.
+>
+> **Configs em produção**: `GROUP_CREATE_HOURLY_CAP=6` (pode reduzir pra 4), Escalada override `delaySec>=600` + `hourlyCap=3` + `leadingDelayMs=120000`, `isLikelyLid` rejeita dígitos fora do range BR 10-13.
+>
+> **Teste em andamento** (21h UTC-3): 2 sessões × 8 grupos × 20 min de delay (1200s) — validação de ritmo 3 grupos/hora.
+>
+> **Tarefas pendentes** documentadas em `Obsidian/Grupos/05 - TAREFAS PENDENTES.md`: Auto-criar (🤖) quebrado, retry do histórico sem feedback visual, pre-flight check baseado em `wa_group_creations.status=rate_limited`, indicador "⏳ Sincronizando" pós-QR, reduzir hourly cap pra 4.
+>
+> **Handoff completo**: `Obsidian/Grupos/04 - HANDOFF - Próxima sessão.md` tem checklist obrigatório + comandos úteis + deploy pattern + referências.
+>
+> ---
 
 > **Update 2026-04-20 tarde (commit `a4d8878`) — 4 fixes reportados em produção — DEPLOYED**
 >

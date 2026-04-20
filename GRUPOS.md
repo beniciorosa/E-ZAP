@@ -4,13 +4,15 @@
 
 Toda sessão que for tocar na ferramenta de grupos (código, comportamento, UI, fluxo) **DEVE**:
 
-1. **LER** a pasta Obsidian `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos A.I\E-ZAP\Grupos\`, especialmente:
+1. **LER** a pasta Obsidian `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos A.I\E-ZAP\Grupos\`, na ordem:
+   - **`04 - HANDOFF - Próxima sessão.md`** ⭐ primeiro — onde paramos exatamente, configs em produção, riscos conhecidos, checklist obrigatório.
    - `00 - Como funciona hoje (Técnico).md` — referência canônica do fluxo.
-   - `03 - CUIDADOS.md` — regras absolutas do "o que NÃO mexer".
-2. **ATUALIZAR** os mesmos arquivos do Obsidian após qualquer mudança. Incluir data, commit hash, e lição aprendida se for bug fix.
+   - `03 - CUIDADOS.md` — 13 regras absolutas do "o que NÃO mexer" + diagnósticos.
+   - `05 - TAREFAS PENDENTES.md` — backlog priorizado com o que ainda falta.
+2. **ATUALIZAR** os 6 arquivos do Obsidian após qualquer mudança. Incluir data, commit hash, e lição aprendida se for bug fix. Se for concluir tarefa, mover pra seção "✅ Concluídas" em `05 - TAREFAS PENDENTES`.
 3. Se a mudança for grande (novo fluxo, refactor), atualizar também `01 - EXPLICAÇÃO LEIGO.md` e `02 - PASSO A PASSO.md`.
 
-Este arquivo (`GRUPOS.md`) é o **changelog técnico cronológico**. O Obsidian é o **estado atual consolidado + documentação pro operador**.
+Este arquivo (`GRUPOS.md`) é o **changelog técnico cronológico**. O Obsidian é o **estado atual consolidado + documentação pro operador + handoff pra próxima sessão**.
 
 ---
 
