@@ -1,5 +1,19 @@
 # GRUPOS.md — Ferramenta de grupos E-ZAP (grupos.html + backend)
 
+## 📌 Regra obrigatória antes de mexer
+
+Toda sessão que for tocar na ferramenta de grupos (código, comportamento, UI, fluxo) **DEVE**:
+
+1. **LER** a pasta Obsidian `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos A.I\E-ZAP\Grupos\`, especialmente:
+   - `00 - Como funciona hoje (Técnico).md` — referência canônica do fluxo.
+   - `03 - CUIDADOS.md` — regras absolutas do "o que NÃO mexer".
+2. **ATUALIZAR** os mesmos arquivos do Obsidian após qualquer mudança. Incluir data, commit hash, e lição aprendida se for bug fix.
+3. Se a mudança for grande (novo fluxo, refactor), atualizar também `01 - EXPLICAÇÃO LEIGO.md` e `02 - PASSO A PASSO.md`.
+
+Este arquivo (`GRUPOS.md`) é o **changelog técnico cronológico**. O Obsidian é o **estado atual consolidado + documentação pro operador**.
+
+---
+
 Handoff vivo e autossuficiente da área de grupos. Cada rodada de trabalho nessa
 ferramenta deve atualizar este arquivo com o que mudou. Para o fluxo geral do
 projeto ver [CLAUDE.md](CLAUDE.md) na raiz; para histórico cronológico de
@@ -238,6 +252,16 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 ---
 
 ## 10. Changelog
+
+### 2026-04-20 noite-6 — commit `84017d0` — Members fixos (CX2 + Escalada) substituem checklist de helpers
+Validado em produção com Diego Giudice (20/04 noite): 1 grupo criado, welcome enviado, zero disconnect. Estado considerado **estável**.
+
+- Checklist `#helperSessionsChecklist` e checkbox Escalada-admin REMOVIDOS da UI. Em seu lugar: `#hubspotFixedMembersBox` read-only listando os 4 members esperados + warning vermelho se CX2 ou Escalada estiverem offline.
+- `buildSpecsFromHubspotResolved` resolve CX2 (`5519971505209`) → `helperSessionIds = [cx2Session.id]` e Escalada (`5519993473149`) → `adminSessionIds = [escaladaSession.id]`. Ambos via match por `phone` em `_sessions` com `status="connected"`.
+- `buildSpecForPendingTicket` (Auto-criar) idem.
+- Checkbox `#hubspotAddEscaladaAdmin` preservado como `<input type="hidden" checked>` pra não quebrar `onHelperChecklistChange` legado.
+- Racional (pedido Dhiego): blindar fluxo contra regressão do `device_removed` — sem checklist arbitrário, ninguém marca por engano uma sessão com LID em `wa_sessions.phone`.
+- **Auto-criar** ainda não funciona (separado). Fluxo HubSpot manual é o estável.
 
 ### 2026-04-20 noite-5 — commit `0d5214f` — ROLLBACK do refactor cliente-primeiro (root cause = device_removed)
 Root cause identificado nos logs: `node:{tag:"stream:error",attrs:{code:"401"},content:[{tag:"conflict",attrs:{type:"device_removed"}}]}`. O WhatsApp estava removendo linked devices porque o pattern "groupCreate([cliente]) + batch add helpers via groupParticipantsUpdate" — introduzido no `a4d8878` — parecia automação/spam. **Não era LID nem rate-limit**. O LID aparecia nos `status_message` apenas porque era o último helper sendo adicionado quando o socket já estava sendo morto pelo WhatsApp — red herring.
