@@ -1,0 +1,292 @@
+# GRUPOS.md — Ferramenta de grupos E-ZAP (grupos.html + backend)
+
+Handoff vivo e autossuficiente da área de grupos. Cada rodada de trabalho nessa
+ferramenta deve atualizar este arquivo com o que mudou. Para o fluxo geral do
+projeto ver [CLAUDE.md](CLAUDE.md) na raiz; para histórico cronológico de
+sessões ver [SUMMARY.md](SUMMARY.md). O handoff inicial da ferramenta está em
+[.claude/grupos-tool-handoff.md](.claude/grupos-tool-handoff.md) (parcialmente
+desatualizado — este documento é a fonte canônica).
+
+---
+
+## 1. O que a ferramenta faz
+
+[grupos.html](grupos.html) é um SPA standalone (~3200 linhas, hospedado no
+Vercel junto com admin.html) que opera sobre o whatsapp-server (Hetzner) e o
+Supabase. Permite:
+
+1. **Extração de links de convite** em massa de todos os grupos onde uma sessão
+   é admin (Baileys `fetchGroupsWithInvites`).
+2. **Adicionar um número** (com opção promover a admin) em todos ou num subset
+   filtrado de grupos admin.
+3. **Criar grupos em massa** a partir de 3 fontes: tickets HubSpot (default),
+   XLSX/CSV, Google Sheets.
+4. **Auto-criar grupos** a partir de mentorados pendentes (novo modal —
+   2026-04-20).
+5. **Dashboard de histórico** cross-session com filtros e exportação CSV
+   (novo — 2026-04-20).
+6. Controle de **temperatura de sessões** + quarentena para prevenir
+   rate-limit do WhatsApp.
+
+Todos os jobs rodam em background (in-memory no servidor + cache no Supabase)
+— o usuário pode fechar a aba e reabrir depois.
+
+---
+
+## 2. Arquitetura
+
+```
+┌─────────────────────┐  HTTPS   ┌───────────────────────┐  Baileys  ┌──────────┐
+│  grupos.html        │ ───────→ │  whatsapp-server      │ ────────→ │ WhatsApp │
+│  (Vercel)           │  Bearer  │  (PM2, Hetzner :3100) │           │  servers │
+└─────────┬───────────┘          └───────────┬───────────┘           └──────────┘
+          │                                  │
+          │  HTTPS (REST)                    │  REST (service_key)
+          └──────────────┬───────────────────┘
+                         ▼
+                ┌──────────────────────┐
+                │  Supabase            │
+                │  hubspot_tickets     │◄── webhook HubSpot (Edge Function)
+                │  mentorados          │◄── trigger de hubspot_tickets
+                │  wa_group_creations  │◄── trigger de mentorados
+                │  wa_group_links      │
+                │  wa_group_additions  │
+                │  wa_sessions         │
+                └──────────────────────┘
+```
+
+**Stack**:
+- **Frontend**: HTML/CSS/JS vanilla, zero frameworks. Push na `main` → Vercel
+  deploy automático em ~1min.
+- **Backend**: Node.js + Express + Baileys **6.6.0** (Hetzner) — **NÃO fazer
+  `npm install` cegamente**, pode atualizar pra 6.7.x e quebrar. PM2 `ezap-whatsapp`.
+- **Supabase**: project ref `xsqpqdjffjqxdcmoytfc`.
+- **Auth**: Bearer admin token armazenado no localStorage do navegador.
+
+---
+
+## 3. Arquivos críticos
+
+### Frontend
+
+| Arquivo | Áreas principais (file:line) |
+|---|---|
+| [grupos.html](grupos.html) | **Toolbar** (~215), **Modais**: Nova extração (~243), Adicionar número (~265), Criar grupos (~321), Auto-criar (~465); **View Histórico** (~241); **CSS editable-title + auto-mentor** (~144); **JS core**: `openCreateGroupsModal` (~1903), `buildSpecsFromHubspotResolved` (~2312), `renderHubspotPreview` (~2495), `submitCreateGroupsJob` (~2729), `onTitleEdit`/`onTitleKeydown` (~2495), `openAutoCreateModal`/`renderAutoCreateResults`/`startAutoCreateForMentor`/`startAutoCreateAllSelected`/`buildSpecForPendingTicket` (~2770), `toggleHistoryView`/`loadHistoryRows`/`renderHistoryTableRows`/`exportHistoryCsv`/`formatRelativeTime` (~2940) |
+
+### Backend (whatsapp-server/src/)
+
+| Arquivo | Funções-chave |
+|---|---|
+| [routes/hubspot.js](whatsapp-server/src/routes/hubspot.js) | `POST /resolve-tickets` (34 — lê de hubspot_tickets), `GET /pending-groups` (188), `GET /group-history` (cross-session, 278), `GET /group-history/:sessionId` (~368, legado), `POST|GET /templates/:sessionId` (welcome editável), `POST /calls-today/refresh`, `POST /calls-week/refresh`, `GET /calls` |
+| [routes/jobs.js](whatsapp-server/src/routes/jobs.js) | `POST /api/jobs/extract/start`, `POST /api/jobs/add/start`, `POST /api/jobs/create-groups/start`, `GET /api/jobs/:id`, `POST /api/jobs/:id/cancel` |
+| [routes/sessions.js](whatsapp-server/src/routes/sessions.js) | `/list-admin-groups`, `/import-cache`, `/groups`, quarentena (POST/GET/DELETE) |
+| [services/baileys.js](whatsapp-server/src/services/baileys.js) | `createGroupsFromList` (~1958), `fetchGroupsWithInvites`, `addParticipantToAllGroups`, `quarantineSession`/`releaseSession`/`isQuarantined`, `applyCriticalSessionOverrides` (~1944 — forçar 10min/hourlyCap=3 pra Escalada) |
+| [services/jobs.js](whatsapp-server/src/services/jobs.js) | `startCreateGroupsJob`, `startExtractJob`, `startAddJob`, `runCreateGroupsWorker` (dedup via spec_hash em `wa_group_creations`) |
+| [services/hubspot-api.js](whatsapp-server/src/services/hubspot-api.js) | `fetchTicketFromApi` (expõe owner_{id,name,email}), `upsertMentorado`, `upsertHubspotTicket` (novo — fallback persiste na tabela canônica) |
+| [services/supabase.js](whatsapp-server/src/services/supabase.js) | `supaRest`, `expandPhonesToJids`, `pickPrimaryJid`, `fetchChatNamesBatch` |
+
+### Supabase migrations
+
+| Migration | O que cria |
+|---|---|
+| [034](supabase/migration_034_wa_group_tools.sql) | `wa_group_links`, `wa_group_additions` |
+| [035](supabase/migration_035_mentorados.sql) | `mentorados` (legacy, alimentada via trigger hoje) |
+| [041](supabase/migration_041_wa_group_creations.sql) | `wa_group_creations` (spec_hash UNIQUE, dedup) |
+| [053](supabase/migration_053_wa_group_creations_hubspot.sql) | Enriquece `wa_group_creations` com `hubspot_*` + trigger `trg_sync_mentorados_to_group_creations` |
+| [054](supabase/migration_054_hubspot_tickets.sql) | `hubspot_tickets` (espelho completo HubSpot) + view `v_ticket_full` + trigger `sync_hubspot_tickets_to_mentorados` |
+
+---
+
+## 4. Tabelas usadas
+
+### `hubspot_tickets` (fonte canônica HubSpot)
+Espelho completo via webhook Edge Function [supabase/functions/hubspot-tickets/index.ts](supabase/functions/hubspot-tickets/index.ts). Colunas-chave pros grupos: `ticket_id`, `ticket_name`, `owner_id/name/email`, `mentor_responsavel_id/name`, `whatsapp_do_mentorado`, `tier` (string), `pipeline_stage_name`, `pipeline_type`, `status_ticket`, `synced_from`.
+
+### `mentorados` (LEGACY — ainda atualizada via trigger de `hubspot_tickets`)
+Subset de `hubspot_tickets` mantido por `sync_hubspot_tickets_to_mentorados()`. Colunas: `ticket_id` UNIQUE, `ticket_name`, `mentor_responsavel`, `whatsapp_do_mentorado`, tier booleans (`mentoria_{starter,pro,business}`), pipeline_*. **A ferramenta de grupos NÃO lê mais dessa tabela desde 2026-04-20** — lê direto de `hubspot_tickets`. Mantida pra consumers legados.
+
+### `wa_group_creations` (jobs de criação em massa)
+`source_session_id` FK wa_sessions, `spec_hash` UNIQUE (dedup), `group_name`/`group_jid`, `status` (created/failed/rate_limited/cancelled/pending), `members_added/total`, flags, `invite_link`, `hubspot_ticket_id`, `hubspot_ticket_name`, `hubspot_mentor`, `hubspot_tier`, `hubspot_pipeline_*`, `hubspot_last_synced_at`, `client_phone`, `mentor_session_id/phone`. Trigger `trg_sync_mentorados_to_group_creations` propaga mudanças de `mentorados` pra esta tabela (mas **não mexe em `group_name`** — edição inline fica preservada).
+
+### `wa_group_links` (cache de invites)
+Populada por `fetchGroupsWithInvites`. `session_id`+`group_jid` UNIQUE. Campos: `invite_link`, `invite_error`, `is_admin`, `participants_count`, `extracted_at`.
+
+### `wa_group_additions` (bulk add history)
+`source_session_id`+`target_phone`+`group_jid` UNIQUE. Campos: `status` (added/already_member/already_admin/privacy_block/etc), `was_promoted`.
+
+### `wa_sessions`
+Sessões Baileys conectadas. O `label` bate literal com `mentor_responsavel_name` do HubSpot (ex: "Rodrigo Zangirolimo") — é o que permite auto-map de mentor → sessão sem nova tabela.
+
+### Outras usadas pra fallbacks
+- `wa_photo_queue` (fila de fotos, `get_sync_status_all()` batch)
+- `wa_chats`, `wa_contacts`, `group_members`, `lid_phone_map` (resolver nomes/membros)
+
+---
+
+## 5. Cadeia de sincronização HubSpot → wa_group_creations
+
+```
+Webhook HubSpot → Edge Function hubspot-tickets
+                          │
+                          ▼
+                 UPSERT hubspot_tickets
+                          │
+                  trigger sync_hubspot_tickets_to_mentorados
+                          │
+                          ▼
+                    UPSERT mentorados
+                          │
+                  trigger trg_sync_mentorados_to_group_creations
+                          │
+                          ▼
+     UPDATE wa_group_creations WHERE hubspot_ticket_id = NEW.ticket_id
+     SET hubspot_ticket_name, hubspot_mentor, hubspot_tier,
+         hubspot_pipeline_*, client_phone (se NULL),
+         hubspot_last_synced_at = NOW()
+     — NÃO mexe em group_name nem em nada operacional (status, invite_link).
+```
+
+Implicação prática: grupos criados ficam com dados HubSpot sempre frescos
+automaticamente. O Dashboard de histórico mostra `hubspot_last_synced_at`
+como indicador de freshness.
+
+---
+
+## 6. Fluxos típicos
+
+### 6.1 Criar grupos via tickets HubSpot (modo default)
+1. Toolbar → **+ Criar grupos** → modal abre na tab "🎫 Tickets HubSpot" (default).
+2. Colar URLs ou IDs de tickets (até 200) → **🔍 Resolver tickets**.
+3. Frontend chama `POST /api/hubspot/resolve-tickets`. Backend: query em `hubspot_tickets` + fallback HubSpot API (se ticket missing) + upsert em `hubspot_tickets` AND `mentorados`. Retorna shape com `ticket_owner`, `tier`, `mentorSessionId`, etc.
+4. Preview (`renderHubspotPreview`) mostra tabela com cliente/mentor/tier/foto/status. Expandir row permite **editar título inline** (contenteditable). Helpers checkbox (CX2 etc) entra em todos os grupos.
+5. Dhiego escolhe sessão criadora, ajusta welcome (textarea `#hubspotCustomWelcome`), delay, clica "Iniciar criação".
+6. `submitCreateGroupsJob` → `POST /api/jobs/create-groups/start` → backend pega cached creations via `getCachedGroupCreations(sessionId)`, dedup por `spec_hash`, chama `baileys.createGroupsFromList` → job card aparece com polling de 5s.
+
+### 6.2 Auto-criar grupos (mentorados pendentes — 2026-04-20)
+1. Toolbar → **🤖 Auto-criar grupos** → modal abre.
+2. Filtros opcionais (tier, pipeline_type) → **🔍 Buscar pendentes**.
+3. `GET /api/hubspot/pending-groups?tier=...&pipeline_type=...` retorna tickets com tier preenchido que NÃO têm row `status='created'` em wa_group_creations, agrupados por `owner_name` com auto-map de sessão.
+4. Accordion expansível por mentor, cada um com: tabela de tickets (checkbox default on), welcome + rejectDm editáveis POR mentor, botão "▶ Iniciar só {mentor}".
+5. **Iniciar só {mentor}**: monta specs via `buildSpecForPendingTicket`, POST único pro backend → 1 job.
+6. **Iniciar todos selecionados**: `Promise.all` dispara N POSTs em paralelo, um por mentor. Cada job vai rodar independentemente pq cada mentor usa uma sessão distinta.
+
+### 6.3 Criar grupos via XLSX/CSV/Google Sheets
+Modal de criar → mudar tab. Parse local com XLSX.js ou Papa.parse. Normalização via `normalizeCreateSpec` (expect columns: "Nome do Grupo", "Descrição", "Foto URL", "Membros", "Apenas Admin Edita Info", "Mensagem de Boas-Vindas"). Resto do pipeline é igual ao HubSpot.
+
+### 6.4 Extrair links / Adicionar número
+Modal separado, 1 sessão alvo, delay configurável, cards de job com ETA + barra de progresso + tabela colapsável de resultados. Cache em `wa_group_links` / `wa_group_additions`. Detalhes em [.claude/grupos-tool-handoff.md](.claude/grupos-tool-handoff.md).
+
+### 6.5 Consultar Dashboard de histórico
+Toolbar → **📊 Histórico**. Filtros (from/to, mentor ilike, tier, status, sessão). `GET /api/hubspot/group-history` com JOIN on-the-fly em `hubspot_tickets` (pra owner_name) + `wa_sessions` (pra label). Tabela 11 colunas incluindo "Sincronizado" (há Xh). Exportar CSV com BOM UTF-8 (Excel-friendly).
+
+---
+
+## 7. Proteções contra rate-limit
+
+O WhatsApp banimento de grupos é o risco #1. Protecões em camadas:
+
+1. **Quarentena por sessão** (`quarantineSession`): "modo avião" — photo-worker parado, handlers pulam `sock.groupMetadata`, rotas HTTP retornam 409. Auto-entra em `createGroupsFromList` e **fica ativa se rate-limited** até liberação manual.
+2. **Overrides críticos** (`applyCriticalSessionOverrides`, [baileys.js:~1944](whatsapp-server/src/services/baileys.js:1944)): forçam `delaySec≥600`, `hourlyCap=3`, `leadingDelayMs=120000` para sessões em `CRITICAL_PHONES` (hoje só Escalada 5519993473149) OU com `failureStreak≥5` OU `timedOut≥50`.
+3. **Pre-flight check**: bloqueia criar grupos com HTTP 429 se `timedOut≥100` nas últimas 2h ou photo-worker auto-pausado.
+4. **Hourly cap**: `GROUP_CREATE_HOURLY_CAP` env var (default 6/h, forçado 3/h pra Escalada).
+5. **Painel de temperatura** (grupos.html): `loadSessions` batch via `GET /api/sync/status-all`, classificação 🟢🟡🔴 por sessão, badges de streak, botões Quarentena/Liberar.
+
+---
+
+## 8. Deploy
+
+### Frontend (grupos.html)
+```
+git add grupos.html && git commit -m "..." && git push origin main
+# Vercel publica em ~1min automaticamente.
+```
+
+### Backend (whatsapp-server/)
+**Atenção — o Hetzner tem 2 modificações locais que NÃO estão no git e precisam
+ser preservadas a cada deploy:**
+1. CORS em `src/index.js`: `app.use(cors({ origin: "*", methods: [...], allowedHeaders: [...] }))` em vez do `app.use(cors())` do repo.
+2. `package.json` com Baileys **6.6.0** (repo tem 6.7.16 — não upgrade cego).
+
+Deploy pattern (preservando ambos):
+
+```bash
+ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
+  'set -eo pipefail; cd /opt/ezap/whatsapp-server && \
+   cp package.json /tmp/pkg.bak && \
+   git checkout -- package.json src/index.js && \
+   git pull --ff-only && \
+   cp /tmp/pkg.bak package.json && \
+   sed -i "s|app.use(cors());|app.use(cors({ origin: \"*\", methods: [\"GET\",\"POST\",\"PATCH\",\"DELETE\",\"OPTIONS\"], allowedHeaders: [\"Content-Type\",\"Authorization\"] }));|" src/index.js && \
+   node --check src/routes/hubspot.js && node --check src/services/hubspot-api.js && node --check src/index.js && \
+   pm2 restart ezap-whatsapp && sleep 3 && \
+   curl -s http://localhost:3100/api/health'
+```
+
+### Pegadinhas de deploy já encontradas
+- **`git pull 2>&1 | tail -10` mascara exit code** — o status do pipeline é o do `tail`, não do `pull`. Usar `set -o pipefail` ou deixar o output do pull direto.
+- **Arquivos untracked conflitantes**: se o repo incluir arquivos que já existem como untracked no Hetzner (ex: fotos PNGs), `git pull` aborta. Fazer backup em `/tmp/` + `rm` antes do pull.
+- **Validar sintaxe ANTES do pm2 restart** — `node --check` pega erros de syntax; rodar em TODO arquivo modificado do backend.
+
+---
+
+## 9. Rollback
+
+- **Frontend**: `git revert <hash>` + push → Vercel reverte em ~1min.
+- **Backend**: `git revert <hash>` no Hetzner + `pm2 restart ezap-whatsapp`. Jobs in-memory se perdem, mas o cache Supabase preserva o progresso (user clica "Nova extração" e retoma).
+- **Runtime sem redeploy** (p/ quarentena): `POST /api/sessions/:id/quarantine/release` + (se necessário) `pm2 restart`.
+
+---
+
+## 10. Changelog
+
+### 2026-04-20 — commit `deb412c` — Auto-criar + Dashboard histórico + fix título HubSpot
+- `/api/hubspot/resolve-tickets` passa a ler de `hubspot_tickets` (fonte canônica) — expõe `ticket_owner`, `tier` string, `pipeline_stage_name`, `pipeline_type`, `status_ticket`.
+- Fix duplicação do mentor no preview: `clientName = split("|")[0]` + `owner = r.ticket_owner || r.mentor`.
+- Edição inline do título via `contenteditable` no row expandido; `_editedName` preserva entre re-renders.
+- Novo endpoint `GET /api/hubspot/pending-groups`: tickets com tier sem `status='created'` agrupados por owner + auto-map sessão.
+- Novo modal "🤖 Auto-criar grupos": accordion por mentor, welcome/rejectDm por seção, massa = N jobs paralelos via `Promise.all`.
+- Novo endpoint `GET /api/hubspot/group-history` cross-session com JOIN em `hubspot_tickets` (pra `owner_name`) + `wa_sessions` (pra label/phone).
+- Nova aba "📊 Histórico": filtros (from/to/mentor/tier/status/sessão), tabela 11 colunas, exportação CSV UTF-8.
+- `hubspot-api.js`: `fetchTicketFromApi` expõe `owner_{id,name,email}`; novo helper `upsertHubspotTicket`.
+
+### 2026-04-15 madrugada — commit `4af06c5` — Criar grupos via links HubSpot (default)
+- Rota `POST /api/hubspot/resolve-tickets` (lia de `mentorados` até 2026-04-20). Radio "🎫 Tickets HubSpot" default no modal.
+- `buildSpecsFromHubspotResolved`, `renderHubspotPreview`, `renderHelperSessionsChecklist`, `toggleCreateSourceMode` no grupos.html.
+
+### 2026-04-15 final — commit `4320fe8` — Session Quarantine Mode
+- Helpers `quarantineSession`/`releaseSession`/`isQuarantined` no baileys.js.
+- Gates HTTP 409 em routes de grupo/mensagem/contacts.
+- `applyCriticalSessionOverrides` pra Escalada + sessões degradadas.
+- Quarentena auto-ativa em `createGroupsFromList`, fica ativa após rate-limit.
+
+### 2026-04-13 a 15 — série de commits — Photo-worker + painel temperatura
+- Commit `3a893b2`: endpoint batch `/api/sync/status-all` + RPC `get_sync_status_all()` + polling pausado quando `document.hidden`.
+- Painel de temperatura 🟢🟡🔴 no grupos.html.
+- Pre-flight check em `createGroupsFromList`: 429 se `timedOut≥100/2h`.
+
+### Anteriores
+Commits de jobs em memória, multi-session, ETA, cancel, configurable delay, Supabase como fonte de verdade (histórico detalhado em [.claude/grupos-tool-handoff.md](.claude/grupos-tool-handoff.md)).
+
+---
+
+## 11. Pontos em aberto (ordem de prioridade sugerida)
+
+1. **Grupos históricos com nome duplicado**: grupos criados antes do 2026-04-20 ficam com `"Cliente | Mentor | Mentor"` no `wa_group_creations.group_name`. Não afeta o WhatsApp (nome do grupo lá já foi setado uma vez e não muda sozinho), só afeta o Dashboard. Script SQL opcional pra limpeza: `UPDATE wa_group_creations SET group_name = regexp_replace(group_name, ' \| (.+) \| \1$', ' | \1') WHERE group_name ~ ' \| (.+) \| \1$'`.
+2. **`owner_name` denormalizado em `wa_group_creations`**: hoje o Dashboard faz JOIN on-the-fly toda query. Se performance apertar, adicionar coluna `hubspot_owner_name` em `wa_group_creations` + expandir o trigger `trg_sync_mentorados_to_group_creations` pra também ler de `hubspot_tickets.owner_name`.
+3. **Preview visual com foto no modal Auto-criar**: hoje mostra só tier como badge. Adicionar thumb `/static/fotos/{tier}.png` na primeira coluna da tabela do accordion.
+4. **Progress indicator em "Iniciar todos selecionados"**: hoje o botão fica desabilitado e os status por mentor atualizam. Adicionar barra de progresso "3/7 jobs iniciados…" no footer.
+5. **Re-resolve inline no preview**: se um ticket está com info stale (ex: tier null), permitir re-chamar `/resolve-tickets` só pra aquele ticket via botão na linha.
+6. **Edição inline de outros campos no preview** (welcome, descrição individual): hoje só título. Estendendo o pattern do `_editedName` pra outros campos não é difícil.
+7. **WebSocket em vez de polling**: socket.io do servidor existe mas grupos.html usa polling 5s. Dava updates instantâneos.
+8. **Persistir jobs em disco**: hoje perdem com PM2 restart. O cache Supabase mitiga (retoma), mas persistir ganha alguns minutos.
+
+---
+
+## 12. Credenciais e acessos operacionais
+
+- **GitHub repo**: `beniciorosa/E-ZAP`, branch `main`, push direto.
+- **SSH Hetzner**: `ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235`, path `/opt/ezap/whatsapp-server`.
+- **PM2 app**: `ezap-whatsapp` (id 0), porta 3100.
+- **Supabase**: project ref `xsqpqdjffjqxdcmoytfc`. Management token em `.env` (var `SUPABASE_MGMT_TOKEN`). User-Agent `Mozilla/5.0...` obrigatório (Cloudflare bloqueia bot UAs).
+- **Admin token do whatsapp-server**: lido de `/opt/ezap/whatsapp-server/.env` (`ADMIN_TOKEN=...`). Hoje: `EZAP-SERVER-ADMIN-2026`.
+- **Critical phones** (overrides automáticos): `CRITICAL_PHONES = {"5519993473149"}` (Escalada Ltda) — sempre forçam 10min delay + hourlyCap 3.

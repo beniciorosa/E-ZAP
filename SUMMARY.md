@@ -1,5 +1,67 @@
 # E-ZAP — Sessão de trabalho 2026-04-14/20
 
+> 📌 **Próxima sessão**: para qualquer trabalho na ferramenta de grupos (grupos.html, criação em massa, Auto-criar, Dashboard, wa_group_*), LER TAMBÉM [GRUPOS.md](GRUPOS.md) na raiz — é o handoff vivo e canônico dessa área (arquitetura, tabelas, endpoints, funções, deploy pattern, changelog). Este SUMMARY tem só o cronológico; GRUPOS.md tem o estado atual consolidado.
+
+> **Update 2026-04-20 (commit `deb412c`) — Auto-criar grupos por mentor + Dashboard histórico + fix título HubSpot — DEPLOYED**
+>
+> Plano: [C:\Users\dhiee\.claude\plans\leia-o-summary-md-entenda-linear-curry.md](C:\Users\dhiee\.claude\plans\leia-o-summary-md-entenda-linear-curry.md)
+>
+> Quatro mudanças na ferramenta de grupos (grupos.html + backend Hetzner). Nenhuma migração SQL — todos os campos já existem em `hubspot_tickets` (054) e `wa_group_creations` (041+053).
+>
+> ### 1) `/api/hubspot/resolve-tickets` passa a ler de `hubspot_tickets` (fonte canônica)
+> Antes: query em `mentorados` (tabela legacy populada por trigger de `hubspot_tickets`). Agora: query direta em `hubspot_tickets`, trazendo `owner_name`/`owner_email`/`pipeline_stage_name`/`pipeline_type`/`status_ticket` de graça. Fallback HubSpot API (linhas 62-106) agora também persiste em `hubspot_tickets` via novo helper `upsertHubspotTicket` (mantém `upsertMentorado` por compat). Arquivos: [whatsapp-server/src/routes/hubspot.js:34-186](whatsapp-server/src/routes/hubspot.js:34), [whatsapp-server/src/services/hubspot-api.js](whatsapp-server/src/services/hubspot-api.js).
+>
+> Resposta do `/resolve-tickets` ganhou os campos: `ticket_owner`, `ticket_owner_email`, `pipeline_stage_name`, `pipeline_type`, `status_ticket`. Smoke-test em produção com ticket 44167704933: `{ticket_owner: "Suporte CX", tier: "pro" (string), source: "hubspot_tickets"}`.
+>
+> ### 2) Fix duplicação do mentor no preview + edição inline do título
+> Bug: [grupos.html:2375](grupos.html:2375) fazia `groupName = ticket_name + " | " + mentor`, mas `ticket_name` no HubSpot já vem formatado `"{cliente} | {mentor}"`, resultando em `"Luiz Afonso | Thiago Rocha | Rodrigo Zangirolimo"`. Fix: extrai só o cliente (split no primeiro `|`) e concatena com `r.ticket_owner` (fallback `r.mentor` se backfill incompleto). Resultado: `"Luiz Afonso | Suporte CX"` (2 partes).
+>
+> Título editável inline: `<div contenteditable="true">` no row expandido do preview. `onblur`/Enter salva; Escape cancela. Atualiza `_hubspotResolved[i].finalGroupName` + `_createSpecs[i].name` + recalcula `specHash` via `sha1Hex`. Flag `_editedName` preserva edição entre re-renders (toggle helpers, etc). CSS em `.editable-title` com borda tracejada no hover/focus.
+>
+> ### 3) Novo modal "🤖 Auto-criar grupos" (mentorados pendentes)
+> Botão novo na toolbar. Abre modal que:
+> - Chama `GET /api/hubspot/pending-groups[?tier=&pipeline_type=]` — retorna tickets com `tier` preenchido que NÃO têm row em `wa_group_creations` com `status='created'`, agrupados por `owner_name` (proprietário do ticket) com auto-map da sessão conectada via label → `wa_sessions`.
+> - Renderiza accordion `<details>` por mentor: header com badge contagem + indicador de sessão (✓/✗); corpo com tabela de tickets (checkbox por ticket, cliente, tier, telefone, pipeline stage, data), welcome e rejectDm editáveis POR mentor (template default = `HUBSPOT_WELCOME_TEMPLATE`/`HUBSPOT_REJECT_DM_TEMPLATE`), botão "▶ Iniciar só {mentor}".
+> - Footer: contador de seleção + "▶ Iniciar todos selecionados" que dispara N POSTs paralelos ao `/api/jobs/create-groups/start` (um por mentor, via `Promise.all`). Cada mentor vira 1 job independente — jobs rodam em paralelo porque cada um usa uma sessão distinta.
+>
+> Critério de "pendente": ticket tem `tier` + não tem row `status='created'` em `wa_group_creations`. Tickets com `failed`/`rate_limited`/`cancelled` voltam como pendentes (permite retry).
+>
+> Smoke-test em produção: `?tier=pro` retornou 484 pendentes em 15 owners (500 com tier, 16 já criados). Mentores com sessão conectada (Diego Giudice, Vinicius Holanda, Thomaz Stancioli) ficam ativáveis; "Financeiro Escalada" e "Suporte CX" aparecem mas desabilitados (sem sessão).
+>
+> ### 4) Nova aba "📊 Histórico" (Dashboard cross-session)
+> Botão na toolbar alterna a view. Novo endpoint `GET /api/hubspot/group-history` (cross-session, mantém `/group-history/:sessionId` legado) com filtros: `from`, `to`, `mentor` (ilike), `tier`, `status`, `session_id`, `limit`, `offset`. Faz JOIN on-the-fly com `hubspot_tickets` pra trazer `owner_name` e `pipeline_stage_name` fresh; JOIN com `wa_sessions` pra label/phone da sessão criadora.
+>
+> Frontend: tabela cross-session com 11 colunas (Data, Grupo, Owner, Mentor, Tier, Pipeline, Sessão, Status, Membros, Link, Sincronizado). A coluna "Sincronizado" formata `hubspot_last_synced_at` como "há Xh / há N dias" via helper `formatRelativeTime`. Exportação CSV com BOM UTF-8 (Excel-friendly). Paginação por `offset` + "Carregar mais".
+>
+> Smoke-test: `limit=3` retornou rows com `ticket_owner_name`, `current_pipeline_stage` e `session_label` preenchidos. Grupos antigos (pré-deploy) mostram o nome duplicado histórico ("Guilherme... | Gustavo Netto | Gustavo Netto") — apenas grupos criados dalhi pra frente saem com nome limpo.
+>
+> ### Deploy (cuidadoso — 2ª tentativa resolveu conflito)
+>
+> 1ª tentativa falhou: `git pull` abortou porque 3 PNGs em `whatsapp-server/public/fotos/` eram untracked no Hetzner (viraram tracked no commit `5748550 chore(fotos): track tier avatars`). O `set -e` não pegou porque `git pull 2>&1 | tail -10` mascarou o exit code via pipe. PM2 reiniciou sobre código antigo. Sintoma: uptime voltou pra 3s mas nenhuma feature nova entrou.
+>
+> 2ª tentativa (sucesso): `set -eo pipefail` + backup em `/tmp/fotos-backup-<ts>/` + `rm public/fotos/{Pro,business,starter}.png` + pull limpo + restore package.json + sed CORS + `node --check` nos 3 arquivos + pm2 restart. Health 200, sessions reconectando.
+>
+> ### Arquivos críticos (próxima sessão retomar)
+>
+> - [whatsapp-server/src/routes/hubspot.js](whatsapp-server/src/routes/hubspot.js) — `/resolve-tickets` (34), `/pending-groups` (188), `/group-history` cross-session (278)
+> - [whatsapp-server/src/services/hubspot-api.js](whatsapp-server/src/services/hubspot-api.js) — `fetchTicketFromApi` agora expõe owner_*; novo `upsertHubspotTicket`
+> - [grupos.html](grupos.html) — toolbar (214-220), Auto-criar modal (~450), aba Histórico (~241), `buildSpecsFromHubspotResolved` fix do título (~2385), `onTitleEdit`/`onTitleKeydown` (~2495), `openAutoCreateModal`/`renderAutoCreateResults`/`startAutoCreateForMentor`/`startAutoCreateAllSelected` + helpers (~2770), `toggleHistoryView`/`loadHistoryRows`/`renderHistoryTableRows`/`exportHistoryCsv` (~2940)
+>
+> ### Rollback
+>
+> - Frontend: `git revert deb412c` + push → Vercel reverte em ~1min.
+> - Backend: ssh + `git revert deb412c` + `pm2 restart ezap-whatsapp`.
+> - Zero SQL pra reverter. A rota `/group-history/:sessionId` antiga continua intacta pro mini-panel, então rollback parcial (só do dashboard) também é seguro.
+>
+> ### Pontos em aberto / próximos naturais
+>
+> - Nome duplicado em grupos HISTÓRICOS (pré-deploy) fica visível no Dashboard. Se incomodar, script SQL `UPDATE wa_group_creations SET group_name = regexp_replace(group_name, ' \| (.+) \| \1$', ' | \1') WHERE ...` pode limpar.
+> - Grupos já criados não têm `owner_name` denormalizado em `wa_group_creations` — o Dashboard faz JOIN on-the-fly toda vez. Se performance apertar, considerar coluna `hubspot_owner_name` + expandir o trigger `trg_sync_mentorados_to_group_creations` (hoje só lê de `mentorados`, não propaga owner).
+> - Modal Auto-criar não tem preview visual (foto) por ticket — só número de membros. Se Dhiego quiser conferir foto antes de criar, adicionar thumb `/static/fotos/{tier}.png` na primeira coluna da tabela.
+> - Sem smoke-test em fluxo completo de criação real pelo novo modal Auto-criar — o Dhiego pode rodar 1 lote de teste (ex: 1 mentor com 1 ticket selecionado) pra validar end-to-end antes de usar em escala.
+>
+> ---
+
 > **Update 2026-04-20 noite — Fix 4 bugs pós-widget CALLS — DEPLOYED v2.0.39**
 >
 > Plano: [C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md](C:\Users\dhiee\.claude\plans\acredito-que-podemos-manter-gentle-tiger.md)
