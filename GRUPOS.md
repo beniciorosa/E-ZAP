@@ -239,6 +239,14 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-20 noite-3 — commit `ed051bd` — Filtro LOCAL de LID + fallback seguro
+`6cf308d` não fechou o LID-kill porque `sock.onWhatsApp` retorna `exists: true` pra LIDs que estão no contact store da sessão (history sync trouxe). Resultado: LID passava pelo `validateMembersForCreate`, virava `{digits}@s.whatsapp.net`, WhatsApp derrubava socket com loggedOut, welcome caía em "Sessão não disponível". Caso em prod: Luis Antonio Lopes | Guilherme Donato (18:03).
+
+- Novo helper `isLikelyLid(phoneOrDigits)` próximo a `isRateLimitError` — rejeita dígitos fora do range BR (10-13). Filtro LOCAL, sem depender do contact store.
+- `validateMembersForCreate` ([baileys.js:2438](whatsapp-server/src/services/baileys.js:2438)) agora: (1) filtra LIDs localmente ANTES do `onWhatsApp`; (2) rejeita jids retornados que terminam em `@lid`; (3) fallback em exception retorna `[]` (em vez de build cego com `@s.whatsapp.net`).
+- Step 8 agora reporta os dígitos exatos skipados em `status_message` (ex: `helpers_skipped_invalid: 194051538174167`) + log no PM2.
+- Trade-off documentado: helpers LID/inválidos ficam de fora do grupo (user vê a lista skipada) mas o socket sobrevive e o welcome é enviado.
+
 ### 2026-04-20 noite-2 — commit `6cf308d` — 4 fixes no createGroupsFromList (welcome não enviava)
 **Regressão do commit `a4d8878`**: Step 8 (batch add helpers) passava dígitos direto como `{digits}@s.whatsapp.net` pro `groupParticipantsUpdate`. Se algum member era um LID (14-15 dígitos não-BR como `65816548667409`), WhatsApp derrubava o socket com loggedOut 401 — quebrando welcome de TODOS os grupos seguintes. Observado em Aline/Priscila/Amanda (20/04 tarde).
 
