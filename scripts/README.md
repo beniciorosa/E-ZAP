@@ -1,5 +1,75 @@
 # E-ZAP — Scripts utilitarios
 
+## E-ZAP-Instalar.command — Para usuarios Mac
+
+Arquivo unico. **Duplo clique e pronto.** Baixa o ZIP mais recente do
+Supabase Storage e instala/atualiza a extensao em `~/ezap-ext`.
+
+### Distribuir
+
+Envie o arquivo `E-ZAP-Instalar.command` pros usuarios Mac (WhatsApp, e-mail,
+Drive, AirDrop). Eles so precisam dar duplo clique.
+
+### Primeira vez pro usuario (bloqueio do Gatekeeper)
+
+Ao baixar de fonte externa, o macOS marca o arquivo como "quarantined".
+Na **primeira execucao**:
+
+- Clique com **botao direito** no arquivo > **Abrir** > confirma **Abrir**
+- (duplo clique normal nao funciona na primeira vez)
+
+Nas seguintes, duplo clique funciona normalmente.
+
+### Se mesmo assim nao executar
+
+No Terminal, dentro da pasta onde salvou o arquivo:
+
+```bash
+chmod +x E-ZAP-Instalar.command
+xattr -d com.apple.quarantine E-ZAP-Instalar.command 2>/dev/null
+./E-ZAP-Instalar.command
+```
+
+### Pasta de instalacao
+
+`~/ezap-ext` (ou seja, `/Users/SEU_USUARIO/ezap-ext`)
+
+### Primeira vez no Chrome
+
+1. Quando abrir `chrome://extensions/`:
+2. Ative **Modo do desenvolvedor** (canto superior direito)
+3. Clique **Carregar sem compactacao**
+4. Selecione a pasta `~/ezap-ext`
+
+### Atualizacoes
+
+Duplo clique de novo. Depois, em `chrome://extensions/`, clica no icone
+circular (reload) no card da E-ZAP. Recarrega o WhatsApp Web (Cmd+R).
+
+### Comando global no Terminal (opcional)
+
+Pra digitar so `ezap-update` em qualquer terminal, cola isto uma vez:
+
+```bash
+cat >> ~/.zshrc <<'EOF'
+
+# E-ZAP updater
+ezap-update() {
+  curl -sSL https://xsqpqdjffjqxdcmoytfc.supabase.co/storage/v1/object/public/releases/release.json -o /tmp/ezap.json && \
+  URL=$(python3 -c 'import json;print(json.load(open("/tmp/ezap.json"))["url"])') && \
+  VER=$(python3 -c 'import json;print(json.load(open("/tmp/ezap.json"))["version"])') && \
+  curl -sSL "$URL" -o /tmp/ezap.zip && \
+  rm -rf ~/ezap-ext && mkdir -p ~/ezap-ext && \
+  unzip -q /tmp/ezap.zip -d ~/ezap-ext && \
+  echo "E-ZAP v$VER em ~/ezap-ext" && \
+  open -a "Google Chrome" "chrome://extensions/"
+}
+EOF
+source ~/.zshrc
+```
+
+---
+
 ## E-ZAP-Instalar.bat — Para os usuarios finais
 
 Arquivo unico. **Duplo clique e pronto.** Baixa o script PowerShell mais
