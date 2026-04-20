@@ -2076,7 +2076,13 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       status: "pending",
       statusMessage: null,
       groupJid: null,
-      membersTotal: Array.isArray(spec.members) ? spec.members.length : 0,
+      // Inclui members + adminJids extras + 1 pro criador/owner (a própria sessão).
+      // membersAdded é contado em 3 lugares (groupCreate participants incluindo owner,
+      // admin add loop, helpers batch), então o total precisa seguir o mesmo critério
+      // pra nunca ficar "4/3" na UI.
+      membersTotal: (Array.isArray(spec.members) ? spec.members.length : 0)
+        + (Array.isArray(spec.adminJids) ? spec.adminJids.length : 0)
+        + 1,
       membersAdded: 0,
       hasDescription: false,
       hasPhoto: false,
@@ -2267,23 +2273,36 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         const extraPhones = (spec.members || [])
           .filter(p => p && p !== spec.clientPhone && !adminSet.has(p));
         if (extraPhones.length > 0) {
-          const extraJids = extraPhones.map(p => p + "@s.whatsapp.net");
-          try {
-            const addRes = await sock.groupParticipantsUpdate(row.groupJid, extraJids, "add");
-            if (Array.isArray(addRes)) {
-              const okCount = addRes.filter(r => r && String(r.status) === "200").length;
-              row.membersAdded = (row.membersAdded || 0) + okCount;
-              const failCount = addRes.length - okCount;
-              if (failCount > 0) {
-                const failJids = addRes.filter(r => !r || String(r.status) !== "200").map(r => (r && r.jid || "?").split("@")[0]);
-                row.statusMessage = appendNote(row.statusMessage, "helpers_add_partial: " + failCount + " falha(s) — " + failJids.join(","));
-              }
-            }
-          } catch (e) {
-            if (isRateLimitError(e)) { rateLimited = true; }
-            else row.statusMessage = appendNote(row.statusMessage, "helpers_add_fail: " + (e?.message || e));
+          // Valida via onWhatsApp batch antes de adicionar — filtra LIDs
+          // (14-15 dígitos não-BR tipo "65816548667409") e números fora do
+          // WhatsApp. CRÍTICO: sem esse filtro, passar um LID como JID
+          // "{digits}@s.whatsapp.net" faz o WhatsApp derrubar o socket com
+          // loggedOut 401, quebrando o welcome de TODOS os grupos
+          // seguintes (bug observado em Aline/Priscila/Amanda 20/04 tarde).
+          const extraJids = await validateMembersForCreate(sock, extraPhones).catch(() => []);
+          const skippedInvalid = extraPhones.length - extraJids.length;
+          if (skippedInvalid > 0) {
+            row.statusMessage = appendNote(row.statusMessage,
+              "helpers_skipped_invalid: " + skippedInvalid + " (LID ou fora do WhatsApp)");
           }
-          await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+          if (extraJids.length > 0) {
+            try {
+              const addRes = await sock.groupParticipantsUpdate(row.groupJid, extraJids, "add");
+              if (Array.isArray(addRes)) {
+                const okCount = addRes.filter(r => r && String(r.status) === "200").length;
+                row.membersAdded = (row.membersAdded || 0) + okCount;
+                const failCount = addRes.length - okCount;
+                if (failCount > 0) {
+                  const failJids = addRes.filter(r => !r || String(r.status) !== "200").map(r => (r && r.jid || "?").split("@")[0]);
+                  row.statusMessage = appendNote(row.statusMessage, "helpers_add_partial: " + failCount + " falha(s) — " + failJids.join(","));
+                }
+              }
+            } catch (e) {
+              if (isRateLimitError(e)) { rateLimited = true; }
+              else row.statusMessage = appendNote(row.statusMessage, "helpers_add_fail: " + (e?.message || e));
+            }
+            await new Promise(r => setTimeout(r, INTRA_DELAY_MS));
+          }
         }
       }
 
@@ -2319,7 +2338,13 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           const altText = "⚠️ O cliente " + clientName + " (" + spec.clientPhone + ") "
             + "ainda não ingressou no grupo. O link de convite já foi enviado no particular dele.";
           try {
-            await sock.sendMessage(row.groupJid, { text: altText });
+            // Wrap com retry defensivo: se houver disconnect transiente entre
+            // o groupCreate e o welcome, o helper aguarda reconexão até 3x.
+            await callWithTransientRetry(
+              sessionId,
+              (s) => s.sendMessage(row.groupJid, { text: altText }),
+              { label: "alt_welcome[" + (spec.name || "").substring(0, 30) + "]" }
+            );
             row.welcomeSent = false;
             row.statusMessage = appendNote(row.statusMessage, "welcome_substituído: alerta de cliente pendente enviado no grupo");
           } catch (e) {
@@ -2330,7 +2355,11 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           // Client added or no clientPhone (xlsx flow) — send normal welcome
           const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
           try {
-            await sock.sendMessage(row.groupJid, { text });
+            await callWithTransientRetry(
+              sessionId,
+              (s) => s.sendMessage(row.groupJid, { text }),
+              { label: "welcome[" + (spec.name || "").substring(0, 30) + "]" }
+            );
             row.welcomeSent = true;
           } catch (e) {
             if (isRateLimitError(e)) { rateLimited = true; }
@@ -2494,6 +2523,14 @@ async function getCachedGroupCreations(sessionId) {
 async function stopSession(sessionId) {
   const session = sessions.get(sessionId);
   if (session) {
+    try {
+      // Remove listeners ANTES de sock.end() — o WebSocket fecha async e o
+      // Baileys pode emitir eventos tardios (connection.update com loggedOut,
+      // creds.update com creds velhas). Sem removeAllListeners, esses eventos
+      // disparam saveSessionCreds/etc e corrompem o estado de uma sessão
+      // nova startada depois (bug observado no fresh-qr do Gustavo Netto).
+      session.sock.ev.removeAllListeners();
+    } catch (_) {}
     try { session.sock.end(); } catch(e) {}
     sessions.delete(sessionId);
   }
