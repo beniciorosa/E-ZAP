@@ -22,6 +22,8 @@ function _getBaileys() {
   return baileysRef;
 }
 
+const { logEvent } = require("../services/activity-log");
+
 // POST /api/hubspot/resolve-tickets
 // Body: { ticketIds: number[] }
 // Returns:
@@ -341,6 +343,43 @@ router.post("/resolve-tickets", async (req, res) => {
       } else {
         r.resolvedClientJid = null;
         r.clientValidation = "not_on_whatsapp";
+      }
+    }
+
+    // Activity log: registra o resolve + breakdown da validação.
+    const vOk = resolved.filter(r => r.clientValidation === "ok").length;
+    const vAdjusted = resolved.filter(r => r.clientValidation === "adjusted_no_9").length;
+    const vInvalid = resolved.filter(r => r.clientValidation === "not_on_whatsapp").length;
+    const vNoVal = resolved.filter(r => r.clientValidation === "no_validator").length;
+    logEvent({
+      type: "resolve_tickets",
+      level: vInvalid > 0 ? "warn" : "info",
+      message: "Resolve-tickets: " + ids.length + " ticket(s), " + resolved.length + " resolvido(s), " + notFound.length + " não encontrado(s)",
+      metadata: {
+        ticketCount: ids.length,
+        resolvedCount: resolved.length,
+        notFoundCount: notFound.length,
+        validationOk: vOk, validationAdjusted: vAdjusted,
+        validationInvalid: vInvalid, validationNoValidator: vNoVal,
+        validatorPhone: validatorSessionUsed || null,
+      },
+    });
+    // Log individual pra cada cliente ajustado ou inválido (útil pra auditar HubSpot)
+    for (const r of resolved) {
+      if (r.clientValidation === "adjusted_no_9") {
+        logEvent({
+          type: "phone_validation:adjusted_9_br",
+          level: "info",
+          message: "Número BR ajustado automaticamente (cliente " + (r.ticket_name || r.ticket_id) + ")",
+          metadata: { ticketId: r.ticket_id, originalPhone: r.whatsapp, canonicalJid: r.resolvedClientJid, validatorPhone: validatorSessionUsed },
+        });
+      } else if (r.clientValidation === "not_on_whatsapp") {
+        logEvent({
+          type: "phone_validation:not_on_whatsapp",
+          level: "warn",
+          message: "Número NÃO existe no WhatsApp — cliente " + (r.ticket_name || r.ticket_id) + " (" + (r.whatsapp || "?") + ")",
+          metadata: { ticketId: r.ticket_id, originalPhone: r.whatsapp, validatorPhone: validatorSessionUsed },
+        });
       }
     }
 

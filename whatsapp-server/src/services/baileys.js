@@ -5,6 +5,16 @@
 const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore, initAuthCreds, BufferJSON, downloadMediaMessage, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const { supaRest } = require("./supabase");
+// Activity log: importação lazy pra evitar ciclo (activity-log depende de supabase,
+// e vários módulos já importam baileys). Acessar via _getActivityLog() quando usar.
+let _activityLog = null;
+function _getActivityLog() {
+  if (!_activityLog) _activityLog = require("./activity-log");
+  return _activityLog;
+}
+function _logEvent(opts) {
+  try { _getActivityLog().logEvent(opts); } catch (e) { /* never block flow on log */ }
+}
 
 const logger = pino({ level: "warn" });
 
@@ -47,12 +57,33 @@ function quarantineSession(sessionId, reason) {
   sessionQuarantine.set(sessionId, { enteredAt: Date.now(), reason: reason || "manual" });
   emit("session:quarantine", { sessionId, reason: reason || "manual" });
   console.warn("[QUARANTINE] " + sessionId + " entered quarantine: " + (reason || "manual"));
+  const s = sessions.get(sessionId);
+  _logEvent({
+    type: "session:quarantine_enter",
+    level: "info",
+    message: "Quarentena ativa: motivo=" + (reason || "manual"),
+    sessionId,
+    sessionLabel: s ? s.label : null,
+    sessionPhone: s ? s.phone : null,
+    metadata: { reason: reason || "manual" },
+  });
 }
 function releaseSession(sessionId) {
   if (!sessionQuarantine.has(sessionId)) return;
+  const q = sessionQuarantine.get(sessionId);
   sessionQuarantine.delete(sessionId);
   emit("session:quarantine:release", { sessionId });
   console.log("[QUARANTINE] " + sessionId + " released");
+  const s = sessions.get(sessionId);
+  _logEvent({
+    type: "session:quarantine_release",
+    level: "info",
+    message: "Quarentena liberada (durou " + Math.round((Date.now() - q.enteredAt) / 1000) + "s)",
+    sessionId,
+    sessionLabel: s ? s.label : null,
+    sessionPhone: s ? s.phone : null,
+    metadata: { durationMs: Date.now() - q.enteredAt, reason: q.reason },
+  });
 }
 function isQuarantined(sessionId) {
   return sessionQuarantine.has(sessionId);
@@ -2100,6 +2131,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
     const spec = specs[i];
     processed++;
+    const _specStartedAt = Date.now();
 
     // Sinaliza pro job manager qual spec está processando AGORA — a UI usa
     // isso pra mostrar "⏳ Pendente" na linha correta enquanto o grupo está
@@ -2109,6 +2141,27 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         onProgress({ phase: "processing_spec", specHash: spec.specHash, name: spec.name, index: i });
       } catch (_) {}
     }
+
+    // Activity log: início do spec
+    const _sessInfo = sessions.get(sessionId);
+    _logEvent({
+      type: "group_create:start",
+      level: "info",
+      message: "Iniciando grupo: " + (spec.name || "(sem nome)"),
+      sessionId,
+      sessionLabel: _sessInfo ? _sessInfo.label : null,
+      sessionPhone: _sessInfo ? _sessInfo.phone : null,
+      groupName: spec.name || null,
+      metadata: {
+        specHash: spec.specHash,
+        index: i,
+        total,
+        includeClient: spec.includeClient !== false,
+        includeCx2: spec.includeCx2 !== false,
+        includeEscalada: spec.includeEscalada !== false,
+        hubspotTicketId: spec.hubspotTicketId || null,
+      },
+    });
 
     const row = {
       index: i,
@@ -2264,6 +2317,20 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           const memberJidsNoClient = memberJids.filter(j => j !== clientJid);
           if (memberJidsNoClient.length > 0) {
             console.log("[BAILEYS] groupCreate bad-request — retry sem cliente", spec.clientPhone, "para", spec.name);
+            _logEvent({
+              type: "group_create:bad_request_fallback",
+              level: "warn",
+              message: "bad-request no groupCreate — retry sem cliente (" + spec.clientPhone + ")",
+              sessionId,
+              sessionLabel: _sessInfo ? _sessInfo.label : null,
+              sessionPhone: _sessInfo ? _sessInfo.phone : null,
+              groupName: spec.name || null,
+              metadata: {
+                specHash: spec.specHash,
+                clientPhone: spec.clientPhone,
+                originalError: String(e?.message || "").slice(0, 200),
+              },
+            });
             try {
               created = await callWithTransientRetry(
                 sessionId,
@@ -2682,6 +2749,44 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         row.statusMessage = e?.message || String(e);
       }
     }
+
+    // Activity log: resultado do spec (success / rate_limit / failed).
+    // Metadata carrega flags úteis pra análise empírica (quem entrou, quem recebeu DM, etc).
+    const _deltaMs = Date.now() - _specStartedAt;
+    const _evType = row.status === "created" ? "group_create:success"
+                  : row.status === "rate_limited" ? "group_create:rate_limit"
+                  : "group_create:failed";
+    const _evLevel = row.status === "created" ? "info"
+                  : row.status === "rate_limited" ? "error" : "warn";
+    _logEvent({
+      type: _evType,
+      level: _evLevel,
+      message: (row.status === "created" ? "Grupo criado: " : (row.status === "rate_limited" ? "RATE-LIMIT no grupo: " : "Falha no grupo: ")) + (spec.name || "(sem nome)"),
+      sessionId,
+      sessionLabel: _sessInfo ? _sessInfo.label : null,
+      sessionPhone: _sessInfo ? _sessInfo.phone : null,
+      groupJid: row.groupJid || null,
+      groupName: spec.name || null,
+      metadata: {
+        specHash: spec.specHash,
+        status: row.status,
+        deltaMs: _deltaMs,
+        membersTotal: row.membersTotal || 0,
+        membersAdded: row.membersAdded || 0,
+        hasDescription: !!row.hasDescription,
+        hasPhoto: !!row.hasPhoto,
+        locked: !!row.locked,
+        welcomeSent: !!row.welcomeSent,
+        clientDmSent: row.clientDmSent,
+        cx2DmSent: row.cx2DmSent,
+        escaladaDmSent: row.escaladaDmSent,
+        clientAdded: row.clientAdded,
+        statusMessage: row.statusMessage,
+        errorMessage: row.status === "failed" ? row.statusMessage : undefined,
+        index: i,
+        total,
+      },
+    });
 
     results.push(row);
     upsertGroupCreation(sessionId, row);

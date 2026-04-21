@@ -49,6 +49,7 @@ app.use("/api/contacts", requireAuth, require("./routes/contacts"));
 app.use("/api/jobs", requireAuth, require("./routes/jobs"));
 app.use("/api/fotos", requireAuth, require("./routes/fotos"));
 app.use("/api/hubspot", requireAuth, require("./routes/hubspot"));
+app.use("/api/activity", requireAuth, require("./routes/activity"));
 app.use("/api/dhiego-ai", requireAuth, require("./routes/dhiego-ai"));
 app.use("/api/google", require("./routes/google-oauth")); // no auth — OAuth callback must be public
 
@@ -77,6 +78,11 @@ io.on("connection", (socket) => {
 
 // Connect Socket.io to Baileys for event broadcasting
 baileys.setIO(io);
+
+// Activity log — unifica eventos de produção em activity_events + emite em
+// tempo real via socket.io (canal: "activity:event"). Ver
+// whatsapp-server/src/services/activity-log.js
+require("./services/activity-log").setIO(io);
 
 // ===== Start server =====
 server.listen(PORT, async () => {

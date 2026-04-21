@@ -10,6 +10,7 @@
 
 const { randomUUID } = require("crypto");
 const baileys = require("./baileys");
+const { logEvent } = require("./activity-log");
 const { supaRest } = require("./supabase");
 
 // jobId -> job object
@@ -392,11 +393,36 @@ async function startCreateGroupsJob(sessionId, specs, config = {}) {
   });
   // Specs are kept on the job object but not serialized in summaries
   job._specs = Array.isArray(specs) ? specs : [];
+
+  // Activity log: job de criação começou
+  const sessMeta = baileys.getSessionMeta(sessionId) || {};
+  logEvent({
+    type: "group_create_job:started",
+    level: "info",
+    message: "Job de criação iniciado — " + job._specs.length + " spec(s), delay " + job.config.delaySec + "s + jitter [" + jitterMinSec + "-" + jitterMaxSec + "]s",
+    sessionId: sessionId,
+    sessionLabel: sessMeta.label || null,
+    sessionPhone: sessMeta.phone || null,
+    jobId: job.id,
+    metadata: {
+      specCount: job._specs.length,
+      delaySec: job.config.delaySec,
+      jitterMinSec, jitterMaxSec,
+    },
+  });
+
   runCreateGroupsWorker(job).catch(e => {
     job.status = "error";
     job.lastError = e.message || String(e);
     job.updatedAt = new Date().toISOString();
     console.error("[JOBS] Create-groups worker crashed:", e);
+    logEvent({
+      type: "group_create_job:error",
+      level: "error",
+      message: "Worker crashed: " + (e.message || String(e)),
+      sessionId, jobId: job.id,
+      metadata: { error: e.message || String(e) },
+    });
   });
   return job;
 }
@@ -536,10 +562,40 @@ async function runCreateGroupsWorker(job) {
       job.status = "completed";
     }
     job.updatedAt = new Date().toISOString();
+
+    // Activity log: resumo final do job
+    const createdCount = (job.results || []).filter(r => r.status === "created").length;
+    const failedCount = (job.results || []).filter(r => r.status === "failed").length;
+    const rlCount = (job.results || []).filter(r => r.status === "rate_limited").length;
+    const sessMeta = baileys.getSessionMeta(job.sessionId) || {};
+    logEvent({
+      type: "group_create_job:" + job.status,
+      level: job.status === "completed" ? "info" : (job.status === "rate_limited" ? "warn" : "warn"),
+      message: "Job " + job.status + " — " + newThisRun + " criados nesta rodada (" + createdCount + " criados totais, " + failedCount + " falhas, " + rlCount + " rate-limit)",
+      sessionId: job.sessionId,
+      sessionLabel: sessMeta.label || null,
+      sessionPhone: sessMeta.phone || null,
+      jobId: job.id,
+      metadata: {
+        status: job.status,
+        newInThisRun: newThisRun,
+        totalCreated: createdCount,
+        totalFailed: failedCount,
+        totalRateLimited: rlCount,
+        specCount: job._specs.length,
+      },
+    });
   } catch (e) {
     job.status = "error";
     job.lastError = e.message || String(e);
     job.updatedAt = new Date().toISOString();
+    logEvent({
+      type: "group_create_job:error",
+      level: "error",
+      message: "Worker crashed: " + (e.message || String(e)),
+      sessionId: job.sessionId, jobId: job.id,
+      metadata: { error: e.message || String(e) },
+    });
     throw e;
   }
 }
