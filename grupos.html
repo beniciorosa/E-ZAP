@@ -230,11 +230,13 @@
 
     /* ===== Activity Log Sidebar ===== */
     /* Sidebar empurra o conteúdo (body ganha padding-right quando .activity-open).
-       Em telas estreitas (<1000px) vira overlay sobre o conteúdo pra não espremer demais. */
+       Em tela muito pequena (<720px) vira overlay (sidebar cobre tudo, 100vw).
+       box-sizing global + overflow-x hidden evita qualquer elemento transbordar pra sob a sidebar. */
+    html, body { overflow-x:hidden; box-sizing:border-box; }
     body { transition:padding-right 0.3s ease; }
     body.activity-open { padding-right:440px; }
-    @media (max-width:1000px) {
-      body.activity-open { padding-right:0; }  /* overlay mode */
+    @media (max-width:720px) {
+      body.activity-open { padding-right:0; }  /* tela mobile = overlay total */
     }
     .activity-sidebar {
       position:fixed; right:0; top:0; bottom:0; width:0;
@@ -244,6 +246,8 @@
     }
     .activity-sidebar.open { width:440px; }
     @media (max-width:720px) { .activity-sidebar.open { width:100vw; } }
+    /* Esconde botão flutuante quando sidebar aberta — user fecha pelo X do header */
+    body.activity-open #activityToggleBtn { display:none; }
     .activity-header {
       padding:14px 16px; border-bottom:1px solid var(--border);
       display:flex; justify-content:space-between; align-items:center; flex-shrink:0;
@@ -735,7 +739,7 @@
   </div>
 
   <!-- Modal: VCard — envia lista de contatos pros mentores salvarem na agenda -->
-  <div class="modal-backdrop" id="vcardModal" style="display:none">
+  <div class="modal-backdrop" id="vcardModal">
     <div class="modal" style="max-width:820px">
       <div class="modal-title">📇 Enviar contatos pros mentores (self-chat)</div>
       <div class="modal-sub">Cola URLs ou IDs de tickets HubSpot. A ferramenta resolve cada ticket, valida os números via onWhatsApp, agrupa por mentor, e envia 1 mensagem pra "Mensagem pra si mesmo" de cada mentor com os contatos novos.<br>O mentor toca no número na mensagem → WhatsApp abre "Adicionar aos contatos". Depois que os clientes estão salvos, criar o grupo direto funciona sem <code>bad-request</code>.</div>
