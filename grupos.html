@@ -6,6 +6,8 @@
   <title>Ferramenta de Grupos WhatsApp — E-ZAP</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Socket.io client pra sidebar de log em tempo real (ver initActivityLog) -->
+  <script src="https://cdn.socket.io/4.8.0/socket.io.min.js"></script>
   <style>
     :root {
       --bg:#0f1420; --surface:#1a2030; --surface-2:#121828; --border:#2a3347;
@@ -225,6 +227,84 @@
     .auto-mentor table td { padding:6px 8px; border-bottom:1px solid var(--border); }
     .auto-mentor .auto-status-ok { color:var(--accent-green, #22c55e); font-size:11px; }
     .auto-mentor .auto-status-err { color:var(--danger, #ef4444); font-size:11px; }
+
+    /* ===== Activity Log Sidebar ===== */
+    .activity-sidebar {
+      position:fixed; right:0; top:0; bottom:0; width:0;
+      overflow:hidden; transition:width 0.3s ease;
+      background:var(--surface); border-left:1px solid var(--border);
+      z-index:90; display:flex; flex-direction:column; box-shadow:-4px 0 16px rgba(0,0,0,0.3);
+    }
+    .activity-sidebar.open { width:440px; }
+    @media (max-width:720px) { .activity-sidebar.open { width:100vw; } }
+    .activity-header {
+      padding:14px 16px; border-bottom:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center; flex-shrink:0;
+    }
+    .activity-header h3 { margin:0; font-size:14px; font-weight:600; }
+    .activity-header button.close-btn {
+      background:transparent; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:4px 8px;
+    }
+    .activity-header button.close-btn:hover { color:var(--text); }
+    .activity-insights {
+      padding:10px 14px; background:rgba(99,102,241,0.06);
+      font-size:11px; border-bottom:1px solid var(--border); flex-shrink:0;
+      max-height:180px; overflow-y:auto;
+    }
+    .activity-insights .title { color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; font-size:10px; margin-bottom:4px; }
+    .activity-insights .metric { margin:2px 0; }
+    .activity-insights .metric b { color:var(--text); }
+    .activity-filters {
+      padding:8px 12px; display:flex; gap:6px; flex-wrap:wrap;
+      border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .activity-filters select {
+      flex:1; min-width:80px; font-size:11px; padding:4px 8px;
+      background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text);
+    }
+    .activity-events-list {
+      flex:1; overflow-y:auto; padding:0;
+    }
+    .activity-events-list::-webkit-scrollbar { width:8px; }
+    .activity-events-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+    .activity-event {
+      padding:8px 14px; border-bottom:1px solid var(--border); font-size:11px;
+      display:flex; gap:8px; border-left:3px solid transparent;
+    }
+    .activity-event.debug { border-left-color:var(--muted); }
+    .activity-event.info { border-left-color:var(--primary); }
+    .activity-event.warn { border-left-color:var(--warn); background:rgba(245,158,11,0.04); }
+    .activity-event.error, .activity-event.critical { border-left-color:var(--danger); background:rgba(239,68,68,0.04); }
+    .activity-event-time { color:var(--muted); min-width:48px; font-family:monospace; font-size:10px; }
+    .activity-event-body { flex:1; min-width:0; }
+    .activity-event-msg { word-wrap:break-word; }
+    .activity-event-meta { color:var(--muted); font-size:10px; margin-top:2px; word-wrap:break-word; }
+    .activity-event-type { display:inline-block; padding:1px 6px; background:var(--surface-2); border-radius:4px; font-family:monospace; font-size:9px; color:var(--muted); margin-right:4px; }
+    .activity-empty { padding:20px; text-align:center; color:var(--muted); font-size:12px; }
+
+    #activityToggleBtn {
+      position:fixed; right:16px; bottom:16px; width:52px; height:52px; border-radius:50%;
+      background:var(--primary); color:white; border:none; font-size:20px; cursor:pointer;
+      z-index:89; box-shadow:0 4px 14px rgba(0,0,0,0.35);
+      display:flex; align-items:center; justify-content:center;
+      transition:transform 0.15s ease;
+    }
+    #activityToggleBtn:hover { transform:scale(1.08); }
+    #activityToggleBtn .activity-badge {
+      position:absolute; top:-4px; right:-4px; background:var(--danger); color:white;
+      font-size:10px; padding:2px 6px; border-radius:10px; min-width:18px; text-align:center;
+      font-weight:600; display:none;
+    }
+    #activityToggleBtn.has-new .activity-badge { display:inline-block; }
+    .activity-status-dot {
+      display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px;
+      background:var(--muted);
+    }
+    .activity-status-dot.live { background:var(--ok); animation:pulse 2s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity:1; }
+      50% { opacity:0.35; }
+    }
   </style>
 </head>
 <body>
@@ -3923,6 +4003,212 @@ setInterval(function() {
   }
 }, 30000);
 
+// ============================================================
+// ===== Activity Log Sidebar ===================================
+// ============================================================
+// Sidebar direita colapsável que mostra log de eventos em tempo real.
+// Conecta via socket.io pro canal "activity:event" + faz HTTP bootstrap
+// inicial em GET /api/activity?day=today.
+// Virada de dia: no header aparecem insights do dia anterior.
+
+var _activityEvents = [];         // buffer dos últimos ~500 eventos (ordem: recentes primeiro)
+var _activitySocket = null;
+var _activityOpen = false;
+var _activityUnseenCount = 0;     // contador de eventos novos desde última abertura
+
+function initActivityLog() {
+  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
+  var tok = (document.getElementById("adminToken").value || "").trim();
+  if (!url || !tok) return;
+
+  // Popula select de dias (últimos 14 dias)
+  var daySel = document.getElementById("activityFilterDay");
+  if (daySel) {
+    var opts = '<option value="today">Hoje</option><option value="yesterday">Ontem</option>';
+    for (var d = 2; d < 14; d++) {
+      var dt = new Date();
+      dt.setDate(dt.getDate() - d);
+      var iso = dt.toISOString().slice(0, 10);
+      var label = dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+      opts += '<option value="' + iso + '">' + label + '</option>';
+    }
+    daySel.innerHTML = opts;
+  }
+
+  // HTTP bootstrap — eventos do dia atual
+  loadActivityForDay();
+
+  // Insights do dia anterior (header)
+  waFetch("/api/activity/insights?day=yesterday").then(function(res) {
+    renderActivityInsights(res && res.insights, "Ontem");
+  }).catch(function() {});
+
+  // Socket.io pra eventos em tempo real
+  try {
+    _activitySocket = io(url, { auth: { token: tok }, transports: ["websocket", "polling"] });
+    _activitySocket.on("connect", function() {
+      var dot = document.getElementById("activityStatusDot");
+      if (dot) dot.classList.add("live");
+    });
+    _activitySocket.on("disconnect", function() {
+      var dot = document.getElementById("activityStatusDot");
+      if (dot) dot.classList.remove("live");
+    });
+    _activitySocket.on("activity:event", function(ev) {
+      if (!ev) return;
+      // Se o user tá vendo outro dia, só guarda se for hoje
+      var selectedDay = document.getElementById("activityFilterDay");
+      var viewingToday = !selectedDay || selectedDay.value === "today";
+      if (!viewingToday) return;
+      _activityEvents.unshift(ev);
+      if (_activityEvents.length > 1000) _activityEvents.pop();
+      if (!_activityOpen) {
+        _activityUnseenCount++;
+        var badge = document.getElementById("activityBadge");
+        var btn = document.getElementById("activityToggleBtn");
+        if (badge) badge.textContent = String(_activityUnseenCount);
+        if (btn) btn.classList.add("has-new");
+      }
+      renderActivityLog();
+    });
+  } catch (e) {
+    console.warn("activity socket init failed:", e.message);
+  }
+}
+
+function loadActivityForDay() {
+  var daySel = document.getElementById("activityFilterDay");
+  var day = daySel ? daySel.value : "today";
+  waFetch("/api/activity?day=" + encodeURIComponent(day) + "&limit=1000").then(function(res) {
+    _activityEvents = (res && res.events) || [];
+    renderActivityLog();
+  }).catch(function(e) {
+    console.warn("load activity failed:", e.message);
+    _activityEvents = [];
+    renderActivityLog();
+  });
+}
+
+function renderActivityInsights(insights, dayLabel) {
+  var box = document.getElementById("activityInsights");
+  if (!box || !insights) { if (box) box.innerHTML = ''; return; }
+  var topSession = (insights.mostActiveSessions && insights.mostActiveSessions[0]);
+  var parts = [];
+  parts.push('<div class="title">📊 ' + (dayLabel || "Ontem") + ' (' + insights.day + ')</div>');
+  parts.push('<div class="metric">✅ <b>' + insights.groupsCreated + '</b> grupos criados' + (insights.groupsFailed ? ' · ❌ ' + insights.groupsFailed + ' falhas' : '') + (insights.groupsRateLimited ? ' · ⏸ ' + insights.groupsRateLimited + ' rate-limit' : '') + '</div>');
+  if (insights.badRequestFallbacks) parts.push('<div class="metric">🔄 <b>' + insights.badRequestFallbacks + '</b> fallback bad-request</div>');
+  if (insights.phonesAdjusted9br || insights.phonesNotOnWhatsapp) {
+    parts.push('<div class="metric">📞 ' + (insights.phonesAdjusted9br ? insights.phonesAdjusted9br + ' números ajustados (9 BR)' : '') + (insights.phonesAdjusted9br && insights.phonesNotOnWhatsapp ? ' · ' : '') + (insights.phonesNotOnWhatsapp ? '<span style="color:var(--danger)">' + insights.phonesNotOnWhatsapp + ' inválidos</span>' : '') + '</div>');
+  }
+  var dmsTotal = (insights.dmsSent.client + insights.dmsSent.cx2 + insights.dmsSent.escalada);
+  if (dmsTotal) parts.push('<div class="metric">💬 <b>' + dmsTotal + '</b> DMs enviadas (' + insights.dmsSent.client + ' cliente, ' + insights.dmsSent.cx2 + ' CX2, ' + insights.dmsSent.escalada + ' Escalada)</div>');
+  if (topSession) parts.push('<div class="metric">🔥 Top: <b>' + esc(topSession.label || topSession.phone || "?") + '</b> (' + (topSession.created || 0) + ' grupos)</div>');
+  if (insights.totalEvents === 0) parts.push('<div class="metric" style="color:var(--muted)">Sem eventos registrados neste dia.</div>');
+  box.innerHTML = parts.join('');
+}
+
+function renderActivityLog() {
+  var list = document.getElementById("activityEventsList");
+  if (!list) return;
+  var typeFilter = (document.getElementById("activityFilterType") || {}).value || "";
+  var levelFilter = (document.getElementById("activityFilterLevel") || {}).value || "";
+  var filtered = _activityEvents.filter(function(ev) {
+    if (levelFilter && ev.level !== levelFilter) return false;
+    if (typeFilter && ev.event_type && ev.event_type.indexOf(typeFilter) !== 0) return false;
+    return true;
+  });
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="activity-empty">Sem eventos — ou nenhum bate com o filtro.</div>';
+    return;
+  }
+  var html = "";
+  filtered.slice(0, 500).forEach(function(ev) {
+    var dt = new Date(ev.occurred_at);
+    var tm = dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    var meta = [];
+    if (ev.session_label) meta.push('🔌 ' + esc(ev.session_label));
+    else if (ev.session_phone) meta.push('🔌 ' + esc(ev.session_phone));
+    if (ev.metadata && ev.metadata.deltaMs) meta.push('⏱ ' + Math.round(ev.metadata.deltaMs / 1000) + 's');
+    if (ev.metadata && ev.metadata.membersAdded != null && ev.metadata.membersTotal != null) meta.push('👥 ' + ev.metadata.membersAdded + '/' + ev.metadata.membersTotal);
+    if (ev.job_id) meta.push('🏷 job ' + String(ev.job_id).slice(0, 8));
+    var emoji = "";
+    if (ev.event_type === "group_create:success") emoji = "✅ ";
+    else if (ev.event_type === "group_create:rate_limit") emoji = "⏸ ";
+    else if (ev.event_type === "group_create:failed") emoji = "❌ ";
+    else if (ev.event_type === "group_create:start") emoji = "🚀 ";
+    else if (ev.event_type === "group_create:bad_request_fallback") emoji = "🔄 ";
+    else if (ev.event_type === "session:quarantine_enter") emoji = "🚨 ";
+    else if (ev.event_type === "session:quarantine_release") emoji = "▶️ ";
+    else if (ev.event_type === "resolve_tickets") emoji = "🎫 ";
+    else if (ev.event_type === "phone_validation:not_on_whatsapp") emoji = "🔴 ";
+    else if (ev.event_type === "phone_validation:adjusted_9_br") emoji = "⚠ ";
+    else if (ev.event_type && ev.event_type.indexOf("group_create_job") === 0) emoji = "📦 ";
+    html += '<div class="activity-event ' + esc(ev.level || "info") + '">'
+      + '<div class="activity-event-time">' + tm + '</div>'
+      + '<div class="activity-event-body">'
+      +   '<div class="activity-event-msg"><span class="activity-event-type">' + esc(ev.event_type || "?") + '</span>' + emoji + esc(ev.message || '') + '</div>'
+      + (meta.length ? '<div class="activity-event-meta">' + meta.join(' · ') + '</div>' : '')
+      + '</div>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function toggleActivityLog() {
+  var side = document.getElementById("activityLogSidebar");
+  if (!side) return;
+  _activityOpen = !_activityOpen;
+  side.classList.toggle("open", _activityOpen);
+  if (_activityOpen) {
+    _activityUnseenCount = 0;
+    var badge = document.getElementById("activityBadge");
+    var btn = document.getElementById("activityToggleBtn");
+    if (badge) badge.textContent = "0";
+    if (btn) btn.classList.remove("has-new");
+  }
+}
+
+// Inicializa após loadSessions já rodar (pra ter token + sessions disponíveis).
+// O setInterval existente chama loadSessions; fazemos um init oportunista aqui.
+setTimeout(function() {
+  try { initActivityLog(); } catch (e) { console.warn("initActivityLog:", e.message); }
+}, 1500);
+
 </script>
+
+<!-- Activity Log: botão flutuante + sidebar -->
+<button id="activityToggleBtn" onclick="toggleActivityLog()" title="Log de eventos em tempo real">
+  📋<span id="activityBadge" class="activity-badge">0</span>
+</button>
+<aside id="activityLogSidebar" class="activity-sidebar">
+  <div class="activity-header">
+    <h3><span id="activityStatusDot" class="activity-status-dot"></span>📋 Log de eventos</h3>
+    <button class="close-btn" onclick="toggleActivityLog()">✕</button>
+  </div>
+  <div id="activityInsights" class="activity-insights"></div>
+  <div class="activity-filters">
+    <select id="activityFilterDay" onchange="loadActivityForDay()">
+      <option value="today">Hoje</option>
+      <option value="yesterday">Ontem</option>
+    </select>
+    <select id="activityFilterType" onchange="renderActivityLog()">
+      <option value="">Todos os tipos</option>
+      <option value="group_create:">Criação grupos</option>
+      <option value="group_create_job">Jobs</option>
+      <option value="session:">Sessões</option>
+      <option value="resolve_tickets">Resolve</option>
+      <option value="phone_validation:">Validação número</option>
+    </select>
+    <select id="activityFilterLevel" onchange="renderActivityLog()">
+      <option value="">Todos</option>
+      <option value="info">ℹ Info</option>
+      <option value="warn">⚠ Warn</option>
+      <option value="error">❌ Error</option>
+      <option value="critical">🔴 Critical</option>
+    </select>
+  </div>
+  <div id="activityEventsList" class="activity-events-list"></div>
+</aside>
+
 </body>
 </html>
