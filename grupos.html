@@ -2864,9 +2864,43 @@ async function resolveHubspotTickets() {
     var notFound = (payload && payload.notFound) || [];
     var ok = _hubspotResolved.filter(function(r) { return !r.warning; }).length;
     var warn = _hubspotResolved.filter(function(r) { return !!r.warning; }).length;
-    statusEl.innerHTML = '<span style="color:var(--ok)">' + ok + ' OK</span>'
+
+    // Breakdown da validação onWhatsApp (commit 2403111 — resolve-tickets
+    // valida phones em batch numa sessão doadora). Conta quantos clientes
+    // caíram em cada bucket pra dar feedback visual claro do que rolou.
+    var vOk = _hubspotResolved.filter(function(r) { return r.clientValidation === "ok"; }).length;
+    var vAdjusted = _hubspotResolved.filter(function(r) { return r.clientValidation === "adjusted_no_9"; }).length;
+    var vInvalid = _hubspotResolved.filter(function(r) { return r.clientValidation === "not_on_whatsapp"; }).length;
+    var vNoValidator = _hubspotResolved.filter(function(r) { return r.clientValidation === "no_validator"; }).length;
+    var vFailed = _hubspotResolved.filter(function(r) { return r.clientValidation === "not_validated"; }).length;
+    var validatorPhone = payload && payload.validatorSession;
+
+    var line1 = '<span style="color:var(--ok)">' + ok + ' OK</span>'
       + (warn ? ' · <span style="color:var(--warn)">' + warn + ' com aviso</span>' : '')
       + (notFound.length ? ' · <span style="color:var(--danger)">' + notFound.length + ' não encontrados (' + notFound.slice(0, 3).join(", ") + (notFound.length > 3 ? "…" : "") + ')</span>' : '');
+
+    // Linha 2: validação de JID. Só mostra se o lote tinha tickets com phone.
+    var line2 = "";
+    if (validatorPhone) {
+      var validatorLabel = "📞 " + esc(validatorPhone);
+      var sessLabel = (_sessions || []).find(function(s) {
+        return String(s.phone || "").replace(/\D/g, "") === String(validatorPhone).replace(/\D/g, "");
+      });
+      if (sessLabel && sessLabel.label) validatorLabel = "📞 " + esc(sessLabel.label) + " (" + esc(validatorPhone) + ")";
+      var parts = [];
+      if (vOk) parts.push('<span style="color:var(--ok)">' + vOk + ' OK</span>');
+      if (vAdjusted) parts.push('<span style="color:var(--warn)" title="Número ajustado automaticamente (com/sem 9 BR)">⚠ ' + vAdjusted + ' ajustado</span>');
+      if (vInvalid) parts.push('<span style="color:var(--danger)" title="Número não existe no WhatsApp em nenhuma variante — cliente será pulado + DM falha">🔴 ' + vInvalid + ' inválido</span>');
+      if (vFailed) parts.push('<span style="color:var(--muted)" title="IQ falhou na sessão doadora — JID raw será usado como fallback">⚫ ' + vFailed + ' sem validar</span>');
+      line2 = '<div style="margin-top:4px; font-size:11px; color:var(--muted)">'
+        + 'Validador: ' + validatorLabel
+        + (parts.length ? ' · ' + parts.join(' · ') : '')
+        + '</div>';
+    } else if (vNoValidator > 0) {
+      line2 = '<div style="margin-top:4px; font-size:11px; color:var(--muted)">⚫ Sem sessão doadora disponível pra validar os ' + vNoValidator + ' clientes do lote (CX2/Escalada offline?)</div>';
+    }
+
+    statusEl.innerHTML = line1 + line2;
     await buildSpecsFromHubspotResolved();
   } catch (e) {
     statusEl.textContent = "";
