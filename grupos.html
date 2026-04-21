@@ -234,7 +234,8 @@
        box-sizing global + overflow-x hidden evita qualquer elemento transbordar pra sob a sidebar. */
     html, body { overflow-x:hidden; box-sizing:border-box; }
     body { transition:padding-right 0.3s ease; }
-    body.activity-open { padding-right:440px; }
+    /* 464 = 440 sidebar + 24 gap visual (evita cards com box-shadow/border vazar sob a sidebar) */
+    body.activity-open { padding-right:464px; }
     @media (max-width:720px) {
       body.activity-open { padding-right:0; }  /* tela mobile = overlay total */
     }
