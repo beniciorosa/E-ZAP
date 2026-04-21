@@ -50,6 +50,7 @@ app.use("/api/jobs", requireAuth, require("./routes/jobs"));
 app.use("/api/fotos", requireAuth, require("./routes/fotos"));
 app.use("/api/hubspot", requireAuth, require("./routes/hubspot"));
 app.use("/api/activity", requireAuth, require("./routes/activity"));
+app.use("/api/vcard", requireAuth, require("./routes/vcard"));
 app.use("/api/dhiego-ai", requireAuth, require("./routes/dhiego-ai"));
 app.use("/api/google", require("./routes/google-oauth")); // no auth — OAuth callback must be public
 

@@ -305,6 +305,39 @@ router.post("/resolve-tickets", async (req, res) => {
       });
     }
 
+    // 4.5. Enriquece cada resolved com flag `vcardAlreadySent` — se mentor
+    // já recebeu vCard desse cliente no self-chat dele, marca. Frontend mostra
+    // badge 💾 no preview pra UI saber que não precisa re-enviar.
+    try {
+      const mentorIds = Array.from(new Set(resolved.map(r => r.mentorSessionId).filter(Boolean)));
+      const allPhones = Array.from(new Set(resolved.map(r => String(r.whatsapp || "").replace(/\D/g, "")).filter(p => p.length >= 10)));
+      if (mentorIds.length > 0 && allPhones.length > 0) {
+        const vRows = await supaRest(
+          "/rest/v1/vcard_sent_registry" +
+          "?mentor_session_id=in.(" + mentorIds.join(",") + ")" +
+          "&client_phone=in.(" + allPhones.map(p => '"' + p + '"').join(",") + ")" +
+          "&select=mentor_session_id,client_phone,sent_at"
+        ).catch(() => []);
+        const sentMap = new Map();
+        for (const v of (Array.isArray(vRows) ? vRows : [])) {
+          sentMap.set(v.mentor_session_id + "|" + v.client_phone, v.sent_at);
+        }
+        for (const r of resolved) {
+          if (!r.mentorSessionId || !r.whatsapp) continue;
+          const p = String(r.whatsapp).replace(/\D/g, "");
+          const key = r.mentorSessionId + "|" + p;
+          if (sentMap.has(key)) {
+            r.vcardAlreadySent = true;
+            r.vcardSentAt = sentMap.get(key);
+          } else {
+            r.vcardAlreadySent = false;
+          }
+        }
+      }
+    } catch (vErr) {
+      console.warn("[HUBSPOT] vcard registry lookup failed:", vErr.message);
+    }
+
     // 5. Validação onWhatsApp em batch (1 IQ total + opcional 1 IQ retry com
     // variante do "9" BR). Sessão doadora: CX2 > Escalada > outra conectada.
     // Cliente não encontrado em nenhuma variante → clientValidation="not_on_whatsapp",
