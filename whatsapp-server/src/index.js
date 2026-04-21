@@ -83,7 +83,15 @@ baileys.setIO(io);
 // Activity log — unifica eventos de produção em activity_events + emite em
 // tempo real via socket.io (canal: "activity:event"). Ver
 // whatsapp-server/src/services/activity-log.js
-require("./services/activity-log").setIO(io);
+const _activityLog = require("./services/activity-log");
+_activityLog.setIO(io);
+
+// PR 2 — IQ counter snapshot loop: a cada 5 min emite iq:snapshot events
+// pra cada sessão com atividade na última hora. Persiste historical em
+// activity_events pra análise posterior (mesmo após pm2 restart que zera
+// o counter in-memory). Ver whatsapp-server/src/services/iq-counter.js
+const _iqCounter = require("./services/iq-counter");
+_iqCounter.startSnapshotLoop(_activityLog.logEvent);
 
 // ===== Start server =====
 server.listen(PORT, async () => {

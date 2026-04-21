@@ -1048,6 +1048,7 @@ function loadSessions() {
     // Dispara busca do health-stats em paralelo (não bloqueia load de sessões).
     // Quando voltar, re-renderiza o card pra aparecer as badges.
     loadSessionHealthStats();
+    loadSessionIqStats();  // PR 2 — badge ⚡ IQ/h
     return _sessions;
   }).catch(function(e) {
     showToast("Erro ao carregar sessões: " + e.message, "error");
@@ -1064,6 +1065,25 @@ function loadSessionHealthStats() {
     _sessionHealth = {};
   });
 }
+
+// Mapa session_id → { total, lastHour, iqByType, ... } — contador IQ PR 2.
+// Usado em renderSessionsCard pra mostrar badge ⚡ "N IQ/h" em cada card.
+var _sessionIqStats = {};
+
+function loadSessionIqStats() {
+  return waFetch("/api/sessions/iq-stats-all").then(function(res) {
+    _sessionIqStats = (res && res.stats) || {};
+    renderSessionsCard();
+  }).catch(function(e) {
+    console.warn("iq-stats-all falhou:", e.message);
+    _sessionIqStats = {};
+  });
+}
+
+// Refresh do IQ a cada 30s (atividade muda rápido durante um lote)
+setInterval(function() {
+  if (document.visibilityState === "visible") loadSessionIqStats();
+}, 30000);
 
 // ===== Quarentena (manual + automática durante createGroupsFromList) =====
 // Quarentena é o "modo avião" da sessão: backend para TUDO que geraria IQ
@@ -1273,6 +1293,28 @@ function renderSessionsCard() {
     var borderColor = s.quarantine ? "var(--danger)" : "var(--ok)";
     var dot = s.quarantine ? "🚨" : "🟢";
 
+    // Badge IQ/h (PR 2) — baseado em _sessionIqStats. Cor muda por intensidade:
+    //   <10/h verde, 10-30 normal, 30-60 amarelo, 60+ vermelho.
+    var iq = _sessionIqStats[s.id];
+    var iqBadge = "";
+    if (iq && iq.total > 0) {
+      var lh = iq.lastHour || 0;
+      var iqColor, iqBorder;
+      if (lh >= 60) { iqColor = "var(--danger)"; iqBorder = "var(--danger)"; }
+      else if (lh >= 30) { iqColor = "var(--warn)"; iqBorder = "var(--warn)"; }
+      else { iqColor = "var(--muted)"; iqBorder = "var(--border)"; }
+      // Tooltip: breakdown top 3 tipos
+      var topTypes = Object.entries(iq.lastHourByType || {})
+        .sort(function(a, b) { return b[1] - a[1]; })
+        .slice(0, 3)
+        .map(function(x) { return x[0] + ": " + x[1]; })
+        .join(", ");
+      var tip = "IQs na última hora: " + lh
+        + (topTypes ? " · Top: " + topTypes : "")
+        + " · Total desde pm2 start: " + iq.total;
+      iqBadge = '<span title="' + esc(tip) + '" style="background:rgba(0,0,0,0.15); color:' + iqColor + '; border:1px solid ' + iqBorder + '; border-radius:6px; padding:2px 7px; font-size:10px; font-weight:600">⚡ ' + lh + '/h</span>';
+    }
+
     // Badge de saúde (🔥 quente / 🆕 fria / 🚫 marcada / OK sem badge).
     // Baseado em _sessionHealth (GET /api/sessions/health-stats).
     var health = _sessionHealth[s.id];
@@ -1323,6 +1365,7 @@ function renderSessionsCard() {
       +     '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">'
       +       '<div style="font-weight:600; font-size:13px">' + label + '</div>'
       +       healthBadge
+      +       iqBadge
       +     '</div>'
       +     '<div style="margin-top:2px">' + statusText + '</div>'
       +   '</div>'
@@ -4372,6 +4415,7 @@ function renderActivityLog() {
     else if (ev.event_type === "session:reconnected") emoji = "✅🔌 ";
     else if (ev.event_type === "vcard:sent") emoji = "📇 ";
     else if (ev.event_type === "vcard:failed") emoji = "❌📇 ";
+    else if (ev.event_type === "iq:snapshot") emoji = "⚡ ";
     html += '<div class="activity-event ' + esc(ev.level || "info") + '">'
       + '<div class="activity-event-time">' + tm + '</div>'
       + '<div class="activity-event-body">'
@@ -4434,6 +4478,7 @@ setTimeout(function() {
       <option value="resolve_tickets">Resolve</option>
       <option value="phone_validation:">Validação número</option>
       <option value="vcard:">VCards</option>
+      <option value="iq:snapshot">⚡ IQ snapshots</option>
     </select>
     <select id="activityFilterLevel" onchange="renderActivityLog()">
       <option value="">Todos</option>

@@ -119,6 +119,17 @@ router.get("/health-stats", async (req, res) => {
   }
 });
 
+// GET /api/sessions/iq-stats-all — Snapshot de TODAS as sessões.
+// Usado pelo frontend pra preencher badge "⚡ N IQ/h" em cada card de sessão.
+// IMPORTANTE: definido ANTES de "/:id" pra não ser capturado como id=iq-stats-all.
+router.get("/iq-stats-all", (req, res) => {
+  try {
+    res.json({ ok: true, stats: baileys.getAllIqStats() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/sessions/:id — Get single session
 router.get("/:id", async (req, res) => {
   try {
@@ -409,6 +420,17 @@ router.post("/:id/quarantine/release", (req, res) => {
 router.get("/:id/quarantine", (req, res) => {
   try {
     res.json({ ok: true, status: baileys.getQuarantineStatus(req.params.id) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/sessions/:id/iq-stats — Contador de IQs da sessão (PR 2).
+// In-memory, zera em pm2 restart. Janela de 1h sliding pra lastHour metric.
+// Snapshots periódicos (5min) persistem em activity_events via iq:snapshot.
+router.get("/:id/iq-stats", (req, res) => {
+  try {
+    res.json({ ok: true, stats: baileys.getIqStats(req.params.id) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

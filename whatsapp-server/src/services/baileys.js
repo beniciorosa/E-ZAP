@@ -15,6 +15,9 @@ function _getActivityLog() {
 function _logEvent(opts) {
   try { _getActivityLog().logEvent(opts); } catch (e) { /* never block flow on log */ }
 }
+// IQ counter — PR 2. Conta stanzas IQ que a sessão emite via monkey-patch
+// em sock.query. Dados in-memory, snapshot periódico via logEvent(iq:snapshot).
+const _iqCounter = require("./iq-counter");
 
 const logger = pino({ level: "warn" });
 
@@ -266,6 +269,16 @@ async function startSession(sessionId, existingCreds = null) {
   if (waVersion) sockOpts.version = waVersion;
   const sock = makeWASocket(sockOpts);
 
+  // PR 2: monkey-patch sock.query pra contar IQs reais emitidos pela sessão.
+  // Preserva `this` e spread de args. Defensivo (try/catch interno) —
+  // NUNCA deve quebrar o fluxo do Baileys. Se sock.query mudar de shape
+  // em versão futura, attachToSock detecta e loga sem patchar.
+  try {
+    _iqCounter.attachToSock(sessionId, sock);
+  } catch (e) {
+    console.warn("[BAILEYS] iq-counter attach failed for", sessionId, e.message);
+  }
+
   const session = { sock, status: "connecting", qr: null, sessionId };
   sessions.set(sessionId, session);
 
@@ -296,6 +309,10 @@ async function startSession(sessionId, existingCreds = null) {
       await saveSessionCreds(sessionId, authState.creds);
       emit("session:connected", { sessionId, phone });
       console.log("[BAILEYS] Connected:", sessionId, "phone:", phone);
+      // PR 2: popular metadata do iq-counter com label/phone — snapshots subsequentes
+      // virão enriquecidos. Label vem do session in-memory (populada em startSession).
+      try { _iqCounter.setMeta(sessionId, session.label || null, phone || null); }
+      catch (_) {}
 
       // Activity log: reconnected event (só se foi reconnect — nao primeira conexão)
       if (wasReconnecting) {
@@ -3011,26 +3028,41 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       sessionPhone: _sessInfo ? _sessInfo.phone : null,
       groupJid: row.groupJid || null,
       groupName: spec.name || null,
-      metadata: {
-        specHash: spec.specHash,
-        status: row.status,
-        deltaMs: _deltaMs,
-        stepDurations: _stepDurations,  // NOVO — PR1 #4: breakdown de latência por step
-        membersTotal: row.membersTotal || 0,
-        membersAdded: row.membersAdded || 0,
-        hasDescription: !!row.hasDescription,
-        hasPhoto: !!row.hasPhoto,
-        locked: !!row.locked,
-        welcomeSent: !!row.welcomeSent,
-        clientDmSent: row.clientDmSent,
-        cx2DmSent: row.cx2DmSent,
-        escaladaDmSent: row.escaladaDmSent,
-        clientAdded: row.clientAdded,
-        statusMessage: row.statusMessage,
-        errorMessage: row.status === "failed" ? row.statusMessage : undefined,
-        index: i,
-        total,
-      },
+      metadata: (() => {
+        // PR 2: snapshot do IQ counter no momento do evento.
+        // Crítico pra correlacionar rate-limit com contagem de IQs acumulados.
+        const _iqStats = _iqCounter.getStats(sessionId);
+        return {
+          specHash: spec.specHash,
+          status: row.status,
+          deltaMs: _deltaMs,
+          stepDurations: _stepDurations,  // PR1 #4: breakdown de latência por step
+          membersTotal: row.membersTotal || 0,
+          membersAdded: row.membersAdded || 0,
+          hasDescription: !!row.hasDescription,
+          hasPhoto: !!row.hasPhoto,
+          locked: !!row.locked,
+          welcomeSent: !!row.welcomeSent,
+          clientDmSent: row.clientDmSent,
+          cx2DmSent: row.cx2DmSent,
+          escaladaDmSent: row.escaladaDmSent,
+          clientAdded: row.clientAdded,
+          statusMessage: row.statusMessage,
+          errorMessage: row.status === "failed" ? row.statusMessage : undefined,
+          index: i,
+          total,
+          // PR 2 — snapshot IQ counter no momento do evento.
+          // Total = acumulado desde pm2 start. lastHour = janela deslizante 1h.
+          // Em rate_limit events, esses números são a métrica chave pra calibrar
+          // hipótese empírica de "quantos IQs o WhatsApp tolera por sessão/hora".
+          iqStats: _iqStats ? {
+            total: _iqStats.total,
+            lastHour: _iqStats.lastHour,
+            iqByType: _iqStats.iqByType,
+            lastHourByType: _iqStats.lastHourByType,
+          } : null,
+        };
+      })(),
     });
 
     results.push(row);
@@ -3707,6 +3739,8 @@ module.exports = {
   getActiveSessions,
   getSession,
   getSessionMeta,
+  getIqStats: (sessionId) => _iqCounter.getStats(sessionId),
+  getAllIqStats: () => _iqCounter.getAllStats(),
   getRateLimitStatus,
   markRateLimit,
   reconnectAllSessions,
