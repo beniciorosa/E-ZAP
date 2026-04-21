@@ -257,6 +257,38 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-21 noite-final — commit `67de8e1` — PR 2 contador real de IQ via monkey-patch
+
+Implementa #1 e #2 do plano original (pós-PR1 do mesmo dia):
+
+**Backend** — `whatsapp-server/src/services/iq-counter.js` (novo):
+- Map<sessionId, {iqByType, total, events sliding window 1h, firstAt, lastAt, label, phone}>
+- `recordIq(sessionId, type)`: increment + trim window 1h
+- `classifyIqNode(node)`: classifica IQ pela `xmlns` + first-child tag. Tipos: `groupCreate`, `groupParticipantsUpdate`, `groupInviteCode`, `groupMetadata`, `groupUpdate{Description,Subject}`, `groupSetting{Lock,Announcement}`, `groupMemberAddMode`, `groupPicture`, `onWhatsApp`, `profilePictureUrl`, `businessProfile`, `presenceSubscribe`, `passive`, `iq:<xmlns>`, `iq_unknown`
+- `attachToSock(sessionId, sock)`: monkey-patch `sock.query` preservando `this` + spread args + try/catch defensivo. Flag `__iqCounterPatched` evita patch duplo em reconnect.
+- `startSnapshotLoop(logEventFn)`: setInterval 5min, emite `iq:snapshot` event pra cada sessão com atividade na última hora.
+
+**baileys.js**:
+- Importa iq-counter
+- `attachToSock(sessionId, sock)` logo após `makeWASocket` retornar
+- `setMeta(sessionId, label, phone)` no `connection === "open"` handler
+- Incluído `iqStats` no metadata de `group_create:success/failed/rate_limit` — chave pra correlacionar rate-limit com contagem real de IQs no momento
+
+**routes/sessions.js**:
+- `GET /api/sessions/iq-stats-all` (definida ANTES de `/:id` pra não ser capturada)
+- `GET /api/sessions/:id/iq-stats`
+
+**index.js**:
+- `iqCounter.startSnapshotLoop(activityLog.logEvent)` após `setIO`
+
+**Frontend (`grupos.html`)**:
+- `_sessionIqStats` Map + `loadSessionIqStats()` polling 30s visibility-aware
+- Badge ⚡ "N/h" em cada card de sessão — cor por intensidade: <30 cinza, 30-60 amarelo, 60+ vermelho
+- Tooltip com top 3 tipos de IQ + total acumulado
+- Filtro de sidebar `⚡ IQ snapshots` + emoji ⚡ no renderActivityLog
+
+**Risco**: monkey-patch é ponto de falha. Mitigado com try/catch defensivo (Baileys nunca quebra se algo der errado no patch). Rollback: `git revert 67de8e1` + pm2 restart.
+
 ### 2026-04-21 noite — commits `c47fbb7` + `f990e36` — PR1 log enriquecido + transient_drop distinto
 
 Melhoria de observabilidade em cima do activity log implementado mais cedo (`7868853`).
