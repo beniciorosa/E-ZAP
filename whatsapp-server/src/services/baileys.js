@@ -2383,25 +2383,62 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 3. Client rejected by privacy OU bad-request OU modo convite (HubSpot) → DM invite.
       // Template preferido: spec.inviteDmClientTemplate (modo convite). Fallback: spec.rejectDmTemplate (privacy).
+      // Resolve JID canônico via sock.onWhatsApp — WhatsApp retorna o formato
+      // correto (com ou sem o "9" extra BR). Se o número NÃO está no WA,
+      // marca clientDmSent=false com motivo claro em status_message.
       if (!rateLimited && isHubspotFlow && clientRejected && row.inviteLink) {
-        const clientJid = spec.clientPhone + "@s.whatsapp.net";
+        const rawPhone = String(spec.clientPhone || "").replace(/\D/g, "");
+        let clientJid = null;
         try {
-          const clientTemplate = spec.inviteDmClientTemplate || spec.rejectDmTemplate
-            || 'Olá! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
-          const dmText = clientTemplate
-            .replace(/\{nome_grupo\}/g, spec.name || "")
-            .replace(/\{link\}/g, row.inviteLink);
-          await callWithTransientRetry(
-            sessionId,
-            (s) => s.sendMessage(clientJid, { text: dmText }),
-            { label: "dmClientReject[...]" }
-          );
-          row.clientDmSent = true;
-          row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: link enviado por DM");
-        } catch (dmErr) {
+          // Tenta como veio
+          const r1 = await sock.onWhatsApp(rawPhone);
+          if (Array.isArray(r1) && r1[0] && r1[0].exists && r1[0].jid && !r1[0].jid.endsWith("@lid")) {
+            clientJid = r1[0].jid;
+          } else if (rawPhone.length === 13 && rawPhone.startsWith("55")) {
+            // BR mobile 13 dígitos (55+DD+9+8) → tenta sem o 9 (12 dígitos)
+            const without9 = rawPhone.slice(0, 4) + rawPhone.slice(5);
+            const r2 = await sock.onWhatsApp(without9);
+            if (Array.isArray(r2) && r2[0] && r2[0].exists && r2[0].jid && !r2[0].jid.endsWith("@lid")) {
+              clientJid = r2[0].jid;
+            }
+          } else if (rawPhone.length === 12 && rawPhone.startsWith("55")) {
+            // BR 12 dígitos (55+DD+8) → tenta adicionando o 9 (13 dígitos)
+            const with9 = rawPhone.slice(0, 4) + "9" + rawPhone.slice(4);
+            const r2 = await sock.onWhatsApp(with9);
+            if (Array.isArray(r2) && r2[0] && r2[0].exists && r2[0].jid && !r2[0].jid.endsWith("@lid")) {
+              clientJid = r2[0].jid;
+            }
+          }
+        } catch (onWaErr) {
+          console.warn("[BAILEYS] onWhatsApp lookup failed for client DM — fallback raw JID:", onWaErr.message);
+        }
+
+        if (!clientJid) {
           row.clientDmSent = false;
-          row.statusMessage = appendNote(row.statusMessage, "cliente_nao_adicionado: falha ao enviar DM (" + (dmErr?.message || dmErr) + ")");
-          if (isRateLimitError(dmErr)) { rateLimited = true; }
+          row.statusMessage = appendNote(row.statusMessage,
+            "cliente_dm_falhou: número " + rawPhone + " não encontrado no WhatsApp. Verifique no HubSpot.");
+        } else {
+          try {
+            const clientTemplate = spec.inviteDmClientTemplate || spec.rejectDmTemplate
+              || 'Olá! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
+            const dmText = clientTemplate
+              .replace(/\{nome_grupo\}/g, spec.name || "")
+              .replace(/\{link\}/g, row.inviteLink);
+            await callWithTransientRetry(
+              sessionId,
+              (s) => s.sendMessage(clientJid, { text: dmText }),
+              { label: "dmClientReject[...]" }
+            );
+            row.clientDmSent = true;
+            const noteJid = clientJid === rawPhone + "@s.whatsapp.net"
+              ? "cliente_convite_enviado_por_dm"
+              : "cliente_convite_enviado_por_dm (JID ajustado: " + clientJid.split("@")[0] + ")";
+            row.statusMessage = appendNote(row.statusMessage, noteJid);
+          } catch (dmErr) {
+            row.clientDmSent = false;
+            row.statusMessage = appendNote(row.statusMessage, "cliente_dm_fail: " + (dmErr?.message || dmErr));
+            if (isRateLimitError(dmErr)) { rateLimited = true; }
+          }
         }
         await new Promise(r => setTimeout(r, 2500));
       }
