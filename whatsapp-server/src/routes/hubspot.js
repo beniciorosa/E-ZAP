@@ -14,6 +14,13 @@ const {
   fetchTicketFromApi, upsertMentorado, upsertHubspotTicket,
   searchMeetingsByDateRange, getMeetingContactIds, getContactPhoneDigits,
 } = require("../services/hubspot-api");
+// Carregado lazy no handler /resolve-tickets pra evitar ciclo de require
+// (baileys.js também depende de services/supabase e rotas). Ver: baileys.getSession.
+let baileysRef = null;
+function _getBaileys() {
+  if (!baileysRef) baileysRef = require("../services/baileys");
+  return baileysRef;
+}
 
 // POST /api/hubspot/resolve-tickets
 // Body: { ticketIds: number[] }
@@ -33,6 +40,124 @@ const {
 //     ],
 //     notFound: number[]
 //   }
+// Cache in-memory de validações onWhatsApp — por fone. Evita IQ repetido pro
+// mesmo número em chamadas consecutivas (user clica Resolver 2x). Chave = raw
+// phone (digits only). Valor = { jid, exists, adjusted, validatedAt }. Sem TTL
+// (limpa no pm2 restart).
+const _phoneValidationCache = new Map();
+
+// Escolhe uma sessão "doadora" pra validar phones via onWhatsApp. Prioridade:
+// CX2 > Escalada > primeira conectada. Retorna o sock ou null se nenhuma.
+// A sessão criadora do lote (se passada) é explicitamente excluída pra não
+// adicionar IQ extra nela.
+function pickValidatorSession(baileys, excludeSessionId) {
+  const CX2_PHONE = "5519971505209";
+  const ESCALADA_PHONE = "5519993473149";
+  const active = baileys.getActiveSessions();
+  if (!Array.isArray(active) || active.length === 0) return null;
+  const rank = (phone) => {
+    const p = String(phone || "").replace(/\D/g, "");
+    if (p === CX2_PHONE) return 0;       // CX2 primeiro
+    if (p === ESCALADA_PHONE) return 1;  // Escalada depois
+    return 2;                            // qualquer outra
+  };
+  const sorted = active.slice().sort((a, b) => rank(a.phone) - rank(b.phone));
+  for (const entry of sorted) {
+    if (entry.sessionId === excludeSessionId) continue;
+    const s = baileys.getSession(entry.sessionId);
+    if (s && s.status === "connected" && s.sock) {
+      return { sessionId: entry.sessionId, sock: s.sock, phone: entry.phone };
+    }
+  }
+  return null;
+}
+
+// Batch-valida uma lista de phones via sock.onWhatsApp (1 IQ pra N phones).
+// Pra cada phone não-existente, tenta a variante do "9" BR (com/sem o 9).
+// Popula _phoneValidationCache. Retorna Map<rawPhone, {jid, exists, adjusted}>.
+async function validateClientPhones(sock, phones) {
+  const out = new Map();
+  const toQuery = [];
+  // Descarta phones já no cache (não re-pergunta)
+  for (const p of phones) {
+    const raw = String(p || "").replace(/\D/g, "");
+    if (!raw) continue;
+    if (_phoneValidationCache.has(raw)) {
+      out.set(raw, _phoneValidationCache.get(raw));
+    } else if (!out.has(raw)) {
+      toQuery.push(raw);
+    }
+  }
+  if (toQuery.length === 0) return out;
+
+  let firstBatch = [];
+  try {
+    firstBatch = await sock.onWhatsApp(...toQuery);
+  } catch (e) {
+    console.warn("[HUBSPOT] validateClientPhones batch error:", e.message);
+    firstBatch = [];
+  }
+  // Map response back. Baileys retorna { jid, exists } — jid pode ser canônico
+  // diferente do input (ex: 13 dígitos → 12 sem o 9). Quando exists=true, usa esse jid.
+  const resultByPhone = {};
+  for (let i = 0; i < toQuery.length; i++) {
+    const raw = toQuery[i];
+    const r = Array.isArray(firstBatch) ? firstBatch.find(x => x && x.jid && normalizeJidDigits(x.jid) === raw) : null;
+    if (r && r.exists && r.jid && !r.jid.endsWith("@lid")) {
+      resultByPhone[raw] = { jid: r.jid, exists: true, adjusted: false };
+    } else {
+      resultByPhone[raw] = { jid: null, exists: false, adjusted: false };
+    }
+  }
+
+  // Segunda tentativa: pros que ficaram exists=false, tenta a variante do 9 BR
+  const retryMap = {}; // rawOriginal → variant
+  const retryVariants = [];
+  for (const raw of toQuery) {
+    if (resultByPhone[raw].exists) continue;
+    let variant = null;
+    if (raw.length === 13 && raw.startsWith("55")) {
+      variant = raw.slice(0, 4) + raw.slice(5);       // remove o "9"
+    } else if (raw.length === 12 && raw.startsWith("55")) {
+      variant = raw.slice(0, 4) + "9" + raw.slice(4); // adiciona o "9"
+    }
+    if (variant) {
+      retryMap[raw] = variant;
+      retryVariants.push(variant);
+    }
+  }
+  if (retryVariants.length > 0) {
+    let secondBatch = [];
+    try {
+      secondBatch = await sock.onWhatsApp(...retryVariants);
+    } catch (e) {
+      console.warn("[HUBSPOT] validateClientPhones retry error:", e.message);
+    }
+    for (const raw of Object.keys(retryMap)) {
+      const variant = retryMap[raw];
+      const r = Array.isArray(secondBatch) ? secondBatch.find(x => x && x.jid && normalizeJidDigits(x.jid) === variant) : null;
+      if (r && r.exists && r.jid && !r.jid.endsWith("@lid")) {
+        resultByPhone[raw] = { jid: r.jid, exists: true, adjusted: true };
+      }
+    }
+  }
+
+  // Grava no cache + preenche out
+  for (const raw of toQuery) {
+    const entry = Object.assign({ validatedAt: Date.now() }, resultByPhone[raw]);
+    _phoneValidationCache.set(raw, entry);
+    out.set(raw, entry);
+  }
+  return out;
+}
+
+// Helper: extrai só os dígitos do user-part de um JID (5519...@s.whatsapp.net → "5519...")
+function normalizeJidDigits(jid) {
+  if (!jid) return "";
+  const userPart = String(jid).split("@")[0] || "";
+  return userPart.split(":")[0].replace(/\D/g, "");
+}
+
 router.post("/resolve-tickets", async (req, res) => {
   try {
     const raw = Array.isArray(req.body && req.body.ticketIds) ? req.body.ticketIds : [];
@@ -171,11 +296,55 @@ router.post("/resolve-tickets", async (req, res) => {
         pipeline_type: r.pipeline_type || null,
         status_ticket: r.status_ticket || null,
         warning,
+        // Campos preenchidos pela validação abaixo (onWhatsApp batch).
+        resolvedClientJid: null,
+        clientValidation: "pending",
         source: r._source || "hubspot_tickets",
       });
     }
 
-    const response = { ok: true, resolved, notFound };
+    // 5. Validação onWhatsApp em batch (1 IQ total + opcional 1 IQ retry com
+    // variante do "9" BR). Sessão doadora: CX2 > Escalada > outra conectada.
+    // Cliente não encontrado em nenhuma variante → clientValidation="not_on_whatsapp",
+    // o frontend força includeClient=false automaticamente só pra esse row.
+    const phonesToValidate = [];
+    for (const r of resolved) {
+      const raw = String(r.whatsapp || "").replace(/\D/g, "");
+      if (raw && !phonesToValidate.includes(raw)) phonesToValidate.push(raw);
+    }
+    let validatorSessionUsed = null;
+    let validationMap = new Map();
+    if (phonesToValidate.length > 0) {
+      const baileys = _getBaileys();
+      const validator = pickValidatorSession(baileys, null);
+      if (validator) {
+        validatorSessionUsed = validator.phone;
+        try {
+          validationMap = await validateClientPhones(validator.sock, phonesToValidate);
+        } catch (e) {
+          console.warn("[HUBSPOT] client phone validation failed:", e.message);
+        }
+      }
+    }
+    for (const r of resolved) {
+      const raw = String(r.whatsapp || "").replace(/\D/g, "");
+      if (!raw) { r.clientValidation = "no_phone"; continue; }
+      const v = validationMap.get(raw);
+      if (!v) {
+        // Sem validador disponível ou erro na query — mantém comportamento legado
+        r.clientValidation = validatorSessionUsed ? "not_validated" : "no_validator";
+        continue;
+      }
+      if (v.exists && v.jid) {
+        r.resolvedClientJid = v.jid;
+        r.clientValidation = v.adjusted ? "adjusted_no_9" : "ok";
+      } else {
+        r.resolvedClientJid = null;
+        r.clientValidation = "not_on_whatsapp";
+      }
+    }
+
+    const response = { ok: true, resolved, notFound, validatorSession: validatorSessionUsed };
     if (hsAuthError) response.hubspotAuthError = hsAuthError;
     if (missing.length > 0 && !hsKey) response.hubspotKeyMissing = true;
     res.json(response);
@@ -607,24 +776,74 @@ router.get("/ticket/:ticketId", async (req, res) => {
 // it next time without retyping.
 
 // POST /api/hubspot/templates/:sessionId
+// Normaliza o payload salvo em app_settings pro novo formato multi-template.
+// Aceita:
+//  - Novo: {templates: [{id, name, isDefault, description, welcome, rejectDm, helperDm}]}
+//  - Legado (pré-22/04): {description, welcome, rejectDm, helperDm} → envolve como
+//    1 template nomeado "Padrão" default.
+// Retorna sempre o shape novo (ou null se entrada vazia).
+function normalizeTemplatesPayload(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+  if (Array.isArray(parsed.templates)) {
+    const list = parsed.templates
+      .filter(t => t && typeof t === "object" && t.name)
+      .map(t => ({
+        id: String(t.id || ("tmpl_" + Math.random().toString(36).slice(2, 10))),
+        name: String(t.name).trim().slice(0, 80),
+        isDefault: !!t.isDefault,
+        description: String(t.description || ""),
+        welcome: String(t.welcome || ""),
+        rejectDm: String(t.rejectDm || ""),
+        helperDm: String(t.helperDm || ""),
+      }));
+    // Garante exatamente 1 default. Se nenhum → primeiro vira default.
+    // Se múltiplos → só o primeiro fica default.
+    let defaultSet = false;
+    for (const t of list) {
+      if (t.isDefault && !defaultSet) { defaultSet = true; }
+      else { t.isDefault = false; }
+    }
+    if (!defaultSet && list.length > 0) list[0].isDefault = true;
+    return { templates: list };
+  }
+  // Shape legado — envolve como 1 template default
+  if (parsed.description != null || parsed.welcome != null || parsed.rejectDm != null || parsed.helperDm != null) {
+    return {
+      templates: [{
+        id: "tmpl_legacy",
+        name: "Padrão",
+        isDefault: true,
+        description: String(parsed.description || ""),
+        welcome: String(parsed.welcome || ""),
+        rejectDm: String(parsed.rejectDm || ""),
+        helperDm: String(parsed.helperDm || ""),
+      }],
+    };
+  }
+  return null;
+}
+
+// POST /api/hubspot/templates/:sessionId
+// Body pode vir em 2 shapes:
+//  1. Novo (preferido): { templates: [{id, name, isDefault, description, welcome, rejectDm, helperDm}] }
+//     Substitui a lista completa. Frontend controla add/remove/default.
+//  2. Legado: { description, welcome, rejectDm, helperDm } — migra automaticamente.
 router.post("/templates/:sessionId", async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { description, welcome, rejectDm, helperDm } = req.body || {};
+    const normalized = normalizeTemplatesPayload(req.body);
+    if (!normalized || normalized.templates.length === 0) {
+      return res.status(400).json({ error: "payload inválido ou vazio" });
+    }
     const key = "hubspot_templates_" + sessionId;
-    const value = JSON.stringify({
-      description: description || "",
-      welcome: welcome || "",
-      rejectDm: rejectDm || "",
-      helperDm: helperDm || "",
-    });
+    const value = JSON.stringify(normalized);
     await supaRest(
       "/rest/v1/app_settings?on_conflict=key",
       "POST",
       [{ key, value }],
       "resolution=merge-duplicates,return=minimal"
     );
-    res.json({ ok: true });
+    res.json({ ok: true, templates: normalized.templates });
   } catch (e) {
     console.error("[HUBSPOT] save templates error:", e.message);
     res.status(500).json({ error: e.message });
@@ -632,6 +851,8 @@ router.post("/templates/:sessionId", async (req, res) => {
 });
 
 // GET /api/hubspot/templates/:sessionId
+// Retorna SEMPRE no formato novo: { ok, templates: [{id, name, isDefault, ...}] }.
+// Se o registro tá em formato legado, migra transparentemente.
 router.get("/templates/:sessionId", async (req, res) => {
   try {
     const { sessionId } = req.params;
@@ -641,11 +862,12 @@ router.get("/templates/:sessionId", async (req, res) => {
     ).catch(() => []);
     if (rows && rows[0] && rows[0].value) {
       try {
-        const templates = JSON.parse(rows[0].value);
-        return res.json({ ok: true, templates });
+        const parsed = JSON.parse(rows[0].value);
+        const normalized = normalizeTemplatesPayload(parsed);
+        if (normalized) return res.json({ ok: true, templates: normalized.templates });
       } catch (_) {}
     }
-    res.json({ ok: true, templates: null });
+    res.json({ ok: true, templates: [] });
   } catch (e) {
     console.error("[HUBSPOT] load templates error:", e.message);
     res.status(500).json({ error: e.message });

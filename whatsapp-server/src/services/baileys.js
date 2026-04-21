@@ -2206,7 +2206,12 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // Se !includeClient, o cliente NÃO entra via groupCreate (vira DM invite).
       let memberJids;
       if (isHubspotFlow) {
-        const clientJid = spec.clientPhone + "@s.whatsapp.net";
+        // Prefer resolvedClientJid (validado pelo /resolve-tickets via onWhatsApp
+        // batch) — canônico, com o "9" BR ajustado se necessário. Fallback para
+        // o phone cru se não veio validação (caso de IQ falhou no resolve).
+        // Se validação marcou "not_on_whatsapp", resolvedClientJid é null e
+        // a variable clientWasSkipped já foi setada pelo frontend via includeClient=false.
+        const clientJid = spec.resolvedClientJid || (spec.clientPhone + "@s.whatsapp.net");
         const finalList = includeClient ? [clientJid] : [];
         if (resolvedHelperJids.length > 0) {
           // Session-based: JIDs já canônicos
@@ -2388,29 +2393,30 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // marca clientDmSent=false com motivo claro em status_message.
       if (!rateLimited && isHubspotFlow && clientRejected && row.inviteLink) {
         const rawPhone = String(spec.clientPhone || "").replace(/\D/g, "");
-        let clientJid = null;
-        try {
-          // Tenta como veio
-          const r1 = await sock.onWhatsApp(rawPhone);
-          if (Array.isArray(r1) && r1[0] && r1[0].exists && r1[0].jid && !r1[0].jid.endsWith("@lid")) {
-            clientJid = r1[0].jid;
-          } else if (rawPhone.length === 13 && rawPhone.startsWith("55")) {
-            // BR mobile 13 dígitos (55+DD+9+8) → tenta sem o 9 (12 dígitos)
-            const without9 = rawPhone.slice(0, 4) + rawPhone.slice(5);
-            const r2 = await sock.onWhatsApp(without9);
-            if (Array.isArray(r2) && r2[0] && r2[0].exists && r2[0].jid && !r2[0].jid.endsWith("@lid")) {
-              clientJid = r2[0].jid;
+        // Prefer resolvedClientJid (já validado no /resolve-tickets — batch IQ na
+        // sessão doadora). Só cai no lookup local se não veio validação.
+        let clientJid = spec.resolvedClientJid || null;
+        if (!clientJid) {
+          try {
+            const r1 = await sock.onWhatsApp(rawPhone);
+            if (Array.isArray(r1) && r1[0] && r1[0].exists && r1[0].jid && !r1[0].jid.endsWith("@lid")) {
+              clientJid = r1[0].jid;
+            } else if (rawPhone.length === 13 && rawPhone.startsWith("55")) {
+              const without9 = rawPhone.slice(0, 4) + rawPhone.slice(5);
+              const r2 = await sock.onWhatsApp(without9);
+              if (Array.isArray(r2) && r2[0] && r2[0].exists && r2[0].jid && !r2[0].jid.endsWith("@lid")) {
+                clientJid = r2[0].jid;
+              }
+            } else if (rawPhone.length === 12 && rawPhone.startsWith("55")) {
+              const with9 = rawPhone.slice(0, 4) + "9" + rawPhone.slice(4);
+              const r2 = await sock.onWhatsApp(with9);
+              if (Array.isArray(r2) && r2[0] && r2[0].exists && r2[0].jid && !r2[0].jid.endsWith("@lid")) {
+                clientJid = r2[0].jid;
+              }
             }
-          } else if (rawPhone.length === 12 && rawPhone.startsWith("55")) {
-            // BR 12 dígitos (55+DD+8) → tenta adicionando o 9 (13 dígitos)
-            const with9 = rawPhone.slice(0, 4) + "9" + rawPhone.slice(4);
-            const r2 = await sock.onWhatsApp(with9);
-            if (Array.isArray(r2) && r2[0] && r2[0].exists && r2[0].jid && !r2[0].jid.endsWith("@lid")) {
-              clientJid = r2[0].jid;
-            }
+          } catch (onWaErr) {
+            console.warn("[BAILEYS] onWhatsApp lookup failed for client DM — fallback raw JID:", onWaErr.message);
           }
-        } catch (onWaErr) {
-          console.warn("[BAILEYS] onWhatsApp lookup failed for client DM — fallback raw JID:", onWaErr.message);
         }
 
         if (!clientJid) {

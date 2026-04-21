@@ -560,9 +560,13 @@
       <div id="hubspotCustomFields" style="margin-bottom:16px">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px">
           <label style="margin:0; font-weight:600">Mensagens e descrição</label>
-          <div style="display:flex; gap:6px">
-            <button class="btn-secondary btn-icon" style="font-size:11px; padding:4px 10px" onclick="saveHubspotTemplates()">💾 Salvar padrão</button>
-            <button class="btn-secondary btn-icon" style="font-size:11px; padding:4px 10px" onclick="loadHubspotTemplates()">📂 Carregar padrão</button>
+          <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap">
+            <select id="hubspotTemplateSelect" onchange="onHubspotTemplateSelect()" style="font-size:12px; padding:4px 8px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); min-width:160px">
+              <option value="">— sem templates salvos —</option>
+            </select>
+            <button class="btn-secondary btn-icon" style="font-size:11px; padding:4px 10px" onclick="saveHubspotTemplateAs()" title="Salvar os campos atuais como um template novo com nome">💾 Salvar como…</button>
+            <button class="btn-secondary btn-icon" style="font-size:11px; padding:4px 10px" onclick="setHubspotTemplateDefault()" title="Marcar o template selecionado como padrão — ele será carregado automaticamente ao abrir o modal">⭐ Default</button>
+            <button class="btn-secondary btn-icon" style="font-size:11px; padding:4px 10px; color:var(--danger); border-color:var(--danger)" onclick="deleteHubspotTemplate()" title="Apagar o template selecionado">🗑</button>
           </div>
         </div>
 
@@ -2365,6 +2369,8 @@ function onCreateSessionChange() {
   if (_hubspotResolved && _hubspotResolved.length > 0) {
     buildSpecsFromHubspotResolved();
   }
+  // Carrega lista de templates da nova sessão criadora (templates são por sessão).
+  loadHubspotTemplatesList();
 }
 
 function openCreateGroupsModal() {
@@ -2383,6 +2389,9 @@ function openCreateGroupsModal() {
   document.getElementById("hubspotIncludeCx2").checked = true;
   document.getElementById("hubspotIncludeEscalada").checked = true;
   document.getElementById("hubspotIncludeClient").checked = true;
+  // Carrega lista de templates da sessão selecionada no dropdown criador
+  // (aplica o default se houver, substitui os valores acima).
+  loadHubspotTemplatesList();
   document.getElementById("createPreviewBox").classList.add("hidden");
   document.getElementById("createPreviewTable").innerHTML = "";
   document.getElementById("createPreviewCount").textContent = "";
@@ -2669,48 +2678,141 @@ function insertPlaceholder(textareaId, placeholder) {
 
 // Save the 3 message templates to the selected session in app_settings.
 // Key: hubspot_templates_{sessionId} → JSON with description, welcome, rejectDm.
-function saveHubspotTemplates() {
+// ===== Sistema de múltiplos templates nomeados =====
+// Estado: lista de {id, name, isDefault, description, welcome, rejectDm, helperDm}
+// pra sessão atualmente selecionada no dropdown criador. Carregada via GET
+// quando a sessão muda; salva via POST (substitui lista completa) a cada
+// mudança (save/delete/default).
+var _hubspotTemplates = [];
+
+function _renderHubspotTemplateDropdown() {
+  var sel = document.getElementById("hubspotTemplateSelect");
+  if (!sel) return;
+  if (_hubspotTemplates.length === 0) {
+    sel.innerHTML = '<option value="">— sem templates salvos —</option>';
+    return;
+  }
+  var prevValue = sel.value;
+  var html = "";
+  _hubspotTemplates.forEach(function(t) {
+    var label = t.name + (t.isDefault ? " ⭐" : "");
+    html += '<option value="' + esc(t.id) + '">' + esc(label) + '</option>';
+  });
+  sel.innerHTML = html;
+  // Restaura seleção anterior se ainda existe, senão seleciona o default
+  var stillThere = _hubspotTemplates.find(function(t) { return t.id === prevValue; });
+  if (stillThere) {
+    sel.value = prevValue;
+  } else {
+    var def = _hubspotTemplates.find(function(t) { return t.isDefault; });
+    sel.value = def ? def.id : _hubspotTemplates[0].id;
+  }
+}
+
+function _applyHubspotTemplate(t) {
+  if (!t) return;
+  if (t.description != null) document.getElementById("hubspotCustomDescription").value = t.description;
+  if (t.welcome != null) document.getElementById("hubspotCustomWelcome").value = t.welcome;
+  if (t.rejectDm != null) document.getElementById("hubspotRejectDmMessage").value = t.rejectDm;
+  if (t.helperDm != null) document.getElementById("hubspotHelperDmMessage").value = t.helperDm;
+  onHubspotCustomFieldChange();
+}
+
+// Chamado quando session muda no dropdown criador OU ao abrir modal.
+// Busca templates daquela sessão e popula dropdown + aplica o default se houver.
+function loadHubspotTemplatesList() {
+  var sessionId = document.getElementById("createSession").value;
+  if (!sessionId) { _hubspotTemplates = []; _renderHubspotTemplateDropdown(); return; }
+  waFetch("/api/hubspot/templates/" + sessionId).then(function(data) {
+    _hubspotTemplates = (data && Array.isArray(data.templates)) ? data.templates : [];
+    _renderHubspotTemplateDropdown();
+    var def = _hubspotTemplates.find(function(t) { return t.isDefault; });
+    if (def) _applyHubspotTemplate(def);
+  }).catch(function(e) {
+    console.warn("load templates failed:", e.message);
+    _hubspotTemplates = [];
+    _renderHubspotTemplateDropdown();
+  });
+}
+
+// Salva a lista atual (em memória) no backend. Rejeita se vazia.
+function _persistHubspotTemplates() {
+  var sessionId = document.getElementById("createSession").value;
+  if (!sessionId) { showToast("Selecione uma sessão primeiro", "error"); return Promise.reject(); }
+  return waFetch("/api/hubspot/templates/" + sessionId, "POST", { templates: _hubspotTemplates });
+}
+
+// Usuário selecionou um template no dropdown → aplica nos textareas.
+function onHubspotTemplateSelect() {
+  var id = document.getElementById("hubspotTemplateSelect").value;
+  var t = _hubspotTemplates.find(function(x) { return x.id === id; });
+  if (t) _applyHubspotTemplate(t);
+}
+
+// "💾 Salvar como…" — pergunta o nome, salva os textareas atuais como novo
+// template (ou substitui se já existe com mesmo nome).
+function saveHubspotTemplateAs() {
   var sessionId = document.getElementById("createSession").value;
   if (!sessionId) { showToast("Selecione uma sessão primeiro", "error"); return; }
-  var sessLabel = (_sessions.find(function(s) { return s.id === sessionId; }) || {}).label || sessionId;
-  var data = {
-    description: (document.getElementById("hubspotCustomDescription").value || "").trim(),
-    welcome: (document.getElementById("hubspotCustomWelcome").value || "").trim(),
-    rejectDm: (document.getElementById("hubspotRejectDmMessage").value || "").trim(),
-    helperDm: (document.getElementById("hubspotHelperDmMessage").value || "").trim(),
+  var name = prompt("Nome do template:", "Padrão");
+  if (!name) return;
+  name = name.trim().slice(0, 80);
+  if (!name) return;
+  var fields = {
+    description: (document.getElementById("hubspotCustomDescription").value || ""),
+    welcome: (document.getElementById("hubspotCustomWelcome").value || ""),
+    rejectDm: (document.getElementById("hubspotRejectDmMessage").value || ""),
+    helperDm: (document.getElementById("hubspotHelperDmMessage").value || ""),
   };
-  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
-  var tok = (document.getElementById("adminToken").value || "").trim();
-  fetch(url + "/api/hubspot/templates/" + sessionId, {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  }).then(function(r) { return r.json(); }).then(function() {
-    showToast("Templates salvos para " + sessLabel, "ok");
+  // Se já existe com mesmo nome, substitui (mantém id + isDefault)
+  var existing = _hubspotTemplates.find(function(t) { return t.name.toLowerCase() === name.toLowerCase(); });
+  if (existing) {
+    Object.assign(existing, fields);
+  } else {
+    var newId = "tmpl_" + Math.random().toString(36).slice(2, 10);
+    var isFirst = _hubspotTemplates.length === 0;
+    _hubspotTemplates.push(Object.assign({ id: newId, name: name, isDefault: isFirst }, fields));
+  }
+  _persistHubspotTemplates().then(function(res) {
+    if (res && Array.isArray(res.templates)) _hubspotTemplates = res.templates;
+    _renderHubspotTemplateDropdown();
+    // Seleciona o que foi salvo
+    var justSaved = _hubspotTemplates.find(function(t) { return t.name.toLowerCase() === name.toLowerCase(); });
+    if (justSaved) document.getElementById("hubspotTemplateSelect").value = justSaved.id;
+    showToast("Template \"" + name + "\" salvo", "ok");
+  }).catch(function(e) { showToast("Erro ao salvar: " + e.message, "error"); });
+}
+
+// "⭐ Default" — marca o template atualmente selecionado como padrão. Só
+// pode ter 1 default por sessão, então desmarca os outros.
+function setHubspotTemplateDefault() {
+  var id = document.getElementById("hubspotTemplateSelect").value;
+  if (!id) { showToast("Selecione um template primeiro", "error"); return; }
+  _hubspotTemplates.forEach(function(t) { t.isDefault = (t.id === id); });
+  _persistHubspotTemplates().then(function(res) {
+    if (res && Array.isArray(res.templates)) _hubspotTemplates = res.templates;
+    _renderHubspotTemplateDropdown();
+    document.getElementById("hubspotTemplateSelect").value = id;
+    var t = _hubspotTemplates.find(function(x) { return x.id === id; });
+    showToast("\"" + (t ? t.name : "Template") + "\" agora é o padrão", "ok");
   }).catch(function(e) { showToast("Erro: " + e.message, "error"); });
 }
 
-// Load saved templates for the selected session.
-function loadHubspotTemplates() {
-  var sessionId = document.getElementById("createSession").value;
-  if (!sessionId) { showToast("Selecione uma sessão primeiro", "error"); return; }
-  var sessLabel = (_sessions.find(function(s) { return s.id === sessionId; }) || {}).label || sessionId;
-  var url = (document.getElementById("serverUrl").value || "").trim().replace(/\/$/, "");
-  var tok = (document.getElementById("adminToken").value || "").trim();
-  fetch(url + "/api/hubspot/templates/" + sessionId, {
-    method: "GET",
-    headers: { "Authorization": "Bearer " + tok },
-  }).then(function(r) { return r.json(); }).then(function(data) {
-    if (data && data.templates) {
-      if (data.templates.description != null) document.getElementById("hubspotCustomDescription").value = data.templates.description;
-      if (data.templates.welcome != null) document.getElementById("hubspotCustomWelcome").value = data.templates.welcome;
-      if (data.templates.rejectDm != null) document.getElementById("hubspotRejectDmMessage").value = data.templates.rejectDm;
-      if (data.templates.helperDm != null) document.getElementById("hubspotHelperDmMessage").value = data.templates.helperDm;
-      onHubspotCustomFieldChange();
-      showToast("Templates carregados de " + sessLabel, "ok");
-    } else {
-      showToast("Nenhum template salvo para " + sessLabel, "warn");
-    }
+// "🗑" — apaga o template atualmente selecionado. Se for o único, rejeita
+// (preserva pelo menos 1). Se era o default, o próximo vira default.
+function deleteHubspotTemplate() {
+  var id = document.getElementById("hubspotTemplateSelect").value;
+  if (!id) { showToast("Selecione um template primeiro", "error"); return; }
+  if (_hubspotTemplates.length <= 1) { showToast("Mantenha pelo menos 1 template — crie um novo antes de apagar este", "warn"); return; }
+  var t = _hubspotTemplates.find(function(x) { return x.id === id; });
+  if (!confirm("Apagar o template \"" + (t ? t.name : id) + "\"?")) return;
+  var wasDefault = !!(t && t.isDefault);
+  _hubspotTemplates = _hubspotTemplates.filter(function(x) { return x.id !== id; });
+  if (wasDefault && _hubspotTemplates.length > 0) _hubspotTemplates[0].isDefault = true;
+  _persistHubspotTemplates().then(function(res) {
+    if (res && Array.isArray(res.templates)) _hubspotTemplates = res.templates;
+    _renderHubspotTemplateDropdown();
+    showToast("Template apagado", "ok");
   }).catch(function(e) { showToast("Erro: " + e.message, "error"); });
 }
 
@@ -2945,6 +3047,13 @@ async function buildSpecsFromHubspotResolved() {
       if (r.mentorSessionId && helperSessionIdsForSpec.indexOf(r.mentorSessionId) === -1) {
         helperSessionIdsForSpec.push(r.mentorSessionId);
       }
+      // Se a validação onWhatsApp no /resolve-tickets marcou o cliente como
+      // "not_on_whatsapp", força includeClient=false automaticamente PRA ESSE
+      // ROW — o cliente não pode entrar direto (número inválido), DM tb vai
+      // falhar mas o backend registra a tentativa. Dhiego vê no preview.
+      var userIncludeClient = !!(document.getElementById("hubspotIncludeClient") || {}).checked;
+      var effectiveIncludeClient = (r.clientValidation === "not_on_whatsapp") ? false : userIncludeClient;
+
       spec = {
         name: groupName,
         description: finalDescription,
@@ -2959,12 +3068,16 @@ async function buildSpecsFromHubspotResolved() {
         adminSessionIds: adminSessionIds.slice(),    // NOVO — preferido, JID via sock.user.id
         helperSessionIds: helperSessionIdsForSpec,   // NOVO — preferido, JID via sock.user.id
         clientPhone: clientPhone || null,
+        // JID canônico resolvido via onWhatsApp no /resolve-tickets (1 IQ batch
+        // na sessão CX2/Escalada). Se veio null aqui, createGroupsFromList faz
+        // lookup local como fallback.
+        resolvedClientJid: r.resolvedClientJid || null,
         specHash: null,
         // Flags do modo convite — lidas dos 3 checkboxes no modal.
         // false = não entra via groupCreate, recebe DM com invite link.
         includeCx2: !!(document.getElementById("hubspotIncludeCx2") || {}).checked,
         includeEscalada: !!(document.getElementById("hubspotIncludeEscalada") || {}).checked,
-        includeClient: !!(document.getElementById("hubspotIncludeClient") || {}).checked,
+        includeClient: effectiveIncludeClient,
         // WhatsApp pessoal do mentor — usado na alt welcome pra contato direto.
         mentorWhatsapp: mentorPhone || null,
         // Campos HubSpot (denormalizados em wa_group_creations)
@@ -2993,6 +3106,10 @@ async function buildSpecsFromHubspotResolved() {
       disabled: disabled,
       reason: reason,
       warning: r.warning,
+      // Validação onWhatsApp feita no /resolve-tickets — propaga pro preview
+      // ver badge por row (✅ ok / ⚠️ adjusted_no_9 / 🔴 not_on_whatsapp).
+      clientValidation: r.clientValidation || null,
+      resolvedClientJid: r.resolvedClientJid || null,
       // Preview fields (o que vai aparecer de fato no WhatsApp)
       finalGroupName: groupName,
       finalDescription: finalDescription,
@@ -3109,6 +3226,16 @@ function renderHubspotPreview(rows) {
       statusCell = '<span style="color:var(--warn)" title="' + esc(r.warning) + '">🟡 ' + esc(r.warning) + '</span>';
     } else {
       statusCell = '<span style="color:var(--ok)">🟢 OK</span>';
+    }
+    // Badge adicional da validação onWhatsApp do cliente (se resolve-tickets rodou).
+    if (r.clientValidation === "adjusted_no_9") {
+      statusCell += ' <span style="color:var(--warn); font-size:10px" title="Número HubSpot diferente do WhatsApp — ajustado automaticamente (com/sem o 9 BR)">⚠ 9 BR</span>';
+    } else if (r.clientValidation === "not_on_whatsapp") {
+      statusCell += ' <span style="color:var(--danger); font-size:10px" title="Número do cliente não existe no WhatsApp em nenhuma variante. Cliente será PULADO do groupCreate e DM vai falhar. Corrija no HubSpot.">🔴 Número inválido</span>';
+    } else if (r.clientValidation === "no_validator") {
+      statusCell += ' <span style="color:var(--muted); font-size:10px" title="Nenhuma sessão conectada disponível pra validar o cliente via onWhatsApp">⚫ sem validador</span>';
+    } else if (r.clientValidation === "not_validated") {
+      statusCell += ' <span style="color:var(--muted); font-size:10px" title="Validação onWhatsApp falhou (erro de IQ) — JID usado será o raw">⚫ não validado</span>';
     }
 
     var isExpanded = !!_expandedPreviewRows[r.ticket_id];
