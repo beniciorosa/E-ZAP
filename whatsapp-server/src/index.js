@@ -118,6 +118,23 @@ server.listen(PORT, async () => {
       await callHubspot("/api/hubspot/calls-week/refresh", "calls-week");
     }, { timezone: "America/Sao_Paulo" });
     console.log("[CRON] CALLS DE HOJE + SEMANA refresh scheduled (00:01 America/Sao_Paulo)");
+
+    // Cleanup do activity_events — roda 03:00 BRT todos os dias.
+    // Chama a RPC cleanup_old_activity_events(30) que apaga em batches de 1000.
+    cron.schedule("0 3 * * *", async () => {
+      try {
+        const { supaRest } = require("./services/supabase");
+        const r = await supaRest(
+          "/rest/v1/rpc/cleanup_old_activity_events",
+          "POST",
+          { keep_days: 30 }
+        );
+        console.log("[CRON activity-cleanup] rows deleted:", r);
+      } catch (e) {
+        console.error("[CRON activity-cleanup] failed:", e.message);
+      }
+    }, { timezone: "America/Sao_Paulo" });
+    console.log("[CRON] activity_events cleanup scheduled (03:00 America/Sao_Paulo, keep 30d)");
   } catch (e) {
     console.warn("[CRON] node-cron not available:", e.message);
   }
