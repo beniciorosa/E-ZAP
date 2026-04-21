@@ -344,7 +344,9 @@
       <button class="btn-primary" onclick="openExtractModal()">+ Nova extração</button>
       <button class="btn-primary" onclick="openAddModal()">+ Adicionar número</button>
       <button class="btn-primary" onclick="openCreateGroupsModal()">+ Criar grupos</button>
-      <button class="btn-primary" onclick="openAutoCreateModal()" title="Busca mentorados sem grupo na tabela hubspot_tickets e cria agrupado por proprietário do ticket">🤖 Auto-criar grupos</button>
+      <!-- 🤖 Auto-criar DESATIVADO 2026-04-21 — feature com bugs não investigados (ver 05 - TAREFAS PENDENTES #1 CRITICO).
+           Use "+ Criar grupos" enquanto não é re-investigado. Código preservado em openAutoCreateModal(). -->
+      <button class="btn-primary" disabled style="opacity:0.4; cursor:not-allowed" title="🚧 Em manutenção — use '+ Criar grupos'. Feature será re-investigada em próxima sessão.">🤖 Auto-criar grupos</button>
       <button class="btn-secondary" onclick="openVcardModal()" title="Envia lista de contatos pro self-chat de cada mentor salvar antes de criar grupos (evita bad-request)">📇 VCard</button>
       <button class="btn-secondary" onclick="toggleHistoryView()" title="Abre o dashboard de histórico de grupos criados em todas as sessões">📊 Histórico</button>
       <button class="btn-secondary" onclick="window.open('fotos.html', '_blank')" title="Abre o gerenciador de fotos de grupos em uma nova aba">🖼️ Gerenciar fotos</button>
@@ -4359,6 +4361,15 @@ function renderActivityLog() {
     else if (ev.event_type === "phone_validation:not_on_whatsapp") emoji = "🔴 ";
     else if (ev.event_type === "phone_validation:adjusted_9_br") emoji = "⚠ ";
     else if (ev.event_type && ev.event_type.indexOf("group_create_job") === 0) emoji = "📦 ";
+    else if (ev.event_type && ev.event_type.indexOf("dm:sent:") === 0) emoji = "💬 ";
+    else if (ev.event_type && ev.event_type.indexOf("dm:failed:") === 0) emoji = "❌💬 ";
+    else if (ev.event_type === "welcome:sent") emoji = "👋 ";
+    else if (ev.event_type === "welcome:alt_sent") emoji = "⚠👋 ";
+    else if (ev.event_type === "welcome:failed") emoji = "❌👋 ";
+    else if (ev.event_type === "wa:stream_error") emoji = "⛔ ";
+    else if (ev.event_type === "session:disconnected") emoji = "🔌 ";
+    else if (ev.event_type === "vcard:sent") emoji = "📇 ";
+    else if (ev.event_type === "vcard:failed") emoji = "❌📇 ";
     html += '<div class="activity-event ' + esc(ev.level || "info") + '">'
       + '<div class="activity-event-time">' + tm + '</div>'
       + '<div class="activity-event-body">'
@@ -4414,9 +4425,13 @@ setTimeout(function() {
       <option value="">Todos os tipos</option>
       <option value="group_create:">Criação grupos</option>
       <option value="group_create_job">Jobs</option>
+      <option value="dm:">DMs (cliente/CX2/Escalada)</option>
+      <option value="welcome:">Welcome no grupo</option>
       <option value="session:">Sessões</option>
+      <option value="wa:stream_error">⚠ Stream errors</option>
       <option value="resolve_tickets">Resolve</option>
       <option value="phone_validation:">Validação número</option>
+      <option value="vcard:">VCards</option>
     </select>
     <select id="activityFilterLevel" onchange="renderActivityLog()">
       <option value="">Todos</option>

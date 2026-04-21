@@ -322,6 +322,55 @@ async function startSession(sessionId, existingCreds = null) {
 
       console.log("[BAILEYS] Disconnected:", sessionId, "code:", statusCode, "reconnect:", shouldReconnect);
 
+      // Activity log: stream:error capture — registra todas as disconnects com
+      // detalhe (code + message). Casos críticos (device_removed, rate-overlimit,
+      // loggedOut) ganham level=critical pra aparecer em vermelho na sidebar.
+      // Pattern de detecção: statusCode + errorMsg. Conflict types estão em
+      // errorMsg tipo "conflict type=device_removed".
+      try {
+        const existing = sessions.get(sessionId);
+        const snapshot = {
+          sessionId,
+          sessionLabel: existing ? existing.label : null,
+          sessionPhone: existing ? existing.phone : null,
+        };
+        let evType = "session:disconnected";
+        let evLevel = "info";
+        let evMsg = "Sessão desconectou (code=" + (statusCode || "?") + ")";
+        if (String(errorMsg).includes("device_removed") || String(errorMsg).includes("Device Removed")) {
+          evType = "wa:stream_error";
+          evLevel = "critical";
+          evMsg = "⛔ device_removed — linked device expulso pelo WhatsApp (requer QR novo)";
+        } else if (String(errorMsg).toLowerCase().includes("rate-overlimit")) {
+          evType = "wa:stream_error";
+          evLevel = "error";
+          evMsg = "🔴 rate-overlimit stanza — WhatsApp bloqueou explicitamente";
+        } else if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+          evType = "wa:stream_error";
+          evLevel = "critical";
+          evMsg = "⛔ loggedOut — QR novo necessário";
+        } else if (statusCode === 403) {
+          evType = "wa:stream_error";
+          evLevel = "error";
+          evMsg = "Forbidden (403) — banimento ou restrição";
+        } else if (statusCode === 428 || statusCode === DisconnectReason.connectionLost) {
+          evLevel = "warn";
+          evMsg = "Conexão caiu (code=" + statusCode + ") — vai tentar reconectar";
+        }
+        _logEvent({
+          type: evType,
+          level: evLevel,
+          message: evMsg,
+          ...snapshot,
+          metadata: {
+            statusCode: statusCode || null,
+            errorMessage: errorMsg || null,
+            shouldReconnect,
+            willRetry: shouldReconnect,
+          },
+        });
+      } catch (_) {}
+
       sessions.delete(sessionId);
 
       if (shouldReconnect) {
@@ -2132,6 +2181,12 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     const spec = specs[i];
     processed++;
     const _specStartedAt = Date.now();
+    // Latência por step — preenchido durante o processamento e jogado no
+    // metadata do evento group_create:success/failed no final. Permite
+    // análise empírica de qual step mais demora (photo? welcome? groupCreate?).
+    const _stepDurations = {};
+    const _measureStart = () => Date.now();
+    const _measureEnd = (name, t0) => { _stepDurations[name] = Date.now() - t0; };
 
     // Sinaliza pro job manager qual spec está processando AGORA — a UI usa
     // isso pra mostrar "⏳ Pendente" na linha correta enquanto o grupo está
@@ -2301,13 +2356,16 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         row.statusMessage = appendNote(row.statusMessage,
           "modo convite: cliente não foi adicionado — link será enviado por DM");
       }
+      const _tGroupCreate = _measureStart();
       try {
         created = await callWithTransientRetry(
           sessionId,
           (s) => s.groupCreate(spec.name, memberJids),
           { label: "groupCreate[" + (spec.name || "").substring(0, 30) + "]" }
         );
+        _measureEnd("groupCreate", _tGroupCreate);
       } catch (e) {
+        _measureEnd("groupCreate", _tGroupCreate);
         const errMsg = String(e?.message || "").toLowerCase();
         const isBadRequest = errMsg.includes("bad-request") || (e && e.output && e.output.statusCode === 400);
         if (isBadRequest && isHubspotFlow && spec.clientPhone && memberJids.length > 1) {
@@ -2393,6 +2451,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 2. Invite link — envolvido em callWithTransientRetry pra sobreviver
       // a Connection Closed pós-groupCreate (bug observado Vitor/Max/Emerson).
+      const _tInvite = _measureStart();
       try {
         const code = await callWithTransientRetry(
           sessionId,
@@ -2400,7 +2459,9 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           { label: "inviteCode[" + (spec.name || "").substring(0, 30) + "]" }
         );
         if (code) row.inviteLink = "https://chat.whatsapp.com/" + code;
+        _measureEnd("inviteCode", _tInvite);
       } catch (e) {
+        _measureEnd("inviteCode", _tInvite);
         if (isRateLimitError(e)) { rateLimited = true; }
         row.statusMessage = appendNote(row.statusMessage, "invite_link_fail: " + (e?.message || e));
       }
@@ -2421,34 +2482,74 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         .replace(/\{mentor\}/g, String(spec.hubspotMentor || ""));
 
       if (!rateLimited && row.inviteLink && !includeCx2) {
+        const _tDmCx2 = _measureStart();
         try {
           await callWithTransientRetry(
             sessionId,
             (s) => s.sendMessage(CX2_JID, { text: fillHelperTemplate() }),
             { label: "dmInviteCx2[" + (spec.name || "").substring(0, 30) + "]" }
           );
+          _measureEnd("dmCx2", _tDmCx2);
           row.cx2DmSent = true;
           row.statusMessage = appendNote(row.statusMessage, "cx2_convite_enviado_por_dm");
+          _logEvent({
+            type: "dm:sent:cx2",
+            level: "info",
+            message: "DM convite enviada pra CX2 (grupo: " + (spec.name || "(sem nome)") + ")",
+            sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+            sessionPhone: _sessInfo ? _sessInfo.phone : null,
+            groupJid: row.groupJid, groupName: spec.name || null,
+            metadata: { target: CX2_DIGITS, specHash: spec.specHash, deltaMs: _stepDurations.dmCx2 },
+          });
         } catch (e) {
+          _measureEnd("dmCx2", _tDmCx2);
           row.cx2DmSent = false;
           row.statusMessage = appendNote(row.statusMessage, "cx2_dm_fail: " + (e?.message || e));
           if (isRateLimitError(e)) rateLimited = true;
+          _logEvent({
+            type: "dm:failed:cx2",
+            level: "warn",
+            message: "Falha ao enviar DM pra CX2: " + (e?.message || e),
+            sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+            groupJid: row.groupJid, groupName: spec.name || null,
+            metadata: { target: CX2_DIGITS, specHash: spec.specHash, error: e?.message || String(e) },
+          });
         }
         await new Promise(r => setTimeout(r, 2500));
       }
       if (!rateLimited && row.inviteLink && !includeEscalada) {
+        const _tDmEsc = _measureStart();
         try {
           await callWithTransientRetry(
             sessionId,
             (s) => s.sendMessage(ESCALADA_JID, { text: fillHelperTemplate() }),
             { label: "dmInviteEscalada[" + (spec.name || "").substring(0, 30) + "]" }
           );
+          _measureEnd("dmEscalada", _tDmEsc);
           row.escaladaDmSent = true;
           row.statusMessage = appendNote(row.statusMessage, "escalada_convite_enviado_por_dm");
+          _logEvent({
+            type: "dm:sent:escalada",
+            level: "info",
+            message: "DM convite enviada pra Escalada (grupo: " + (spec.name || "(sem nome)") + ")",
+            sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+            sessionPhone: _sessInfo ? _sessInfo.phone : null,
+            groupJid: row.groupJid, groupName: spec.name || null,
+            metadata: { target: ESCALADA_DIGITS, specHash: spec.specHash, deltaMs: _stepDurations.dmEscalada },
+          });
         } catch (e) {
+          _measureEnd("dmEscalada", _tDmEsc);
           row.escaladaDmSent = false;
           row.statusMessage = appendNote(row.statusMessage, "escalada_dm_fail: " + (e?.message || e));
           if (isRateLimitError(e)) rateLimited = true;
+          _logEvent({
+            type: "dm:failed:escalada",
+            level: "warn",
+            message: "Falha ao enviar DM pra Escalada: " + (e?.message || e),
+            sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+            groupJid: row.groupJid, groupName: spec.name || null,
+            metadata: { target: ESCALADA_DIGITS, specHash: spec.specHash, error: e?.message || String(e) },
+          });
         }
         await new Promise(r => setTimeout(r, 2500));
       }
@@ -2490,7 +2591,16 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           row.clientDmSent = false;
           row.statusMessage = appendNote(row.statusMessage,
             "cliente_dm_falhou: número " + rawPhone + " não encontrado no WhatsApp. Verifique no HubSpot.");
+          _logEvent({
+            type: "dm:failed:client",
+            level: "warn",
+            message: "DM cliente NÃO enviada — número não encontrado em WhatsApp (" + rawPhone + ")",
+            sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+            groupJid: row.groupJid, groupName: spec.name || null,
+            metadata: { target: rawPhone, reason: "not_on_whatsapp", specHash: spec.specHash },
+          });
         } else {
+          const _tDmClient = _measureStart();
           try {
             const clientTemplate = spec.inviteDmClientTemplate || spec.rejectDmTemplate
               || 'Olá! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
@@ -2502,15 +2612,41 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
               (s) => s.sendMessage(clientJid, { text: dmText }),
               { label: "dmClientReject[...]" }
             );
+            _measureEnd("dmClient", _tDmClient);
             row.clientDmSent = true;
-            const noteJid = clientJid === rawPhone + "@s.whatsapp.net"
-              ? "cliente_convite_enviado_por_dm"
-              : "cliente_convite_enviado_por_dm (JID ajustado: " + clientJid.split("@")[0] + ")";
+            const adjusted9 = clientJid !== (rawPhone + "@s.whatsapp.net");
+            const noteJid = adjusted9
+              ? "cliente_convite_enviado_por_dm (JID ajustado: " + clientJid.split("@")[0] + ")"
+              : "cliente_convite_enviado_por_dm";
             row.statusMessage = appendNote(row.statusMessage, noteJid);
+            _logEvent({
+              type: "dm:sent:client",
+              level: "info",
+              message: "DM convite enviada pro cliente" + (adjusted9 ? " (JID ajustado 9 BR)" : "") + " — " + (spec.name || "(sem nome)"),
+              sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+              sessionPhone: _sessInfo ? _sessInfo.phone : null,
+              groupJid: row.groupJid, groupName: spec.name || null,
+              metadata: {
+                target: rawPhone,
+                canonicalJid: clientJid,
+                adjusted9br: adjusted9,
+                specHash: spec.specHash,
+                deltaMs: _stepDurations.dmClient,
+              },
+            });
           } catch (dmErr) {
+            _measureEnd("dmClient", _tDmClient);
             row.clientDmSent = false;
             row.statusMessage = appendNote(row.statusMessage, "cliente_dm_fail: " + (dmErr?.message || dmErr));
             if (isRateLimitError(dmErr)) { rateLimited = true; }
+            _logEvent({
+              type: "dm:failed:client",
+              level: "warn",
+              message: "Falha ao enviar DM pro cliente: " + (dmErr?.message || dmErr),
+              sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+              groupJid: row.groupJid, groupName: spec.name || null,
+              metadata: { target: rawPhone, specHash: spec.specHash, error: dmErr?.message || String(dmErr) },
+            });
           }
         }
         await new Promise(r => setTimeout(r, 2500));
@@ -2518,14 +2654,17 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 4. Description
       if (!rateLimited && spec.description) {
+        const _tDesc = _measureStart();
         try {
           await callWithTransientRetry(
             sessionId,
             (s) => s.groupUpdateDescription(row.groupJid, String(spec.description)),
             { label: "desc[" + (spec.name || "").substring(0, 30) + "]" }
           );
+          _measureEnd("description", _tDesc);
           row.hasDescription = true;
         } catch (e) {
+          _measureEnd("description", _tDesc);
           row.statusMessage = appendNote(row.statusMessage, "desc_fail: " + (e.message || e));
           if (isRateLimitError(e)) { rateLimited = true; }
         }
@@ -2534,6 +2673,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 5. Photo from URL
       if (!rateLimited && spec.photoUrl) {
+        const _tPhoto = _measureStart();
         try {
           const buf = await fetchPhotoBuffer(spec.photoUrl);
           await callWithTransientRetry(
@@ -2541,8 +2681,10 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
             (s) => s.updateProfilePicture(row.groupJid, buf),
             { label: "photo[" + (spec.name || "").substring(0, 30) + "]" }
           );
+          _measureEnd("photo", _tPhoto);
           row.hasPhoto = true;
         } catch (e) {
+          _measureEnd("photo", _tPhoto);
           row.statusMessage = appendNote(row.statusMessage, "photo_fail: " + (e.message || e));
           if (isRateLimitError(e)) { rateLimited = true; }
         }
@@ -2552,13 +2694,16 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // 6a. "Adicionar membros" = todos — ANTES do lock (permissão de invite
       // link depende disso).
       if (!rateLimited) {
+        const _tMemberMode = _measureStart();
         try {
           await callWithTransientRetry(
             sessionId,
             (s) => s.groupMemberAddMode(row.groupJid, "all_member_add"),
             { label: "memberAddMode" }
           );
+          _measureEnd("memberAddMode", _tMemberMode);
         } catch (e) {
+          _measureEnd("memberAddMode", _tMemberMode);
           row.statusMessage = appendNote(row.statusMessage, "member_add_mode_fail: " + (e?.message || e));
           if (isRateLimitError(e)) { rateLimited = true; }
         }
@@ -2567,14 +2712,17 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 6b. Lock "Editar configurações do grupo".
       if (!rateLimited && spec.lockInfo) {
+        const _tLock = _measureStart();
         try {
           await callWithTransientRetry(
             sessionId,
             (s) => s.groupSettingUpdate(row.groupJid, "locked"),
             { label: "lock" }
           );
+          _measureEnd("lock", _tLock);
           row.locked = true;
         } catch (e) {
+          _measureEnd("lock", _tLock);
           row.statusMessage = appendNote(row.statusMessage, "lock_fail: " + (e.message || e));
           if (isRateLimitError(e)) { rateLimited = true; }
         }
@@ -2593,6 +2741,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
                 (includeEscalada || j !== ESCALADA_JID))
             : []);
       if (!rateLimited && adminJidsToProcess.length > 0) {
+        const _tAdmin = _measureStart();
         for (const adminJid of adminJidsToProcess) {
           try {
             const addRes = await callWithTransientRetry(
@@ -2615,6 +2764,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
             row.statusMessage = appendNote(row.statusMessage, "admin_fail " + adminJid.split("@")[0] + ": " + (e?.message || e));
           }
         }
+        _measureEnd("adminAddPromote", _tAdmin);
       }
 
       // Step 8 (batch add helpers) REMOVIDO: helpers já entraram no groupCreate.
@@ -2663,31 +2813,76 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           const mentorLine = mentorWa ? ("\n\nDúvidas ou ajuda: mentor " + (spec.hubspotMentor || "") + " (" + mentorWa + ")") : "";
           const altText = "⚠️ Ainda faltam entrar no grupo: " + absentParts.join(", ")
             + ". O link de convite já foi enviado no privado pra cada um." + mentorLine;
+          const _tAltWelcome = _measureStart();
           try {
             await callWithTransientRetry(
               sessionId,
               (s) => s.sendMessage(row.groupJid, { text: altText }),
               { label: "alt_welcome[" + (spec.name || "").substring(0, 30) + "]" }
             );
+            _measureEnd("altWelcome", _tAltWelcome);
             row.welcomeSent = false;
             row.statusMessage = appendNote(row.statusMessage, "welcome_substituído: alerta de membros pendentes enviado no grupo");
+            _logEvent({
+              type: "welcome:alt_sent",
+              level: "info",
+              message: "Alt welcome enviado (membros pendentes: " + absentParts.length + ") — " + (spec.name || "(sem nome)"),
+              sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+              sessionPhone: _sessInfo ? _sessInfo.phone : null,
+              groupJid: row.groupJid, groupName: spec.name || null,
+              metadata: {
+                specHash: spec.specHash,
+                absentCount: absentParts.length,
+                clientAbsent, cx2Absent, escaladaAbsent,
+                deltaMs: _stepDurations.altWelcome,
+              },
+            });
           } catch (e) {
+            _measureEnd("altWelcome", _tAltWelcome);
             if (isRateLimitError(e)) { rateLimited = true; }
             row.statusMessage = appendNote(row.statusMessage, "alt_welcome_fail: " + (e?.message || e));
+            _logEvent({
+              type: "welcome:failed",
+              level: "warn",
+              message: "Falha no alt welcome: " + (e?.message || e),
+              sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+              groupJid: row.groupJid, groupName: spec.name || null,
+              metadata: { specHash: spec.specHash, variant: "alt", error: e?.message || String(e) },
+            });
           }
         } else {
           // Todo mundo entrou — welcome normal
           const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
+          const _tWelcome = _measureStart();
           try {
             await callWithTransientRetry(
               sessionId,
               (s) => s.sendMessage(row.groupJid, { text }),
               { label: "welcome[" + (spec.name || "").substring(0, 30) + "]" }
             );
+            _measureEnd("welcome", _tWelcome);
             row.welcomeSent = true;
+            _logEvent({
+              type: "welcome:sent",
+              level: "info",
+              message: "Welcome enviado no grupo — " + (spec.name || "(sem nome)"),
+              sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+              sessionPhone: _sessInfo ? _sessInfo.phone : null,
+              groupJid: row.groupJid, groupName: spec.name || null,
+              metadata: { specHash: spec.specHash, deltaMs: _stepDurations.welcome },
+            });
           } catch (e) {
+            _measureEnd("welcome", _tWelcome);
             if (isRateLimitError(e)) { rateLimited = true; }
             row.statusMessage = appendNote(row.statusMessage, "welcome_fail: " + (e?.message || e));
+            _logEvent({
+              type: "welcome:failed",
+              level: "warn",
+              message: "Falha ao enviar welcome: " + (e?.message || e),
+              sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+              groupJid: row.groupJid, groupName: spec.name || null,
+              metadata: { specHash: spec.specHash, variant: "normal", error: e?.message || String(e) },
+            });
           }
         }
       }
@@ -2751,7 +2946,8 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     }
 
     // Activity log: resultado do spec (success / rate_limit / failed).
-    // Metadata carrega flags úteis pra análise empírica (quem entrou, quem recebeu DM, etc).
+    // Metadata carrega flags úteis + stepDurations pra análise empírica de
+    // qual step demora mais (photo geralmente) e detectar outliers/slowness.
     const _deltaMs = Date.now() - _specStartedAt;
     const _evType = row.status === "created" ? "group_create:success"
                   : row.status === "rate_limited" ? "group_create:rate_limit"
@@ -2771,6 +2967,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         specHash: spec.specHash,
         status: row.status,
         deltaMs: _deltaMs,
+        stepDurations: _stepDurations,  // NOVO — PR1 #4: breakdown de latência por step
         membersTotal: row.membersTotal || 0,
         membersAdded: row.membersAdded || 0,
         hasDescription: !!row.hasDescription,

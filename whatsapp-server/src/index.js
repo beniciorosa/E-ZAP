@@ -120,22 +120,14 @@ server.listen(PORT, async () => {
     }, { timezone: "America/Sao_Paulo" });
     console.log("[CRON] CALLS DE HOJE + SEMANA refresh scheduled (00:01 America/Sao_Paulo)");
 
-    // Cleanup do activity_events — roda 03:00 BRT todos os dias.
-    // Chama a RPC cleanup_old_activity_events(30) que apaga em batches de 1000.
-    cron.schedule("0 3 * * *", async () => {
-      try {
-        const { supaRest } = require("./services/supabase");
-        const r = await supaRest(
-          "/rest/v1/rpc/cleanup_old_activity_events",
-          "POST",
-          { keep_days: 30 }
-        );
-        console.log("[CRON activity-cleanup] rows deleted:", r);
-      } catch (e) {
-        console.error("[CRON activity-cleanup] failed:", e.message);
-      }
-    }, { timezone: "America/Sao_Paulo" });
-    console.log("[CRON] activity_events cleanup scheduled (03:00 America/Sao_Paulo, keep 30d)");
+    // Cleanup do activity_events — DESATIVADO (2026-04-21).
+    // Decisão: manter log eternamente. Volume estimado ~450MB/ano com todos
+    // os 5 upgrades ativados (PR1+PR2). Plano Supabase SMALL suporta 10-18
+    // anos antes de chegar no limite. Dados históricos são valiosos pra:
+    // calibração empírica de hipóteses de rate-limit, auditoria, futura ML.
+    // Se em 2030+ o DB crescer absurdo, migrar pra archive em Storage bucket.
+    // RPC cleanup_old_activity_events continua existente no DB caso precisemos
+    // limpar manualmente no futuro — só não é mais chamada automaticamente.
   } catch (e) {
     console.warn("[CRON] node-cron not available:", e.message);
   }
