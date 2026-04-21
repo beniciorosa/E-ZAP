@@ -4368,6 +4368,8 @@ function renderActivityLog() {
     else if (ev.event_type === "welcome:failed") emoji = "❌👋 ";
     else if (ev.event_type === "wa:stream_error") emoji = "⛔ ";
     else if (ev.event_type === "session:disconnected") emoji = "🔌 ";
+    else if (ev.event_type === "session:transient_drop") emoji = "📡 ";
+    else if (ev.event_type === "session:reconnected") emoji = "✅🔌 ";
     else if (ev.event_type === "vcard:sent") emoji = "📇 ";
     else if (ev.event_type === "vcard:failed") emoji = "❌📇 ";
     html += '<div class="activity-event ' + esc(ev.level || "info") + '">'

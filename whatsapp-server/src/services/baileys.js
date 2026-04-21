@@ -282,6 +282,11 @@ async function startSession(sessionId, existingCreds = null) {
     }
 
     if (connection === "open") {
+      // Detecta se é reconnect (já havia attempts) pra logar como session:reconnected
+      // em vez de session:connected. Permite fechar o ciclo "transient_drop → reconnected"
+      // visualmente no sidebar.
+      const wasReconnecting = (reconnectAttempts.get(sessionId) || 0) > 0;
+
       session.status = "connected";
       session.qr = null;
       session.connectedAt = Date.now();
@@ -291,6 +296,19 @@ async function startSession(sessionId, existingCreds = null) {
       await saveSessionCreds(sessionId, authState.creds);
       emit("session:connected", { sessionId, phone });
       console.log("[BAILEYS] Connected:", sessionId, "phone:", phone);
+
+      // Activity log: reconnected event (só se foi reconnect — nao primeira conexão)
+      if (wasReconnecting) {
+        _logEvent({
+          type: "session:reconnected",
+          level: "info",
+          message: "Sessão voltou ao ar após queda",
+          sessionId,
+          sessionLabel: session.label || null,
+          sessionPhone: phone || null,
+          metadata: { phone },
+        });
+      }
 
       // Sync group metadata (description, participants) in background —
       // but SKIP if the session has skip_group_sync=true in wa_sessions.
@@ -334,29 +352,58 @@ async function startSession(sessionId, existingCreds = null) {
           sessionLabel: existing ? existing.label : null,
           sessionPhone: existing ? existing.phone : null,
         };
+        // Classificação da causa do close:
+        // - CRITICAL / STREAM_ERROR: device_removed, loggedOut, 403, rate-overlimit
+        //   → level critical/error, aparece vermelho na sidebar, exige atenção
+        // - TRANSIENT: 503, 408, 428, connectionLost, "Connection Closed"
+        //   → level info, aparece cinza/amarelo, reconecta automaticamente
+        // - OUTROS: unknown
         let evType = "session:disconnected";
         let evLevel = "info";
         let evMsg = "Sessão desconectou (code=" + (statusCode || "?") + ")";
-        if (String(errorMsg).includes("device_removed") || String(errorMsg).includes("Device Removed")) {
+
+        const errLower = String(errorMsg || "").toLowerCase();
+        const isDeviceRemoved = errLower.includes("device_removed") || errLower.includes("device removed");
+        const isRateOverlimit = errLower.includes("rate-overlimit");
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+        const isForbidden = statusCode === 403;
+        // Transient: códigos HTTP 503/408/428/500 ou connectionLost/restart-required.
+        const isTransient = (
+          statusCode === 503 ||
+          statusCode === 500 ||
+          statusCode === 408 ||
+          statusCode === 428 ||
+          statusCode === DisconnectReason.connectionLost ||
+          statusCode === DisconnectReason.restartRequired ||
+          errLower.includes("connection closed") ||
+          errLower.includes("restart required") ||
+          errLower.includes("connection terminated")
+        );
+
+        if (isDeviceRemoved) {
           evType = "wa:stream_error";
           evLevel = "critical";
           evMsg = "⛔ device_removed — linked device expulso pelo WhatsApp (requer QR novo)";
-        } else if (String(errorMsg).toLowerCase().includes("rate-overlimit")) {
+        } else if (isRateOverlimit) {
           evType = "wa:stream_error";
           evLevel = "error";
           evMsg = "🔴 rate-overlimit stanza — WhatsApp bloqueou explicitamente";
-        } else if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+        } else if (isLoggedOut) {
           evType = "wa:stream_error";
           evLevel = "critical";
           evMsg = "⛔ loggedOut — QR novo necessário";
-        } else if (statusCode === 403) {
+        } else if (isForbidden) {
           evType = "wa:stream_error";
           evLevel = "error";
           evMsg = "Forbidden (403) — banimento ou restrição";
-        } else if (statusCode === 428 || statusCode === DisconnectReason.connectionLost) {
-          evLevel = "warn";
-          evMsg = "Conexão caiu (code=" + statusCode + ") — vai tentar reconectar";
+        } else if (isTransient && shouldReconnect) {
+          // Queda transiente — callWithTransientRetry lida no hot path,
+          // conexão reconecta automaticamente em segundos.
+          evType = "session:transient_drop";
+          evLevel = "info";
+          evMsg = "📡 Queda temporária (code=" + (statusCode || "?") + ") — reconectando automaticamente…";
         }
+
         _logEvent({
           type: evType,
           level: evLevel,
@@ -367,6 +414,7 @@ async function startSession(sessionId, existingCreds = null) {
             errorMessage: errorMsg || null,
             shouldReconnect,
             willRetry: shouldReconnect,
+            isTransient,
           },
         });
       } catch (_) {}
