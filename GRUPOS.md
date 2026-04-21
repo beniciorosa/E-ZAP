@@ -257,6 +257,94 @@ ssh -i ~/.ssh/ezap_hetzner root@87.99.141.235 \
 
 ## 10. Changelog
 
+### 2026-04-21 noite — commits `c47fbb7` + `f990e36` — PR1 log enriquecido + transient_drop distinto
+
+Melhoria de observabilidade em cima do activity log implementado mais cedo (`7868853`).
+
+**Enriquecimentos:**
+- **Latência por step**: `_stepDurations` em cada step do `createGroupsFromList` (groupCreate, inviteCode, description, photo, memberAddMode, lock, adminAddPromote, welcome, altWelcome, dmClient, dmCx2, dmEscalada). Incluído em `metadata.stepDurations` de `group_create:success/failed` → permite análise "photo sempre demora 3s?" ou spot outliers.
+- **DMs como eventos separados**: `dm:sent:client | :cx2 | :escalada` e `dm:failed:*`. Antes estava embedded no metadata do `group_create:success`. Agora cada DM tem evento próprio filtrável no sidebar.
+- **Welcome como evento**: `welcome:sent | :alt_sent | :failed`. Antes só boolean no metadata.
+- **Stream error capture**: listener em `connection.update` classifica close events:
+  - Critical (vermelho): `device_removed`, `loggedOut`, `rate-overlimit`, 403 → `wa:stream_error`
+  - Transient (info/amarelo, reconecta automaticamente): 503, 500, 408, 428, `Connection Closed`, `restart_required`, `connectionLost` → `session:transient_drop`
+  - Generic: `session:disconnected`
+- **Reconnect**: `session:reconnected` quando connection volta após `reconnectAttempts > 0`. Fecha ciclo visual: `transient_drop → reconnected`.
+- **Retenção eterna**: cron cleanup 30d DESATIVADO. Volume ~450MB/ano comporta 10-18 anos em Supabase SMALL.
+- **Auto-criar grupos DESATIVADO**: botão disabled + tooltip "🚧 Em manutenção" até ser re-investigado.
+
+**Arquivos**: [baileys.js](whatsapp-server/src/services/baileys.js), [grupos.html](grupos.html), [index.js](whatsapp-server/src/index.js).
+
+### 2026-04-21 tarde — commits `7868853` + `29dcd63` + `12697dd` — Activity log + sidebar real-time
+
+Tabela unificada `activity_events` (migration 062) + service `activity-log.js` + sidebar colapsável em grupos.html + endpoints `/api/activity` e `/api/activity/insights` + cron cleanup diário (depois desativado).
+
+- Shape: `{event_type, level, session_*, job_id, group_*, message, metadata}`. Coluna `day` generated em America/Sao_Paulo.
+- Socket.io canal `activity:event` emit a cada `logEvent` call.
+- Sidebar: header com insights de ontem, filtros (dia/tipo/level), lista rolável 500 eventos.
+- Instrumentação inicial: group_create:*, group_create_job:*, session:quarantine_*, resolve_tickets, phone_validation:*.
+
+### 2026-04-21 tarde — commit `eb3b037` — VCard self-chat
+
+Feature pra mentor salvar clientes na agenda ANTES de criar grupos (elimina `bad-request`).
+
+- Migration 063: `vcard_sent_registry` (UNIQUE mentor+phone).
+- Nova rota `POST /api/vcard/send-batch` — envia mensagem de texto com "Nome | +55 DD 9XXXX-XXXX" pro self-chat de cada mentor (`sock.sendMessage(sock.user.id, {text})`).
+- WhatsApp auto-detecta número como link → mentor toca → "Adicionar aos contatos".
+- `/resolve-tickets` enriquecido com `vcardAlreadySent` flag (consulta `vcard_sent_registry`).
+- Frontend: botão 📇 na toolbar + modal com resolve + preview agrupado por mentor + envio com activity log events.
+
+Motivo de não ser vCard real: WhatsApp não permite compartilhar contato que o remetente ainda não tem na agenda.
+
+### 2026-04-21 — commit `2403111` — onWhatsApp batch + multi-templates
+
+- `/resolve-tickets` faz batch `sock.onWhatsApp(...phones)` em sessão doadora (CX2 > Escalada) antes de retornar. 1-2 IQs por lote total, independente do tamanho. Zero IQ adicional na criadora.
+- Trata 9 BR automático: se número original não existe, tenta variante com/sem "9" após DDD.
+- Response: `resolvedClientJid` + `clientValidation` ("ok"/"adjusted_no_9"/"not_on_whatsapp"/"no_validator"/"not_validated").
+- Frontend: auto-força `includeClient=false` quando not_on_whatsapp.
+- Multi-templates: `app_settings.hubspot_templates_{sessionId}` vira `{templates: [{id, name, isDefault, fields...}]}`. UI com dropdown + Salvar como + Default + Deletar.
+
+### 2026-04-21 — commit `0001fbf` — Modo convite + jitter configurável + members_list + UI
+Contexto: Matheus Carrieiro bateu rate-limit em 92s logo no 1º grupo mesmo nunca tendo batido antes. Diagnóstico: conta "fria" (só 2 grupos em 5 dias) + provável falta de contato mútuo entre criador e clientes. Solução: permitir que o usuário decida QUEM entra via `groupCreate` e quem recebe DM com invite link — minimiza "IQ signal" pro WhatsApp quando a conta criadora está sensível.
+
+**Modo convite (3 checkboxes no modal):**
+- `includeCx2` / `includeEscalada` / `includeClient` — default todos ON (comportamento antigo preservado).
+- Quando OFF: membro não entra via groupCreate, recebe DM com invite link do criador.
+- Caso extremo (todos OFF): só o criador (mentor) fica no grupo; cliente + CX2 + Escalada recebem DM.
+- 2 templates novos em `#hubspotRejectDmMessage` (cliente) e `#hubspotHelperDmMessage` (helpers). Placeholders: `{primeiro_nome}`, `{nome_grupo}`, `{link}`, `{cliente_nome}`, `{mentor}`.
+- Alt welcome no grupo agora lista quem faltou entrar + inclui o WhatsApp do mentor pra contato direto.
+- Backend: `spec.includeCx2/Escalada/Client` + `spec.inviteDmClientTemplate/inviteDmHelperTemplate`. DMs enviadas entre Step 2 (invite link) e Step 3 (cliente). `row.cx2DmSent` / `row.escaladaDmSent` populados em runtime.
+
+**Jitter configurável:**
+- Novos campos "entre X e Y min a mais" no modal (range 0-60 min). Default 0/0.
+- Backend: se `jitterMinSec/MaxSec` > 0, usa range positivo. Senão, preserva ±30s legado.
+- Quebra padrão robótico (22:13, 24:55, 23:41… em vez de 20:00 fixo).
+
+**Custom delay em minutos:** input `#createDelayCustom` agora é minutos (1-1440), não segundos. Conversão `* 60` no frontend antes de mandar pro backend.
+
+**Members list (DB + UI):**
+- Migration 061: `wa_group_creations.members_list JSONB`. Shape: `[{role, phone, name, in_group, dm_sent}]`. Roles: `client|mentor|cx2|escalada|helper`.
+- Backend popula automaticamente no `createGroupsFromList` após welcome. `upsertGroupCreation` + `getCachedGroupCreations` levam/trazem a coluna.
+- 3 colunas novas na tabela de resultados: **DM Cli / DM CX2 / DM Esc** (✓ enviado, ✗ falhou, — N/A entrou direto). Ler do cache via helper `extractDmStatus(membersList, role)` em [jobs.js](whatsapp-server/src/services/jobs.js).
+
+**Templates endpoint:** `POST /api/hubspot/templates/:sessionId` agora aceita campo `helperDm` além dos 3 existentes (backward compat: key ausente = string vazia).
+
+**Modal UI:**
+- Scroll horizontal removido (`overflow-x:hidden` + `box-sizing:border-box` global dentro do modal).
+- Scroll vertical estilizado (thumb discreto combinando com tema dark, `::-webkit-scrollbar` + `scrollbar-width:thin` + `scrollbar-color`).
+- Width 720 → 820px pra caber inputs novos.
+
+### 2026-04-20 noite-8 — commit `5c058b0` — Pausar + ajustar delay + retomar (frontend-only)
+Reportado por Dhiego em produção: 2 sessões (Maylon Clariano e Thomaz Stancioli) bateram rate-limit com delay de 20 min entre grupos (Maylon no 3°, Thomaz no 4°). Pedido: poder pausar um job, mudar o delay (ex: pra 1 hora) e retomar de onde parou.
+
+- **Frontend-only** ([grupos.html](grupos.html)) — zero backend change, zero pm2 restart. Reusa toda a infra existente (cancel + cache via `specHash`).
+- Botão "Interromper" vira "⏸ Pausar" só pra jobs `create-groups` (mensagem de confirmação adaptada). Internamente segue chamando `POST /api/jobs/:id/cancel`.
+- Em jobs `create-groups` com status `cancelled` / `rate_limited` / `error`, o botão "Tentar novamente" agora vem precedido de um **input editável de delay (em min)** + botão "▶️ Retomar". Default = `job.config.delaySec / 60`. Range visual 1-30 (matches backend clamp em [baileys.js:2053](whatsapp-server/src/services/baileys.js:2053)).
+- Nova função `resumeCreateGroupsJob(jobId)` lê o input, valida (clampa em 30 com warning) e chama `retryFailedJob(jobId, minutes * 60)`.
+- `retryFailedJob` ganha 2º parâmetro `delaySecOverride` opcional — se passado, sobrescreve `job.config.delaySec` na chamada `POST /api/jobs/create-groups/start`.
+- Mensagens dos status `rate_limited` e `cancelled` (só create-groups) reescritas pra apontar pro fluxo "ajuste o delay → Retomar".
+- Cap atual: 30 min máx (clamp do backend). Pra liberar até 60 min como Dhiego pediu, futura sessão precisa: `Math.min(1800, …)` → `Math.min(3600, …)` em [baileys.js:2053](whatsapp-server/src/services/baileys.js:2053) + pm2 restart.
+
 ### 2026-04-20 noite-7 — commit `c655cea` — 4 fixes: bad-request fallback + transient retry + cancel + UI pendente
 Observados em produção 20/04 noite (lotes Diego Giudice + Eduardo Gossi + Mateus Gomes):
 
