@@ -2158,9 +2158,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // Resolve session-based JIDs (preferido sobre phone cru — sock.user.id
       // é canônico, sem risco de LID salvo em wa_sessions.phone). Dedupe.
+      // Defense: pre-carrega JID do próprio criador no seenJids pra NUNCA
+      // tentar adicionar o criador como helper/admin do próprio grupo — isso
+      // aconteceria se frontend mandar Escalada como admin e o user escolher
+      // Escalada como sessão criadora (2026-04-21 Dhiego fluxo novo).
       const resolvedHelperJids = [];
       const resolvedAdminJids = [];
       const seenJids = new Set();
+      const creatorOwnJid = resolveSessionToJid(sessionId);
+      if (creatorOwnJid) seenJids.add(creatorOwnJid);
       if (Array.isArray(spec.helperSessionIds)) {
         for (const hsid of spec.helperSessionIds) {
           const jid = resolveSessionToJid(hsid);
@@ -2396,9 +2402,13 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 7. Add + promote extra admin JIDs (e.g. Escalada Ltda).
       // Preferência: resolvedAdminJids (session-based). Fallback: spec.adminJids.
+      // Filtro: remove o JID do próprio criador do fallback path (resolvedAdminJids
+      // já filtrado via seenJids na resolução acima).
       const adminJidsToProcess = resolvedAdminJids.length > 0
         ? resolvedAdminJids
-        : (Array.isArray(spec.adminJids) ? spec.adminJids : []);
+        : (Array.isArray(spec.adminJids)
+            ? spec.adminJids.filter(j => !creatorOwnJid || j !== creatorOwnJid)
+            : []);
       if (!rateLimited && adminJidsToProcess.length > 0) {
         for (const adminJid of adminJidsToProcess) {
           try {

@@ -60,6 +60,65 @@ router.get("/", async (req, res) => {
   }
 });
 
+// GET /api/sessions/health-stats — Per-session group-creation health.
+// grupos.html usa pra mostrar badge 🔥 Quente / 🆕 Fria / 🚫 Marcada ao
+// lado de cada sessão, ajudando o user a escolher qual usar em lote.
+// Classificação empírica: contagem de grupos criados nos últimos 30d +
+// timestamp do último rate-limit (se houve nos últimos 72h).
+// IMPORTANTE: definida ANTES de "/:id" pra não ser capturada como id=health-stats.
+router.get("/health-stats", async (req, res) => {
+  try {
+    const now = Date.now();
+    const since30d = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const cutoff72h = now - 72 * 60 * 60 * 1000;
+    const cutoff7d = now - 7 * 24 * 60 * 60 * 1000;
+
+    const rows = await supaRest(
+      "/rest/v1/wa_group_creations" +
+      "?select=source_session_id,status,updated_at,created_at" +
+      "&updated_at=gte." + encodeURIComponent(since30d) +
+      "&limit=10000"
+    );
+
+    const bySession = {};
+    for (const r of (Array.isArray(rows) ? rows : [])) {
+      const sid = r.source_session_id;
+      if (!sid) continue;
+      if (!bySession[sid]) bySession[sid] = {
+        totalCreated30d: 0, lastCreatedAt: null, lastRateLimitAt: null,
+      };
+      const b = bySession[sid];
+      if (r.status === "created") {
+        b.totalCreated30d++;
+        if (!b.lastCreatedAt || r.created_at > b.lastCreatedAt) b.lastCreatedAt = r.created_at;
+      }
+      if (r.status === "rate_limited") {
+        if (!b.lastRateLimitAt || r.updated_at > b.lastRateLimitAt) b.lastRateLimitAt = r.updated_at;
+      }
+    }
+
+    const out = {};
+    for (const [sid, b] of Object.entries(bySession)) {
+      const rlTs = b.lastRateLimitAt ? new Date(b.lastRateLimitAt).getTime() : 0;
+      const lcTs = b.lastCreatedAt ? new Date(b.lastCreatedAt).getTime() : 0;
+      let cls = "ok";
+      if (rlTs && rlTs > cutoff72h) cls = "marked";
+      else if (b.totalCreated30d < 3) cls = "cold";
+      else if (b.totalCreated30d >= 5 && lcTs > cutoff7d) cls = "hot";
+      out[sid] = {
+        totalCreated30d: b.totalCreated30d,
+        lastCreatedAt: b.lastCreatedAt,
+        lastRateLimitAt: b.lastRateLimitAt,
+        classification: cls,
+      };
+    }
+    res.json({ stats: out });
+  } catch (e) {
+    console.error("[SESSIONS] health-stats failed:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/sessions/:id — Get single session
 router.get("/:id", async (req, res) => {
   try {
