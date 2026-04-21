@@ -2156,17 +2156,31 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // esse pattern sempre funcionou.
       const isHubspotFlow = !!spec.clientPhone;
 
+      // Flags do modo convite — default true (backward compat com fluxo antigo).
+      // Se false, o membro NÃO entra via groupCreate, recebe DM com invite link.
+      const includeClient = spec.includeClient !== false;
+      const includeCx2 = spec.includeCx2 !== false;
+      const includeEscalada = spec.includeEscalada !== false;
+      const CX2_DIGITS = "5519971505209";
+      const ESCALADA_DIGITS = "5519993473149";
+      const CX2_JID = CX2_DIGITS + "@s.whatsapp.net";
+      const ESCALADA_JID = ESCALADA_DIGITS + "@s.whatsapp.net";
+
       // Resolve session-based JIDs (preferido sobre phone cru — sock.user.id
       // é canônico, sem risco de LID salvo em wa_sessions.phone). Dedupe.
       // Defense: pre-carrega JID do próprio criador no seenJids pra NUNCA
       // tentar adicionar o criador como helper/admin do próprio grupo — isso
       // aconteceria se frontend mandar Escalada como admin e o user escolher
       // Escalada como sessão criadora (2026-04-21 Dhiego fluxo novo).
+      // Pre-carrega CX2/Escalada no seenJids se user desmarcou — vão receber
+      // DM com invite link em vez de entrar via groupCreate/add+promote.
       const resolvedHelperJids = [];
       const resolvedAdminJids = [];
       const seenJids = new Set();
       const creatorOwnJid = resolveSessionToJid(sessionId);
       if (creatorOwnJid) seenJids.add(creatorOwnJid);
+      if (!includeCx2) seenJids.add(CX2_JID);
+      if (!includeEscalada) seenJids.add(ESCALADA_JID);
       if (Array.isArray(spec.helperSessionIds)) {
         for (const hsid of spec.helperSessionIds) {
           const jid = resolveSessionToJid(hsid);
@@ -2189,10 +2203,11 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // Monta a lista FINAL de members pro groupCreate — todos juntos.
       // HubSpot: cliente + (helpers via session_id OU spec.members cru filtrado).
       // XLSX: spec.members cru, validado via onWhatsApp.
+      // Se !includeClient, o cliente NÃO entra via groupCreate (vira DM invite).
       let memberJids;
       if (isHubspotFlow) {
         const clientJid = spec.clientPhone + "@s.whatsapp.net";
-        const finalList = [clientJid];
+        const finalList = includeClient ? [clientJid] : [];
         if (resolvedHelperJids.length > 0) {
           // Session-based: JIDs já canônicos
           for (const j of resolvedHelperJids) if (!finalList.includes(j)) finalList.push(j);
@@ -2220,7 +2235,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // tentamos sem o cliente: o grupo é criado só com mentor+CX2, e depois
       // mandamos DM com invite link pro cliente + mensagem alt no grupo.
       let created;
-      let clientWasSkipped = false;
+      // Pre-emptive skip: se user desmarcou "incluir cliente", o cliente não
+      // entra via groupCreate (nem mesmo vai tentar). Step 3 DM vai disparar
+      // do mesmo jeito que no fallback bad-request.
+      let clientWasSkipped = (isHubspotFlow && !includeClient && !!spec.clientPhone);
+      if (clientWasSkipped) {
+        row.statusMessage = appendNote(row.statusMessage,
+          "modo convite: cliente não foi adicionado — link será enviado por DM");
+      }
       try {
         created = await callWithTransientRetry(
           sessionId,
@@ -2311,13 +2333,62 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         row.statusMessage = appendNote(row.statusMessage, "invite_link_fail: " + (e?.message || e));
       }
 
-      // 3. Client rejected by privacy OU bad-request (HubSpot flow) → DM invite link.
+      // 2b. Invite DMs pros helpers excluídos (modo convite).
+      // CX2 e/ou Escalada desmarcados no modal → recebem DM com invite link
+      // em vez de entrar via groupCreate/add+promote.
+      // Marca row.cx2DmSent e row.escaladaDmSent: true|false|null (null=N/A).
+      row.cx2DmSent = null;
+      row.escaladaDmSent = null;
+      const clientFirstNameForDM = (spec.name || "").split("|")[0].trim().split(" ")[0] || "cliente";
+      const helperTemplateRaw = spec.inviteDmHelperTemplate
+        || 'Olá! Novo grupo de mentoria criado: "{nome_grupo}". Entra por este link: {link}';
+      const fillHelperTemplate = () => helperTemplateRaw
+        .replace(/\{nome_grupo\}/g, spec.name || "")
+        .replace(/\{link\}/g, row.inviteLink || "")
+        .replace(/\{cliente_nome\}/g, clientFirstNameForDM)
+        .replace(/\{mentor\}/g, String(spec.hubspotMentor || ""));
+
+      if (!rateLimited && row.inviteLink && !includeCx2) {
+        try {
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.sendMessage(CX2_JID, { text: fillHelperTemplate() }),
+            { label: "dmInviteCx2[" + (spec.name || "").substring(0, 30) + "]" }
+          );
+          row.cx2DmSent = true;
+          row.statusMessage = appendNote(row.statusMessage, "cx2_convite_enviado_por_dm");
+        } catch (e) {
+          row.cx2DmSent = false;
+          row.statusMessage = appendNote(row.statusMessage, "cx2_dm_fail: " + (e?.message || e));
+          if (isRateLimitError(e)) rateLimited = true;
+        }
+        await new Promise(r => setTimeout(r, 2500));
+      }
+      if (!rateLimited && row.inviteLink && !includeEscalada) {
+        try {
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.sendMessage(ESCALADA_JID, { text: fillHelperTemplate() }),
+            { label: "dmInviteEscalada[" + (spec.name || "").substring(0, 30) + "]" }
+          );
+          row.escaladaDmSent = true;
+          row.statusMessage = appendNote(row.statusMessage, "escalada_convite_enviado_por_dm");
+        } catch (e) {
+          row.escaladaDmSent = false;
+          row.statusMessage = appendNote(row.statusMessage, "escalada_dm_fail: " + (e?.message || e));
+          if (isRateLimitError(e)) rateLimited = true;
+        }
+        await new Promise(r => setTimeout(r, 2500));
+      }
+
+      // 3. Client rejected by privacy OU bad-request OU modo convite (HubSpot) → DM invite.
+      // Template preferido: spec.inviteDmClientTemplate (modo convite). Fallback: spec.rejectDmTemplate (privacy).
       if (!rateLimited && isHubspotFlow && clientRejected && row.inviteLink) {
         const clientJid = spec.clientPhone + "@s.whatsapp.net";
         try {
-          const rejectTemplate = spec.rejectDmTemplate
+          const clientTemplate = spec.inviteDmClientTemplate || spec.rejectDmTemplate
             || 'Olá! Seu grupo de mentoria "{nome_grupo}" foi criado, mas suas configurações de privacidade não permitem que a gente te adicione diretamente. Entra por este link: {link}';
-          const dmText = rejectTemplate
+          const dmText = clientTemplate
             .replace(/\{nome_grupo\}/g, spec.name || "")
             .replace(/\{link\}/g, row.inviteLink);
           await callWithTransientRetry(
@@ -2402,12 +2473,14 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
 
       // 7. Add + promote extra admin JIDs (e.g. Escalada Ltda).
       // Preferência: resolvedAdminJids (session-based). Fallback: spec.adminJids.
-      // Filtro: remove o JID do próprio criador do fallback path (resolvedAdminJids
-      // já filtrado via seenJids na resolução acima).
+      // Filtros: remove o JID do próprio criador + remove Escalada se user
+      // desmarcou (ela vai receber DM com invite link em vez disso).
       const adminJidsToProcess = resolvedAdminJids.length > 0
         ? resolvedAdminJids
         : (Array.isArray(spec.adminJids)
-            ? spec.adminJids.filter(j => !creatorOwnJid || j !== creatorOwnJid)
+            ? spec.adminJids.filter(j =>
+                (!creatorOwnJid || j !== creatorOwnJid) &&
+                (includeEscalada || j !== ESCALADA_JID))
             : []);
       if (!rateLimited && adminJidsToProcess.length > 0) {
         for (const adminJid of adminJidsToProcess) {
@@ -2460,31 +2533,40 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       }
 
       // 10. Welcome or fallback message in the group.
-      // clientAdded foi determinado no Step 1 via created.participants — no
-      // novo fluxo HubSpot não precisamos de Step 9 explicit re-add: o grupo
-      // foi criado SÓ com o cliente, então groupCreate já dá a resposta certa.
+      // Se alguém NÃO entrou no grupo (cliente rejeitado/desmarcado, CX2
+      // desmarcado, Escalada desmarcado), envia alt message listando quem
+      // está de fora + WhatsApp do mentor pra contato direto. Senão, welcome
+      // normal.
       if (!rateLimited && spec.welcomeMessage) {
         const clientName = (spec.name || "").split("|")[0].trim().split(" ")[0] || "cliente";
-        if (row.clientAdded === false && spec.clientPhone) {
-          // Client was rejected — send alternative message in the group
-          const altText = "⚠️ O cliente " + clientName + " (" + spec.clientPhone + ") "
-            + "ainda não ingressou no grupo. O link de convite já foi enviado no particular dele.";
+        const clientAbsent = (row.clientAdded === false && !!spec.clientPhone);
+        const cx2Absent = !includeCx2;
+        const escaladaAbsent = !includeEscalada;
+        const anyAbsent = clientAbsent || cx2Absent || escaladaAbsent;
+
+        if (anyAbsent) {
+          const absentParts = [];
+          if (clientAbsent) absentParts.push("cliente " + clientName + " (" + spec.clientPhone + ")");
+          if (cx2Absent) absentParts.push("CX2 (" + CX2_DIGITS + ")");
+          if (escaladaAbsent) absentParts.push("Escalada Ltda (" + ESCALADA_DIGITS + ")");
+          const mentorWa = spec.mentorWhatsapp || spec.mentorSessionPhone || "";
+          const mentorLine = mentorWa ? ("\n\nDúvidas ou ajuda: mentor " + (spec.hubspotMentor || "") + " (" + mentorWa + ")") : "";
+          const altText = "⚠️ Ainda faltam entrar no grupo: " + absentParts.join(", ")
+            + ". O link de convite já foi enviado no privado pra cada um." + mentorLine;
           try {
-            // Wrap com retry defensivo: se houver disconnect transiente entre
-            // o groupCreate e o welcome, o helper aguarda reconexão até 3x.
             await callWithTransientRetry(
               sessionId,
               (s) => s.sendMessage(row.groupJid, { text: altText }),
               { label: "alt_welcome[" + (spec.name || "").substring(0, 30) + "]" }
             );
             row.welcomeSent = false;
-            row.statusMessage = appendNote(row.statusMessage, "welcome_substituído: alerta de cliente pendente enviado no grupo");
+            row.statusMessage = appendNote(row.statusMessage, "welcome_substituído: alerta de membros pendentes enviado no grupo");
           } catch (e) {
             if (isRateLimitError(e)) { rateLimited = true; }
             row.statusMessage = appendNote(row.statusMessage, "alt_welcome_fail: " + (e?.message || e));
           }
         } else {
-          // Client added or no clientPhone (xlsx flow) — send normal welcome
+          // Todo mundo entrou — welcome normal
           const text = String(spec.welcomeMessage).replace(/\{nome_grupo\}/g, spec.name || "");
           try {
             await callWithTransientRetry(
@@ -2499,6 +2581,48 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           }
         }
       }
+
+      // Monta membersList: registra TODOS os participantes esperados no grupo,
+      // com role, phone, se entrou direto ou via DM, e status do DM.
+      // Persistido em wa_group_creations.members_list (JSONB).
+      const membersList = [];
+      // Mentor = criador (sempre admin, sempre no grupo)
+      if (spec.mentorSessionPhone) {
+        membersList.push({
+          role: "mentor",
+          phone: String(spec.mentorSessionPhone).replace(/\D/g, ""),
+          name: spec.hubspotMentor || null,
+          in_group: true,
+          dm_sent: null,
+        });
+      }
+      // Cliente
+      if (spec.clientPhone) {
+        membersList.push({
+          role: "client",
+          phone: spec.clientPhone,
+          name: (spec.name || "").split("|")[0].trim() || null,
+          in_group: row.clientAdded === true,
+          dm_sent: row.clientDmSent,
+        });
+      }
+      // CX2
+      membersList.push({
+        role: "cx2",
+        phone: CX2_DIGITS,
+        name: "CX2",
+        in_group: includeCx2,
+        dm_sent: row.cx2DmSent,
+      });
+      // Escalada
+      membersList.push({
+        role: "escalada",
+        phone: ESCALADA_DIGITS,
+        name: "Escalada Ltda",
+        in_group: includeEscalada,
+        dm_sent: row.escaladaDmSent,
+      });
+      row.membersList = membersList;
 
       row.status = rateLimited ? "rate_limited" : "created";
       if (rateLimited && !row.statusMessage) {
@@ -2526,8 +2650,19 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     // Delay between groups (only if more to process and not aborting).
     // Usa waitWithHeartbeat em vez de setTimeout direto pra o botão Interromper
     // funcionar DURANTE o delay (sem precisar esperar os 10 min terminarem).
+    // Jitter configurável: se user passou jitterMin/MaxSec, usa esse range
+    // (0..60min) em vez do ±30s default. Sempre positivo (soma ao delay).
     if (i < total - 1 && !rateLimited && !(shouldCancel && shouldCancel())) {
-      const jitterMs = Math.floor((Math.random() - 0.5) * 60000); // ±30s
+      let jitterMs;
+      const jMinSec = Number(options.jitterMinSec) || 0;
+      const jMaxSec = Number(options.jitterMaxSec) || 0;
+      if (jMaxSec > 0 && jMaxSec >= jMinSec) {
+        // User-configured: random integer ms in [jMinSec*1000, jMaxSec*1000]
+        const rangeMs = (jMaxSec - jMinSec) * 1000;
+        jitterMs = (jMinSec * 1000) + Math.floor(Math.random() * (rangeMs + 1));
+      } else {
+        jitterMs = Math.floor((Math.random() - 0.5) * 60000); // ±30s default legado
+      }
       const ok = await waitWithHeartbeat(baseDelayMs + jitterMs, {
         onProgress, shouldCancel, phase: "between_groups",
       });
@@ -2639,6 +2774,9 @@ async function upsertGroupCreation(sessionId, row) {
         client_phone: row.clientPhone || null,
         mentor_session_id: row.mentorSessionId || null,
         mentor_session_phone: row.mentorSessionPhone || null,
+        // Lista completa de membros esperados no grupo (modo convite + direto).
+        // Shape: [{role, phone, name, in_group, dm_sent}]. Roles: client|mentor|cx2|escalada.
+        members_list: Array.isArray(row.membersList) ? row.membersList : null,
         updated_at: new Date().toISOString(),
       },
       "resolution=merge-duplicates,return=minimal"
@@ -2652,7 +2790,7 @@ async function getCachedGroupCreations(sessionId) {
   try {
     const rows = await supaRest(
       "/rest/v1/wa_group_creations?source_session_id=eq." + sessionId +
-      "&select=spec_hash,group_name,group_jid,status,status_message,members_total,members_added,has_description,has_photo,locked,welcome_sent,invite_link,created_at&order=created_at.desc"
+      "&select=spec_hash,group_name,group_jid,status,status_message,members_total,members_added,has_description,has_photo,locked,welcome_sent,invite_link,created_at,members_list&order=created_at.desc"
     );
     return rows || [];
   } catch (e) {

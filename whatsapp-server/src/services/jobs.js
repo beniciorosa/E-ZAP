@@ -379,8 +379,15 @@ async function startCreateGroupsJob(sessionId, specs, config = {}) {
     throw err;
   }
 
+  // Jitter configurável: soma aleatória entre [jitterMinSec, jitterMaxSec]
+  // no delay entre grupos. Default 0/0 (sem jitter). Range [0, 3600s] = [0, 60min].
+  const jitterMinSec = Math.max(0, Math.min(3600, Number(config.jitterMinSec) || 0));
+  const jitterMaxSec = Math.max(jitterMinSec, Math.min(3600, Number(config.jitterMaxSec) || 0));
+
   const job = createJob("create-groups", sessionId, {
     delaySec: Math.max(60, Number(config.delaySec) || 180),
+    jitterMinSec: jitterMinSec,
+    jitterMaxSec: jitterMaxSec,
     specCount: Array.isArray(specs) ? specs.length : 0,
   });
   // Specs are kept on the job object but not serialized in summaries
@@ -392,6 +399,16 @@ async function startCreateGroupsJob(sessionId, specs, config = {}) {
     console.error("[JOBS] Create-groups worker crashed:", e);
   });
   return job;
+}
+
+// Helper — extrai dm_sent de uma role em members_list (JSONB) cacheado no DB.
+// Retorna null se não achar row ou se a role não teve DM (entrou direto).
+function extractDmStatus(membersList, role) {
+  if (!Array.isArray(membersList)) return null;
+  const m = membersList.find(x => x && x.role === role);
+  if (!m) return null;
+  // dm_sent: true/false se tentou; null se N/A (entrou direto, não precisou DM)
+  return m.dm_sent === true ? true : (m.dm_sent === false ? false : null);
 }
 
 async function runCreateGroupsWorker(job) {
@@ -424,6 +441,12 @@ async function runCreateGroupsWorker(job) {
     // Puxa o created_at do banco pra coluna "Criado em" funcionar em grupos
     // que foram feitos em rodadas anteriores (fromCache) além dos da rodada atual.
     createdAt: r.created_at || null,
+    // Lista de membros + status de DMs (modo convite) — pro card exibir
+    // ✓/✗/— nas colunas de DM Cliente/CX2/Escalada mesmo em rows do cache.
+    membersList: Array.isArray(r.members_list) ? r.members_list : null,
+    clientDmSent: extractDmStatus(r.members_list, "client"),
+    cx2DmSent: extractDmStatus(r.members_list, "cx2"),
+    escaladaDmSent: extractDmStatus(r.members_list, "escalada"),
     fromCache: true,
   }));
 
@@ -448,6 +471,8 @@ async function runCreateGroupsWorker(job) {
   try {
     const result = await baileys.createGroupsFromList(job.sessionId, pendingSpecs, {
       delaySec: job.config.delaySec,
+      jitterMinSec: job.config.jitterMinSec || 0,
+      jitterMaxSec: job.config.jitterMaxSec || 0,
       shouldCancel: () => job.cancelRequested,
       onProgress: (payload) => {
         // "processing_spec" marca qual spec o worker está começando a criar

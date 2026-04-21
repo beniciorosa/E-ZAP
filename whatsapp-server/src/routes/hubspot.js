@@ -610,9 +610,14 @@ router.get("/ticket/:ticketId", async (req, res) => {
 router.post("/templates/:sessionId", async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { description, welcome, rejectDm } = req.body || {};
+    const { description, welcome, rejectDm, helperDm } = req.body || {};
     const key = "hubspot_templates_" + sessionId;
-    const value = JSON.stringify({ description: description || "", welcome: welcome || "", rejectDm: rejectDm || "" });
+    const value = JSON.stringify({
+      description: description || "",
+      welcome: welcome || "",
+      rejectDm: rejectDm || "",
+      helperDm: helperDm || "",
+    });
     await supaRest(
       "/rest/v1/app_settings?on_conflict=key",
       "POST",
