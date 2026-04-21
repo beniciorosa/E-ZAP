@@ -1589,9 +1589,9 @@ function renderJobCard(job) {
       var currentDelayMin = Math.max(1, Math.round((job.config.delaySec || 1200) / 60));
       retryBtn =
         '<span style="display:inline-flex; align-items:center; gap:4px; margin-right:6px">'
-        + '<input type="number" id="job-delay-' + job.id + '" min="1" max="30" value="' + currentDelayMin + '" '
-        + 'style="width:56px; padding:5px 7px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:13px" '
-        + 'title="Delay entre grupos (em minutos). Backend aceita 1-30 min.">'
+        + '<input type="number" id="job-delay-' + job.id + '" min="1" max="1440" value="' + currentDelayMin + '" '
+        + 'style="width:72px; padding:5px 7px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:13px" '
+        + 'title="Delay entre grupos (em minutos). Sem teto prático — pode colocar 60, 120, 240 min pra contas sensíveis.">'
         + '<span style="font-size:12px; color:var(--muted)">min</span>'
         + '</span>'
         + '<button class="btn-secondary btn-icon" onclick="resumeCreateGroupsJob(\'' + job.id + '\')" title="Retomar com o delay configurado ao lado. Grupos já criados são pulados via cache.">▶️ Retomar</button>';
@@ -1977,12 +1977,12 @@ function resumeCreateGroupsJob(jobId) {
   var input = document.getElementById("job-delay-" + jobId);
   var minutes = input ? parseInt(input.value, 10) : NaN;
   if (!Number.isFinite(minutes) || minutes < 1) {
-    showToast("Delay inválido — informe um número entre 1 e 30 (min)", "error");
+    showToast("Delay inválido — informe um número inteiro em minutos (mín 1)", "error");
     return;
   }
-  if (minutes > 30) {
-    showToast("Backend clampa em 30 min — usando 30", "warn");
-    minutes = 30;
+  if (minutes > 1440) {
+    showToast("Máximo prático: 1440 min (24h) — usando 1440", "warn");
+    minutes = 1440;
   }
   retryFailedJob(jobId, minutes * 60);
 }

@@ -2050,7 +2050,10 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
   options = await applyCriticalSessionOverrides(sessionId, sock, options);
 
   const delaySecRaw = Number(options.delaySec) || 180;
-  const baseDelayMs = Math.max(60, Math.min(1800, delaySecRaw)) * 1000; // clamp 60s..30min
+  // Clamp: mínimo 60s (proteção anti-NaN/negativo), máximo 86400s (24h).
+  // Usuário pode escolher delays longos (1h, 2h, overnight) pra contas
+  // sensíveis via input do card "Retomar" no grupos.html.
+  const baseDelayMs = Math.max(60, Math.min(86400, delaySecRaw)) * 1000;
   const INTRA_DELAY_MS = 4000;
   const hourlyCap = Number(options.hourlyCap) || GROUP_CREATE_HOURLY_CAP;
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
