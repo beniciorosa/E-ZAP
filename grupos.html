@@ -229,6 +229,13 @@
     .auto-mentor .auto-status-err { color:var(--danger, #ef4444); font-size:11px; }
 
     /* ===== Activity Log Sidebar ===== */
+    /* Sidebar empurra o conteúdo (body ganha padding-right quando .activity-open).
+       Em telas estreitas (<1000px) vira overlay sobre o conteúdo pra não espremer demais. */
+    body { transition:padding-right 0.3s ease; }
+    body.activity-open { padding-right:440px; }
+    @media (max-width:1000px) {
+      body.activity-open { padding-right:0; }  /* overlay mode */
+    }
     .activity-sidebar {
       position:fixed; right:0; top:0; bottom:0; width:0;
       overflow:hidden; transition:width 0.3s ease;
@@ -4159,6 +4166,9 @@ function toggleActivityLog() {
   if (!side) return;
   _activityOpen = !_activityOpen;
   side.classList.toggle("open", _activityOpen);
+  // Empurra o conteúdo principal em telas largas (CSS body.activity-open
+  // aplica padding-right). Em telas <1000px a media query neutraliza.
+  document.body.classList.toggle("activity-open", _activityOpen);
   if (_activityOpen) {
     _activityUnseenCount = 0;
     var badge = document.getElementById("activityBadge");
