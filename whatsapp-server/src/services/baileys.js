@@ -2234,13 +2234,19 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     // breathing room so any residual metadata sync IQs complete before we
     // start issuing groupCreate. Critical sessions override this to a fixed
     // 120s; normal sessions get baseDelayMs/2 capped at 90s.
+    // User pode configurar explicitamente via leadingDelaySec (incluindo 0).
     if (i === 0) {
-      const leadMs = options._leadingDelayMs || Math.min(baseDelayMs / 2, 90 * 1000);
+      const userLead = options._leadingDelayMs;
+      const leadMs = (typeof userLead === "number" && userLead >= 0)
+        ? userLead
+        : Math.min(baseDelayMs / 2, 90 * 1000);
       console.log("[BAILEYS] leading delay " + Math.round(leadMs / 1000) + "s before first groupCreate");
-      const ok = await waitWithHeartbeat(leadMs, {
-        onProgress, shouldCancel, phase: "leading_delay",
-      });
-      if (!ok) { cancelled = true; break; }
+      if (leadMs > 0) {
+        const ok = await waitWithHeartbeat(leadMs, {
+          onProgress, shouldCancel, phase: "leading_delay",
+        });
+        if (!ok) { cancelled = true; break; }
+      }
     }
 
     const spec = specs[i];

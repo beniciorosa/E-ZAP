@@ -718,7 +718,16 @@
           <label><input type="radio" name="createDelay" value="300"> 5 min — padrão</label>
           <label><input type="radio" name="createDelay" value="480"> 8 min — seguro</label>
           <label><input type="radio" name="createDelay" value="600" checked> 10 min — extra seguro (recomendado)</label>
-          <label><input type="radio" name="createDelay" value="custom"> custom <input type="number" id="createDelayCustom" min="1" max="1440" placeholder="minutos" style="width:90px; margin-left:4px"> <span style="font-size:11px; color:var(--muted); margin-left:4px">min</span></label>
+          <label><input type="radio" name="createDelay" value="custom"> custom <input type="number" id="createDelayCustom" min="1" max="1440" placeholder="minutos" oninput="var r=document.querySelector('input[name=createDelay][value=custom]'); if(r) r.checked=true;" style="width:90px; margin-left:4px"> <span style="font-size:11px; color:var(--muted); margin-left:4px">min</span></label>
+        </div>
+        <div style="margin-top:10px; padding:10px 12px; background:var(--surface-2); border-radius:8px">
+          <label style="font-size:12px; font-weight:600; margin:0 0 6px 0; display:block">⏳ Tempo antes do primeiro grupo</label>
+          <div style="display:flex; gap:8px; align-items:center; font-size:12px">
+            <span>esperar</span>
+            <input type="number" id="createLeadingDelaySec" min="0" max="600" value="90" style="width:90px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text)">
+            <span>segundos antes de criar o 1º grupo</span>
+          </div>
+          <div style="font-size:11px; color:var(--muted); margin-top:4px">Evita pattern de criar grupo imediatamente após conectar/reconectar a sessão. Default 90s. <b>Escalada Ltda é forçada pra 120s no backend.</b></div>
         </div>
         <div style="margin-top:10px; padding:10px 12px; background:var(--surface-2); border-radius:8px">
           <label style="font-size:12px; font-weight:600; margin:0 0 6px 0; display:block">🎲 Variação aleatória (jitter) — soma entre X e Y minutos ao delay</label>
@@ -2385,6 +2394,7 @@ function retryFailedJob(jobId, delaySecOverride) {
       delaySec: delaySecOverride || (job.config && job.config.delaySec) || 600,
       jitterMinSec: (job.config && job.config.jitterMinSec) || 0,
       jitterMaxSec: (job.config && job.config.jitterMaxSec) || 0,
+      leadingDelaySec: (job.config && typeof job.config.leadingDelaySec === "number") ? job.config.leadingDelaySec : 90,
     };
   } else {
     showToast("Tipo de job desconhecido: " + job.type, "error");
@@ -3606,12 +3616,21 @@ function submitCreateGroupsJob() {
   var jitterMinSec = jitterMinMin * 60;
   var jitterMaxSec = jitterMaxMin * 60;
 
+  // Leading delay (tempo antes do primeiro grupo) — default 90s.
+  // Backend aplica applyCriticalSessionOverrides depois, entao Escalada
+  // vira 120s mesmo se user configurar menos.
+  var leadingDelayInput = document.getElementById("createLeadingDelaySec");
+  var leadingDelaySec = leadingDelayInput ? parseInt(leadingDelayInput.value, 10) : 90;
+  if (!Number.isFinite(leadingDelaySec) || leadingDelaySec < 0) leadingDelaySec = 90;
+  if (leadingDelaySec > 600) leadingDelaySec = 600;
+
   var body = {
     sessionId: sessionId,
     specs: _createSpecs,
     delaySec: delaySec,
     jitterMinSec: jitterMinSec,
     jitterMaxSec: jitterMaxSec,
+    leadingDelaySec: leadingDelaySec,
   };
   waFetch("/api/jobs/create-groups/start", "POST", body).then(function(res) {
     showToast("Criação iniciada — " + _createSpecs.length + " grupos na fila", "ok");

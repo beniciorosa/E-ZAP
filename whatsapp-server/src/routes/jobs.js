@@ -37,10 +37,10 @@ router.post("/add/start", async (req, res) => {
 });
 
 // POST /api/jobs/create-groups/start — start a bulk group creation worker
-// Body: { sessionId, specs: [{specHash, name, description?, photoUrl?, members:[], lockInfo?, welcomeMessage?}], delaySec? }
+// Body: { sessionId, specs: [...], delaySec?, jitterMinSec?, jitterMaxSec?, leadingDelaySec? }
 router.post("/create-groups/start", async (req, res) => {
   try {
-    const { sessionId, specs, delaySec } = req.body || {};
+    const { sessionId, specs, delaySec, jitterMinSec, jitterMaxSec, leadingDelaySec } = req.body || {};
     if (!sessionId) return res.status(400).json({ error: "sessionId é obrigatório" });
     if (!Array.isArray(specs) || specs.length === 0) {
       return res.status(400).json({ error: "specs (lista de grupos) é obrigatório" });
@@ -67,8 +67,21 @@ router.post("/create-groups/start", async (req, res) => {
     if (delaySec !== undefined && Number(delaySec) < 60) {
       return res.status(400).json({ error: "Delay mínimo é 60s (segurança anti-ban)" });
     }
+    // leadingDelaySec (tempo antes do 1o grupo): 0..600s. applyCriticalSessionOverrides
+    // pode forcar 120s em sessoes criticas, independente do valor do user.
+    if (leadingDelaySec !== undefined) {
+      const v = Number(leadingDelaySec);
+      if (!Number.isFinite(v) || v < 0 || v > 600) {
+        return res.status(400).json({ error: "leadingDelaySec fora do range (0..600)" });
+      }
+    }
 
-    const job = await jobs.startCreateGroupsJob(sessionId, specs, { delaySec });
+    const job = await jobs.startCreateGroupsJob(sessionId, specs, {
+      delaySec,
+      jitterMinSec,
+      jitterMaxSec,
+      leadingDelaySec,
+    });
     res.status(201).json({ ok: true, job: jobs.summarizeJob(job) });
   } catch (e) {
     console.error("[JOBS] Start create-groups error:", e.message);

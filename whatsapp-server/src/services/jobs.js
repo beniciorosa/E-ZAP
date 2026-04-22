@@ -385,10 +385,19 @@ async function startCreateGroupsJob(sessionId, specs, config = {}) {
   const jitterMinSec = Math.max(0, Math.min(3600, Number(config.jitterMinSec) || 0));
   const jitterMaxSec = Math.max(jitterMinSec, Math.min(3600, Number(config.jitterMaxSec) || 0));
 
+  // Leading delay (tempo antes do 1o grupo) configurável pelo frontend.
+  // Range 0..600s. Se não informado, createGroupsFromList aplica default
+  // min(delaySec/2, 90s). applyCriticalSessionOverrides pode forçar 120s
+  // pra sessões críticas depois.
+  const leadingDelaySec = (config.leadingDelaySec !== undefined && config.leadingDelaySec !== null)
+    ? Math.max(0, Math.min(600, Number(config.leadingDelaySec) || 0))
+    : null;
+
   const job = createJob("create-groups", sessionId, {
     delaySec: Math.max(60, Number(config.delaySec) || 180),
     jitterMinSec: jitterMinSec,
     jitterMaxSec: jitterMaxSec,
+    leadingDelaySec: leadingDelaySec,
     specCount: Array.isArray(specs) ? specs.length : 0,
   });
   // Specs are kept on the job object but not serialized in summaries
@@ -495,10 +504,18 @@ async function runCreateGroupsWorker(job) {
   let newThisRun = 0;
 
   try {
+    // Se usuario configurou leadingDelaySec, converte pra ms e passa como override
+    // (createGroupsFromList respeita options._leadingDelayMs quando presente).
+    // Sessoes criticas (Escalada) ainda sobrescrevem pra 120s via applyCriticalSessionOverrides.
+    const leadingOverrideMs = (typeof job.config.leadingDelaySec === "number" && job.config.leadingDelaySec >= 0)
+      ? job.config.leadingDelaySec * 1000
+      : undefined;
+
     const result = await baileys.createGroupsFromList(job.sessionId, pendingSpecs, {
       delaySec: job.config.delaySec,
       jitterMinSec: job.config.jitterMinSec || 0,
       jitterMaxSec: job.config.jitterMaxSec || 0,
+      _leadingDelayMs: leadingOverrideMs,
       shouldCancel: () => job.cancelRequested,
       onProgress: (payload) => {
         // "processing_spec" marca qual spec o worker está começando a criar
