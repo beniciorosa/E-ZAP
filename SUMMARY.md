@@ -1,9 +1,57 @@
-# E-ZAP — Sessão de trabalho 2026-04-14/20
+# E-ZAP — Sessão de trabalho 2026-04-14/21
 
 > 📌 **Próxima sessão**: para qualquer trabalho na ferramenta de grupos (grupos.html, criação em massa, Auto-criar, Dashboard, wa_group_*):
 > 1. LER PRIMEIRO o Obsidian em `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos A.I\E-ZAP\Grupos\`, começando por `04 - HANDOFF - Próxima sessão.md`.
 > 2. Depois [GRUPOS.md](GRUPOS.md) na raiz (changelog técnico cronológico).
 > O Obsidian tem o ESTADO ATUAL consolidado + handoff de onde paramos. GRUPOS.md tem a evolução histórica.
+
+> **Update 2026-04-21 noite-ultima — PRs A-F: UX do job em curso + retenção seletiva de log — DEPLOYED**
+>
+> Sessão de ~2h resolvendo 7 bugs/pedidos levantados pelo Dhiego após uso real. Todos commits + deploy completo (Vercel + Hetzner + Supabase migration).
+>
+> **Commits na ordem**:
+> - `ec4e3fd` (PR A) — Persistir specs em localStorage por jobId + botão "🗑 Encerrar sessão de criação" (antes: "✕ Fechar")
+> - `d7d74b7` (PR B) — Custom delay auto-seleciona ao digitar + novo input "Tempo antes do 1º grupo" (0-600s, default 90)
+> - `1c8dcf8` (PR C+D) — Fix input de delay voltando pra 10 min em 5s (polling sobrescrevia value) + resume preserva tempo decorrido (pausedRemainingMs capturado no cancel, reenviado no retry como `startingBetweenDelayMs`)
+> - `79de542` (PR E) — Separador visual "── Criados em sessões anteriores (N) ──" na tabela do job card
+> - `67cd2b4` (PR F) — Checkbox sidebar "Ocultar quedas temporárias" (default checked) + migration 064 RPC `cleanup_transient_events(48)` + cron 6h
+>
+> **Estado atual em produção**:
+> - Backend Hetzner: PID 243204+, restart 198+
+> - Frontend Vercel: mesmo commit (auto-deploy)
+> - Migration 064 aplicada via Management API
+>
+> **Arquivos modificados**:
+> - [grupos.html](grupos.html) — todos PRs (frontend)
+> - [whatsapp-server/src/routes/jobs.js](whatsapp-server/src/routes/jobs.js) — aceita leadingDelaySec + startingBetweenDelayMs + corrige jitter que estava sendo ignorado
+> - [whatsapp-server/src/services/jobs.js](whatsapp-server/src/services/jobs.js) — config.leadingDelaySec + startingBetweenDelayMs + _onPauseCapture callback
+> - [whatsapp-server/src/services/baileys.js](whatsapp-server/src/services/baileys.js) — waitWithHeartbeat expõe remainingMs no cancel via onPauseCapture; leading delay respeita 0 explícito; resume usa startingBetweenDelayMs no lugar do leading
+> - [whatsapp-server/src/index.js](whatsapp-server/src/index.js) — novo cron 6h chamando cleanup_transient_events
+> - [supabase/migration_064_cleanup_transient_noise.sql](supabase/migration_064_cleanup_transient_noise.sql) — RPC nova
+>
+> **Nada mexeu no core da criação** (createGroupsFromList, stopSession, validateMembersForCreate, applyCriticalSessionOverrides continuam inalterados). Escalada Ltda continua forçando leadingDelayMs=120s via override.
+>
+> **Plano original do dia 21/04 (validar PR 1 + PR 2 do iq-counter) ainda pendente** — ver [Obsidian Grupos/09 - PROXIMA SESSAO](C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI%20VAULT\DHIEGO.AI\Projetos%20A.I\E-ZAP\Grupos\09%20-%20PROXIMA%20SESSAO%20-%20Validacao%20PR1+PR2.md).
+>
+> **Como testar os PRs A-F**:
+> - A: + Criar grupos → Iniciar → Pausar → **F5** → card persiste → Retomar funciona (antes toast de erro)
+> - B: + Criar grupos → digitar 35 no input custom → radio "custom" auto-seleciona → input leading delay visível
+> - C: pausar um job → digitar 40 no input delay → esperar 10s (>1 poll) → valor continua 40
+> - D: pausar quando countdown está em 25 min → Retomar → waitPhase vira "resume_remaining_delay" e mensagem "Retomando de onde parou — 25m restantes"
+> - E: tabela do job card com grupos de cache + novos: linha separadora visível entre eles
+> - F: sidebar 📋 → checkbox "Ocultar quedas temporárias" marcado por default → transient_drop + reconnected sumiram da lista
+>
+> **SQL de verificação PR F**:
+> ```sql
+> -- manual trigger (retorna count deletado)
+> SELECT cleanup_transient_events(48);
+> -- conferir retenção seletiva funciona
+> SELECT event_type, min(occurred_at), max(occurred_at), count(*)
+> FROM activity_events WHERE event_type IN ('session:transient_drop','session:reconnected')
+> GROUP BY event_type;
+> ```
+>
+> ---
 
 > **Update 2026-04-20 noite (commit `c655cea` + docs `e986522`) — Ferramenta de grupos estabilizada após sprint de bugs — DEPLOYED**
 >
