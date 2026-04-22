@@ -1,9 +1,36 @@
-# E-ZAP — Sessão de trabalho 2026-04-14/21
+# E-ZAP — Sessão de trabalho 2026-04-14/22
 
 > 📌 **Próxima sessão**: para qualquer trabalho na ferramenta de grupos (grupos.html, criação em massa, Auto-criar, Dashboard, wa_group_*):
 > 1. LER PRIMEIRO o Obsidian em `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos A.I\E-ZAP\Grupos\`, começando por `04 - HANDOFF - Próxima sessão.md`.
 > 2. Depois [GRUPOS.md](GRUPOS.md) na raiz (changelog técnico cronológico).
 > O Obsidian tem o ESTADO ATUAL consolidado + handoff de onde paramos. GRUPOS.md tem a evolução histórica.
+
+> **Update 2026-04-22 manhã — Scroll fix do job card + evidência reabilitação Matheus — DEPLOYED**
+>
+> **1) Commit `f99e06f` — Fix do scroll da tabela do job card**
+>
+> Bug reportado: durante criação de grupos, ao scrollar a tabela do job card e soltar, a barra voltava pro topo a cada 5s. Causa: polling `refreshJobs()` chama `container.innerHTML = ""` e re-renderiza — scrollTop era perdido. Fix: capturo scrollTop das tabelas expandidas ANTES do re-render, restauro depois. Também adicionei scrollbar CSS customizada combinando com tema dark (10px, thumb arredondado `var(--border)` com hover `var(--muted)`, `scrollbar-width:thin` pra Firefox).
+>
+> Arquivo: [grupos.html](grupos.html) — novo `scrollSnapshot` no `refreshJobs`, CSS `.table-wrap::-webkit-scrollbar`.
+>
+> **2) Evidência empírica — Matheus Carrieiro reabilitado**
+>
+> Dhiego rodou lote real de 8 grupos em 21/04 noite → 22/04 madrugada. Config: delay 40min + jitter 2-5min + todos ON + **vcard prep prévio**. Resultado: **8/8 ✅ zero rate-limit**.
+>
+> **Notável**: mesma conta que bateu rate-limit em 92s no dia 21/04 tarde (sessão `4a178437-...-518e0920f3f2`, phone `5519989797307`). Reabilitou totalmente após 24h + vcard. Novo aprendizado: "conta fria/marcada não é banimento — recupera com descanso + vcard + delay folgado".
+>
+> Docs atualizados no vault Obsidian:
+> - Novo arquivo: `Evidencias/evidencia_matheus_reabilitacao_22abr.md` com timeline, diferenciais e conclusões
+> - `_security_time.md` ganhou entrada na tabela Sucesso + nova lição compilada
+> - `_insights.md` item 7 no resumo executivo sobre reabilitação
+> - `evidencia_conta_fria.md` nova entrada na cronologia linkando pra reabilitação
+> - `_index.md` das Evidências + `_sobre.md` atualizados
+>
+> **Gaps conhecidos** (documentados no arquivo de evidência):
+> - Não sei qual fator dominou: 24h descanso, vcard prep, ou ambos (N=1)
+> - PR 2 (iq-counter) tem bug — intercepta ~zero IQs porque monkey-patch em `sock.query` não pega chamadas internas do Baileys (usa closure local, não o method exposto). Próxima iteração: instrumentar manualmente nos wrappers de `sock.groupCreate/sendMessage/onWhatsApp` em baileys.js (abordagem menos invasiva).
+>
+> ---
 
 > **Update 2026-04-21 noite-ultima — PRs A-F: UX do job em curso + retenção seletiva de log — DEPLOYED**
 >
