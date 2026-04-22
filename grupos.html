@@ -845,6 +845,7 @@ var _sessions = [];            // [{ id, label, phone, status }]
 var _activeJobs = {};          // jobId -> job (snapshot mais recente)
 var _jobsInThisSession = new Set(); // jobIds que iniciamos/vemos nesta sessão (persiste no storage)
 var _hiddenJobIds = new Set(); // jobIds que o usuário "fechou" (persiste no storage)
+var _jobDelayOverrides = {};   // jobId -> minutes (input em edicao, resiste a re-render)
 
 var SESSION_STORAGE_KEY = "ezap_grupos_known_jobs";
 var HIDDEN_STORAGE_KEY = "ezap_grupos_hidden_jobs";
@@ -1925,12 +1926,24 @@ function renderJobCard(job) {
   var retryBtn = "";
   if ((job.status === "error" || job.status === "cancelled" || job.status === "rate_limited") && job.type && job.sessionId && job.config) {
     if (job.type === "create-groups") {
-      var currentDelayMin = Math.max(1, Math.round((job.config.delaySec || 1200) / 60));
+      // Preserva o valor em edicao entre polls — _jobDelayOverrides prevalece
+      // se user digitou algo (senao, lê do server). Fix pro bug do input
+      // voltar sozinho depois de 5s (cada poll re-renderiza o card).
+      var pendingOverride = _jobDelayOverrides[job.id];
+      var currentDelayMin = (typeof pendingOverride === "number" && pendingOverride > 0)
+        ? pendingOverride
+        : Math.max(1, Math.round((job.config.delaySec || 1200) / 60));
+      // Resume feature: se havia tempo restante capturado na pause, mostra tooltip
+      var pausedMs = (job.progress && job.progress.pausedRemainingMs) || 0;
+      var resumeHint = pausedMs > 0
+        ? " · Retomada continua com " + Math.round(pausedMs / 60000) + " min restantes do delay anterior"
+        : "";
       retryBtn =
         '<span style="display:inline-flex; align-items:center; gap:4px; margin-right:6px">'
         + '<input type="number" id="job-delay-' + job.id + '" min="1" max="1440" value="' + currentDelayMin + '" '
+        + 'oninput="_jobDelayOverrides[\'' + job.id + '\']=parseInt(this.value,10)||null" '
         + 'style="width:72px; padding:5px 7px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:13px" '
-        + 'title="Delay entre grupos (em minutos). Sem teto prático — pode colocar 60, 120, 240 min pra contas sensíveis.">'
+        + 'title="Delay entre grupos (em minutos)' + resumeHint + '.">'
         + '<span style="font-size:12px; color:var(--muted)">min</span>'
         + '</span>'
         + '<button class="btn-secondary btn-icon" onclick="resumeCreateGroupsJob(\'' + job.id + '\')" title="Retomar com o delay configurado ao lado. Grupos já criados são pulados via cache.">▶️ Retomar</button>';
@@ -1998,6 +2011,8 @@ function renderJobCard(job) {
         waitMsg = "⏳ Drenando fila de fotos do Baileys (" + (job.progress.photoInFlight || 0) + " em voo) — até " + waitFmt;
       } else if (waitPhase === "leading_delay") {
         waitMsg = "⏳ Aguardando " + waitFmt + " antes do primeiro grupo (leading delay)";
+      } else if (waitPhase === "resume_remaining_delay") {
+        waitMsg = "▶️ Retomando de onde parou — " + waitFmt + " restantes do delay anterior";
       } else if (waitPhase === "hourly_budget") {
         var used = job.progress.hourlyUsed || 0;
         var cap = job.progress.hourlyCap || 6;
@@ -2348,6 +2363,8 @@ function resumeCreateGroupsJob(jobId) {
     showToast("Máximo prático: 1440 min (24h) — usando 1440", "warn");
     minutes = 1440;
   }
+  // Limpa override — valor ja foi consumido.
+  delete _jobDelayOverrides[jobId];
   retryFailedJob(jobId, minutes * 60);
 }
 
@@ -2387,6 +2404,13 @@ function retryFailedJob(jobId, delaySecOverride) {
       showToast("Specs perdidas — clique em '+ Criar grupos' e re-resolva os tickets. O cache preserva grupos já criados.", "warn");
       return;
     }
+    // Resume de onde parou: se o job anterior pausou no meio de um
+    // between_groups wait, reenvia o tempo restante como startingBetweenDelayMs.
+    // O novo worker usa esse valor no lugar do leading delay do primeiro spec.
+    var pausedRemainingMs = (job.progress && job.progress.pausedRemainingMs) || 0;
+    var pausedPhase = (job.progress && job.progress.pausedPhase) || null;
+    // So relevante se pausou no between_groups (se foi leading/hourly, nao faz sentido resumir)
+    var validResume = pausedRemainingMs > 0 && (pausedPhase === "between_groups" || pausedPhase === "resume_remaining_delay");
     endpoint = "/api/jobs/create-groups/start";
     body = {
       sessionId: job.sessionId,
@@ -2395,6 +2419,7 @@ function retryFailedJob(jobId, delaySecOverride) {
       jitterMinSec: (job.config && job.config.jitterMinSec) || 0,
       jitterMaxSec: (job.config && job.config.jitterMaxSec) || 0,
       leadingDelaySec: (job.config && typeof job.config.leadingDelaySec === "number") ? job.config.leadingDelaySec : 90,
+      startingBetweenDelayMs: validResume ? pausedRemainingMs : 0,
     };
   } else {
     showToast("Tipo de job desconhecido: " + job.type, "error");

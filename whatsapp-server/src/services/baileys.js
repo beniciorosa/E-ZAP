@@ -2093,12 +2093,20 @@ const HOUR_MS = 60 * 60 * 1000;
 
 // Sleep in small slices so shouldCancel and progress heartbeats are responsive.
 // Reports wait phase via onProgress({ phase, remainingMs, ...extra }) every ~5s.
+// Quando cancela mid-wait, chama onPauseCapture({phase, remainingMs}) antes de
+// retornar false — caller usa pra gravar quanto tempo faltava e retomar depois
+// com esse valor (feature "resume de onde parou").
 async function waitWithHeartbeat(totalMs, opts) {
-  const { onProgress, shouldCancel, phase, extra } = opts || {};
+  const { onProgress, shouldCancel, phase, extra, onPauseCapture } = opts || {};
   const sliceMs = 5000;
   let remaining = totalMs;
   while (remaining > 0) {
-    if (shouldCancel && shouldCancel()) return false;
+    if (shouldCancel && shouldCancel()) {
+      if (typeof onPauseCapture === "function") {
+        try { onPauseCapture({ phase, remainingMs: remaining }); } catch (_) {}
+      }
+      return false;
+    }
     if (onProgress) {
       try { onProgress(Object.assign({ phase, remainingMs: remaining }, extra || {})); } catch (_) {}
     }
@@ -2235,15 +2243,29 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
     // start issuing groupCreate. Critical sessions override this to a fixed
     // 120s; normal sessions get baseDelayMs/2 capped at 90s.
     // User pode configurar explicitamente via leadingDelaySec (incluindo 0).
+    //
+    // Se este worker e' uma retomada (options._startingBetweenDelayMs > 0),
+    // usamos o tempo que faltava do between_groups delay pausado em vez do
+    // leading delay normal — assim o user retoma de onde parou.
     if (i === 0) {
+      const resumeRemainingMs = Number(options._startingBetweenDelayMs) || 0;
       const userLead = options._leadingDelayMs;
-      const leadMs = (typeof userLead === "number" && userLead >= 0)
-        ? userLead
-        : Math.min(baseDelayMs / 2, 90 * 1000);
-      console.log("[BAILEYS] leading delay " + Math.round(leadMs / 1000) + "s before first groupCreate");
+      let leadMs;
+      let leadPhase = "leading_delay";
+      if (resumeRemainingMs > 0) {
+        leadMs = resumeRemainingMs;
+        leadPhase = "resume_remaining_delay";
+        console.log("[BAILEYS] resuming paused delay " + Math.round(leadMs / 1000) + "s (from previous pause)");
+      } else {
+        leadMs = (typeof userLead === "number" && userLead >= 0)
+          ? userLead
+          : Math.min(baseDelayMs / 2, 90 * 1000);
+        console.log("[BAILEYS] leading delay " + Math.round(leadMs / 1000) + "s before first groupCreate");
+      }
       if (leadMs > 0) {
         const ok = await waitWithHeartbeat(leadMs, {
-          onProgress, shouldCancel, phase: "leading_delay",
+          onProgress, shouldCancel, phase: leadPhase,
+          onPauseCapture: options._onPauseCapture,
         });
         if (!ok) { cancelled = true; break; }
       }
@@ -3096,6 +3118,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       }
       const ok = await waitWithHeartbeat(baseDelayMs + jitterMs, {
         onProgress, shouldCancel, phase: "between_groups",
+        onPauseCapture: options._onPauseCapture,
       });
       if (!ok) { cancelled = true; break; }
     }

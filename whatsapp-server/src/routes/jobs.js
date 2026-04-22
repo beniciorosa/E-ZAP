@@ -37,10 +37,10 @@ router.post("/add/start", async (req, res) => {
 });
 
 // POST /api/jobs/create-groups/start — start a bulk group creation worker
-// Body: { sessionId, specs: [...], delaySec?, jitterMinSec?, jitterMaxSec?, leadingDelaySec? }
+// Body: { sessionId, specs: [...], delaySec?, jitterMinSec?, jitterMaxSec?, leadingDelaySec?, startingBetweenDelayMs? }
 router.post("/create-groups/start", async (req, res) => {
   try {
-    const { sessionId, specs, delaySec, jitterMinSec, jitterMaxSec, leadingDelaySec } = req.body || {};
+    const { sessionId, specs, delaySec, jitterMinSec, jitterMaxSec, leadingDelaySec, startingBetweenDelayMs } = req.body || {};
     if (!sessionId) return res.status(400).json({ error: "sessionId é obrigatório" });
     if (!Array.isArray(specs) || specs.length === 0) {
       return res.status(400).json({ error: "specs (lista de grupos) é obrigatório" });
@@ -81,6 +81,7 @@ router.post("/create-groups/start", async (req, res) => {
       jitterMinSec,
       jitterMaxSec,
       leadingDelaySec,
+      startingBetweenDelayMs,
     });
     res.status(201).json({ ok: true, job: jobs.summarizeJob(job) });
   } catch (e) {

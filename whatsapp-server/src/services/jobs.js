@@ -393,11 +393,20 @@ async function startCreateGroupsJob(sessionId, specs, config = {}) {
     ? Math.max(0, Math.min(600, Number(config.leadingDelaySec) || 0))
     : null;
 
+  // startingBetweenDelayMs (resume feature): quando o user retoma um job
+  // pausado, este valor e' o remainingMs capturado do between_groups wait
+  // da run anterior — e' usado no lugar do leading delay do primeiro spec
+  // pra retomar exatamente de onde parou.
+  const startingBetweenDelayMs = (typeof config.startingBetweenDelayMs === "number" && config.startingBetweenDelayMs > 0)
+    ? Math.min(86400 * 1000, config.startingBetweenDelayMs)
+    : 0;
+
   const job = createJob("create-groups", sessionId, {
     delaySec: Math.max(60, Number(config.delaySec) || 180),
     jitterMinSec: jitterMinSec,
     jitterMaxSec: jitterMaxSec,
     leadingDelaySec: leadingDelaySec,
+    startingBetweenDelayMs: startingBetweenDelayMs,
     specCount: Array.isArray(specs) ? specs.length : 0,
   });
   // Specs are kept on the job object but not serialized in summaries
@@ -511,11 +520,30 @@ async function runCreateGroupsWorker(job) {
       ? job.config.leadingDelaySec * 1000
       : undefined;
 
+    // Resume: se o job anterior pausou no meio de um between_groups wait,
+    // o frontend enviou startingBetweenDelayMs pra retomar de onde parou
+    // (em vez de esperar o leading delay normal).
+    const startingBetweenDelayMs = (typeof job.config.startingBetweenDelayMs === "number" && job.config.startingBetweenDelayMs > 0)
+      ? job.config.startingBetweenDelayMs
+      : 0;
+
     const result = await baileys.createGroupsFromList(job.sessionId, pendingSpecs, {
       delaySec: job.config.delaySec,
       jitterMinSec: job.config.jitterMinSec || 0,
       jitterMaxSec: job.config.jitterMaxSec || 0,
       _leadingDelayMs: leadingOverrideMs,
+      _startingBetweenDelayMs: startingBetweenDelayMs,
+      // Captura quanto tempo faltava quando user pausou — permite retomar
+      // de onde parou na proxima rodada. Grava em job.progress pra frontend
+      // ler via GET /api/jobs/:id e reenviar no body do resume.
+      _onPauseCapture: (info) => {
+        if (info && typeof info.remainingMs === "number") {
+          job.progress.pausedRemainingMs = info.remainingMs;
+          job.progress.pausedPhase = info.phase || null;
+          job.progress.updatedAt = new Date().toISOString();
+          job.updatedAt = job.progress.updatedAt;
+        }
+      },
       shouldCancel: () => job.cancelRequested,
       onProgress: (payload) => {
         // "processing_spec" marca qual spec o worker está começando a criar
