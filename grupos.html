@@ -839,6 +839,7 @@ var _hiddenJobIds = new Set(); // jobIds que o usuário "fechou" (persiste no st
 
 var SESSION_STORAGE_KEY = "ezap_grupos_known_jobs";
 var HIDDEN_STORAGE_KEY = "ezap_grupos_hidden_jobs";
+var JOB_SPECS_STORAGE_KEY = "ezap_grupos_job_specs"; // { jobId: { savedAt: ms, specs: [...] } }
 
 function loadKnownJobs() {
   try {
@@ -860,6 +861,54 @@ function saveKnownJobs() {
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(Array.from(_jobsInThisSession)));
     localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(Array.from(_hiddenJobIds)));
   } catch (e) {}
+}
+
+// Persiste specs de um job de criacao pra sobreviver F5.
+// Sem isso, apos reload o _createSpecs em memoria some e o botao Retomar
+// cai no erro "Clique em + Criar grupos e re-resolva os tickets".
+function _readJobSpecsStore() {
+  try {
+    var raw = localStorage.getItem(JOB_SPECS_STORAGE_KEY);
+    if (!raw) return {};
+    var obj = JSON.parse(raw);
+    return (obj && typeof obj === "object") ? obj : {};
+  } catch (e) { return {}; }
+}
+
+function _writeJobSpecsStore(store) {
+  try {
+    localStorage.setItem(JOB_SPECS_STORAGE_KEY, JSON.stringify(store));
+  } catch (e) {
+    console.warn("[grupos] falha salvando specs:", e.message);
+  }
+}
+
+function saveJobSpecs(jobId, specs) {
+  if (!jobId || !Array.isArray(specs) || !specs.length) return;
+  var store = _readJobSpecsStore();
+  // Cleanup oportunistico: remove entries > 7 dias pra nao estourar quota
+  var weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  Object.keys(store).forEach(function(id) {
+    if (!store[id] || !store[id].savedAt || store[id].savedAt < weekAgo) delete store[id];
+  });
+  store[jobId] = { savedAt: Date.now(), specs: specs };
+  _writeJobSpecsStore(store);
+}
+
+function loadJobSpecs(jobId) {
+  if (!jobId) return null;
+  var store = _readJobSpecsStore();
+  var entry = store[jobId];
+  return (entry && Array.isArray(entry.specs)) ? entry.specs : null;
+}
+
+function clearJobSpecs(jobId) {
+  if (!jobId) return;
+  var store = _readJobSpecsStore();
+  if (store[jobId]) {
+    delete store[jobId];
+    _writeJobSpecsStore(store);
+  }
 }
 
 function showAllHiddenJobs() {
@@ -1881,9 +1930,14 @@ function renderJobCard(job) {
       retryBtn = '<button class="btn-secondary btn-icon" onclick="retryFailedJob(\'' + job.id + '\')">' + retryLabel + '</button>';
     }
   }
-  var removeBtn = (job.status !== "running" && job.status !== "pending")
-    ? '<button class="btn-secondary btn-icon" onclick="removeJobCard(\'' + job.id + '\')" title="Remover card da tela (não apaga do servidor)">✕ Fechar</button>'
-    : '';
+  var removeBtn = "";
+  if (job.status !== "running" && job.status !== "pending") {
+    if (job.type === "create-groups") {
+      removeBtn = '<button class="btn-secondary btn-icon" onclick="encerrarCreateGroupsSession(\'' + job.id + '\')" title="Remove o card da tela. Os grupos já criados ficam preservados no Supabase e no histórico.">🗑 Encerrar sessão de criação</button>';
+    } else {
+      removeBtn = '<button class="btn-secondary btn-icon" onclick="removeJobCard(\'' + job.id + '\')" title="Remover card da tela (não apaga do servidor)">✕ Fechar</button>';
+    }
+  }
 
   var message = "";
   // Linha secundária com a estatística de admins extraídos/processados.
@@ -2316,14 +2370,18 @@ function retryFailedJob(jobId, delaySecOverride) {
     // Reuse the _createSpecs still in memory (same page load). The backend
     // dedup cache (getCachedGroupCreations by spec_hash) automatically skips
     // groups that were already created — so only the pending ones run.
-    if (!_createSpecs || !_createSpecs.length) {
-      showToast("Clique em '+ Criar grupos' e re-resolva os tickets — o cache preserva grupos já criados", "warn");
+    //
+    // Fallback: apos F5 o _createSpecs em memoria some. Carrega do
+    // localStorage indexado pelo jobId (salvo em submitCreateGroupsJob).
+    var specsForResume = (_createSpecs && _createSpecs.length) ? _createSpecs : loadJobSpecs(jobId);
+    if (!specsForResume || !specsForResume.length) {
+      showToast("Specs perdidas — clique em '+ Criar grupos' e re-resolva os tickets. O cache preserva grupos já criados.", "warn");
       return;
     }
     endpoint = "/api/jobs/create-groups/start";
     body = {
       sessionId: job.sessionId,
-      specs: _createSpecs,
+      specs: specsForResume,
       delaySec: delaySecOverride || (job.config && job.config.delaySec) || 600,
       jitterMinSec: (job.config && job.config.jitterMinSec) || 0,
       jitterMaxSec: (job.config && job.config.jitterMaxSec) || 0,
@@ -2338,6 +2396,15 @@ function retryFailedJob(jobId, delaySecOverride) {
     // Hide the failed card (server record preserved, auto-cleans in 24h)
     _hiddenJobIds.add(jobId);
     saveKnownJobs();
+    // Se for retomada de create-groups, transfere specs do jobId antigo pro novo
+    // e limpa o antigo (o card antigo fica hidden e vai ser limpo em 24h).
+    if (job.type === "create-groups" && data && data.job && data.job.id) {
+      var transferred = (_createSpecs && _createSpecs.length) ? _createSpecs : loadJobSpecs(jobId);
+      if (transferred && transferred.length) saveJobSpecs(data.job.id, transferred);
+      clearJobSpecs(jobId);
+      _jobsInThisSession.add(data.job.id);
+      saveKnownJobs();
+    }
     refreshJobs();
   }).catch(function(e) {
     showToast("Falha no retry: " + e.message, "error");
@@ -2350,12 +2417,23 @@ function removeJobCard(jobId) {
   _jobsInThisSession.delete(jobId);
   // Mark as hidden so the next poll does not bring it back
   _hiddenJobIds.add(jobId);
+  // Limpa specs persistidas (se era create-groups) — libera quota do localStorage
+  clearJobSpecs(jobId);
   saveKnownJobs();
   // If no cards left, show empty state
   if (document.getElementById("jobsContainer").children.length === 0) {
     document.getElementById("emptyState").style.display = "";
   }
   updateHiddenJobsBanner();
+}
+
+// Encerra a sessao de criacao de grupos (soft-hide do card + limpa specs).
+// Usado so em create-groups jobs pra deixar explicito que o card fica ate
+// o user decidir encerrar. Grupos ja criados permanecem no Supabase + historico.
+function encerrarCreateGroupsSession(jobId) {
+  if (!confirm("Encerrar sessão de criação? O card sai da tela mas o job fica salvo no Supabase e no histórico. Não é possível desfazer.")) return;
+  removeJobCard(jobId);
+  showToast("Sessão de criação encerrada", "ok");
 }
 
 // If there are hidden jobs, show a little banner at the top so the user can restore them
@@ -3537,7 +3615,12 @@ function submitCreateGroupsJob() {
   };
   waFetch("/api/jobs/create-groups/start", "POST", body).then(function(res) {
     showToast("Criação iniciada — " + _createSpecs.length + " grupos na fila", "ok");
-    if (res.job && res.job.id) { _jobsInThisSession.add(res.job.id); saveKnownJobs(); }
+    if (res.job && res.job.id) {
+      _jobsInThisSession.add(res.job.id);
+      saveKnownJobs();
+      // Persiste specs pra sobreviver F5 — resume le do localStorage se _createSpecs vazio
+      saveJobSpecs(res.job.id, _createSpecs);
+    }
     closeModal("createGroupsModal");
     refreshJobs().then(function() {
       if (_pollTimer) clearInterval(_pollTimer);
