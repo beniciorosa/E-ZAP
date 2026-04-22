@@ -90,7 +90,15 @@
     a:hover { text-decoration:underline; }
     .err { color:var(--danger); }
     .ok { color:var(--ok); }
-    .table-wrap { max-height:300px; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:12px; }
+    .table-wrap { max-height:300px; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:12px; scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+    .table-wrap::-webkit-scrollbar { width:10px; height:10px; }
+    .table-wrap::-webkit-scrollbar-track { background:transparent; border-radius:8px; }
+    .table-wrap::-webkit-scrollbar-thumb {
+      background:var(--border); border-radius:8px; border:2px solid transparent;
+      background-clip:padding-box; transition:background 0.15s;
+    }
+    .table-wrap::-webkit-scrollbar-thumb:hover { background:var(--muted); background-clip:padding-box; border:2px solid transparent; }
+    .table-wrap::-webkit-scrollbar-corner { background:transparent; }
 
     /* Modal */
     .modal-backdrop {
@@ -1803,6 +1811,17 @@ function renderJobs(jobSummaries) {
     return waFetch("/api/jobs/" + j.id).then(function(r) { return r.job; }).catch(function(){ return null; });
   });
   Promise.all(promises).then(function(fullJobs) {
+    // Captura scrollTop de cada table-wrap expandida ANTES do re-render.
+    // Fix: sem isso, o polling a cada 5s fazia a tabela voltar pro topo
+    // enquanto o user estava scrollando durante a criacao.
+    var scrollSnapshot = {};
+    fullJobs.filter(function(j){ return !!j; }).forEach(function(job) {
+      var wrap = document.getElementById("job-table-wrap-" + job.id);
+      if (wrap && !wrap.classList.contains("hidden")) {
+        scrollSnapshot[job.id] = wrap.scrollTop;
+      }
+    });
+
     container.innerHTML = "";
     fullJobs.filter(function(j){ return !!j; }).forEach(function(job) {
       _activeJobs[job.id] = job;
@@ -1813,6 +1832,11 @@ function renderJobs(jobSummaries) {
         var arrow = document.getElementById("job-table-arrow-" + job.id);
         if (wrap) wrap.classList.remove("hidden");
         if (arrow) arrow.textContent = "▼";
+      }
+      // Restaura scrollTop pra manter posicao do user.
+      if (scrollSnapshot[job.id] != null) {
+        var restoredWrap = document.getElementById("job-table-wrap-" + job.id);
+        if (restoredWrap) restoredWrap.scrollTop = scrollSnapshot[job.id];
       }
     });
     updateHiddenJobsBanner();
