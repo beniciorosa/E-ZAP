@@ -4425,6 +4425,9 @@ function initActivityLog() {
   var tok = (document.getElementById("adminToken").value || "").trim();
   if (!url || !tok) return;
 
+  // Inicializa checkbox "Ocultar quedas temporárias" a partir do localStorage
+  _initHideTransientCheckbox();
+
   // Popula select de dias (últimos 14 dias)
   var daySel = document.getElementById("activityFilterDay");
   if (daySel) {
@@ -4516,9 +4519,17 @@ function renderActivityLog() {
   if (!list) return;
   var typeFilter = (document.getElementById("activityFilterType") || {}).value || "";
   var levelFilter = (document.getElementById("activityFilterLevel") || {}).value || "";
+  // Checkbox "Ocultar quedas temporárias" — esconde eventos transient_drop/reconnected
+  // (ruido repetitivo de keep-alive). Estado persistido em localStorage.
+  var hideTransient = false;
+  try {
+    var hideCb = document.getElementById("activityHideTransient");
+    hideTransient = hideCb ? hideCb.checked : (localStorage.getItem("ezap_activity_hide_transient") !== "0");
+  } catch (e) { hideTransient = true; }
   var filtered = _activityEvents.filter(function(ev) {
     if (levelFilter && ev.level !== levelFilter) return false;
     if (typeFilter && ev.event_type && ev.event_type.indexOf(typeFilter) !== 0) return false;
+    if (hideTransient && (ev.event_type === "session:transient_drop" || ev.event_type === "session:reconnected")) return false;
     return true;
   });
   if (filtered.length === 0) {
@@ -4568,6 +4579,25 @@ function renderActivityLog() {
       + '</div>';
   });
   list.innerHTML = html;
+}
+
+// Persiste preferencia do usuario de ocultar eventos transient_drop/reconnected.
+// Default: marcado (ocultos) — esses eventos sao repetitivos e de baixa
+// relevancia. User pode desmarcar pra debug de conexao.
+function onToggleHideTransient() {
+  var cb = document.getElementById("activityHideTransient");
+  if (!cb) return;
+  try { localStorage.setItem("ezap_activity_hide_transient", cb.checked ? "1" : "0"); } catch (e) {}
+  renderActivityLog();
+}
+
+function _initHideTransientCheckbox() {
+  var cb = document.getElementById("activityHideTransient");
+  if (!cb) return;
+  var stored = null;
+  try { stored = localStorage.getItem("ezap_activity_hide_transient"); } catch (e) {}
+  // Default true (ocultos) se nunca configurou
+  cb.checked = (stored === null) ? true : (stored === "1");
 }
 
 function toggleActivityLog() {
@@ -4630,6 +4660,12 @@ setTimeout(function() {
       <option value="error">❌ Error</option>
       <option value="critical">🔴 Critical</option>
     </select>
+  </div>
+  <div style="padding:6px 14px; border-bottom:1px solid var(--border); font-size:12px">
+    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--muted)">
+      <input type="checkbox" id="activityHideTransient" onchange="onToggleHideTransient()" style="margin:0">
+      <span>Ocultar quedas temporárias (📡 transient_drop / ✅🔌 reconnected)</span>
+    </label>
   </div>
   <div id="activityEventsList" class="activity-events-list"></div>
 </aside>

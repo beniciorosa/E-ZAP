@@ -136,6 +136,27 @@ server.listen(PORT, async () => {
     // Se em 2030+ o DB crescer absurdo, migrar pra archive em Storage bucket.
     // RPC cleanup_old_activity_events continua existente no DB caso precisemos
     // limpar manualmente no futuro — só não é mais chamada automaticamente.
+
+    // ===== Cron: cleanup seletivo de eventos ruidosos — a cada 6h =====
+    // session:transient_drop + session:reconnected sao eventos de keep-alive
+    // que geram ~280 rows/hora em producao (20+ sessoes). Retencao 48h pra
+    // esses 2 types, permanente pra todo o resto (via RPC cleanup_transient_events
+    // da migration 064). Cron roda a cada 6h em batches de 1000 rows.
+    const { supaRest } = require("./services/supabase");
+    cron.schedule("0 */6 * * *", async () => {
+      try {
+        const result = await supaRest(
+          "/rest/v1/rpc/cleanup_transient_events",
+          "POST",
+          { keep_hours: 48 }
+        );
+        const deleted = Array.isArray(result) ? result[0] : result;
+        console.log("[CRON cleanup_transient]", JSON.stringify(deleted));
+      } catch (e) {
+        console.error("[CRON cleanup_transient] failed:", e.message);
+      }
+    }, { timezone: "America/Sao_Paulo" });
+    console.log("[CRON] cleanup_transient_events scheduled (every 6h, keep 48h)");
   } catch (e) {
     console.warn("[CRON] node-cron not available:", e.message);
   }
