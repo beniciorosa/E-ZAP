@@ -2159,7 +2159,12 @@ function renderCreateGroupsResultsTable(job) {
     }
   }
 
-  var rows = processedResults.slice();
+  // Separa em 2 grupos: criados na run ATUAL (fromCache=false) vs em runs
+  // ANTERIORES (fromCache=true). Run atual vai em cima, anterior em baixo,
+  // com linha separadora entre os 2 — evita misturar cache historico com
+  // progresso real da criacao em andamento.
+  var currentRunRows = processedResults.filter(function(r) { return !r.fromCache; });
+  var previousRunRows = processedResults.filter(function(r) { return r.fromCache; });
 
   // Helper pra renderizar ✓ / ✗ / — em coluna de DM baseado em true/false/null.
   // true = DM enviado, false = falhou, null = N/A (entrou direto no grupo).
@@ -2167,6 +2172,37 @@ function renderCreateGroupsResultsTable(job) {
     if (v === true) return '<span class="ok" title="DM enviado">✓</span>';
     if (v === false) return '<span style="color:var(--danger)" title="DM falhou">✗</span>';
     return '<span style="color:var(--muted)" title="N/A — entrou direto no grupo">—</span>';
+  };
+
+  var renderRow = function(r) {
+    var statusCell = renderCreateStatus(r.status, r.statusMessage);
+    // Botão retry pra rows falhas — chama POST /api/jobs/:jobId/retry-group.
+    // Só habilita se o job ainda tem specHash em memória (backend valida isso).
+    if (r.status === "failed" && r.specHash) {
+      statusCell += ' <button class="btn-retry" onclick="retryCreateGroup(\'' + esc(job.id) + '\', \'' + esc(r.specHash) + '\', this)" title="Tentar criar este grupo de novo">↻ Tentar</button>';
+    }
+    var membersCell = (r.membersAdded || 0) + "/" + (r.membersTotal || 0);
+    var check = function(v) { return v ? '<span class="ok">✓</span>' : '<span style="color:var(--muted)">—</span>'; };
+    var linkCell = r.inviteLink
+      ? '<a href="' + esc(r.inviteLink) + '" target="_blank">' + esc(r.inviteLink.replace("https://chat.whatsapp.com/", "")) + '</a>'
+      : '<span style="color:var(--muted)">—</span>';
+    var createdCell = r.createdAt
+      ? '<span style="font-size:11px; color:var(--muted)" title="' + esc(r.createdAt) + '">' + esc(formatDateShort(r.createdAt)) + '</span>'
+      : '<span style="color:var(--muted)">—</span>';
+    return '<tr>'
+      + '<td>' + esc(r.name || "(sem nome)") + '</td>'
+      + '<td>' + statusCell + '</td>'
+      + '<td style="text-align:center">' + membersCell + '</td>'
+      + '<td style="text-align:center">' + check(r.hasDescription) + '</td>'
+      + '<td style="text-align:center">' + check(r.hasPhoto) + '</td>'
+      + '<td style="text-align:center">' + check(r.locked) + '</td>'
+      + '<td style="text-align:center">' + check(r.welcomeSent) + '</td>'
+      + '<td style="text-align:center">' + renderDm(r.clientDmSent) + '</td>'
+      + '<td style="text-align:center">' + renderDm(r.cx2DmSent) + '</td>'
+      + '<td style="text-align:center">' + renderDm(r.escaladaDmSent) + '</td>'
+      + '<td>' + createdCell + '</td>'
+      + '<td>' + linkCell + '</td>'
+      + '</tr>';
   };
 
   var html = '<table><thead><tr>'
@@ -2184,36 +2220,8 @@ function renderCreateGroupsResultsTable(job) {
     + '<th>Link</th>'
     + '</tr></thead><tbody>';
 
-  rows.forEach(function(r) {
-    var statusCell = renderCreateStatus(r.status, r.statusMessage);
-    // Botão retry pra rows falhas — chama POST /api/jobs/:jobId/retry-group.
-    // Só habilita se o job ainda tem specHash em memória (backend valida isso).
-    if (r.status === "failed" && r.specHash) {
-      statusCell += ' <button class="btn-retry" onclick="retryCreateGroup(\'' + esc(job.id) + '\', \'' + esc(r.specHash) + '\', this)" title="Tentar criar este grupo de novo">↻ Tentar</button>';
-    }
-    var membersCell = (r.membersAdded || 0) + "/" + (r.membersTotal || 0);
-    var check = function(v) { return v ? '<span class="ok">✓</span>' : '<span style="color:var(--muted)">—</span>'; };
-    var linkCell = r.inviteLink
-      ? '<a href="' + esc(r.inviteLink) + '" target="_blank">' + esc(r.inviteLink.replace("https://chat.whatsapp.com/", "")) + '</a>'
-      : '<span style="color:var(--muted)">—</span>';
-    var createdCell = r.createdAt
-      ? '<span style="font-size:11px; color:var(--muted)" title="' + esc(r.createdAt) + '">' + esc(formatDateShort(r.createdAt)) + '</span>'
-      : '<span style="color:var(--muted)">—</span>';
-    html += '<tr>'
-      + '<td>' + esc(r.name || "(sem nome)") + '</td>'
-      + '<td>' + statusCell + '</td>'
-      + '<td style="text-align:center">' + membersCell + '</td>'
-      + '<td style="text-align:center">' + check(r.hasDescription) + '</td>'
-      + '<td style="text-align:center">' + check(r.hasPhoto) + '</td>'
-      + '<td style="text-align:center">' + check(r.locked) + '</td>'
-      + '<td style="text-align:center">' + check(r.welcomeSent) + '</td>'
-      + '<td style="text-align:center">' + renderDm(r.clientDmSent) + '</td>'
-      + '<td style="text-align:center">' + renderDm(r.cx2DmSent) + '</td>'
-      + '<td style="text-align:center">' + renderDm(r.escaladaDmSent) + '</td>'
-      + '<td>' + createdCell + '</td>'
-      + '<td>' + linkCell + '</td>'
-      + '</tr>';
-  });
+  // Rows da RUN ATUAL (novos grupos criados nesta execucao)
+  currentRunRows.forEach(function(r) { html += renderRow(r); });
 
   // Row do spec ATUALMENTE sendo processado — com spinner ⏳ Pendente
   if (currentSpec) {
@@ -2250,6 +2258,14 @@ function renderCreateGroupsResultsTable(job) {
       + '<td style="color:var(--muted)">—</td>'
       + '</tr>';
   });
+
+  // Separador visual + rows das RUNS ANTERIORES (grupos criados de sessoes
+  // anteriores — fromCache=true). Fica abaixo da fila atual pra nao misturar
+  // com progresso desta execucao.
+  if (previousRunRows.length > 0) {
+    html += '<tr class="run-separator"><td colspan="12" style="text-align:center; color:var(--muted); font-size:12px; padding:10px; border-top:2px dashed var(--border); background:rgba(128,128,128,0.05); font-weight:600; letter-spacing:0.5px">── Criados em sessões anteriores (' + previousRunRows.length + ') ──</td></tr>';
+    previousRunRows.forEach(function(r) { html += renderRow(r); });
+  }
 
   html += '</tbody></table>';
   return html;
