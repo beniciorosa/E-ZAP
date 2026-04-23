@@ -2565,13 +2565,15 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
             (s) => s.groupMetadata(row.groupJid),
             { label: "groupMetadata[verify-client-" + (spec.name || "").substring(0, 20) + "]" }
           );
+          const realParticipantCount = (md && Array.isArray(md.participants)) ? md.participants.length : 0;
+          const expectedCount = memberJids.length + 1; // +1 criador (sempre entra)
+
+          // Tenta mapear phones conhecidos (best effort — Baileys 6.6 nem sempre
+          // expõe p.phoneNumber em LIDs, então esse Set pode ser incompleto).
           const realPhones = new Set();
           if (md && Array.isArray(md.participants)) {
             for (const p of md.participants) {
               const jid = String(p.id || p.jid || "");
-              // JID normal: 5519989797307@s.whatsapp.net → phone = 5519989797307
-              // JID LID: 181793802178673@lid → phone precisa vir de p.phoneNumber
-              // (Baileys 6.6 expõe phoneNumber em participants LID quando disponível)
               const phoneFromJid = jid.split("@")[0].split(":")[0].replace(/\D/g, "");
               if (phoneFromJid && !jid.endsWith("@lid")) realPhones.add(phoneFromJid);
               if (p.phoneNumber) {
@@ -2581,29 +2583,39 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
             }
           }
           const clientPhoneRaw = String(spec.clientPhone).replace(/\D/g, "");
-          // Também checa sem o "9" BR (13 dígitos → 12) pra cobrir números ajustados
           const clientPhoneNo9 = (clientPhoneRaw.length === 13 && clientPhoneRaw.startsWith("55"))
             ? clientPhoneRaw.slice(0, 4) + clientPhoneRaw.slice(5)
             : null;
-          const clientInGroup = realPhones.has(clientPhoneRaw) ||
+          const clientPhoneMatched = realPhones.has(clientPhoneRaw) ||
             (clientPhoneNo9 && realPhones.has(clientPhoneNo9));
-          if (!clientInGroup) {
-            console.warn("[BAILEYS] client absent silently after groupCreate: " + row.groupJid +
-              " reportedMembersAdded=" + row.membersAdded +
-              " clientPhone=" + clientPhoneRaw +
-              " realParticipants=" + realPhones.size + " — forçando DM fallback");
+
+          // DECISÃO (conservadora contra falso positivo — lição grupo Vanessa 22h42):
+          // - Se realParticipantCount >= expectedCount: TODOS entraram, cliente certamente
+          //   está lá mesmo que a gente não consiga mapear o phone (LID sem p.phoneNumber).
+          //   NÃO dispara safety net. Zero falso positivo em grupos saudáveis.
+          // - Se realParticipantCount < expectedCount E phone do cliente não bateu:
+          //   alguém faltou, e não foi possível identificar o cliente → assume cliente
+          //   absent (cenário mais comum empiricamente) → DM fallback.
+          // - Se realParticipantCount < expectedCount MAS phone do cliente bateu:
+          //   alguém faltou, mas NÃO é o cliente (foi CX2 ou Escalada). Não dispara
+          //   pro cliente — DM errado seria pior que silêncio.
+          const clientLikelyAbsent = (realParticipantCount < expectedCount) && !clientPhoneMatched;
+
+          if (clientLikelyAbsent) {
+            console.warn("[BAILEYS] client likely absent after groupCreate: " + row.groupJid +
+              " realParticipants=" + realParticipantCount + " expected=" + expectedCount +
+              " clientPhone=" + clientPhoneRaw + " phoneMatched=false — forçando DM fallback");
             clientRejected = true;
             row.clientAdded = false;
-            // Corrige também o contador — cliente não entrou de fato
             if (typeof row.membersAdded === "number" && row.membersAdded > 0) {
               row.membersAdded = Math.max(0, row.membersAdded - 1);
             }
             row.statusMessage = appendNote(row.statusMessage,
-              "client_absent_silent: detectado via groupMetadata (LID mismatch ou rejeição sem 403)");
+              "client_absent_silent: detectado via groupMetadata (count " + realParticipantCount + "/" + expectedCount + ", phone não match)");
             logEvent({
               type: "group_create:client_absent_silent",
               level: "warn",
-              message: "Cliente ausente silenciosamente após groupCreate — forçando DM fallback: " + (spec.name || ""),
+              message: "Cliente provavelmente ausente após groupCreate — DM fallback: " + (spec.name || ""),
               sessionId,
               sessionLabel: _sessInfo ? _sessInfo.label : null,
               sessionPhone: _sessInfo ? _sessInfo.phone : null,
@@ -2611,19 +2623,19 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
               groupName: spec.name || null,
               metadata: {
                 specHash: spec.specHash,
-                reportedMembersAdded: row.membersAdded,
+                realParticipantCount, expectedCount,
                 clientPhone: clientPhoneRaw,
-                realParticipantsCount: realPhones.size,
+                clientPhoneMatched,
+                realPhonesCount: realPhones.size,
               },
             });
           } else {
-            // Cliente confirmado no grupo — log debug só pra rastrear consumo de IQ
+            // Count bate (ou phone confirmado) — grupo saudável, nenhuma ação extra.
             console.log("[BAILEYS] groupMetadata verify OK for " + row.groupJid +
-              " — cliente " + clientPhoneRaw + " confirmado nos " + realPhones.size + " participants");
+              " — participants=" + realParticipantCount + "/" + expectedCount +
+              " clientPhoneMatched=" + clientPhoneMatched);
           }
         } catch (e) {
-          // groupMetadata falhou — mantém comportamento atual (não piora).
-          // Log defensivo, nunca bloqueia o fluxo.
           console.warn("[BAILEYS] groupMetadata verify failed for " + row.groupJid + ": " + (e?.message || e));
         }
       }
