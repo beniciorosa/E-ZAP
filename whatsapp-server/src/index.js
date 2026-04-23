@@ -160,4 +160,15 @@ server.listen(PORT, async () => {
   } catch (e) {
     console.warn("[CRON] node-cron not available:", e.message);
   }
+
+  // ===== DHIEGO.AI reminder scheduler =====
+  // Varre dhiego_reminders a cada minuto e entrega os lembretes que chegaram
+  // no horário via baileys.sendMessage. Ver
+  // whatsapp-server/src/services/dhiego-ai/reminder-scheduler.js
+  try {
+    const reminderScheduler = require("./services/dhiego-ai/reminder-scheduler");
+    reminderScheduler.start(baileys);
+  } catch (e) {
+    console.warn("[REMINDERS] scheduler não iniciado:", e.message);
+  }
 });
