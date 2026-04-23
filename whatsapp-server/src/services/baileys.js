@@ -2539,6 +2539,80 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         if (isHubspotFlow) row.clientAdded = true;
       }
 
+      // SAFETY NET — WhatsApp pode aceitar groupCreate mas NÃO adicionar o cliente
+      // sem reportar code 403 em participants. Dois cenários conhecidos:
+      //   (a) LID addressing: pjid retornado como @lid, comparator pjid===clientJid
+      //       (linha 2525) falha mesmo com 403 explícito → clientAdded fica true errado.
+      //   (b) Rejeição silenciosa: cliente omitido de participants sem 403 → idem.
+      // Dispara só quando há divergência (membersAdded < enviados) — custo zero
+      // no caminho feliz. Se groupMetadata falhar, mantém comportamento atual.
+      // Validado empiricamente 22/04: grupos Fernando/Fábio — clientAdded=true
+      // no DB mas cliente ausente do grupo na prática.
+      if (isHubspotFlow && !clientWasSkipped && !clientRejected && spec.clientPhone && row.groupJid) {
+        const expectedMemberCount = memberJids.length;
+        if (typeof row.membersAdded === "number" && row.membersAdded < expectedMemberCount) {
+          try {
+            const md = await callWithTransientRetry(
+              sessionId,
+              (s) => s.groupMetadata(row.groupJid),
+              { label: "groupMetadata[verify-client-" + (spec.name || "").substring(0, 20) + "]" }
+            );
+            const realPhones = new Set();
+            if (md && Array.isArray(md.participants)) {
+              for (const p of md.participants) {
+                const jid = String(p.id || p.jid || "");
+                // JID normal: 5519989797307@s.whatsapp.net → phone = 5519989797307
+                // JID LID: 181793802178673@lid → phone precisa vir de p.phoneNumber
+                // (Baileys 6.6 expõe phoneNumber em participants LID quando disponível)
+                const phoneFromJid = jid.split("@")[0].split(":")[0].replace(/\D/g, "");
+                if (phoneFromJid && !jid.endsWith("@lid")) realPhones.add(phoneFromJid);
+                if (p.phoneNumber) {
+                  const pn = String(p.phoneNumber).split("@")[0].replace(/\D/g, "");
+                  if (pn) realPhones.add(pn);
+                }
+              }
+            }
+            const clientPhoneRaw = String(spec.clientPhone).replace(/\D/g, "");
+            // Também checa sem o "9" BR (13 dígitos → 12) pra cobrir números ajustados
+            const clientPhoneNo9 = (clientPhoneRaw.length === 13 && clientPhoneRaw.startsWith("55"))
+              ? clientPhoneRaw.slice(0, 4) + clientPhoneRaw.slice(5)
+              : null;
+            const clientInGroup = realPhones.has(clientPhoneRaw) ||
+              (clientPhoneNo9 && realPhones.has(clientPhoneNo9));
+            if (!clientInGroup) {
+              console.warn("[BAILEYS] client absent silently after groupCreate: " + row.groupJid +
+                " expected=" + expectedMemberCount + " got=" + row.membersAdded +
+                " clientPhone=" + clientPhoneRaw + " — forçando DM fallback");
+              clientRejected = true;
+              row.clientAdded = false;
+              row.statusMessage = appendNote(row.statusMessage,
+                "client_absent_silent: detectado via groupMetadata (LID mismatch ou rejeição sem 403)");
+              logEvent({
+                type: "group_create:client_absent_silent",
+                level: "warn",
+                message: "Cliente ausente silenciosamente após groupCreate — forçando DM fallback: " + (spec.name || ""),
+                sessionId,
+                sessionLabel: _sessInfo ? _sessInfo.label : null,
+                sessionPhone: _sessInfo ? _sessInfo.phone : null,
+                groupJid: row.groupJid,
+                groupName: spec.name || null,
+                metadata: {
+                  specHash: spec.specHash,
+                  expected: expectedMemberCount,
+                  got: row.membersAdded,
+                  clientPhone: clientPhoneRaw,
+                  realParticipantsCount: realPhones.size,
+                },
+              });
+            }
+          } catch (e) {
+            // groupMetadata falhou — mantém comportamento atual (não piora).
+            // Log defensivo, nunca bloqueia o fluxo.
+            console.warn("[BAILEYS] groupMetadata verify failed for " + row.groupJid + ": " + (e?.message || e));
+          }
+        }
+      }
+
       // Wait 8s for Signal key establishment (PreKeyError prevention).
       await new Promise(r => setTimeout(r, 8000));
 
