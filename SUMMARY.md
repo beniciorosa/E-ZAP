@@ -5,6 +5,26 @@
 > 2. Depois [GRUPOS.md](GRUPOS.md) na raiz (changelog técnico cronológico).
 > O Obsidian tem o ESTADO ATUAL consolidado + handoff de onde paramos. GRUPOS.md tem a evolução histórica.
 
+> **Update 2026-04-22 noite (commit `7e0ddc1`) — Safety net pra cliente ausente silencioso pós-groupCreate — DEPLOYED**
+>
+> **Bug reportado**: 3+ grupos criados hoje (Fernando Ueda, Fábio Teixeira, outros) com `includeClient=true` gravaram `clientAdded=true` no DB mas cliente NÃO entrou no grupo e NÃO recebeu DM. Clientes estavam salvos nos contatos dos mentores — descarta Rule 11 (bad-request fallback).
+>
+> **Causa raiz** (pré-existente, não regressão): comparator [baileys.js:2525](whatsapp-server/src/services/baileys.js) compara `pjid === clientJid` onde `clientJid` é sempre `@s.whatsapp.net`. Baileys 6.6.0 operando em LID mode retorna `pjid` como `@lid` → match falha → código cai em `clientAdded=true` mesmo com 403. Alternativa: WhatsApp omite cliente de `participants` sem code algum.
+>
+> **Fix (`7e0ddc1`)**: bloco safety net em [baileys.js:~2541](whatsapp-server/src/services/baileys.js) após processar `created.participants`. Dispara SÓ quando `membersAdded < memberJids.length` (divergência detectada). Chama `sock.groupMetadata(groupJid)`, compara participants reais **por phone** (cobre `@lid` via `p.phoneNumber` + variante sem "9" BR), força `clientRejected=true` se cliente ausent → Step 3 dispara DM automaticamente.
+>
+> - Novo activity event: `group_create:client_absent_silent` (level=warn)
+> - Custo: +1 IQ apenas em casos anômalos (zero em grupos saudáveis)
+> - Rule 14 adicionada em [[Obsidian/Grupos/03 - CUIDADOS]]
+>
+> **NÃO cobre**: caso Vagner Menezes (22/04 20h43 — `includeClient=false`) onde cliente apareceu no grupo sem clicar no link + alt welcome não apareceu visualmente. Vetor diferente, investigação separada.
+>
+> **Preserva todas as regras 1-13** de CUIDADOS: bad-request fallback, callWithTransientRetry, waitWithHeartbeat, Step 1 pattern todos juntos, stopSession.removeAllListeners, applyCriticalSessionOverrides, PR 2 monkey-patch — tudo intacto.
+>
+> Backend: PID 263384, restart 199, health 200. Teste em andamento com o Dhiego.
+>
+> ---
+
 > **Update 2026-04-22 manhã — Scroll fix do job card + evidência reabilitação Matheus — DEPLOYED**
 >
 > **1) Commit `f99e06f` — Fix do scroll da tabela do job card**
