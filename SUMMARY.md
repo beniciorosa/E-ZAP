@@ -1,9 +1,31 @@
-# E-ZAP — Sessão de trabalho 2026-04-14/22
+# E-ZAP — Sessão de trabalho 2026-04-14/23
 
 > 📌 **Próxima sessão**: para qualquer trabalho na ferramenta de grupos (grupos.html, criação em massa, Auto-criar, Dashboard, wa_group_*):
 > 1. LER PRIMEIRO o Obsidian em `C:\Users\dhiee\OneDrive\Documentos\DHIEGO.AI VAULT\DHIEGO.AI\Projetos A.I\E-ZAP\Grupos\`, começando por `04 - HANDOFF - Próxima sessão.md`.
 > 2. Depois [GRUPOS.md](GRUPOS.md) na raiz (changelog técnico cronológico).
 > O Obsidian tem o ESTADO ATUAL consolidado + handoff de onde paramos. GRUPOS.md tem a evolução histórica.
+
+> **Update 2026-04-23 madrugada (commit `b3b0ed5` / merge PR #2) — DHIEGO.AI reminder-scheduler deployed**
+>
+> Feature desenvolvida em sessão anterior em branch `claude/fix-reminder-notifications-oKI1i` (commit `3d788e5`). Precisou de **rebase em cima de `origin/main`** antes de mergear porque o commit `3d788e5` tinha base `8067655` (versão da safety net com falso positivo) e revertia acidentalmente o hotfix `f77f8c4` em `baileys.js`. Git detectou automaticamente que o diff era o inverso da main → rebase resolveu sem conflito manual → **hotfix preservado**.
+>
+> Branch rebaseado = `ea06c9d`, merge commit em main = `b3b0ed5`.
+>
+> **O que chega em produção**:
+> - `supabase/migration_065_dhiego_reminders.sql` — já aplicada em prod antes do merge (migration 065 tabela `dhiego_reminders`)
+> - `whatsapp-server/src/services/dhiego-ai/reminder-scheduler.js` — setInterval a cada ~1min buscando reminders vencidos e entregando via `baileys.sendMessage`
+> - `whatsapp-server/src/services/dhiego-ai/tools/reminders.js` — tool handler pra criar/listar/cancelar reminders
+> - `whatsapp-server/src/services/dhiego-ai/tool-schemas.js` — +schemas dos tools de reminder
+> - `whatsapp-server/src/services/dhiego-ai/prompt-builder.js` — +instruções pro LLM sobre reminders
+> - `whatsapp-server/src/index.js` — +11 linhas iniciando o scheduler após reconnectAllSessions()
+>
+> **Deploy Hetzner**: PID 271445, restart 202, health 200. Sessões reconectando (~5min). `[REMINDERS] scheduler iniciado` aparece nos logs após reconnectAllSessions completar.
+>
+> **Como usar**: `me lembra daqui a 2 minutos de X` no chat DHIEGO.AI → bot cria reminder → 2min depois chega `⏰ Lembrete: X`.
+>
+> **Safety net da Vanessa continua ativa** — rebase preservou o hotfix `f77f8c4` em baileys.js (COUNT-based). Zero regressão no fluxo de grupos.
+>
+> ---
 
 > **Update 2026-04-22 noite-tarde (commit `8067655`) — Safety net REFORÇADA: SEMPRE verifica via groupMetadata — DEPLOYED**
 >
