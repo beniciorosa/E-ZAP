@@ -5,7 +5,17 @@
 > 2. Depois [GRUPOS.md](GRUPOS.md) na raiz (changelog técnico cronológico).
 > O Obsidian tem o ESTADO ATUAL consolidado + handoff de onde paramos. GRUPOS.md tem a evolução histórica.
 
-> **Update 2026-04-22 noite (commit `7e0ddc1`) — Safety net pra cliente ausente silencioso pós-groupCreate — DEPLOYED**
+> **Update 2026-04-22 noite-tarde (commit `8067655`) — Safety net REFORÇADA: SEMPRE verifica via groupMetadata — DEPLOYED**
+>
+> Commit anterior `7e0ddc1` tinha condição `membersAdded < memberJids.length` que não disparava quando Baileys retorna todas entries como "sem erro" mesmo com cliente silenciosamente ausente. Validado empiricamente 22/04 22h22 — grupo "Valdomiro Pereira de Camargo Junior | Vinicius Holanda" reproduziu o bug mesmo com fix aplicado. Pior: tentativa manual de adicionar o cliente **suspendeu o grupo pelo WhatsApp** (anti-spam).
+>
+> **Fix em `8067655`**: removeu a condição restritiva. Agora SEMPRE chama `sock.groupMetadata(row.groupJid)` em fluxo HubSpot com cliente e compara participants reais por phone. Custo: +1 IQ por grupo HubSpot (~5% overhead) vs 100% cobertura.
+>
+> **Lição aprendida**: **nunca tentar add manual em cliente ausente silencioso** — WhatsApp pode suspender o grupo. Preferir DM invite. Conta Vinicius Holanda em quarentena 24-48h.
+>
+> ---
+>
+> **Update 2026-04-22 noite (commit `7e0ddc1`) — Safety net pra cliente ausente silencioso pós-groupCreate — DEPLOYED (superseded por `8067655`)**
 >
 > **Bug reportado**: 3+ grupos criados hoje (Fernando Ueda, Fábio Teixeira, outros) com `includeClient=true` gravaram `clientAdded=true` no DB mas cliente NÃO entrou no grupo e NÃO recebeu DM. Clientes estavam salvos nos contatos dos mentores — descarta Rule 11 (bad-request fallback).
 >
