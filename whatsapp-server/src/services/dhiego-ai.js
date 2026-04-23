@@ -158,7 +158,17 @@ async function maybeHandle(sessionId, msg, sock) {
     // Signal cross-device issues that plague the linked-device approach.
     const ownJid = sock.user?.id || "";
     const ownPhone = jidToPhone(ownJid);
-    const chatPhone = jidToPhone(chatJid);
+    let chatPhone = jidToPhone(chatJid);
+    // Fix 23/04: WhatsApp pode migrar self-chat pro addressing LID
+    // ("204943038361777@lid"). jidToPhone extrai os dígitos do LID mas eles
+    // NÃO são phone real — é ID opaco. Match com ownPhone nunca bate e o
+    // self-chat é ignorado silenciosamente. Solução: quando chatJid é LID,
+    // reusa resolveSenderIdentity (mesma lógica que resolve senderJid linhas
+    // abaixo) pra traduzir LID → phone via wa_contacts.linked_jid OU lid_phone_map.
+    if (chatJid.endsWith("@lid") && chatPhone !== ownPhone) {
+      const chatIdentity = await resolveSenderIdentity(sessionId, chatJid, msg);
+      if (chatIdentity && chatIdentity.phone) chatPhone = chatIdentity.phone;
+    }
     const isSelfChat = ownPhone && chatPhone === ownPhone;
 
     // Authorization rules (kept strict to avoid hijacking real conversations):
