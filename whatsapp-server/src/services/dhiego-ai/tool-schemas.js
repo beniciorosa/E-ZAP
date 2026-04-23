@@ -13,6 +13,7 @@
 
 const ideasTool = require("./tools/ideas");
 const ideasPdfTool = require("./tools/ideas-pdf");
+const remindersTool = require("./tools/reminders");
 const { callApi, getAvailableServicesDescription } = require("./tools/call-api");
 
 // ---------- Schemas ----------
@@ -158,6 +159,61 @@ const ALL_TOOLS = [
           description: "Filtro de status do PDF (padrão 'all').",
         },
       },
+    },
+  },
+  {
+    name: "create_reminder",
+    description:
+      "Agenda um lembrete para o Dhiego em um horário futuro. Use SEMPRE que ele pedir pra ser lembrado de algo em uma data/hora específica ('me lembra amanhã às 9h de X', 'daqui a 2 horas me avisa', 'sexta-feira 14h manda mensagem pra fulano', 'não deixa eu esquecer de Y às 18h hoje'). Converta a referência temporal usando a data/hora atual fornecida no Contexto do sistema (America/Sao_Paulo). O campo scheduled_at DEVE ser ISO 8601 com offset -03:00 (ex: '2026-04-24T09:00:00-03:00'). O campo message deve conter o texto do lembrete exatamente como faz sentido receber no futuro (ex: 'Mandar mensagem pro cliente X sobre o orçamento'). Depois de agendar, confirme pro Dhiego o horário e o conteúdo em uma frase curta.",
+    input_schema: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description:
+            "Texto do lembrete, já redigido como uma mensagem a receber no futuro (ex: 'Ligar para Fulano sobre proposta X'). Não inclua prefixo tipo 'lembrete:' — o sistema já adiciona.",
+        },
+        scheduled_at: {
+          type: "string",
+          description:
+            "Data e hora de entrega em ISO 8601. Se vier sem offset, o sistema assume -03:00 (America/Sao_Paulo). Ex: '2026-04-24T09:00:00-03:00'. Sempre derive a partir da data/hora atual do Contexto do sistema.",
+        },
+      },
+      required: ["message", "scheduled_at"],
+    },
+  },
+  {
+    name: "list_reminders",
+    description:
+      "Lista os lembretes agendados do Dhiego. Use quando ele perguntar 'quais são meus lembretes', 'o que tenho agendado', 'me mostra os lembretes de amanhã' etc. Status padrão é 'pending' (só os ainda não disparados).",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["pending", "sent", "cancelled", "failed", "all"],
+          description: "Filtro de status (padrão 'pending').",
+        },
+        limit: {
+          type: "integer",
+          description: "Limite de lembretes retornados (padrão 20).",
+        },
+      },
+    },
+  },
+  {
+    name: "cancel_reminder",
+    description:
+      "Cancela um lembrete pendente pelo ID. Use quando o Dhiego disser 'cancela o lembrete 3', 'apaga aquele lembrete de amanhã', 'não precisa mais me lembrar de X'. Se ele não falar o número e houver listagem recente, peça pra confirmar qual.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reminder_id: {
+          type: "integer",
+          description: "ID numérico do lembrete a cancelar.",
+        },
+      },
+      required: ["reminder_id"],
     },
   },
   {
@@ -316,6 +372,33 @@ const TOOL_DISPATCH = {
       body: input && input.body,
     });
   },
+
+  async create_reminder(input, ctx) {
+    return remindersTool.createReminder({
+      userId: ctx.userId,
+      sessionId: ctx.sessionId,
+      chatJid: ctx.chatJid,
+      message: input && input.message,
+      scheduledAt: input && input.scheduled_at,
+      sourceMessageId: ctx.sourceMessageId || null,
+      createdVia: "agent",
+    });
+  },
+
+  async list_reminders(input, ctx) {
+    return remindersTool.listReminders({
+      userId: ctx.userId,
+      status: (input && input.status) || "pending",
+      limit: (input && input.limit) || 20,
+    });
+  },
+
+  async cancel_reminder(input, ctx) {
+    return remindersTool.cancelReminder({
+      userId: ctx.userId,
+      reminderId: input && input.reminder_id,
+    });
+  },
 };
 
 // Legacy intent names used by state.syncStateAfterTurn (state.js:174).
@@ -331,6 +414,9 @@ const TOOL_TO_LEGACY_INTENT = {
   cancel_idea: "ideas-cancel",
   delete_idea: "ideas-delete",
   generate_ideas_pdf: "ideas-pdf",
+  create_reminder: "reminders-add",
+  list_reminders: "reminders-list",
+  cancel_reminder: "reminders-cancel",
 };
 
 function mapToolNameToLegacyIntent(toolName) {
@@ -356,6 +442,12 @@ function toolInputToLegacyArgs(toolName, input) {
       return { ideaId: input.idea_id, text: input.text || "" };
     case "generate_ideas_pdf":
       return { status: input.status || "all" };
+    case "create_reminder":
+      return { message: input.message || "", scheduledAt: input.scheduled_at || "" };
+    case "list_reminders":
+      return { status: input.status || "pending" };
+    case "cancel_reminder":
+      return { reminderId: input.reminder_id };
     default:
       return {};
   }
