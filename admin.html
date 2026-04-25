@@ -6381,8 +6381,14 @@ function loadWaSessions() {
         // Show QR button — user clicks to open modal
         actions += '<button class="btn-icon primary" onclick="event.stopPropagation();openQrForSession(\'' + s.id + '\', \'' + safeLabel + '\', \'' + safePhone + '\')" title="Escanear QR" style="background:var(--primary);color:var(--surface);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600">Escanear QR</button>';
       } else if (s.status !== "banned") {
-        // Reconnect with saved creds
-        actions += '<button class="btn-icon primary" onclick="event.stopPropagation();openQrForSession(\'' + s.id + '\', \'' + safeLabel + '\', \'' + safePhone + '\')" title="Reconectar"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>';
+        // Sessão desconectada: gera novo QR (apaga creds antigas).
+        // Antes chamava openQrForSession → /reconnect, mas isso só funciona
+        // se as creds salvas ainda forem válidas. Em deslogue por code 401
+        // (loggedOut/device removido) ou após "Sair de aparelhos conectados"
+        // no celular, /reconnect falhava silenciosamente. freshQrForSession
+        // gera QR novo via /api/sessions/:id/fresh-qr — mesma função do botão
+        // de refresh em sessão conectada.
+        actions += '<button class="btn-icon primary" onclick="event.stopPropagation();freshQrForSession(\'' + s.id + '\', \'' + safeLabel + '\', \'' + safePhone + '\')" title="Gerar novo QR Code pra reconectar"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>';
       }
       // Delete
       if (s.status !== "connected") {
