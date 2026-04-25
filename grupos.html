@@ -654,6 +654,11 @@
             <span>Adicionar <b>cliente</b> diretamente</span>
             <span style="color:var(--muted); font-size:11px">— se desmarcado, envia convite por DM</span>
           </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:normal; margin:0; cursor:pointer" title="Sem efeito quando a sessão criadora já é o próprio mentor — nesse caso ele entra automaticamente como criador.">
+            <input type="checkbox" id="hubspotIncludeMentor" checked onchange="onIncludeToggleChange()" style="width:16px; height:16px; cursor:pointer">
+            <span>Adicionar <b>mentor</b> diretamente</span>
+            <span style="color:var(--muted); font-size:11px">— se desmarcado e a criadora não for o mentor, envia DM com invite</span>
+          </label>
         </div>
         <div style="font-size:11px; color:var(--muted); margin-top:10px; padding-top:10px; border-top:1px solid var(--border)">
           💡 <b>Dica:</b> conta criadora marcada/fria? Desmarque todos — só o criador entra no grupo, todos os outros recebem convite por DM (menos sinal pro WhatsApp).
@@ -2711,6 +2716,8 @@ function openCreateGroupsModal() {
   document.getElementById("hubspotIncludeCx2").checked = true;
   document.getElementById("hubspotIncludeEscalada").checked = true;
   document.getElementById("hubspotIncludeClient").checked = true;
+  var includeMentorEl = document.getElementById("hubspotIncludeMentor");
+  if (includeMentorEl) includeMentorEl.checked = true;
   // Carrega lista de templates da sessão selecionada no dropdown criador
   // (aplica o default se houver, substitui os valores acima).
   loadHubspotTemplatesList();
@@ -3399,8 +3406,16 @@ async function buildSpecsFromHubspotResolved() {
       // quando a sessão criadora é OUTRA (ex: user escolheu "CX2" como criador
       // mas o mentor responsável do ticket é "Rodrigo"). Se o criador JÁ É o
       // mentor, o backend filtra o dup automaticamente via sock.user.id check.
+      //
+      // includeMentor=false: usuário desmarcou o 4o checkbox. Se mentor for o
+      // criador, includeMentor não tem efeito (criador sempre entra via groupCreate).
+      // Se for outra sessão, mentor NÃO vai como helper aqui; backend marca
+      // mentorWasSkipped=true e Step 2c manda DM com invite link.
+      var userIncludeMentor = !document.getElementById("hubspotIncludeMentor")
+        ? true
+        : !!document.getElementById("hubspotIncludeMentor").checked;
       var helperSessionIdsForSpec = helperSessionIds.slice();
-      if (r.mentorSessionId && helperSessionIdsForSpec.indexOf(r.mentorSessionId) === -1) {
+      if (r.mentorSessionId && userIncludeMentor && helperSessionIdsForSpec.indexOf(r.mentorSessionId) === -1) {
         helperSessionIdsForSpec.push(r.mentorSessionId);
       }
       // Se a validação onWhatsApp no /resolve-tickets marcou o cliente como
@@ -3434,6 +3449,7 @@ async function buildSpecsFromHubspotResolved() {
         includeCx2: !!(document.getElementById("hubspotIncludeCx2") || {}).checked,
         includeEscalada: !!(document.getElementById("hubspotIncludeEscalada") || {}).checked,
         includeClient: effectiveIncludeClient,
+        includeMentor: userIncludeMentor,
         // WhatsApp pessoal do mentor — usado na alt welcome pra contato direto.
         mentorWhatsapp: mentorPhone || null,
         // Campos HubSpot (denormalizados em wa_group_creations)

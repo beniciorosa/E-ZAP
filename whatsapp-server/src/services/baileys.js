@@ -2362,6 +2362,12 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       const includeClient = spec.includeClient !== false;
       const includeCx2 = spec.includeCx2 !== false;
       const includeEscalada = spec.includeEscalada !== false;
+      // includeMentor (PR Diego 25/04): só tem efeito quando o mentor NÃO é a
+      // sessão criadora. Se for, mentor entra automaticamente como criador no
+      // groupCreate e essa flag é ignorada na prática (creatorOwnJid sempre vai
+      // pro grupo). Útil pra mentores frágeis (rate-limited, conta marcada) que
+      // a gente quer evitar de bater no groupCreate como member.
+      const includeMentor = spec.includeMentor !== false;
       const CX2_DIGITS = "5519971505209";
       const ESCALADA_DIGITS = "5519993473149";
       const CX2_JID = CX2_DIGITS + "@s.whatsapp.net";
@@ -2382,6 +2388,22 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       if (creatorOwnJid) seenJids.add(creatorOwnJid);
       if (!includeCx2) seenJids.add(CX2_JID);
       if (!includeEscalada) seenJids.add(ESCALADA_JID);
+
+      // includeMentor=false + mentor != criador: bloqueia o JID do mentor pra
+      // ele NÃO entrar via groupCreate. Step 2c manda DM com invite link
+      // (similar ao 2b dos helpers). Se mentor É o criador, esse seenJids.add
+      // é no-op (já adicionado via creatorOwnJid).
+      let mentorJidForDm = null;
+      let mentorWasSkipped = false;
+      if (isHubspotFlow && !includeMentor && spec.mentorSessionId) {
+        const mentorJidResolved = resolveSessionToJid(spec.mentorSessionId);
+        if (mentorJidResolved && mentorJidResolved !== creatorOwnJid) {
+          seenJids.add(mentorJidResolved);
+          mentorJidForDm = mentorJidResolved;
+          mentorWasSkipped = true;
+          console.log("[BAILEYS] modo convite mentor: " + mentorJidResolved + " bloqueado do groupCreate, DM será enviado");
+        }
+      }
       if (Array.isArray(spec.helperSessionIds)) {
         for (const hsid of spec.helperSessionIds) {
           const jid = resolveSessionToJid(hsid);
@@ -2748,6 +2770,49 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         await new Promise(r => setTimeout(r, 2500));
       }
 
+      // 2c. Invite DM pro mentor quando user desmarcou checkbox + mentor != criador.
+      // Padrão idêntico aos 2b (CX2/Escalada), só muda o target.
+      // mentorJidForDm já foi calculado acima (resolveSessionToJid via spec.mentorSessionId)
+      // e só vem populado quando mentorWasSkipped=true.
+      row.mentorDmSent = null;
+      if (!rateLimited && row.inviteLink && mentorWasSkipped && mentorJidForDm) {
+        const _tDmMentor = _measureStart();
+        const mentorPhoneForLog = mentorJidForDm.split("@")[0].split(":")[0].replace(/\D/g, "");
+        try {
+          await callWithTransientRetry(
+            sessionId,
+            (s) => s.sendMessage(mentorJidForDm, { text: fillHelperTemplate() }),
+            { label: "dmInviteMentor[" + (spec.name || "").substring(0, 30) + "]" }
+          );
+          _measureEnd("dmMentor", _tDmMentor);
+          row.mentorDmSent = true;
+          row.statusMessage = appendNote(row.statusMessage, "mentor_convite_enviado_por_dm");
+          _logEvent({
+            type: "dm:sent:mentor",
+            level: "info",
+            message: "DM convite enviada pro mentor (grupo: " + (spec.name || "(sem nome)") + ")",
+            sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+            sessionPhone: _sessInfo ? _sessInfo.phone : null,
+            groupJid: row.groupJid, groupName: spec.name || null,
+            metadata: { target: mentorPhoneForLog, specHash: spec.specHash, deltaMs: _stepDurations.dmMentor },
+          });
+        } catch (e) {
+          _measureEnd("dmMentor", _tDmMentor);
+          row.mentorDmSent = false;
+          row.statusMessage = appendNote(row.statusMessage, "mentor_dm_fail: " + (e?.message || e));
+          if (isRateLimitError(e)) rateLimited = true;
+          _logEvent({
+            type: "dm:failed:mentor",
+            level: "warn",
+            message: "Falha ao enviar DM pro mentor: " + (e?.message || e),
+            sessionId, sessionLabel: _sessInfo ? _sessInfo.label : null,
+            groupJid: row.groupJid, groupName: spec.name || null,
+            metadata: { target: mentorPhoneForLog, specHash: spec.specHash, error: e?.message || String(e) },
+          });
+        }
+        await new Promise(r => setTimeout(r, 2500));
+      }
+
       // 3. Client rejected by privacy OU bad-request OU modo convite (HubSpot) → DM invite.
       // Template preferido: spec.inviteDmClientTemplate (modo convite). Fallback: spec.rejectDmTemplate (privacy).
       // Resolve JID canônico via sock.onWhatsApp — WhatsApp retorna o formato
@@ -2996,14 +3061,21 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
         const clientAbsent = (row.clientAdded === false && !!spec.clientPhone);
         const cx2Absent = !includeCx2;
         const escaladaAbsent = !includeEscalada;
-        const anyAbsent = clientAbsent || cx2Absent || escaladaAbsent;
+        const mentorAbsent = mentorWasSkipped; // PR Diego 25/04
+        const anyAbsent = clientAbsent || cx2Absent || escaladaAbsent || mentorAbsent;
 
         if (anyAbsent) {
           const absentParts = [];
           if (clientAbsent) absentParts.push("cliente " + clientName + " (" + spec.clientPhone + ")");
           if (cx2Absent) absentParts.push("CX2 (" + CX2_DIGITS + ")");
           if (escaladaAbsent) absentParts.push("Escalada Ltda (" + ESCALADA_DIGITS + ")");
-          const mentorWa = spec.mentorWhatsapp || spec.mentorSessionPhone || "";
+          if (mentorAbsent) {
+            const mentorPhoneLabel = spec.mentorSessionPhone || (mentorJidForDm ? mentorJidForDm.split("@")[0].split(":")[0].replace(/\D/g, "") : "");
+            absentParts.push("mentor " + (spec.hubspotMentor || "") + (mentorPhoneLabel ? " (" + mentorPhoneLabel + ")" : ""));
+          }
+          // Quando mentor está absent, não inclui mentorLine no rodapé (cairia
+          // estranho "fale com fulano" se o próprio fulano não está no grupo).
+          const mentorWa = mentorAbsent ? "" : (spec.mentorWhatsapp || spec.mentorSessionPhone || "");
           const mentorLine = mentorWa ? ("\n\nDúvidas ou ajuda: mentor " + (spec.hubspotMentor || "") + " (" + mentorWa + ")") : "";
           const altText = "⚠️ Ainda faltam entrar no grupo: " + absentParts.join(", ")
             + ". O link de convite já foi enviado no privado pra cada um." + mentorLine;
@@ -3027,7 +3099,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
               metadata: {
                 specHash: spec.specHash,
                 absentCount: absentParts.length,
-                clientAbsent, cx2Absent, escaladaAbsent,
+                clientAbsent, cx2Absent, escaladaAbsent, mentorAbsent,
                 deltaMs: _stepDurations.altWelcome,
               },
             });
@@ -3085,14 +3157,17 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
       // com role, phone, se entrou direto ou via DM, e status do DM.
       // Persistido em wa_group_creations.members_list (JSONB).
       const membersList = [];
-      // Mentor = criador (sempre admin, sempre no grupo)
+      // Mentor: in_group depende de includeMentor + se mentor é o criador.
+      // Quando mentor É o criador (mentorWasSkipped=false), sempre in_group=true.
+      // Quando mentor != criador E user desmarcou checkbox, in_group=false +
+      // dm_sent reflete envio do invite via Step 2c.
       if (spec.mentorSessionPhone) {
         membersList.push({
           role: "mentor",
           phone: String(spec.mentorSessionPhone).replace(/\D/g, ""),
           name: spec.hubspotMentor || null,
-          in_group: true,
-          dm_sent: null,
+          in_group: !mentorWasSkipped,
+          dm_sent: mentorWasSkipped ? row.mentorDmSent : null,
         });
       }
       // Cliente
@@ -3175,6 +3250,7 @@ async function createGroupsFromList(sessionId, specs, options = {}) {
           clientDmSent: row.clientDmSent,
           cx2DmSent: row.cx2DmSent,
           escaladaDmSent: row.escaladaDmSent,
+          mentorDmSent: row.mentorDmSent,
           clientAdded: row.clientAdded,
           statusMessage: row.statusMessage,
           errorMessage: row.status === "failed" ? row.statusMessage : undefined,
